@@ -159,7 +159,6 @@ func handleBash(_ context.Context, input json.RawMessage) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "bash", "-c", p.Command)
-	cmd.Dir = t.workspaceDir
 	// Pass sanitized environment — strip API keys, tokens, secrets
 	cmd.Env = sanitizeEnv(os.Environ())
 	out, err := cmd.CombinedOutput()

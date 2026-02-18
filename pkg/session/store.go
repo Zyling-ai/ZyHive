@@ -8,22 +8,16 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
-// SessionIndex maps session IDs to their file paths.
+// SessionIndex maps session IDs to their file paths and metadata.
 // Persisted as sessions.json in the sessions directory.
 type SessionIndex struct {
 	Sessions map[string]SessionIndexEntry `json:"sessions"`
-}
-
-// SessionIndexEntry is one entry in the sessions.json index.
-type SessionIndexEntry struct {
-	ID        string `json:"id"`
-	AgentID   string `json:"agentId"`
-	FilePath  string `json:"filePath"`
-	CreatedAt int64  `json:"createdAt"`
 }
 
 // Store manages session files for one agent.
@@ -37,13 +31,29 @@ func NewStore(dir string) *Store {
 	return &Store{dir: dir}
 }
 
-// Create initialises a new session file and returns its path.
-func (s *Store) Create(sessionID, agentID string) (string, error) {
+// GetOrCreate returns a session ID, creating a new session if sessionID is empty or not found.
+// Returns the resolved sessionID and whether it was newly created.
+func (s *Store) GetOrCreate(sessionID, agentID string) (string, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if err := os.MkdirAll(s.dir, 0755); err != nil {
-		return "", err
+		return "", false, err
+	}
+
+	// If sessionID provided, check it exists
+	if sessionID != "" {
+		idx, err := s.loadIndex()
+		if err == nil {
+			if _, ok := idx.Sessions[sessionID]; ok {
+				return sessionID, false, nil
+			}
+		}
+	}
+
+	// Create new session
+	if sessionID == "" {
+		sessionID = fmt.Sprintf("ses-%d", nowMs())
 	}
 	path := filepath.Join(s.dir, sessionID+".jsonl")
 
@@ -54,18 +64,142 @@ func (s *Store) Create(sessionID, agentID string) (string, error) {
 		CreatedAt: nowMs(),
 	}
 	if err := appendEntry(path, header); err != nil {
-		return "", err
+		return "", false, err
 	}
 
-	// Update sessions.json index
-	if err := s.updateIndex(sessionID, agentID, path); err != nil {
-		return "", fmt.Errorf("update session index: %w", err)
+	idx, _ := s.loadIndex()
+	idx.Sessions[sessionID] = SessionIndexEntry{
+		ID:        sessionID,
+		AgentID:   agentID,
+		FilePath:  sessionID + ".jsonl",
+		CreatedAt: nowMs(),
+		LastAt:    nowMs(),
 	}
-
-	return path, nil
+	if err := s.saveIndex(idx); err != nil {
+		return "", false, err
+	}
+	return sessionID, true, nil
 }
 
-// Append adds a new entry to an existing session file.
+// Create initialises a new session file and returns its path (legacy compat).
+func (s *Store) Create(sessionID, agentID string) (string, error) {
+	id, _, err := s.GetOrCreate(sessionID, agentID)
+	return filepath.Join(s.dir, id+".jsonl"), err
+}
+
+// AppendMessage appends a user or assistant message and updates session metadata.
+func (s *Store) AppendMessage(sessionID, role string, content json.RawMessage) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	path := filepath.Join(s.dir, sessionID+".jsonl")
+	entry := MessageEntry{
+		BaseEntry: BaseEntry{Type: EntryTypeMessage},
+		Message:   Message{Role: role, Content: content},
+		Timestamp: nowMs(),
+	}
+	if err := appendEntry(path, entry); err != nil {
+		return err
+	}
+
+	// Update metadata in index
+	idx, err := s.loadIndex()
+	if err != nil {
+		return nil // best-effort
+	}
+	meta, ok := idx.Sessions[sessionID]
+	if !ok {
+		return nil
+	}
+	meta.MessageCount++
+	meta.LastAt = nowMs()
+	meta.TokenEstimate += estimateTokensRaw(content)
+
+	// Auto-title from first user message
+	if meta.Title == "" && role == "user" {
+		meta.Title = extractTitle(content)
+	}
+	idx.Sessions[sessionID] = meta
+	return s.saveIndex(idx)
+}
+
+// ReadHistory loads all conversation turns from a session, handling compaction entries.
+// Returns messages in chronological order, suitable for LLM context.
+// If a compaction entry is found, the summary is returned as a synthetic "system" entry
+// and only messages after the compaction boundary are included.
+func (s *Store) ReadHistory(sessionID string) ([]Message, string, error) {
+	path := filepath.Join(s.dir, sessionID+".jsonl")
+	f, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, "", nil
+		}
+		return nil, "", err
+	}
+	defer f.Close()
+
+	var messages []Message
+	var compactionSummary string
+	var afterCompaction bool
+
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 8*1024*1024), 8*1024*1024)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+		var base BaseEntry
+		if err := json.Unmarshal(line, &base); err != nil {
+			continue
+		}
+		switch base.Type {
+		case EntryTypeCompaction:
+			// Found compaction — reset messages, store summary
+			var ce CompactionEntry
+			if err := json.Unmarshal(line, &ce); err == nil {
+				compactionSummary = ce.Summary
+				messages = nil // clear old messages
+				afterCompaction = true
+			}
+		case EntryTypeMessage:
+			if afterCompaction || compactionSummary == "" {
+				var me MessageEntry
+				if err := json.Unmarshal(line, &me); err == nil {
+					if me.Message.Role == "user" || me.Message.Role == "assistant" {
+						messages = append(messages, me.Message)
+					}
+				}
+			}
+		}
+	}
+	return messages, compactionSummary, scanner.Err()
+}
+
+// EstimateTokens returns a rough token estimate for a session (from the index).
+func (s *Store) EstimateTokens(sessionID string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	idx, err := s.loadIndex()
+	if err != nil {
+		return 0
+	}
+	return idx.Sessions[sessionID].TokenEstimate
+}
+
+// GetMeta returns the index entry for a session.
+func (s *Store) GetMeta(sessionID string) (SessionIndexEntry, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	idx, err := s.loadIndex()
+	if err != nil {
+		return SessionIndexEntry{}, false
+	}
+	entry, ok := idx.Sessions[sessionID]
+	return entry, ok
+}
+
+// Append adds a raw entry to an existing session file (legacy compat).
 func (s *Store) Append(sessionID string, entry any) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -73,7 +207,7 @@ func (s *Store) Append(sessionID string, entry any) error {
 	return appendEntry(path, entry)
 }
 
-// ReadAll parses all entries from a session file.
+// ReadAll parses all raw JSON lines from a session file.
 func (s *Store) ReadAll(sessionID string) ([]json.RawMessage, error) {
 	path := filepath.Join(s.dir, sessionID+".jsonl")
 	f, err := os.Open(path)
@@ -84,7 +218,7 @@ func (s *Store) ReadAll(sessionID string) ([]json.RawMessage, error) {
 
 	var entries []json.RawMessage
 	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 4*1024*1024), 4*1024*1024)
+	scanner.Buffer(make([]byte, 8*1024*1024), 8*1024*1024)
 	for scanner.Scan() {
 		line := scanner.Bytes()
 		if len(line) == 0 {
@@ -97,6 +231,8 @@ func (s *Store) ReadAll(sessionID string) ([]json.RawMessage, error) {
 
 // ListSessions returns all session entries from the index file.
 func (s *Store) ListSessions() ([]SessionIndexEntry, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	idx, err := s.loadIndex()
 	if err != nil {
 		return nil, err
@@ -108,7 +244,7 @@ func (s *Store) ListSessions() ([]SessionIndexEntry, error) {
 	return result, nil
 }
 
-// updateIndex adds or updates a session entry in sessions.json.
+// updateIndex adds or updates a session entry in sessions.json (internal, no lock).
 func (s *Store) updateIndex(sessionID, agentID, filePath string) error {
 	idx, err := s.loadIndex()
 	if err != nil {
@@ -119,6 +255,7 @@ func (s *Store) updateIndex(sessionID, agentID, filePath string) error {
 		AgentID:   agentID,
 		FilePath:  filePath,
 		CreatedAt: nowMs(),
+		LastAt:    nowMs(),
 	}
 	return s.saveIndex(idx)
 }
@@ -165,6 +302,39 @@ func appendEntry(path string, v any) error {
 	defer f.Close()
 	_, err = fmt.Fprintf(f, "%s\n", data)
 	return err
+}
+
+// estimateTokensRaw estimates token count for raw JSON content (~4 chars per token).
+func estimateTokensRaw(content json.RawMessage) int {
+	return len(content) / 4
+}
+
+// extractTitle returns the first 60 chars of a user message as a session title.
+func extractTitle(content json.RawMessage) string {
+	// Try plain string first
+	var s string
+	if json.Unmarshal(content, &s) == nil {
+		return truncateRune(s, 60)
+	}
+	// Try content block array
+	var blocks []ContentBlock
+	if json.Unmarshal(content, &blocks) == nil {
+		for _, b := range blocks {
+			if b.Type == "text" && b.Text != "" {
+				return truncateRune(b.Text, 60)
+			}
+		}
+	}
+	return ""
+}
+
+func truncateRune(s string, maxRunes int) string {
+	s = strings.TrimSpace(s)
+	if utf8.RuneCountInString(s) <= maxRunes {
+		return s
+	}
+	runes := []rune(s)
+	return string(runes[:maxRunes]) + "…"
 }
 
 // nowMs returns current Unix timestamp in milliseconds.

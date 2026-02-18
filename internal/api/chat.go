@@ -38,14 +38,15 @@ func (h *chatHandler) Chat(c *gin.Context) {
 	}
 
 	var req struct {
-		Message  string   `json:"message" binding:"required"`
-		Context  string   `json:"context"`   // extra system context (page scenario, background)
-		Scenario string   `json:"scenario"`  // label e.g. "agent-creation", "general"
-		Images   []string `json:"images"`    // base64 data URIs: "data:image/png;base64,..."
-		History  []struct {
+		Message   string   `json:"message" binding:"required"`
+		SessionID string   `json:"sessionId"` // resume existing session; empty = create new
+		Context   string   `json:"context"`   // extra system context (page scenario, background)
+		Scenario  string   `json:"scenario"`  // label e.g. "agent-creation", "general"
+		Images    []string `json:"images"`    // base64 data URIs: "data:image/png;base64,..."
+		History   []struct {
 			Role    string `json:"role"`    // "user" | "assistant"
-			Content string `json:"content"` // plain text
-		} `json:"history"` // prior conversation turns for multi-turn context
+			Content string `json:"content"` // plain text (legacy fallback when no sessionId)
+		} `json:"history"` // legacy: client-side history, used only when sessionId is empty
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -85,12 +86,22 @@ func (h *chatHandler) Chat(c *gin.Context) {
 	toolRegistry := tools.New(ag.WorkspaceDir)
 	store := session.NewStore(ag.SessionDir)
 
-	// Convert client-side history to llm.ChatMessage slice
+	// Resolve session: resume existing or create new
+	sessionID, isNewSession, err := store.GetOrCreate(req.SessionID, ag.ID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "session error: " + err.Error()})
+		return
+	}
+	_ = isNewSession // could be used for logging
+
+	// Legacy fallback: convert client-side history when no server-side session history
 	var preHistory []llm.ChatMessage
-	for _, h := range req.History {
-		if h.Role == "user" || h.Role == "assistant" {
-			content, _ := json.Marshal(h.Content)
-			preHistory = append(preHistory, llm.ChatMessage{Role: h.Role, Content: content})
+	if req.SessionID == "" {
+		for _, h := range req.History {
+			if h.Role == "user" || h.Role == "assistant" {
+				content, _ := json.Marshal(h.Content)
+				preHistory = append(preHistory, llm.ChatMessage{Role: h.Role, Content: content})
+			}
 		}
 	}
 
@@ -99,6 +110,7 @@ func (h *chatHandler) Chat(c *gin.Context) {
 		WorkspaceDir:     ag.WorkspaceDir,
 		Model:            model,
 		APIKey:           apiKey,
+		SessionID:        sessionID,
 		LLM:              llmClient,
 		Tools:            toolRegistry,
 		Session:          store,
@@ -137,7 +149,8 @@ func (h *chatHandler) Chat(c *gin.Context) {
 		case "error":
 			sseEvent["error"] = fmt.Sprintf("%v", ev.Error)
 		case "done":
-			// final event
+			sseEvent["sessionId"] = ev.SessionID
+			sseEvent["tokenEstimate"] = ev.TokenEstimate
 		}
 		data, _ := json.Marshal(sseEvent)
 		fmt.Fprintf(w, "data: %s\n\n", data)

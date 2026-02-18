@@ -26,6 +26,7 @@ type Config struct {
 	WorkspaceDir string
 	Model        string
 	APIKey       string
+	SessionID    string // persistent session ID; if set, history is loaded from/saved to JSONL
 	LLM          llm.Client
 	Tools        *tools.Registry
 	Session      *session.Store
@@ -33,7 +34,7 @@ type Config struct {
 	ExtraContext string
 	// Optional: base64 image data URIs attached to the user message
 	Images []string
-	// Optional: preloaded conversation history (from client-side state)
+	// Optional: preloaded conversation history (from client-side state, used when SessionID is empty)
 	PreloadedHistory []llm.ChatMessage
 }
 
@@ -44,8 +45,30 @@ type Runner struct {
 }
 
 // New creates a Runner for the given agent.
+// If cfg.SessionID is set, history is loaded from the session store.
+// Otherwise, cfg.PreloadedHistory is used (legacy client-side history).
 func New(cfg Config) *Runner {
 	r := &Runner{cfg: cfg}
+
+	// Load server-side session history (preferred)
+	if cfg.SessionID != "" && cfg.Session != nil {
+		msgs, summary, err := cfg.Session.ReadHistory(cfg.SessionID)
+		if err == nil && len(msgs) > 0 {
+			if summary != "" {
+				// Prepend compaction summary as a system-style assistant message
+				summaryJSON, _ := json.Marshal("[Previous conversation summary]\n" + summary)
+				r.history = append(r.history, llm.ChatMessage{Role: "user", Content: summaryJSON})
+				ackJSON, _ := json.Marshal("Understood. I have the context from the previous conversation.")
+				r.history = append(r.history, llm.ChatMessage{Role: "assistant", Content: ackJSON})
+			}
+			for _, m := range msgs {
+				r.history = append(r.history, llm.ChatMessage{Role: m.Role, Content: m.Content})
+			}
+			return r
+		}
+	}
+
+	// Fallback: client-supplied history
 	if len(cfg.PreloadedHistory) > 0 {
 		r.history = append(r.history, cfg.PreloadedHistory...)
 	}
@@ -54,10 +77,13 @@ func New(cfg Config) *Runner {
 
 // RunEvent is emitted to the caller during a conversation turn.
 type RunEvent struct {
-	Type    string // "text_delta" | "tool_call" | "tool_result" | "error" | "done"
-	Text    string
-	ToolCall *llm.ToolCall
-	Error   error
+	Type          string // "text_delta" | "tool_call" | "tool_result" | "error" | "done"
+	Text          string
+	ToolCall      *llm.ToolCall
+	Error         error
+	// Done event extras
+	SessionID     string
+	TokenEstimate int
 }
 
 // Run processes one user message and streams events until the model stops.
@@ -128,6 +154,11 @@ func (r *Runner) run(ctx context.Context, userMsg string, out chan<- RunEvent) e
 		Content: userContent,
 	})
 
+	// Persist user message to session (server-side history)
+	if r.cfg.SessionID != "" && r.cfg.Session != nil {
+		_ = r.cfg.Session.AppendMessage(r.cfg.SessionID, "user", userContent)
+	}
+
 	// 2. Agentic loop — call LLM, handle tools, repeat
 	const maxIter = 10
 	for i := 0; i < maxIter; i++ {
@@ -189,7 +220,16 @@ func (r *Runner) run(ctx context.Context, userMsg string, out chan<- RunEvent) e
 
 		// 4. If no tool calls or stop reason is "end_turn", we're done
 		if stopReason == "end_turn" || len(toolCalls) == 0 {
-			out <- RunEvent{Type: "done"}
+			// Persist assistant message to session
+			if r.cfg.SessionID != "" && r.cfg.Session != nil {
+				_ = r.cfg.Session.AppendMessage(r.cfg.SessionID, "assistant", assistantContent)
+			}
+			tokenEstimate := r.cfg.Session.EstimateTokens(r.cfg.SessionID)
+			out <- RunEvent{
+				Type:          "done",
+				SessionID:     r.cfg.SessionID,
+				TokenEstimate: tokenEstimate,
+			}
 			return nil
 		}
 
