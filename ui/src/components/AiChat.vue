@@ -66,17 +66,19 @@
               <div v-if="msg.text" class="msg-text" v-html="renderMd(msg.text)" />
 
               <!-- Apply card（给 agent-creation 页用） -->
-              <div v-if="msg.applyData" class="apply-card">
-                <div class="apply-preview">
-                  <div v-for="(val, key) in msg.applyData" :key="key" class="apply-row">
-                    <span class="apply-key">{{ key }}</span>
-                    <span class="apply-val">{{ String(val).slice(0, 50) }}{{ String(val).length > 50 ? '…' : '' }}</span>
+              <template v-if="props.applyable">
+                <div v-if="resolveApplyData(msg)" class="apply-card">
+                  <div class="apply-preview">
+                    <div v-for="(val, key) in resolveApplyData(msg)" :key="key" class="apply-row">
+                      <span class="apply-key">{{ key }}</span>
+                      <span class="apply-val">{{ String(val).slice(0, 60) }}{{ String(val).length > 60 ? '…' : '' }}</span>
+                    </div>
                   </div>
+                  <button class="apply-btn" @click="$emit('apply', resolveApplyData(msg)!)">
+                    应用到表单 ↙
+                  </button>
                 </div>
-                <button class="apply-btn" @click="$emit('apply', msg.applyData)">
-                  应用到表单 ↙
-                </button>
-              </div>
+              </template>
 
               <!-- 操作栏 -->
               <div class="msg-actions">
@@ -328,6 +330,71 @@ function renderMd(text: string): string {
     .replace(/([^>])\n([^<])/g, '$1<br>$2')
 
   return html
+}
+
+// ── Apply data extractor (robust, multi-strategy) ────────────────────────
+/**
+ * Returns precomputed applyData from msg, OR tries to extract a JSON object
+ * from the message text using multiple fallback strategies.
+ * Returns null if nothing parseable found, or if not applyable mode.
+ */
+function resolveApplyData(msg: ChatMsg): Record<string, string> | null {
+  if (msg.role !== 'assistant') return null
+  if (msg.applyData) return msg.applyData
+  if (!props.applyable || !msg.text) return null
+  return tryExtractJson(msg.text)
+}
+
+function tryExtractJson(text: string): Record<string, string> | null {
+  // Strategy 1: standard ```json ... ``` block
+  const fenceMatch = text.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/)
+  if (fenceMatch?.[1]) {
+    const r = safeParse(fenceMatch[1])
+    if (r) return r
+    // Strategy 3: same block but escape raw newlines inside string values
+    const escaped = escapeJsonNewlines(fenceMatch[1])
+    const r2 = safeParse(escaped)
+    if (r2) return r2
+  }
+  // Strategy 2: last standalone {...} block in the text (handles no fence)
+  const blockMatches = [...text.matchAll(/(\{[^{}]{20,}\})/g)]
+  for (let i = blockMatches.length - 1; i >= 0; i--) {
+    const raw = blockMatches[i]?.[1]
+    if (!raw) continue
+    const r = safeParse(raw) ?? safeParse(escapeJsonNewlines(raw))
+    if (r) return r
+  }
+  return null
+}
+
+function safeParse(raw: string): Record<string, string> | null {
+  try {
+    const obj = JSON.parse(raw)
+    if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+      // Only return if it has at least one string-valued known field
+      const knownKeys = ['name','id','description','identity','soul','IDENTITY','SOUL','NAME','DESCRIPTION']
+      if (Object.keys(obj).some(k => knownKeys.includes(k))) return obj
+    }
+  } catch { /* ignore */ }
+  return null
+}
+
+function escapeJsonNewlines(raw: string): string {
+  // Replace actual newlines inside JSON string values only
+  // Split by quote pairs and only escape within strings
+  let result = ''
+  let inString = false
+  let escape = false
+  for (let i = 0; i < raw.length; i++) {
+    const c = raw[i]!
+    if (escape) { result += c; escape = false; continue }
+    if (c === '\\' && inString) { result += c; escape = true; continue }
+    if (c === '"') { inString = !inString; result += c; continue }
+    if (inString && c === '\n') { result += '\\n'; continue }
+    if (inString && c === '\r') { result += '\\r'; continue }
+    result += c
+  }
+  return result
 }
 
 // ── Image handling ────────────────────────────────────────────────────────
