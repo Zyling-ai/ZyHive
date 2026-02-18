@@ -1,13 +1,19 @@
+// cmd/aipanel/main.go — entry point for the AI Company Panel server.
+// Reference: openclaw/src/main.ts
 package main
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"net"
+	"net/http"
 	"os"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/sunhuihui6688-star/ai-panel/internal/api"
+	"github.com/sunhuihui6688-star/ai-panel/pkg/agent"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/config"
 )
 
@@ -19,9 +25,32 @@ func main() {
 		cfg = config.Default()
 	}
 
-	// Setup router
+	// Initialize agent manager
+	agentsDir := cfg.Agents.Dir
+	if agentsDir == "" {
+		agentsDir = "./agents"
+	}
+	mgr := agent.NewManager(agentsDir)
+	if err := mgr.LoadAll(); err != nil {
+		log.Printf("Warning: failed to load agents: %v", err)
+	}
+
+	// Create default "main" agent on first startup if no agents exist
+	if len(mgr.List()) == 0 {
+		model := cfg.Models.Primary
+		if model == "" {
+			model = "anthropic/claude-sonnet-4-6"
+		}
+		if _, err := mgr.Create("main", "主助手", model); err != nil {
+			log.Printf("Warning: failed to create default agent: %v", err)
+		} else {
+			log.Println("Created default agent: main (主助手)")
+		}
+	}
+
+	// Setup router — pass manager to API handlers
 	r := gin.Default()
-	api.RegisterRoutes(r, cfg)
+	api.RegisterRoutes(r, cfg, mgr)
 
 	// Print access URLs
 	port := cfg.Gateway.Port
@@ -47,6 +76,7 @@ func main() {
 	}
 }
 
+// getLocalIP returns the first non-loopback IPv4 address.
 func getLocalIP() string {
 	addrs, err := net.InterfaceAddrs()
 	if err != nil {
@@ -62,7 +92,19 @@ func getLocalIP() string {
 	return ""
 }
 
+// getPublicIP fetches the public IP from api.ipify.org with a 3-second timeout.
+// Falls back to PUBLIC_IP env var if the request fails.
 func getPublicIP() string {
-	// Will implement via api.ipify.org
-	return os.Getenv("PUBLIC_IP")
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Get("https://api.ipify.org")
+	if err != nil {
+		// Fallback to env
+		return os.Getenv("PUBLIC_IP")
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 64))
+	if err != nil || resp.StatusCode != 200 {
+		return os.Getenv("PUBLIC_IP")
+	}
+	return string(body)
 }

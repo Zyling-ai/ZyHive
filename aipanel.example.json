@@ -1,0 +1,6 @@
+{
+  "gateway": {"port": 8080, "bind": "lan"},
+  "agents": {"dir": "./agents"},
+  "models": {"primary": "anthropic/claude-sonnet-4-6", "apiKeys": {"anthropic": "sk-ant-YOUR-KEY-HERE"}},
+  "auth": {"mode": "token", "token": "change-me-in-production"}
+}

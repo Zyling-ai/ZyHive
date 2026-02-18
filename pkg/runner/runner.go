@@ -74,12 +74,15 @@ func (r *Runner) run(ctx context.Context, userMsg string, out chan<- RunEvent) e
 	// 2. Agentic loop — call LLM, handle tools, repeat
 	const maxIter = 10
 	for i := 0; i < maxIter; i++ {
+		// Build system prompt from workspace identity files
+		systemPrompt, _ := BuildSystemPrompt(r.cfg.WorkspaceDir)
+
 		req := &llm.ChatRequest{
 			Model:    r.cfg.Model,
 			APIKey:   r.cfg.APIKey,
+			System:   systemPrompt,
 			Messages: r.history,
 			Tools:    r.cfg.Tools.Definitions(),
-			// TODO: inject system prompt from IDENTITY.md + SOUL.md
 		}
 
 		events, err := r.cfg.LLM.Stream(ctx, req)

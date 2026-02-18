@@ -9,7 +9,22 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 )
+
+// SessionIndex maps session IDs to their file paths.
+// Persisted as sessions.json in the sessions directory.
+type SessionIndex struct {
+	Sessions map[string]SessionIndexEntry `json:"sessions"`
+}
+
+// SessionIndexEntry is one entry in the sessions.json index.
+type SessionIndexEntry struct {
+	ID        string `json:"id"`
+	AgentID   string `json:"agentId"`
+	FilePath  string `json:"filePath"`
+	CreatedAt int64  `json:"createdAt"`
+}
 
 // Store manages session files for one agent.
 type Store struct {
@@ -38,7 +53,16 @@ func (s *Store) Create(sessionID, agentID string) (string, error) {
 		AgentID:   agentID,
 		CreatedAt: nowMs(),
 	}
-	return path, appendEntry(path, header)
+	if err := appendEntry(path, header); err != nil {
+		return "", err
+	}
+
+	// Update sessions.json index
+	if err := s.updateIndex(sessionID, agentID, path); err != nil {
+		return "", fmt.Errorf("update session index: %w", err)
+	}
+
+	return path, nil
 }
 
 // Append adds a new entry to an existing session file.
@@ -71,6 +95,63 @@ func (s *Store) ReadAll(sessionID string) ([]json.RawMessage, error) {
 	return entries, scanner.Err()
 }
 
+// ListSessions returns all session entries from the index file.
+func (s *Store) ListSessions() ([]SessionIndexEntry, error) {
+	idx, err := s.loadIndex()
+	if err != nil {
+		return nil, err
+	}
+	result := make([]SessionIndexEntry, 0, len(idx.Sessions))
+	for _, entry := range idx.Sessions {
+		result = append(result, entry)
+	}
+	return result, nil
+}
+
+// updateIndex adds or updates a session entry in sessions.json.
+func (s *Store) updateIndex(sessionID, agentID, filePath string) error {
+	idx, err := s.loadIndex()
+	if err != nil {
+		return err
+	}
+	idx.Sessions[sessionID] = SessionIndexEntry{
+		ID:        sessionID,
+		AgentID:   agentID,
+		FilePath:  filePath,
+		CreatedAt: nowMs(),
+	}
+	return s.saveIndex(idx)
+}
+
+// loadIndex reads sessions.json or returns an empty index.
+func (s *Store) loadIndex() (*SessionIndex, error) {
+	indexPath := filepath.Join(s.dir, "sessions.json")
+	data, err := os.ReadFile(indexPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return &SessionIndex{Sessions: make(map[string]SessionIndexEntry)}, nil
+		}
+		return nil, err
+	}
+	var idx SessionIndex
+	if err := json.Unmarshal(data, &idx); err != nil {
+		return &SessionIndex{Sessions: make(map[string]SessionIndexEntry)}, nil
+	}
+	if idx.Sessions == nil {
+		idx.Sessions = make(map[string]SessionIndexEntry)
+	}
+	return &idx, nil
+}
+
+// saveIndex writes sessions.json to disk.
+func (s *Store) saveIndex(idx *SessionIndex) error {
+	data, err := json.MarshalIndent(idx, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(s.dir, "sessions.json"), data, 0644)
+}
+
 // appendEntry marshals v as JSON and appends a newline-terminated line.
 func appendEntry(path string, v any) error {
 	data, err := json.Marshal(v)
@@ -86,8 +167,7 @@ func appendEntry(path string, v any) error {
 	return err
 }
 
+// nowMs returns current Unix timestamp in milliseconds.
 func nowMs() int64 {
-	// Returns current Unix timestamp in milliseconds.
-	// Using time package inline to avoid import cycle; real impl uses time.Now().
-	return 0 // TODO: replace with time.Now().UnixMilli()
+	return time.Now().UnixMilli()
 }
