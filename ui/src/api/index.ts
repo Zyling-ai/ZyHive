@@ -170,6 +170,7 @@ export interface ChatParams {
   context?: string   // extra system context (scenario background, page state)
   scenario?: string  // label e.g. "agent-creation", "general"
   images?: string[]  // base64 data URIs
+  history?: { role: 'user' | 'assistant'; content: string }[]  // prior turns for multi-turn context
 }
 
 // SSE chat helper

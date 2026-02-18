@@ -92,9 +92,19 @@
                   ⚙ 应用配置
                 </button>
               </div>
+
+            </div><!-- end msg-bubble -->
+
+            <!-- Option chips：AI 给出选项时显示为可点击按钮 -->
+            <div v-if="msg.options && msg.options.length" class="option-chips">
+              <button v-for="(opt, oi) in msg.options" :key="oi"
+                class="option-chip"
+                @click="fillInput(opt)">
+                {{ opt }}
+              </button>
             </div>
-          </div>
-        </div>
+          </div><!-- /msg-col -->
+        </div><!-- /msg-row.assistant -->
 
         <!-- 系统提示 / 错误 -->
         <div v-else-if="msg.role === 'system'" class="msg-row system">
@@ -237,6 +247,8 @@ export interface ChatMsg {
   thinking?: string
   toolCalls?: ToolCallEntry[]
   applyData?: Record<string, string>
+  /** Quick-reply option chips parsed from AI response */
+  options?: string[]
 }
 
 // ── State ─────────────────────────────────────────────────────────────────
@@ -343,6 +355,27 @@ function renderMd(text: string): string {
  * from the message text using multiple fallback strategies.
  * Returns null if nothing parseable found, or if not applyable mode.
  */
+/**
+ * 从 AI 回复中提取选项行，变成 quick-reply chips。
+ * 检测模式：以 emoji 开头 + 空格 + 中文描述 的行（如 "🎙 想要更偏向英超"）
+ */
+function extractOptions(text: string): string[] {
+  const lines = text.split('\n')
+  const opts: string[] = []
+  const emojiLineRe = /^([🎙😄🌐🛎📚🎨💼🤖⚽🎯✅❌🔥💡🎁🚀🌟💎🎪🎭🎬🎤]|[\u{1F300}-\u{1FFFF}]|[\u{2600}-\u{27BF}])\s+(.{4,40})/u
+  for (const line of lines) {
+    const trimmed = line.replace(/^[-*•]\s*/, '').trim()
+    const m = trimmed.match(emojiLineRe)
+    if (m) {
+      // 去掉末尾标点
+      const opt = trimmed.replace(/[：:。，,]$/, '').trim()
+      if (opt.length >= 5) opts.push(opt)
+    }
+  }
+  // 最多返回 5 个选项
+  return opts.slice(0, 5)
+}
+
 /** 判断文本中是否含有 JSON 块（快速检测，不解析） */
 function hasJsonBlock(text?: string): boolean {
   if (!text) return false
@@ -485,10 +518,18 @@ function runChat(text: string, imgs: string[]) {
   // Track active tool call
   let activeToolId = ''
 
+  // Build history from prior messages (exclude the empty assistant message just pushed)
+  const historyMsgs = messages.value
+    .slice(0, -1)  // exclude the new empty assistant msg
+    .filter(m => (m.role === 'user' || m.role === 'assistant') && m.text)
+    .slice(-20)    // cap at 20 turns to avoid token explosion
+    .map(m => ({ role: m.role as 'user' | 'assistant', content: m.text }))
+
   const params: ChatParams = {
     context: props.context,
     scenario: props.scenario,
     images: imgs.length ? imgs : undefined,
+    history: historyMsgs.length > 0 ? historyMsgs : undefined,
   }
 
   chatSSE(props.agentId, text, (ev) => {
@@ -539,6 +580,10 @@ function runChat(text: string, imgs: string[]) {
             console.log('[AiChat] no applyData found in text length:', streamText.value.length)
           }
         }
+
+        // Extract quick-reply options from the response
+        const opts = extractOptions(streamText.value)
+        if (opts.length >= 2) cur.options = opts
 
         if (ev.type === 'error') {
           cur.text = `❌ ${ev.error}`
@@ -785,6 +830,33 @@ onMounted(() => {
 }
 .act-btn:hover { background: #f0f2f5; color: #303133; }
 .apply-manual-btn { color: #409eff !important; border-color: #b3d8ff !important; font-weight: 500; }
+
+/* ── Option chips ── */
+.option-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 8px;
+  padding-left: 2px;
+}
+.option-chip {
+  padding: 6px 14px;
+  background: #fff;
+  border: 1.5px solid #d0e8ff;
+  border-radius: 20px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #409eff;
+  transition: all .15s;
+  text-align: left;
+  line-height: 1.4;
+}
+.option-chip:hover {
+  background: #ecf5ff;
+  border-color: #409eff;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(64,158,255,.15);
+}
 
 /* ── Images in user msg ── */
 .msg-images { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
