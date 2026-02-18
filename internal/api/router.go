@@ -67,6 +67,7 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager, cronE
 		models.PATCH("/:id", modelH.Update)
 		models.DELETE("/:id", modelH.Delete)
 		models.POST("/:id/test", modelH.Test)
+		models.GET("/probe", modelH.FetchModels) // GET /api/models/probe?baseUrl=...&apiKey=...
 	}
 
 	// Channel registry

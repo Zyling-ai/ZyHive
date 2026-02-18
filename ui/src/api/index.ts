@@ -41,8 +41,14 @@ export interface ModelEntry {
   provider: string
   model: string
   apiKey: string
+  baseUrl?: string
   isDefault: boolean
   status: string // "ok" | "error" | "untested"
+}
+
+export interface ProbeModelInfo {
+  id: string
+  name: string
 }
 
 export interface ChannelEntry {
@@ -110,6 +116,10 @@ export const models = {
   update: (id: string, data: Partial<ModelEntry>) => api.patch<ModelEntry>(`/models/${id}`, data),
   delete: (id: string) => api.delete(`/models/${id}`),
   test: (id: string) => api.post<{ valid: boolean; error?: string }>(`/models/${id}/test`),
+  probe: (baseUrl: string, apiKey?: string) =>
+    api.get<{ models: ProbeModelInfo[]; count: number }>('/models/probe', {
+      params: { baseUrl, apiKey: apiKey || undefined },
+    }),
 }
 
 export const channels = {
