@@ -224,11 +224,18 @@ func (r *Runner) run(ctx context.Context, userMsg string, out chan<- RunEvent) e
 			if r.cfg.SessionID != "" && r.cfg.Session != nil {
 				_ = r.cfg.Session.AppendMessage(r.cfg.SessionID, "assistant", assistantContent)
 			}
-			tokenEstimate := r.cfg.Session.EstimateTokens(r.cfg.SessionID)
+			tokenEstimate := 0
+			if r.cfg.Session != nil {
+				tokenEstimate = r.cfg.Session.EstimateTokens(r.cfg.SessionID)
+			}
 			out <- RunEvent{
 				Type:          "done",
 				SessionID:     r.cfg.SessionID,
 				TokenEstimate: tokenEstimate,
+			}
+			// Trigger compaction asynchronously if token budget exceeded
+			if r.cfg.SessionID != "" && r.cfg.Session != nil {
+				session.CompactIfNeeded(r.cfg.Session, r.cfg.SessionID, r.makeSimpleLLMCaller())
 			}
 			return nil
 		}
@@ -261,6 +268,36 @@ func (r *Runner) executeTools(ctx context.Context, calls []llm.ToolCall, out cha
 		})
 	}
 	return results
+}
+
+// makeSimpleLLMCaller returns a function suitable for compaction summarization.
+// It calls the LLM non-streamingly and returns the full response text.
+func (r *Runner) makeSimpleLLMCaller() func(ctx context.Context, system, userMsg string) (string, error) {
+	return func(ctx context.Context, system, userMsg string) (string, error) {
+		userContent, _ := json.Marshal(userMsg)
+		req := &llm.ChatRequest{
+			Model:  r.cfg.Model,
+			APIKey: r.cfg.APIKey,
+			System: system,
+			Messages: []llm.ChatMessage{
+				{Role: "user", Content: userContent},
+			},
+		}
+		events, err := r.cfg.LLM.Stream(ctx, req)
+		if err != nil {
+			return "", err
+		}
+		var text string
+		for ev := range events {
+			if ev.Type == llm.EventTextDelta {
+				text += ev.Text
+			}
+			if ev.Type == llm.EventError {
+				return text, ev.Err
+			}
+		}
+		return text, nil
+	}
 }
 
 // buildAssistantContent constructs the assistant message content array.

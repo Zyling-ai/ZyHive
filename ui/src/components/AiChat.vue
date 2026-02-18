@@ -195,6 +195,8 @@ import { chatSSE, type ChatParams } from '../api'
 // ── Props ─────────────────────────────────────────────────────────────────
 interface Props {
   agentId: string
+  /** 指定要续接的 session ID（可选），不传则自动新建 */
+  sessionId?: string
   /** 注入到系统提示的额外上下文（页面场景、表单状态等） */
   context?: string
   /** 场景标签，传给后端用于日志 */
@@ -229,6 +231,7 @@ const emit = defineEmits<{
   (e: 'message', text: string, images: string[]): void
   (e: 'response', text: string): void
   (e: 'apply', data: Record<string, string>): void
+  (e: 'session-change', sessionId: string): void  // fired when a new session is created
 }>()
 
 // ── Types ─────────────────────────────────────────────────────────────────
@@ -260,6 +263,10 @@ const streamText = ref('')
 const streamThinking = ref('')
 const copied = ref<number | null>(null)
 const previewSrc = ref('')
+
+// Session management — server-side persistent history
+// Once set, subsequent requests use sessionId instead of sending full history[]
+const currentSessionId = ref<string | undefined>(props.sessionId)
 
 const msgListRef = ref<HTMLElement>()
 const inputRef = ref<HTMLTextAreaElement>()
@@ -518,18 +525,24 @@ function runChat(text: string, imgs: string[]) {
   // Track active tool call
   let activeToolId = ''
 
-  // Build history from prior messages (exclude the empty assistant message just pushed)
-  const historyMsgs = messages.value
-    .slice(0, -1)  // exclude the new empty assistant msg
-    .filter(m => (m.role === 'user' || m.role === 'assistant') && m.text)
-    .slice(-20)    // cap at 20 turns to avoid token explosion
-    .map(m => ({ role: m.role as 'user' | 'assistant', content: m.text }))
+  // Session-aware history: if we have a server-side sessionId, the server owns history.
+  // Otherwise fall back to client-side history (legacy, capped at 20 turns).
+  let historyParam: { role: 'user' | 'assistant'; content: string }[] | undefined
+  if (!currentSessionId.value) {
+    const historyMsgs = messages.value
+      .slice(0, -1)
+      .filter(m => (m.role === 'user' || m.role === 'assistant') && m.text)
+      .slice(-20)
+      .map(m => ({ role: m.role as 'user' | 'assistant', content: m.text }))
+    historyParam = historyMsgs.length > 0 ? historyMsgs : undefined
+  }
 
   const params: ChatParams = {
+    sessionId: currentSessionId.value,
     context: props.context,
     scenario: props.scenario,
     images: imgs.length ? imgs : undefined,
-    history: historyMsgs.length > 0 ? historyMsgs : undefined,
+    history: historyParam,
   }
 
   chatSSE(props.agentId, text, (ev) => {
@@ -567,6 +580,13 @@ function runChat(text: string, imgs: string[]) {
 
       case 'done':
       case 'error': {
+        // Capture server-side sessionId for subsequent requests
+        if (ev.type === 'done' && ev.sessionId) {
+          const isNew = !currentSessionId.value
+          currentSessionId.value = ev.sessionId
+          if (isNew) emit('session-change', ev.sessionId)
+        }
+
         const cur = messages.value[msgIdx]!
         cur.text = streamText.value
         cur.thinking = streamThinking.value || undefined
@@ -605,9 +625,21 @@ function runChat(text: string, imgs: string[]) {
 // ── Public API (expose for parent use) ───────────────────────────────────
 function clearMessages() { messages.value = [] }
 function appendMessage(msg: ChatMsg) { messages.value.push(msg); scrollBottom() }
+
+/** Resume an existing session (clears messages, loads from server on next send) */
+function resumeSession(sessionId: string) {
+  currentSessionId.value = sessionId
+  messages.value = []
+}
+
+/** Start a brand new session (clears sessionId + messages) */
+function startNewSession() {
+  currentSessionId.value = undefined
+  messages.value = []
+}
 function sendText(text: string) { fillInput(text); nextTick(send) }
 
-defineExpose({ clearMessages, appendMessage, sendText, messages })
+defineExpose({ clearMessages, appendMessage, sendText, messages, currentSessionId, resumeSession, startNewSession })
 
 // ── Init ─────────────────────────────────────────────────────────────────
 onMounted(() => {
