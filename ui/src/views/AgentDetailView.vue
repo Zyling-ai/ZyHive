@@ -13,53 +13,13 @@
       <el-tabs v-model="activeTab" type="border-card">
         <!-- Tab 1: Chat -->
         <el-tab-pane label="对话" name="chat">
-          <div class="chat-container">
-            <div class="chat-messages" ref="chatMessagesRef">
-              <div
-                v-for="(msg, i) in chatMessages"
-                :key="i"
-                :class="['chat-msg', msg.role]"
-              >
-                <div class="msg-bubble">
-                  <div v-if="msg.role === 'tool'" class="tool-block">
-                    <el-collapse>
-                      <el-collapse-item :title="'🔧 ' + (msg.toolName || 'tool')">
-                        <pre class="tool-result">{{ msg.text?.slice(0, 500) }}</pre>
-                      </el-collapse-item>
-                    </el-collapse>
-                  </div>
-                  <div v-else class="msg-text" v-html="renderMarkdown(msg.text)"></div>
-                </div>
-              </div>
-              <!-- Typing indicator -->
-              <div v-if="streaming && !streamText" class="chat-msg assistant">
-                <div class="msg-bubble">
-                  <div class="typing-indicator">
-                    <span></span><span></span><span></span>
-                  </div>
-                </div>
-              </div>
-              <!-- Streaming text -->
-              <div v-if="streaming && streamText" class="chat-msg assistant">
-                <div class="msg-bubble">
-                  <div class="msg-text" v-html="renderMarkdown(streamText)"></div>
-                  <span class="cursor">▊</span>
-                </div>
-              </div>
-            </div>
-            <div class="chat-input">
-              <el-input
-                v-model="chatInput"
-                type="textarea"
-                :rows="2"
-                placeholder="输入消息... (Ctrl+Enter 发送)"
-                @keydown.enter.ctrl="sendMessage"
-              />
-              <el-button type="primary" @click="sendMessage" :loading="streaming" style="margin-top: 8px">
-                <el-icon><Promotion /></el-icon> 发送
-              </el-button>
-            </div>
-          </div>
+          <AiChat
+            :agent-id="agentId"
+            :scenario="'agent-detail'"
+            :welcome-message="`你好！我是 **${agent?.name || 'AI'}**，有什么可以帮你的？`"
+            height="calc(100vh - 140px)"
+            :show-thinking="true"
+          />
         </el-tab-pane>
 
         <!-- Tab 2: Identity & Soul -->
@@ -288,24 +248,17 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, nextTick, watch } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ArrowLeft, Plus, EditPen, Refresh, FolderOpened, Document } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
-import { agents as agentsApi, files as filesApi, memoryApi, cron as cronApi, chatSSE, type AgentInfo, type FileEntry, type CronJob } from '../api'
+import { agents as agentsApi, files as filesApi, memoryApi, cron as cronApi, type AgentInfo, type FileEntry, type CronJob } from '../api'
+import AiChat from '../components/AiChat.vue'
 
 const route = useRoute()
 const agentId = route.params.id as string
 const agent = ref<AgentInfo | null>(null)
 const activeTab = ref('chat')
-
-// Chat state
-interface ChatMsg { role: string; text: string; toolName?: string }
-const chatMessages = ref<ChatMsg[]>([])
-const chatInput = ref('')
-const streaming = ref(false)
-const streamText = ref('')
-const chatMessagesRef = ref<HTMLElement>()
 
 // Identity/Soul
 const identityContent = ref('')
@@ -339,13 +292,6 @@ function statusType(s?: string) {
 function statusLabel(s?: string) {
   return s === 'running' ? '运行中' : s === 'stopped' ? '已停止' : '空闲'
 }
-function renderMarkdown(text: string) {
-  return (text || '')
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
-    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-    .replace(/`(.*?)`/g, '<code>$1</code>')
-    .replace(/\n/g, '<br>')
-}
 function formatSize(bytes: number) {
   if (!bytes) return '0 B'
   if (bytes < 1024) return bytes + ' B'
@@ -372,57 +318,6 @@ onMounted(async () => {
   loadWorkspace()
   loadCron()
 })
-
-// Auto-scroll chat when streaming
-watch(streamText, () => scrollChat())
-
-// Chat — uses fetch + ReadableStream for SSE (supports auth headers)
-async function sendMessage() {
-  const msg = chatInput.value.trim()
-  if (!msg || streaming.value) return
-  
-  chatMessages.value.push({ role: 'user', text: msg })
-  chatInput.value = ''
-  streaming.value = true
-  streamText.value = ''
-  
-  await nextTick()
-  scrollChat()
-  
-  chatSSE(agentId, msg, (ev) => {
-    if (ev.type === 'text_delta') {
-      streamText.value += ev.text
-    } else if (ev.type === 'tool_call') {
-      // Show tool call as collapsed card
-      if (streamText.value) {
-        chatMessages.value.push({ role: 'assistant', text: streamText.value })
-        streamText.value = ''
-      }
-      chatMessages.value.push({ role: 'tool', text: '', toolName: ev.tool_call?.name || 'tool' })
-      scrollChat()
-    } else if (ev.type === 'tool_result') {
-      const last = chatMessages.value[chatMessages.value.length - 1]
-      if (last?.role === 'tool') last.text = ev.text
-    } else if (ev.type === 'done') {
-      if (streamText.value) {
-        chatMessages.value.push({ role: 'assistant', text: streamText.value })
-      }
-      streamText.value = ''
-      streaming.value = false
-      scrollChat()
-    } else if (ev.type === 'error') {
-      ElMessage.error(ev.error || '请求失败')
-      streaming.value = false
-    }
-  })
-}
-
-function scrollChat() {
-  nextTick(() => {
-    const el = chatMessagesRef.value
-    if (el) el.scrollTop = el.scrollHeight
-  })
-}
 
 // Identity files
 async function loadIdentityFiles() {

@@ -29,6 +29,10 @@ type Config struct {
 	LLM          llm.Client
 	Tools        *tools.Registry
 	Session      *session.Store
+	// Optional: extra context injected before the user message (e.g. page context, scenario)
+	ExtraContext string
+	// Optional: base64 image data URIs attached to the user message
+	Images []string
 }
 
 // Runner drives a single agent's conversation lifecycle.
@@ -64,8 +68,55 @@ func (r *Runner) Run(ctx context.Context, userMsg string) <-chan RunEvent {
 }
 
 func (r *Runner) run(ctx context.Context, userMsg string, out chan<- RunEvent) error {
-	// 1. Append user message to history
-	userContent, _ := json.Marshal(userMsg)
+	// 1. Append user message to history (with optional images)
+	var userContent json.RawMessage
+	if len(r.cfg.Images) > 0 {
+		// Multimodal: build content array [image, ..., text]
+		type imgSrc struct {
+			Type      string `json:"type"`
+			MediaType string `json:"media_type"`
+			Data      string `json:"data"`
+		}
+		type imgBlock struct {
+			Type   string `json:"type"`
+			Source imgSrc `json:"source"`
+		}
+		type textBlock struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		}
+		parts := make([]any, 0, len(r.cfg.Images)+1)
+		for _, img := range r.cfg.Images {
+			// img is "data:image/png;base64,..." or just raw base64
+			mediaType := "image/jpeg"
+			data := img
+			if idx := len("data:"); len(img) > idx {
+				if img[:idx] == "data:" {
+					semi := 0
+					for i, c := range img[idx:] {
+						if c == ';' { semi = idx + i; break }
+					}
+					if semi > 0 {
+						mediaType = img[idx:semi]
+						// skip "base64,"
+						comma := semi
+						for i, c := range img[semi:] {
+							if c == ',' { comma = semi + i + 1; break }
+						}
+						data = img[comma:]
+					}
+				}
+			}
+			parts = append(parts, imgBlock{
+				Type:   "image",
+				Source: imgSrc{Type: "base64", MediaType: mediaType, Data: data},
+			})
+		}
+		parts = append(parts, textBlock{Type: "text", Text: userMsg})
+		userContent, _ = json.Marshal(parts)
+	} else {
+		userContent, _ = json.Marshal(userMsg)
+	}
 	r.history = append(r.history, llm.ChatMessage{
 		Role:    "user",
 		Content: userContent,
@@ -76,6 +127,9 @@ func (r *Runner) run(ctx context.Context, userMsg string, out chan<- RunEvent) e
 	for i := 0; i < maxIter; i++ {
 		// Build system prompt from workspace identity files
 		systemPrompt, _ := BuildSystemPrompt(r.cfg.WorkspaceDir)
+		if r.cfg.ExtraContext != "" {
+			systemPrompt = systemPrompt + "\n\n---\n" + r.cfg.ExtraContext
+		}
 
 		req := &llm.ChatRequest{
 			Model:    r.cfg.Model,
@@ -98,6 +152,8 @@ func (r *Runner) run(ctx context.Context, userMsg string, out chan<- RunEvent) e
 
 		for ev := range events {
 			switch ev.Type {
+			case llm.EventThinkingDelta:
+				out <- RunEvent{Type: "thinking_delta", Text: ev.Text}
 			case llm.EventTextDelta:
 				assistantText += ev.Text
 				out <- RunEvent{Type: "text_delta", Text: ev.Text}

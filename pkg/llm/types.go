@@ -57,13 +57,14 @@ type ToolResult struct {
 type StreamEventType string
 
 const (
-	EventStart      StreamEventType = "start"
-	EventTextDelta  StreamEventType = "text_delta"
-	EventToolCall   StreamEventType = "tool_call"
-	EventToolDelta  StreamEventType = "tool_delta"
-	EventUsage      StreamEventType = "usage"
-	EventStop       StreamEventType = "stop"
-	EventError      StreamEventType = "error"
+	EventStart         StreamEventType = "start"
+	EventTextDelta     StreamEventType = "text_delta"
+	EventThinkingDelta StreamEventType = "thinking_delta"
+	EventToolCall      StreamEventType = "tool_call"
+	EventToolDelta     StreamEventType = "tool_delta"
+	EventUsage         StreamEventType = "usage"
+	EventStop          StreamEventType = "stop"
+	EventError         StreamEventType = "error"
 )
 
 // StreamEvent is one item emitted by the streaming LLM response.

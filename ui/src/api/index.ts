@@ -165,8 +165,15 @@ export const cron = {
   runs: (jobId: string) => api.get(`/cron/${jobId}/runs`),
 }
 
+// ChatParams are optional extra parameters passed through to the model.
+export interface ChatParams {
+  context?: string   // extra system context (scenario background, page state)
+  scenario?: string  // label e.g. "agent-creation", "general"
+  images?: string[]  // base64 data URIs
+}
+
 // SSE chat helper
-export function chatSSE(agentId: string, message: string, onEvent: (ev: any) => void): AbortController {
+export function chatSSE(agentId: string, message: string, onEvent: (ev: any) => void, params?: ChatParams): AbortController {
   const ctrl = new AbortController()
   const token = localStorage.getItem('aipanel_token')
 
@@ -176,7 +183,7 @@ export function chatSSE(agentId: string, message: string, onEvent: (ev: any) => 
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {})
     },
-    body: JSON.stringify({ message }),
+    body: JSON.stringify({ message, ...params }),
     signal: ctrl.signal
   }).then(async res => {
     if (!res.ok) {
