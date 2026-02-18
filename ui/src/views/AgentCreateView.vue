@@ -221,12 +221,23 @@ const saving = ref(false)
 const avatarColors = ['#409eff', '#67c23a', '#e6a23c', '#f56c6c', '#909399', '#9b59b6', '#1abc9c', '#e74c3c']
 
 function autoId() {
-  form.id = form.name.toLowerCase()
+  const raw = form.name.toLowerCase()
     .replace(/[^a-z0-9\u4e00-\u9fff\s-]/g, '')
     .trim()
-    .replace(/[\s\u4e00-\u9fff]+/g, '-')
-    .replace(/-+/g, '-')
-    .slice(0, 32)
+
+  // 1. 先尝试保留 ASCII 字母数字
+  let slug = raw.replace(/[\u4e00-\u9fff]/g, '').replace(/[\s_]+/g, '-').replace(/-+/g, '-').replace(/^-+|-+$/g, '')
+
+  // 2. ASCII 不足时：用中文字符数量生成语义 ID（取每个字对应的拼音首字母近似）
+  if (slug.length < 2) {
+    // 用名字长度 + 时间戳尾缀做 fallback
+    const ts = Date.now().toString(36).slice(-4)
+    // 中文名取字符数作为前缀描述
+    const zhLen = (raw.match(/[\u4e00-\u9fff]/g) || []).length
+    slug = zhLen > 0 ? `agent-${zhLen}ch-${ts}` : `agent-${ts}`
+  }
+
+  form.id = slug.slice(0, 32)
 }
 
 function revertField(field: string) {
@@ -264,7 +275,11 @@ function applyToForm(data: Record<string, string>) {
 
 async function save() {
   if (!form.name.trim()) { ElMessage.warning('请填写名称'); return }
-  if (!form.id.trim()) { ElMessage.warning('请填写 ID'); return }
+  if (!form.id.trim() || form.id === '-' || !/^[a-z0-9][a-z0-9-_]{0,30}$/.test(form.id)) {
+    ElMessage.warning('ID 格式不对，请手动填写（只能用小写字母、数字、连字符）')
+    return
+  }
+  if (saving.value) return   // 防重复提交
   saving.value = true
   try {
     // 1. 创建 Agent 基本信息
