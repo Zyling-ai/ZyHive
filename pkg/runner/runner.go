@@ -136,6 +136,11 @@ func (r *Runner) run(ctx context.Context, userMsg string, out chan<- RunEvent) e
 		if r.cfg.ExtraContext != "" {
 			systemPrompt = systemPrompt + "\n\n---\n" + r.cfg.ExtraContext
 		}
+		// Inject runtime metadata so the agent knows what model/context it's running in
+		systemPrompt = systemPrompt + fmt.Sprintf(
+			"\n\n## Runtime\nModel: %s | Agent: %s | Workspace: %s",
+			r.cfg.Model, r.cfg.AgentID, r.cfg.WorkspaceDir,
+		)
 
 		req := &llm.ChatRequest{
 			Model:    r.cfg.Model,
