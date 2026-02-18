@@ -8,6 +8,8 @@ vendor/
 # UI
 ui/node_modules/
 ui/dist/
+# Keep embedded UI dist (committed)
+!cmd/aipanel/ui_dist/
 
 # Runtime
 aipanel.json
