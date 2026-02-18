@@ -40,9 +40,15 @@ export interface CronJob {
   name: string
   enabled: boolean
   schedule: { kind: string; expr: string; tz: string }
-  payload: { kind: string; message: string; agentId?: string }
+  payload: { kind: string; message: string; model?: string }
   delivery: { mode: string }
+  agentId?: string
   createdAtMs: number
+  state?: {
+    nextRunAtMs?: number
+    lastRunAtMs?: number
+    lastStatus?: string
+  }
 }
 
 export const agents = {
@@ -73,7 +79,7 @@ export const cron = {
   runs: (jobId: string) => api.get(`/cron/${jobId}/runs`),
 }
 
-// SSE chat helper
+// SSE chat helper — uses fetch + ReadableStream for auth header support
 export function chatSSE(agentId: string, message: string, onEvent: (ev: any) => void): AbortController {
   const ctrl = new AbortController()
   const token = localStorage.getItem('aipanel_token')
@@ -87,6 +93,17 @@ export function chatSSE(agentId: string, message: string, onEvent: (ev: any) => 
     body: JSON.stringify({ message }),
     signal: ctrl.signal
   }).then(async res => {
+    if (!res.ok) {
+      const text = await res.text()
+      try {
+        const err = JSON.parse(text)
+        onEvent({ type: 'error', error: err.error || `HTTP ${res.status}` })
+      } catch {
+        onEvent({ type: 'error', error: `HTTP ${res.status}: ${text}` })
+      }
+      return
+    }
+
     const reader = res.body?.getReader()
     if (!reader) return
     const decoder = new TextDecoder()
@@ -94,21 +111,33 @@ export function chatSSE(agentId: string, message: string, onEvent: (ev: any) => 
     
     while (true) {
       const { done, value } = await reader.read()
-      if (done) break
+      if (done) {
+        // If we didn't get a 'done' event, send one
+        onEvent({ type: 'done' })
+        break
+      }
       buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop() || ''
       
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
+      // Parse newline-delimited SSE: data: {...}\n\n
+      const parts = buffer.split('\n')
+      buffer = parts.pop() || ''
+      
+      for (const line of parts) {
+        const trimmed = line.trim()
+        if (trimmed.startsWith('data: ')) {
           try {
-            const data = JSON.parse(line.slice(6))
+            const data = JSON.parse(trimmed.slice(6))
             onEvent(data)
+            if (data.type === 'done') return
           } catch {}
         }
       }
     }
-  }).catch(() => {})
+  }).catch((err) => {
+    if (err.name !== 'AbortError') {
+      onEvent({ type: 'error', error: err.message || 'Network error' })
+    }
+  })
   
   return ctrl
 }

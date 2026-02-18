@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"fmt"
 	"io"
@@ -11,12 +12,16 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/sunhuihui6688-star/ai-panel/internal/api"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/agent"
+	"github.com/sunhuihui6688-star/ai-panel/pkg/channel"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/config"
+	"github.com/sunhuihui6688-star/ai-panel/pkg/cron"
 )
 
 //go:embed all:ui_dist
@@ -53,10 +58,46 @@ func main() {
 		}
 	}
 
+	// Initialize multi-agent runner pool
+	pool := agent.NewPool(cfg, mgr)
+
+	// Agent runner function — used by cron engine and telegram bot
+	runnerFunc := func(ctx context.Context, agentID, message string) (string, error) {
+		return pool.Run(ctx, agentID, message)
+	}
+
+	// Initialize cron engine
+	cronDataDir := "cron"
+	cronEngine := cron.NewEngine(cronDataDir, runnerFunc)
+	if err := cronEngine.Load(); err != nil {
+		log.Printf("Warning: failed to load cron jobs: %v", err)
+	} else {
+		cronEngine.Start()
+		log.Printf("Cron engine started (%d jobs loaded)", len(cronEngine.ListJobs()))
+	}
+
+	// Initialize Telegram bot (if enabled)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if cfg.Channels.Telegram != nil && cfg.Channels.Telegram.Enabled && cfg.Channels.Telegram.BotToken != "" {
+		defaultAgent := cfg.Channels.Telegram.DefaultAgent
+		if defaultAgent == "" {
+			defaultAgent = "main"
+		}
+		bot := channel.NewTelegramBot(
+			cfg.Channels.Telegram.BotToken,
+			defaultAgent,
+			cfg.Channels.Telegram.AllowedFrom,
+			runnerFunc,
+		)
+		go bot.Start(ctx)
+		log.Println("Telegram bot started")
+	}
+
 	// Try to get embedded UI filesystem
 	var uiFS fs.FS
 	if sub, err := fs.Sub(embeddedUI, "ui_dist"); err == nil {
-		// Check if it has any files
 		if entries, err := fs.ReadDir(sub, "."); err == nil && len(entries) > 0 {
 			uiFS = sub
 			log.Println("Serving embedded Vue UI")
@@ -65,7 +106,7 @@ func main() {
 
 	// Setup router
 	r := gin.Default()
-	api.RegisterRoutes(r, cfg, mgr, uiFS)
+	api.RegisterRoutes(r, cfg, mgr, cronEngine, uiFS)
 
 	// Print access URLs
 	port := cfg.Gateway.Port
@@ -86,7 +127,25 @@ func main() {
 	}
 	fmt.Println("")
 
-	if err := r.Run(addr); err != nil {
+	// Graceful shutdown
+	srv := &http.Server{Addr: addr, Handler: r}
+
+	go func() {
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+		<-sigCh
+		log.Println("Shutting down...")
+		cancel() // stop telegram bot
+
+		shutdownCtx := cronEngine.Stop() // stop cron
+		<-shutdownCtx.Done()
+
+		srvCtx, srvCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer srvCancel()
+		srv.Shutdown(srvCtx)
+	}()
+
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}
 }

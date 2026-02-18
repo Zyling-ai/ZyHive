@@ -50,8 +50,8 @@
             </div>
             <div class="agent-card-stats">
               <div class="stat">
-                <span class="stat-label">今日消息</span>
-                <span class="stat-value">0</span>
+                <span class="stat-label">ID</span>
+                <span class="stat-value" style="font-size: 14px">{{ agent.id }}</span>
               </div>
               <div class="stat">
                 <span class="stat-label">状态</span>
@@ -95,7 +95,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useAgentsStore } from '../stores/agents'
 
@@ -104,7 +104,17 @@ const showCreate = ref(false)
 const creating = ref(false)
 const form = ref({ id: '', name: '', model: 'anthropic/claude-sonnet-4-6' })
 
-onMounted(() => store.fetchAll())
+let refreshTimer: ReturnType<typeof setInterval> | null = null
+
+onMounted(() => {
+  store.fetchAll()
+  // Periodic refresh every 30s
+  refreshTimer = setInterval(() => store.fetchAll(), 30000)
+})
+
+onUnmounted(() => {
+  if (refreshTimer) clearInterval(refreshTimer)
+})
 
 function statusType(s: string) {
   return s === 'running' ? 'success' : s === 'stopped' ? 'danger' : 'info'

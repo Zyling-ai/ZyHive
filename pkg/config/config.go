@@ -35,8 +35,10 @@ type ChannelsConfig struct {
 }
 
 type TelegramConfig struct {
-	Enabled  bool   `json:"enabled"`
-	BotToken string `json:"botToken"`
+	Enabled      bool    `json:"enabled"`
+	BotToken     string  `json:"botToken"`
+	DefaultAgent string  `json:"defaultAgent,omitempty"` // agent to route messages to
+	AllowedFrom  []int64 `json:"allowedFrom,omitempty"`  // allowed sender IDs
 }
 
 type AuthConfig struct {
