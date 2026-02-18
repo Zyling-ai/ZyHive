@@ -1,5 +1,4 @@
 // Package config handles loading and saving the aipanel.json configuration file.
-// Reference: openclaw/src/config/config.ts
 package config
 
 import (
@@ -7,56 +6,210 @@ import (
 	"os"
 )
 
+// Config is the top-level configuration.
+// Models/Channels/Tools/Skills are global registries; agents reference them by ID.
 type Config struct {
 	Gateway  GatewayConfig  `json:"gateway"`
 	Agents   AgentsConfig   `json:"agents"`
-	Models   ModelsConfig   `json:"models"`
-	Channels ChannelsConfig `json:"channels"`
+	Models   []ModelEntry   `json:"models"`   // global model registry
+	Channels []ChannelEntry `json:"channels"` // global channel registry
+	Tools    []ToolEntry    `json:"tools"`    // global capability registry
+	Skills   []SkillEntry   `json:"skills"`   // installed skills
 	Auth     AuthConfig     `json:"auth"`
 }
 
 type GatewayConfig struct {
 	Port int    `json:"port"`
-	Bind string `json:"bind"` // "localhost" | "lan" | "0.0.0.0"
+	Bind string `json:"bind"`
 }
 
 type AgentsConfig struct {
-	Dir string `json:"dir"` // root directory for all agents
+	Dir string `json:"dir"`
 }
 
-type ModelsConfig struct {
-	Primary   string            `json:"primary"`   // e.g. "anthropic/claude-sonnet-4-6"
-	APIKeys   map[string]string `json:"apiKeys"`   // provider -> key
-	Fallbacks []string          `json:"fallbacks"` // fallback models
+// ModelEntry — one configured LLM provider/model
+type ModelEntry struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Provider  string `json:"provider"` // "anthropic" | "openai" | "deepseek"
+	Model     string `json:"model"`    // "claude-sonnet-4-6"
+	APIKey    string `json:"apiKey"`
+	IsDefault bool   `json:"isDefault"`
+	Status    string `json:"status"` // "ok" | "error" | "untested"
 }
 
-type ChannelsConfig struct {
-	Telegram *TelegramConfig `json:"telegram,omitempty"`
+// ChannelEntry — one messaging channel
+type ChannelEntry struct {
+	ID      string            `json:"id"`
+	Name    string            `json:"name"`
+	Type    string            `json:"type"` // "telegram" | "imessage" | "whatsapp"
+	Config  map[string]string `json:"config"`
+	Enabled bool              `json:"enabled"`
+	Status  string            `json:"status"`
 }
 
-type TelegramConfig struct {
-	Enabled      bool    `json:"enabled"`
-	BotToken     string  `json:"botToken"`
-	DefaultAgent string  `json:"defaultAgent,omitempty"` // agent to route messages to
-	AllowedFrom  []int64 `json:"allowedFrom,omitempty"`  // allowed sender IDs
+// ToolEntry — one capability/tool API key
+type ToolEntry struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Type    string `json:"type"` // "brave_search" | "elevenlabs" | "custom"
+	APIKey  string `json:"apiKey"`
+	BaseURL string `json:"baseUrl,omitempty"`
+	Enabled bool   `json:"enabled"`
+	Status  string `json:"status"`
+}
+
+// SkillEntry — an installed skill
+type SkillEntry struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Version     string `json:"version"`
+	Path        string `json:"path"`
+	Enabled     bool   `json:"enabled"`
+}
+
+// AgentConfig is the on-disk config.json per agent. References global entries by ID.
+type AgentConfig struct {
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Description string   `json:"description,omitempty"`
+	ModelID     string   `json:"modelId"`
+	ChannelIDs  []string `json:"channelIds,omitempty"`
+	ToolIDs     []string `json:"toolIds,omitempty"`
+	SkillIDs    []string `json:"skillIds,omitempty"`
+	AvatarColor string   `json:"avatarColor,omitempty"`
 }
 
 type AuthConfig struct {
-	Mode  string `json:"mode"`  // "token"
-	Token string `json:"token"` // panel login token
+	Mode  string `json:"mode"`
+	Token string `json:"token"`
 }
 
-// Load reads aipanel.json from disk.
+// --- Legacy compat types (for migration) ---
+
+type legacyConfig struct {
+	Gateway  GatewayConfig       `json:"gateway"`
+	Agents   AgentsConfig        `json:"agents"`
+	Models   json.RawMessage     `json:"models"`
+	Channels json.RawMessage     `json:"channels"`
+	Auth     AuthConfig          `json:"auth"`
+}
+
+type legacyModelsConfig struct {
+	Primary   string            `json:"primary"`
+	APIKeys   map[string]string `json:"apiKeys"`
+	Fallbacks []string          `json:"fallbacks"`
+}
+
+type legacyChannelsConfig struct {
+	Telegram *legacyTelegramConfig `json:"telegram,omitempty"`
+}
+
+type legacyTelegramConfig struct {
+	Enabled      bool    `json:"enabled"`
+	BotToken     string  `json:"botToken"`
+	DefaultAgent string  `json:"defaultAgent,omitempty"`
+	AllowedFrom  []int64 `json:"allowedFrom,omitempty"`
+}
+
+// Load reads aipanel.json from disk, auto-migrating legacy format.
 func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
+
+	// Try new format first
 	var cfg Config
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, err
 	}
+
+	// Detect legacy format: if models is an object with "primary" field
+	var raw legacyConfig
+	if err := json.Unmarshal(data, &raw); err == nil && raw.Models != nil {
+		var lm legacyModelsConfig
+		if json.Unmarshal(raw.Models, &lm) == nil && lm.Primary != "" {
+			// Migrate legacy → new
+			cfg = migrateFromLegacy(raw, lm)
+			// Save migrated config
+			_ = Save(path, &cfg)
+		}
+	}
+
 	return &cfg, nil
+}
+
+func migrateFromLegacy(raw legacyConfig, lm legacyModelsConfig) Config {
+	cfg := Config{
+		Gateway: raw.Gateway,
+		Agents:  raw.Agents,
+		Auth:    raw.Auth,
+		Models:  []ModelEntry{},
+		Channels: []ChannelEntry{},
+		Tools:   []ToolEntry{},
+		Skills:  []SkillEntry{},
+	}
+
+	// Migrate models
+	for provider, key := range lm.APIKeys {
+		model := ""
+		name := ""
+		id := ""
+		switch provider {
+		case "anthropic":
+			model = "claude-sonnet-4-6"
+			name = "Claude Sonnet 4"
+			id = "anthropic-sonnet-4"
+		case "openai":
+			model = "gpt-4o"
+			name = "GPT-4o"
+			id = "openai-gpt4o"
+		case "deepseek":
+			model = "deepseek-chat"
+			name = "DeepSeek V3"
+			id = "deepseek-v3"
+		default:
+			id = provider
+			name = provider
+			model = provider
+		}
+		entry := ModelEntry{
+			ID:       id,
+			Name:     name,
+			Provider: provider,
+			Model:    model,
+			APIKey:   key,
+			IsDefault: lm.Primary != "" && (provider+"/"+model == lm.Primary || (provider == "anthropic" && lm.Primary == "anthropic/claude-sonnet-4-6")),
+			Status:   "untested",
+		}
+		cfg.Models = append(cfg.Models, entry)
+	}
+
+	// Migrate telegram channel
+	if raw.Channels != nil {
+		var lc legacyChannelsConfig
+		if json.Unmarshal(raw.Channels, &lc) == nil && lc.Telegram != nil {
+			t := lc.Telegram
+			chConfig := map[string]string{
+				"botToken": t.BotToken,
+			}
+			if t.DefaultAgent != "" {
+				chConfig["defaultAgent"] = t.DefaultAgent
+			}
+			cfg.Channels = append(cfg.Channels, ChannelEntry{
+				ID:      "telegram-main",
+				Name:    "Telegram Bot",
+				Type:    "telegram",
+				Config:  chConfig,
+				Enabled: t.Enabled,
+				Status:  "untested",
+			})
+		}
+	}
+
+	return cfg
 }
 
 // Save writes config back to disk.
@@ -71,9 +224,41 @@ func Save(path string, cfg *Config) error {
 // Default returns sensible defaults for first run.
 func Default() *Config {
 	return &Config{
-		Gateway: GatewayConfig{Port: 8080, Bind: "lan"},
-		Agents:  AgentsConfig{Dir: "./agents"},
-		Models:  ModelsConfig{Primary: "anthropic/claude-sonnet-4-6"},
-		Auth:    AuthConfig{Mode: "token", Token: "changeme"},
+		Gateway:  GatewayConfig{Port: 8080, Bind: "lan"},
+		Agents:   AgentsConfig{Dir: "./agents"},
+		Models:   []ModelEntry{},
+		Channels: []ChannelEntry{},
+		Tools:    []ToolEntry{},
+		Skills:   []SkillEntry{},
+		Auth:     AuthConfig{Mode: "token", Token: "changeme"},
 	}
+}
+
+// FindModel returns the model entry by ID.
+func (c *Config) FindModel(id string) *ModelEntry {
+	for i := range c.Models {
+		if c.Models[i].ID == id {
+			return &c.Models[i]
+		}
+	}
+	return nil
+}
+
+// DefaultModel returns the first model marked as default, or the first model.
+func (c *Config) DefaultModel() *ModelEntry {
+	for i := range c.Models {
+		if c.Models[i].IsDefault {
+			return &c.Models[i]
+		}
+	}
+	if len(c.Models) > 0 {
+		return &c.Models[0]
+	}
+	return nil
+}
+
+// ModelProviderKey returns the provider and API key for the given model entry.
+// This is used by the chat/runner system to construct the LLM client.
+func (m *ModelEntry) ProviderModel() string {
+	return m.Provider + "/" + m.Model
 }

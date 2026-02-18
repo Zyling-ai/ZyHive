@@ -1,5 +1,4 @@
 // Config handler — read/write aipanel.json via API.
-// Reference: openclaw/src/gateway/server-runtime-config.ts
 package api
 
 import (
@@ -33,19 +32,35 @@ func maskKey(key string) string {
 func (h *configHandler) Get(c *gin.Context) {
 	safe := *h.cfg
 	safe.Auth.Token = "***"
-	// Mask API keys
-	if safe.Models.APIKeys != nil {
-		masked := make(map[string]string, len(safe.Models.APIKeys))
-		for k, v := range safe.Models.APIKeys {
-			masked[k] = maskKey(v)
+	// Mask model API keys
+	maskedModels := make([]config.ModelEntry, len(safe.Models))
+	copy(maskedModels, safe.Models)
+	for i := range maskedModels {
+		maskedModels[i].APIKey = maskKey(maskedModels[i].APIKey)
+	}
+	safe.Models = maskedModels
+	// Mask channel secrets
+	maskedChannels := make([]config.ChannelEntry, len(safe.Channels))
+	copy(maskedChannels, safe.Channels)
+	for i := range maskedChannels {
+		mc := make(map[string]string)
+		for k, v := range maskedChannels[i].Config {
+			if strings.Contains(strings.ToLower(k), "token") || strings.Contains(strings.ToLower(k), "key") {
+				mc[k] = maskKey(v)
+			} else {
+				mc[k] = v
+			}
 		}
-		safe.Models.APIKeys = masked
+		maskedChannels[i].Config = mc
 	}
-	if safe.Channels.Telegram != nil {
-		t := *safe.Channels.Telegram
-		t.BotToken = maskKey(t.BotToken)
-		safe.Channels.Telegram = &t
+	safe.Channels = maskedChannels
+	// Mask tool API keys
+	maskedTools := make([]config.ToolEntry, len(safe.Tools))
+	copy(maskedTools, safe.Tools)
+	for i := range maskedTools {
+		maskedTools[i].APIKey = maskKey(maskedTools[i].APIKey)
 	}
+	safe.Tools = maskedTools
 	c.JSON(http.StatusOK, safe)
 }
 
@@ -57,7 +72,6 @@ func (h *configHandler) Patch(c *gin.Context) {
 		return
 	}
 
-	// Marshal current config, merge patch fields, unmarshal back
 	current, _ := json.Marshal(h.cfg)
 	var currentMap map[string]json.RawMessage
 	json.Unmarshal(current, &currentMap)
@@ -73,12 +87,10 @@ func (h *configHandler) Patch(c *gin.Context) {
 		return
 	}
 
-	// Preserve auth token if not explicitly changed
 	if _, hasAuth := patch["auth"]; !hasAuth {
 		updated.Auth = h.cfg.Auth
 	}
 
-	// Save to disk
 	path := h.configPath
 	if path == "" {
 		path = "aipanel.json"
@@ -87,15 +99,11 @@ func (h *configHandler) Patch(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "save config: " + err.Error()})
 		return
 	}
-
-	// Update in-memory config
 	*h.cfg = updated
-
-	// Return masked version
 	h.Get(c)
 }
 
-// TestKey POST /api/config/test-key — validate an API key by making a real API call.
+// TestKey POST /api/config/test-key — validate an API key.
 func (h *configHandler) TestKey(c *gin.Context) {
 	var req struct {
 		Provider string `json:"provider" binding:"required"`
@@ -128,7 +136,6 @@ func (h *configHandler) TestKey(c *gin.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
-// testAnthropicKey sends a minimal message to verify the key.
 func testAnthropicKey(key string) (bool, string) {
 	payload := map[string]any{
 		"model":      "claude-sonnet-4-20250514",
@@ -155,7 +162,6 @@ func testAnthropicKey(key string) (bool, string) {
 	return false, fmt.Sprintf("status %d: %s", resp.StatusCode, string(respBody))
 }
 
-// testOpenAIKey lists models to verify the key.
 func testOpenAIKey(key string) (bool, string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -174,7 +180,6 @@ func testOpenAIKey(key string) (bool, string) {
 	return false, fmt.Sprintf("status %d: %s", resp.StatusCode, string(respBody))
 }
 
-// testDeepSeekKey uses OpenAI-compatible endpoint.
 func testDeepSeekKey(key string) (bool, string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()

@@ -1,5 +1,4 @@
 // Agent CRUD handlers.
-// Reference: openclaw/src/gateway/server-chat.ts, agent-paths.ts
 package api
 
 import (
@@ -17,25 +16,36 @@ type agentHandler struct {
 
 // AgentInfo is the JSON shape returned to the frontend.
 type AgentInfo struct {
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	Description  string `json:"description,omitempty"`
-	Model        string `json:"model"`
-	Status       string `json:"status"` // "running" | "stopped" | "idle"
-	WorkspaceDir string `json:"workspaceDir"`
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Description string   `json:"description,omitempty"`
+	Model       string   `json:"model"`
+	ModelID     string   `json:"modelId,omitempty"`
+	ChannelIDs  []string `json:"channelIds,omitempty"`
+	ToolIDs     []string `json:"toolIds,omitempty"`
+	SkillIDs    []string `json:"skillIds,omitempty"`
+	AvatarColor string   `json:"avatarColor,omitempty"`
+	Status      string   `json:"status"`
+	WorkspaceDir string  `json:"workspaceDir"`
 }
 
 func agentToInfo(a *agent.Agent) AgentInfo {
 	return AgentInfo{
 		ID:           a.ID,
 		Name:         a.Name,
+		Description:  a.Description,
 		Model:        a.Model,
+		ModelID:      a.ModelID,
+		ChannelIDs:   a.ChannelIDs,
+		ToolIDs:      a.ToolIDs,
+		SkillIDs:     a.SkillIDs,
+		AvatarColor:  a.AvatarColor,
 		Status:       a.Status,
 		WorkspaceDir: a.WorkspaceDir,
 	}
 }
 
-// List GET /api/agents — returns all agents from the manager.
+// List GET /api/agents
 func (h *agentHandler) List(c *gin.Context) {
 	agents := h.manager.List()
 	result := make([]AgentInfo, 0, len(agents))
@@ -45,21 +55,49 @@ func (h *agentHandler) List(c *gin.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
-// Create POST /api/agents — creates a new agent with directory structure.
+// Create POST /api/agents — supports both legacy and new format
 func (h *agentHandler) Create(c *gin.Context) {
 	var req struct {
-		ID    string `json:"id" binding:"required"`
-		Name  string `json:"name" binding:"required"`
-		Model string `json:"model"`
+		ID          string   `json:"id" binding:"required"`
+		Name        string   `json:"name" binding:"required"`
+		Description string   `json:"description"`
+		Model       string   `json:"model"`
+		ModelID     string   `json:"modelId"`
+		ChannelIDs  []string `json:"channelIds"`
+		ToolIDs     []string `json:"toolIds"`
+		SkillIDs    []string `json:"skillIds"`
+		AvatarColor string   `json:"avatarColor"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if req.Model == "" {
-		req.Model = h.cfg.Models.Primary
+
+	// Resolve model: prefer modelId, fall back to model string, then default
+	model := req.Model
+	modelID := req.ModelID
+	if modelID != "" {
+		if m := h.cfg.FindModel(modelID); m != nil {
+			model = m.ProviderModel()
+		}
+	} else if model == "" {
+		if m := h.cfg.DefaultModel(); m != nil {
+			model = m.ProviderModel()
+			modelID = m.ID
+		}
 	}
-	a, err := h.manager.Create(req.ID, req.Name, req.Model)
+
+	a, err := h.manager.CreateWithOpts(agent.CreateOpts{
+		ID:          req.ID,
+		Name:        req.Name,
+		Description: req.Description,
+		Model:       model,
+		ModelID:     modelID,
+		ChannelIDs:  req.ChannelIDs,
+		ToolIDs:     req.ToolIDs,
+		SkillIDs:    req.SkillIDs,
+		AvatarColor: req.AvatarColor,
+	})
 	if err != nil {
 		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 		return
@@ -67,7 +105,7 @@ func (h *agentHandler) Create(c *gin.Context) {
 	c.JSON(http.StatusCreated, agentToInfo(a))
 }
 
-// Get GET /api/agents/:id — returns a single agent's details.
+// Get GET /api/agents/:id
 func (h *agentHandler) Get(c *gin.Context) {
 	id := c.Param("id")
 	a, ok := h.manager.Get(id)
@@ -80,24 +118,20 @@ func (h *agentHandler) Get(c *gin.Context) {
 
 // Update PATCH /api/agents/:id
 func (h *agentHandler) Update(c *gin.Context) {
-	// TODO: update agent config.json and/or IDENTITY.md / SOUL.md
 	c.JSON(http.StatusNotImplemented, gin.H{"message": "TODO: Phase 2"})
 }
 
 // Delete DELETE /api/agents/:id
 func (h *agentHandler) Delete(c *gin.Context) {
-	// TODO: stop agent if running, then remove directory
 	c.JSON(http.StatusNotImplemented, gin.H{"message": "TODO: Phase 2"})
 }
 
 // Start POST /api/agents/:id/start
 func (h *agentHandler) Start(c *gin.Context) {
-	// TODO: launch agent runner goroutine
 	c.JSON(http.StatusNotImplemented, gin.H{"message": "TODO: Phase 2"})
 }
 
 // Stop POST /api/agents/:id/stop
 func (h *agentHandler) Stop(c *gin.Context) {
-	// TODO: signal agent runner to stop
 	c.JSON(http.StatusNotImplemented, gin.H{"message": "TODO: Phase 2"})
 }

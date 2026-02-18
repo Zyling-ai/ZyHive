@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/agent"
@@ -46,23 +45,29 @@ func (h *chatHandler) Chat(c *gin.Context) {
 		return
 	}
 
-	// Resolve API key: extract provider from model name (e.g. "anthropic/claude-...")
-	model := ag.Model
-	if model == "" {
-		model = h.cfg.Models.Primary
+	// Resolve model from global registry
+	var modelEntry *config.ModelEntry
+	if ag.ModelID != "" {
+		modelEntry = h.cfg.FindModel(ag.ModelID)
 	}
-	provider := "anthropic"
-	if parts := strings.SplitN(model, "/", 2); len(parts) == 2 {
-		provider = parts[0]
+	if modelEntry == nil && ag.Model != "" {
+		// Legacy compat: try matching by provider/model string
+		for i := range h.cfg.Models {
+			if h.cfg.Models[i].ProviderModel() == ag.Model {
+				modelEntry = &h.cfg.Models[i]
+				break
+			}
+		}
 	}
-	apiKey := ""
-	if h.cfg.Models.APIKeys != nil {
-		apiKey = h.cfg.Models.APIKeys[provider]
+	if modelEntry == nil {
+		modelEntry = h.cfg.DefaultModel()
 	}
-	if apiKey == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "no API key configured for provider: " + provider})
+	if modelEntry == nil || modelEntry.APIKey == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "no model/API key configured"})
 		return
 	}
+	model := modelEntry.ProviderModel()
+	apiKey := modelEntry.APIKey
 
 	// Create runner dependencies
 	llmClient := llm.NewAnthropicClient()

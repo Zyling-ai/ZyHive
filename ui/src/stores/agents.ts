@@ -18,8 +18,8 @@ export const useAgentsStore = defineStore('agents', () => {
     }
   }
 
-  async function createAgent(id: string, name: string, model: string) {
-    const res = await agentsApi.create({ id, name, model })
+  async function createAgent(data: Partial<AgentInfo> & { id: string; name: string }) {
+    const res = await agentsApi.create(data)
     list.value.push(res.data)
     return res.data
   }

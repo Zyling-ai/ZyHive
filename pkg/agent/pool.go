@@ -31,6 +31,30 @@ func NewPool(cfg *config.Config, mgr *Manager) *Pool {
 	}
 }
 
+// resolveModel finds the model entry for an agent, falling back to default.
+func (p *Pool) resolveModel(ag *Agent) (*config.ModelEntry, error) {
+	// Agent may store a modelId reference
+	if ag.ModelID != "" {
+		if m := p.cfg.FindModel(ag.ModelID); m != nil {
+			return m, nil
+		}
+	}
+	// Try to match by provider/model string (legacy compat)
+	if ag.Model != "" {
+		for i := range p.cfg.Models {
+			pm := p.cfg.Models[i].ProviderModel()
+			if pm == ag.Model || p.cfg.Models[i].Provider+"/"+p.cfg.Models[i].Model == ag.Model {
+				return &p.cfg.Models[i], nil
+			}
+		}
+	}
+	// Fall back to default model
+	if m := p.cfg.DefaultModel(); m != nil {
+		return m, nil
+	}
+	return nil, fmt.Errorf("no model configured")
+}
+
 // Run executes a message against the specified agent and returns the full
 // response text (collects all text_delta events).
 func (p *Pool) Run(ctx context.Context, agentID, message string) (string, error) {
@@ -39,21 +63,15 @@ func (p *Pool) Run(ctx context.Context, agentID, message string) (string, error)
 		return "", fmt.Errorf("agent %q not found", agentID)
 	}
 
-	// Resolve API key
-	model := ag.Model
-	if model == "" {
-		model = p.cfg.Models.Primary
+	modelEntry, err := p.resolveModel(ag)
+	if err != nil {
+		return "", err
 	}
-	provider := "anthropic"
-	if parts := strings.SplitN(model, "/", 2); len(parts) == 2 {
-		provider = parts[0]
-	}
-	apiKey := ""
-	if p.cfg.Models.APIKeys != nil {
-		apiKey = p.cfg.Models.APIKeys[provider]
-	}
+
+	model := modelEntry.ProviderModel()
+	apiKey := modelEntry.APIKey
 	if apiKey == "" {
-		return "", fmt.Errorf("no API key configured for provider: %s", provider)
+		return "", fmt.Errorf("no API key configured for model: %s", model)
 	}
 
 	// Create a fresh runner for this invocation

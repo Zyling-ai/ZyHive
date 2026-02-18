@@ -47,11 +47,15 @@ func main() {
 
 	// Create default "main" agent on first startup if no agents exist
 	if len(mgr.List()) == 0 {
-		model := cfg.Models.Primary
-		if model == "" {
-			model = "anthropic/claude-sonnet-4-6"
+		defaultModel := "anthropic/claude-sonnet-4-6"
+		defaultModelID := ""
+		if m := cfg.DefaultModel(); m != nil {
+			defaultModel = m.ProviderModel()
+			defaultModelID = m.ID
 		}
-		if _, err := mgr.Create("main", "主助手", model); err != nil {
+		if _, err := mgr.CreateWithOpts(agent.CreateOpts{
+			ID: "main", Name: "主助手", Model: defaultModel, ModelID: defaultModelID,
+		}); err != nil {
 			log.Printf("Warning: failed to create default agent: %v", err)
 		} else {
 			log.Println("Created default agent: main (主助手)")
@@ -80,19 +84,22 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	if cfg.Channels.Telegram != nil && cfg.Channels.Telegram.Enabled && cfg.Channels.Telegram.BotToken != "" {
-		defaultAgent := cfg.Channels.Telegram.DefaultAgent
-		if defaultAgent == "" {
-			defaultAgent = "main"
+	// Start Telegram bots from channel registry
+	for _, ch := range cfg.Channels {
+		if ch.Type == "telegram" && ch.Enabled && ch.Config["botToken"] != "" {
+			defaultAgent := ch.Config["defaultAgent"]
+			if defaultAgent == "" {
+				defaultAgent = "main"
+			}
+			bot := channel.NewTelegramBot(
+				ch.Config["botToken"],
+				defaultAgent,
+				nil, // allowedFrom parsed separately if needed
+				runnerFunc,
+			)
+			go bot.Start(ctx)
+			log.Printf("Telegram bot started: %s", ch.Name)
 		}
-		bot := channel.NewTelegramBot(
-			cfg.Channels.Telegram.BotToken,
-			defaultAgent,
-			cfg.Channels.Telegram.AllowedFrom,
-			runnerFunc,
-		)
-		go bot.Start(ctx)
-		log.Println("Telegram bot started")
 	}
 
 	// Try to get embedded UI filesystem

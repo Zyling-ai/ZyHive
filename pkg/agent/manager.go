@@ -20,19 +20,31 @@ import (
 
 // Agent represents a single AI agent (employee) managed by the panel.
 type Agent struct {
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	Model        string `json:"model"`
-	WorkspaceDir string `json:"workspaceDir"`
-	SessionDir   string `json:"sessionDir"`
-	Status       string `json:"status"` // "running" | "stopped" | "idle"
+	ID           string   `json:"id"`
+	Name         string   `json:"name"`
+	Description  string   `json:"description,omitempty"`
+	Model        string   `json:"model"`          // legacy: "provider/model"
+	ModelID      string   `json:"modelId"`         // references Config.Models[].ID
+	ChannelIDs   []string `json:"channelIds,omitempty"`
+	ToolIDs      []string `json:"toolIds,omitempty"`
+	SkillIDs     []string `json:"skillIds,omitempty"`
+	AvatarColor  string   `json:"avatarColor,omitempty"`
+	WorkspaceDir string   `json:"workspaceDir"`
+	SessionDir   string   `json:"sessionDir"`
+	Status       string   `json:"status"` // "running" | "stopped" | "idle"
 }
 
 // agentConfig is the on-disk config.json format for each agent.
 type agentConfig struct {
-	ID    string `json:"id"`
-	Name  string `json:"name"`
-	Model string `json:"model"`
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Description string   `json:"description,omitempty"`
+	Model       string   `json:"model,omitempty"`   // legacy compat
+	ModelID     string   `json:"modelId,omitempty"`
+	ChannelIDs  []string `json:"channelIds,omitempty"`
+	ToolIDs     []string `json:"toolIds,omitempty"`
+	SkillIDs    []string `json:"skillIds,omitempty"`
+	AvatarColor string   `json:"avatarColor,omitempty"`
 }
 
 // Manager manages all agents under a root directory.
@@ -93,7 +105,13 @@ func (m *Manager) LoadAll() error {
 		m.agents[cfg.ID] = &Agent{
 			ID:           cfg.ID,
 			Name:         cfg.Name,
+			Description:  cfg.Description,
 			Model:        cfg.Model,
+			ModelID:      cfg.ModelID,
+			ChannelIDs:   cfg.ChannelIDs,
+			ToolIDs:      cfg.ToolIDs,
+			SkillIDs:     cfg.SkillIDs,
+			AvatarColor:  cfg.AvatarColor,
 			WorkspaceDir: wsDir,
 			SessionDir:   filepath.Join(agentDir, "sessions"),
 			Status:       "idle",
@@ -135,15 +153,32 @@ func (m *Manager) List() []*Agent {
 //	{rootDir}/{id}/config.json
 //	{rootDir}/{id}/workspace/  (with IDENTITY.md, SOUL.md, MEMORY.md, memory/)
 //	{rootDir}/{id}/sessions/
+// CreateOpts holds the options for creating a new agent.
+type CreateOpts struct {
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Description string   `json:"description,omitempty"`
+	Model       string   `json:"model,omitempty"`   // legacy: "provider/model"
+	ModelID     string   `json:"modelId,omitempty"`
+	ChannelIDs  []string `json:"channelIds,omitempty"`
+	ToolIDs     []string `json:"toolIds,omitempty"`
+	SkillIDs    []string `json:"skillIds,omitempty"`
+	AvatarColor string   `json:"avatarColor,omitempty"`
+}
+
 func (m *Manager) Create(id, name, model string) (*Agent, error) {
+	return m.CreateWithOpts(CreateOpts{ID: id, Name: name, Model: model})
+}
+
+func (m *Manager) CreateWithOpts(opts CreateOpts) (*Agent, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if _, exists := m.agents[id]; exists {
-		return nil, fmt.Errorf("agent %q already exists", id)
+	if _, exists := m.agents[opts.ID]; exists {
+		return nil, fmt.Errorf("agent %q already exists", opts.ID)
 	}
 
-	agentDir := filepath.Join(m.rootDir, id)
+	agentDir := filepath.Join(m.rootDir, opts.ID)
 	workspaceDir := filepath.Join(agentDir, "workspace")
 	sessionDir := filepath.Join(agentDir, "sessions")
 
@@ -155,7 +190,17 @@ func (m *Manager) Create(id, name, model string) (*Agent, error) {
 	}
 
 	// Write config.json
-	cfg := agentConfig{ID: id, Name: name, Model: model}
+	cfg := agentConfig{
+		ID:          opts.ID,
+		Name:        opts.Name,
+		Description: opts.Description,
+		Model:       opts.Model,
+		ModelID:     opts.ModelID,
+		ChannelIDs:  opts.ChannelIDs,
+		ToolIDs:     opts.ToolIDs,
+		SkillIDs:    opts.SkillIDs,
+		AvatarColor: opts.AvatarColor,
+	}
 	cfgData, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return nil, err
@@ -166,19 +211,25 @@ func (m *Manager) Create(id, name, model string) (*Agent, error) {
 
 	// Initialize workspace with identity files
 	role := "AI Assistant"
-	if err := InitWorkspace(workspaceDir, name, role); err != nil {
+	if err := InitWorkspace(workspaceDir, opts.Name, role); err != nil {
 		return nil, fmt.Errorf("init workspace: %w", err)
 	}
 
-	agent := &Agent{
-		ID:           id,
-		Name:         name,
-		Model:        model,
+	a := &Agent{
+		ID:           opts.ID,
+		Name:         opts.Name,
+		Description:  opts.Description,
+		Model:        opts.Model,
+		ModelID:      opts.ModelID,
+		ChannelIDs:   opts.ChannelIDs,
+		ToolIDs:      opts.ToolIDs,
+		SkillIDs:     opts.SkillIDs,
+		AvatarColor:  opts.AvatarColor,
 		WorkspaceDir: workspaceDir,
 		SessionDir:   sessionDir,
 		Status:       "idle",
 	}
-	m.agents[id] = agent
+	m.agents[opts.ID] = a
 
-	return agent, nil
+	return a, nil
 }

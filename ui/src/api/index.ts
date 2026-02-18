@@ -19,13 +19,58 @@ api.interceptors.response.use(
   }
 )
 
+// ── Types ────────────────────────────────────────────────────────────────
+
 export interface AgentInfo {
   id: string
   name: string
   description?: string
   model: string
+  modelId?: string
+  channelIds?: string[]
+  toolIds?: string[]
+  skillIds?: string[]
+  avatarColor?: string
   status: string
   workspaceDir: string
+}
+
+export interface ModelEntry {
+  id: string
+  name: string
+  provider: string
+  model: string
+  apiKey: string
+  isDefault: boolean
+  status: string // "ok" | "error" | "untested"
+}
+
+export interface ChannelEntry {
+  id: string
+  name: string
+  type: string
+  config: Record<string, string>
+  enabled: boolean
+  status: string
+}
+
+export interface ToolEntry {
+  id: string
+  name: string
+  type: string
+  apiKey: string
+  baseUrl?: string
+  enabled: boolean
+  status: string
+}
+
+export interface SkillEntry {
+  id: string
+  name: string
+  description: string
+  version: string
+  path: string
+  enabled: boolean
 }
 
 export interface FileEntry {
@@ -51,10 +96,42 @@ export interface CronJob {
   }
 }
 
+// ── API Calls ────────────────────────────────────────────────────────────
+
 export const agents = {
   list: () => api.get<AgentInfo[]>('/agents'),
   get: (id: string) => api.get<AgentInfo>(`/agents/${id}`),
-  create: (data: { id: string; name: string; model: string }) => api.post<AgentInfo>('/agents', data),
+  create: (data: Partial<AgentInfo> & { id: string; name: string }) => api.post<AgentInfo>('/agents', data),
+}
+
+export const models = {
+  list: () => api.get<ModelEntry[]>('/models'),
+  create: (data: Partial<ModelEntry>) => api.post<ModelEntry>('/models', data),
+  update: (id: string, data: Partial<ModelEntry>) => api.patch<ModelEntry>(`/models/${id}`, data),
+  delete: (id: string) => api.delete(`/models/${id}`),
+  test: (id: string) => api.post<{ valid: boolean; error?: string }>(`/models/${id}/test`),
+}
+
+export const channels = {
+  list: () => api.get<ChannelEntry[]>('/channels'),
+  create: (data: Partial<ChannelEntry>) => api.post<ChannelEntry>('/channels', data),
+  update: (id: string, data: Partial<ChannelEntry>) => api.patch<ChannelEntry>(`/channels/${id}`, data),
+  delete: (id: string) => api.delete(`/channels/${id}`),
+  test: (id: string) => api.post<{ valid: boolean }>(`/channels/${id}/test`),
+}
+
+export const tools = {
+  list: () => api.get<ToolEntry[]>('/tools'),
+  create: (data: Partial<ToolEntry>) => api.post<ToolEntry>('/tools', data),
+  update: (id: string, data: Partial<ToolEntry>) => api.patch<ToolEntry>(`/tools/${id}`, data),
+  delete: (id: string) => api.delete(`/tools/${id}`),
+  test: (id: string) => api.post<{ valid: boolean }>(`/tools/${id}/test`),
+}
+
+export const skills = {
+  list: () => api.get<SkillEntry[]>('/skills'),
+  install: (data: Partial<SkillEntry>) => api.post<SkillEntry>('/skills/install', data),
+  delete: (id: string) => api.delete(`/skills/${id}`),
 }
 
 export const files = {
@@ -88,11 +165,11 @@ export const cron = {
   runs: (jobId: string) => api.get(`/cron/${jobId}/runs`),
 }
 
-// SSE chat helper — uses fetch + ReadableStream for auth header support
+// SSE chat helper
 export function chatSSE(agentId: string, message: string, onEvent: (ev: any) => void): AbortController {
   const ctrl = new AbortController()
   const token = localStorage.getItem('aipanel_token')
-  
+
   fetch(`/api/agents/${agentId}/chat`, {
     method: 'POST',
     headers: {
@@ -112,25 +189,19 @@ export function chatSSE(agentId: string, message: string, onEvent: (ev: any) => 
       }
       return
     }
-
     const reader = res.body?.getReader()
     if (!reader) return
     const decoder = new TextDecoder()
     let buffer = ''
-    
     while (true) {
       const { done, value } = await reader.read()
       if (done) {
-        // If we didn't get a 'done' event, send one
         onEvent({ type: 'done' })
         break
       }
       buffer += decoder.decode(value, { stream: true })
-      
-      // Parse newline-delimited SSE: data: {...}\n\n
       const parts = buffer.split('\n')
       buffer = parts.pop() || ''
-      
       for (const line of parts) {
         const trimmed = line.trim()
         if (trimmed.startsWith('data: ')) {
@@ -147,7 +218,6 @@ export function chatSSE(agentId: string, message: string, onEvent: (ev: any) => 
       onEvent({ type: 'error', error: err.message || 'Network error' })
     }
   })
-  
   return ctrl
 }
 

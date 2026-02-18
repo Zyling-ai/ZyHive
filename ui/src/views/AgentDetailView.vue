@@ -2,7 +2,7 @@
   <el-container class="agent-detail">
     <el-header class="detail-header">
       <div class="header-left">
-        <el-button :icon="ArrowLeft" @click="$router.push('/')" circle />
+        <el-button :icon="ArrowLeft" @click="$router.push('/agents')" circle />
         <h2>{{ agent?.name || '...' }}</h2>
         <el-tag :type="statusType(agent?.status)">{{ statusLabel(agent?.status) }}</el-tag>
       </div>
