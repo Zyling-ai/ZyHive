@@ -115,6 +115,18 @@ func (h *modelHandler) Delete(c *gin.Context) {
 	c.JSON(http.StatusNotFound, gin.H{"error": "model not found"})
 }
 
+// resolveKey returns the effective API key for a model:
+// uses the stored key if non-empty, otherwise falls back to the env var for that provider.
+func resolveKey(m *config.ModelEntry) string {
+	if m.APIKey != "" && !ismasked(m.APIKey) {
+		return m.APIKey
+	}
+	if envVar, ok := envVarForProvider[m.Provider]; ok {
+		return os.Getenv(envVar)
+	}
+	return ""
+}
+
 // Test POST /api/models/:id/test
 func (h *modelHandler) Test(c *gin.Context) {
 	id := c.Param("id")
@@ -123,15 +135,23 @@ func (h *modelHandler) Test(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "model not found"})
 		return
 	}
+	key := resolveKey(m)
+	if key == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"valid": false,
+			"error": fmt.Sprintf("未配置 API Key（也未找到 %s 环境变量）", envVarForProvider[m.Provider]),
+		})
+		return
+	}
 	var valid bool
 	var errMsg string
 	switch m.Provider {
 	case "anthropic":
-		valid, errMsg = testAnthropicKey(m.APIKey)
+		valid, errMsg = testAnthropicKey(key)
 	case "openai":
-		valid, errMsg = testOpenAIKey(m.APIKey)
+		valid, errMsg = testOpenAIKey(key)
 	case "deepseek":
-		valid, errMsg = testDeepSeekKey(m.APIKey)
+		valid, errMsg = testDeepSeekKey(key)
 	default:
 		c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported provider"})
 		return
