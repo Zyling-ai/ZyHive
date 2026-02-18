@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -148,12 +149,65 @@ func (h *modelHandler) Test(c *gin.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
-// FetchModels GET /api/models/probe?baseUrl=...&apiKey=...
+// EnvKeys GET /api/models/env-keys
+// Returns API keys found in environment variables, masked for display.
+func (h *modelHandler) EnvKeys(c *gin.Context) {
+	type EnvKey struct {
+		Provider string `json:"provider"`
+		EnvVar   string `json:"envVar"`
+		Masked   string `json:"masked"`
+		BaseURL  string `json:"baseUrl,omitempty"`
+	}
+
+	checks := []struct {
+		provider string
+		envVar   string
+		baseURL  string
+	}{
+		{"anthropic", "ANTHROPIC_API_KEY", "https://api.anthropic.com"},
+		{"openai", "OPENAI_API_KEY", "https://api.openai.com"},
+		{"deepseek", "DEEPSEEK_API_KEY", "https://api.deepseek.com"},
+		{"openrouter", "OPENROUTER_API_KEY", "https://openrouter.ai/api"},
+	}
+
+	found := []EnvKey{}
+	for _, ch := range checks {
+		val := os.Getenv(ch.envVar)
+		if val != "" {
+			found = append(found, EnvKey{
+				Provider: ch.provider,
+				EnvVar:   ch.envVar,
+				Masked:   maskKey(val),
+				BaseURL:  ch.baseURL,
+			})
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"envKeys": found})
+}
+
+// envVarForProvider returns the env var name for a given provider.
+var envVarForProvider = map[string]string{
+	"anthropic":  "ANTHROPIC_API_KEY",
+	"openai":     "OPENAI_API_KEY",
+	"deepseek":   "DEEPSEEK_API_KEY",
+	"openrouter": "OPENROUTER_API_KEY",
+}
+
+// FetchModels GET /api/models/probe?baseUrl=...&apiKey=...&provider=...
 // Proxies to {baseUrl}/v1/models and returns a unified model list.
-// OpenRouter public endpoint works without apiKey.
+// If apiKey is empty, falls back to environment variable for the given provider.
+// OpenRouter public endpoint works without any apiKey.
 func (h *modelHandler) FetchModels(c *gin.Context) {
 	baseURL := strings.TrimRight(c.Query("baseUrl"), "/")
 	apiKey := c.Query("apiKey")
+	provider := c.Query("provider")
+
+	// Fallback to env var if no key provided
+	if apiKey == "" && provider != "" {
+		if envVar, ok := envVarForProvider[provider]; ok {
+			apiKey = os.Getenv(envVar)
+		}
+	}
 
 	if baseURL == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "baseUrl is required"})
