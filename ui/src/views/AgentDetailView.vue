@@ -11,15 +11,58 @@
 
     <el-main>
       <el-tabs v-model="activeTab" type="border-card">
-        <!-- Tab 1: Chat -->
+        <!-- Tab 1: Chat with session sidebar -->
         <el-tab-pane label="对话" name="chat">
-          <AiChat
-            :agent-id="agentId"
-            :scenario="'agent-detail'"
-            :welcome-message="`你好！我是 **${agent?.name || 'AI'}**，有什么可以帮你的？`"
-            height="calc(100vh - 140px)"
-            :show-thinking="true"
-          />
+          <div class="chat-layout">
+            <!-- Session History Sidebar -->
+            <div class="session-sidebar">
+              <div class="session-sidebar-header">
+                <span class="sidebar-title">历史对话</span>
+                <el-button size="small" type="primary" plain @click="newSession" :icon="Plus">新建</el-button>
+              </div>
+
+              <div class="session-list" v-loading="sessionsLoading">
+                <div
+                  v-for="s in agentSessions"
+                  :key="s.id"
+                  :class="['session-item', { active: activeSessionId === s.id }]"
+                  @click="resumeSession(s)"
+                >
+                  <div class="session-item-title">{{ s.title || '新对话' }}</div>
+                  <div class="session-item-meta">
+                    <span>{{ formatRelative(s.lastAt) }}</span>
+                    <el-tag size="small" type="info" effect="plain" style="font-size: 10px; padding: 0 4px">
+                      {{ s.messageCount }} 条
+                    </el-tag>
+                    <el-tag
+                      v-if="s.tokenEstimate > 60000"
+                      size="small"
+                      type="warning"
+                      effect="plain"
+                      style="font-size: 10px; padding: 0 4px"
+                    >~{{ Math.round(s.tokenEstimate / 1000) }}k</el-tag>
+                  </div>
+                </div>
+
+                <div v-if="!sessionsLoading && !agentSessions.length" class="session-empty">
+                  还没有对话记录
+                </div>
+              </div>
+            </div>
+
+            <!-- Chat Area -->
+            <div class="chat-area">
+              <AiChat
+                ref="aiChatRef"
+                :agent-id="agentId"
+                :scenario="'agent-detail'"
+                :welcome-message="`你好！我是 **${agent?.name || 'AI'}**，有什么可以帮你的？`"
+                height="calc(100vh - 145px)"
+                :show-thinking="true"
+                @session-change="onSessionChange"
+              />
+            </div>
+          </div>
         </el-tab-pane>
 
         <!-- Tab 2: Identity & Soul -->
@@ -252,13 +295,53 @@ import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ArrowLeft, Plus, EditPen, Refresh, FolderOpened, Document } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
-import { agents as agentsApi, files as filesApi, memoryApi, cron as cronApi, type AgentInfo, type FileEntry, type CronJob } from '../api'
+import { agents as agentsApi, files as filesApi, memoryApi, cron as cronApi, sessions as sessionsApi, type AgentInfo, type FileEntry, type CronJob, type SessionSummary } from '../api'
 import AiChat from '../components/AiChat.vue'
 
 const route = useRoute()
 const agentId = route.params.id as string
 const agent = ref<AgentInfo | null>(null)
 const activeTab = ref('chat')
+
+// ── Session sidebar ────────────────────────────────────────────────────────
+const aiChatRef = ref<InstanceType<typeof AiChat>>()
+const agentSessions = ref<SessionSummary[]>([])
+const sessionsLoading = ref(false)
+const activeSessionId = ref<string | undefined>()
+
+async function loadAgentSessions() {
+  sessionsLoading.value = true
+  try {
+    const res = await sessionsApi.list({ agentId, limit: 50 })
+    agentSessions.value = res.data.sessions
+  } catch {}
+  finally { sessionsLoading.value = false }
+}
+
+function resumeSession(s: SessionSummary) {
+  activeSessionId.value = s.id
+  aiChatRef.value?.resumeSession(s.id)
+}
+
+function newSession() {
+  activeSessionId.value = undefined
+  aiChatRef.value?.startNewSession()
+}
+
+function onSessionChange(sessionId: string) {
+  activeSessionId.value = sessionId
+  // Refresh session list to show new entry
+  setTimeout(loadAgentSessions, 500)
+}
+
+function formatRelative(ms: number): string {
+  if (!ms) return ''
+  const diff = Date.now() - ms
+  if (diff < 60_000) return '刚刚'
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}分前`
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}小时前`
+  return `${Math.floor(diff / 86_400_000)}天前`
+}
 
 // Identity/Soul
 const identityContent = ref('')
@@ -317,6 +400,7 @@ onMounted(async () => {
   loadIdentityFiles()
   loadWorkspace()
   loadCron()
+  loadAgentSessions()
 })
 
 // Identity files
@@ -603,5 +687,91 @@ async function deleteCron(job: any) {
 }
 .memory-card:hover {
   border-color: #409EFF;
+}
+
+/* Chat + Session sidebar layout */
+.chat-layout {
+  display: flex;
+  gap: 0;
+  height: calc(100vh - 145px);
+  overflow: hidden;
+}
+
+.session-sidebar {
+  width: 220px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid #e4e7ed;
+  background: #fafafa;
+  overflow: hidden;
+}
+
+.session-sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid #e4e7ed;
+  flex-shrink: 0;
+}
+
+.sidebar-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #303133;
+}
+
+.session-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 4px;
+}
+
+.session-item {
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  margin-bottom: 2px;
+  transition: background 0.15s;
+}
+
+.session-item:hover {
+  background: #f0f2f5;
+}
+
+.session-item.active {
+  background: #ecf5ff;
+  border-left: 3px solid #409eff;
+}
+
+.session-item-title {
+  font-size: 13px;
+  color: #303133;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.4;
+  margin-bottom: 4px;
+}
+
+.session-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: #909399;
+}
+
+.session-empty {
+  text-align: center;
+  color: #c0c4cc;
+  font-size: 12px;
+  padding: 20px 0;
+}
+
+.chat-area {
+  flex: 1;
+  overflow: hidden;
 }
 </style>

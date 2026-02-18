@@ -179,6 +179,7 @@ export const cron = {
 
 // ChatParams are optional extra parameters passed through to the model.
 export interface ChatParams {
+  sessionId?: string // resume existing session; if set, server loads history, no need to send history[]
   context?: string   // extra system context (scenario background, page state)
   scenario?: string  // label e.g. "agent-creation", "general"
   images?: string[]  // base64 data URIs
