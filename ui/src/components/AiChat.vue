@@ -66,19 +66,17 @@
               <div v-if="msg.text" class="msg-text" v-html="renderMd(msg.text)" />
 
               <!-- Apply card（给 agent-creation 页用） -->
-              <template v-if="props.applyable">
-                <div v-if="resolveApplyData(msg)" class="apply-card">
-                  <div class="apply-preview">
-                    <div v-for="(val, key) in resolveApplyData(msg)" :key="key" class="apply-row">
-                      <span class="apply-key">{{ key }}</span>
-                      <span class="apply-val">{{ String(val).slice(0, 60) }}{{ String(val).length > 60 ? '…' : '' }}</span>
-                    </div>
+              <div v-if="msg.applyData && props.applyable" class="apply-card">
+                <div class="apply-preview">
+                  <div v-for="(val, key) in msg.applyData" :key="key" class="apply-row">
+                    <span class="apply-key">{{ key }}</span>
+                    <span class="apply-val">{{ String(val).slice(0, 60) }}{{ String(val).length > 60 ? '…' : '' }}</span>
                   </div>
-                  <button class="apply-btn" @click="$emit('apply', resolveApplyData(msg)!)">
-                    应用到表单 ↙
-                  </button>
                 </div>
-              </template>
+                <button class="apply-btn" @click="$emit('apply', msg.applyData!)">
+                  应用到表单 ↙
+                </button>
+              </div>
 
               <!-- 操作栏 -->
               <div class="msg-actions">
@@ -86,6 +84,13 @@
                   {{ copied === i ? '✓' : '⎘' }}
                 </button>
                 <button class="act-btn" @click="retryMsg(i)" title="重试">↺</button>
+                <!-- 手动触发：当自动解析失败时可手动点 -->
+                <button v-if="props.applyable && !msg.applyData && hasJsonBlock(msg.text)"
+                  class="act-btn apply-manual-btn"
+                  @click="manualApply(msg)"
+                  title="检测到配置 JSON，点击应用">
+                  ⚙ 应用配置
+                </button>
               </div>
             </div>
           </div>
@@ -338,11 +343,24 @@ function renderMd(text: string): string {
  * from the message text using multiple fallback strategies.
  * Returns null if nothing parseable found, or if not applyable mode.
  */
-function resolveApplyData(msg: ChatMsg): Record<string, string> | null {
-  if (msg.role !== 'assistant') return null
-  if (msg.applyData) return msg.applyData
-  if (!props.applyable || !msg.text) return null
-  return tryExtractJson(msg.text)
+/** 判断文本中是否含有 JSON 块（快速检测，不解析） */
+function hasJsonBlock(text?: string): boolean {
+  if (!text) return false
+  return /\{[\s\S]{30,}\}/.test(text) &&
+    (text.includes('"name"') || text.includes('"identity"') ||
+     text.includes('"soul"') || text.includes('"IDENTITY"') || text.includes('"SOUL"'))
+}
+
+/** 用户手动触发解析并 emit apply */
+function manualApply(msg: ChatMsg) {
+  const data = tryExtractJson(msg.text)
+  console.log('[AiChat] manualApply result:', data)
+  if (data) {
+    msg.applyData = data   // 缓存到消息，让卡片出现
+    nextTick(() => emit('apply', data))
+  } else {
+    alert('未能从消息中提取到配置 JSON，请手动复制')
+  }
 }
 
 function tryExtractJson(text: string): Record<string, string> | null {
@@ -513,12 +531,12 @@ function runChat(text: string, imgs: string[]) {
         cur.thinking = streamThinking.value || undefined
 
         if (props.applyable) {
-          const m = streamText.value.match(/```json\s*([\s\S]+?)\s*```/)
-          if (m) {
-            try {
-              cur.applyData = JSON.parse(m[1] as string)
-              cur.text = streamText.value.replace(/```json[\s\S]+?```/, '').trim()
-            } catch { /* ignore */ }
+          const extracted = tryExtractJson(streamText.value)
+          if (extracted) {
+            cur.applyData = extracted
+            console.log('[AiChat] applyData extracted:', extracted)
+          } else {
+            console.log('[AiChat] no applyData found in text length:', streamText.value.length)
           }
         }
 
@@ -766,6 +784,7 @@ onMounted(() => {
   transition: all .15s;
 }
 .act-btn:hover { background: #f0f2f5; color: #303133; }
+.apply-manual-btn { color: #409eff !important; border-color: #b3d8ff !important; font-weight: 500; }
 
 /* ── Images in user msg ── */
 .msg-images { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
