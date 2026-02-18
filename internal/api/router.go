@@ -102,6 +102,16 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager, cronE
 		skillsGroup.DELETE("/:id", skillH.Delete)
 	}
 
+	// Global Sessions (conversation management across all agents)
+	sessH := &globalSessionsHandler{cfg: cfg, manager: mgr}
+	globalSess := v1.Group("/sessions")
+	{
+		globalSess.GET("", sessH.List)
+		globalSess.GET("/:agentId/:sid", sessH.Get)
+		globalSess.DELETE("/:agentId/:sid", sessH.Delete)
+		globalSess.PATCH("/:agentId/:sid", sessH.Patch)
+	}
+
 	// Cron jobs
 	cronH := &cronHandler{engine: cronEngine}
 	cronGroup := v1.Group("/cron")
