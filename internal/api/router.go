@@ -4,16 +4,25 @@ package api
 
 import (
 	"io/fs"
+	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/agent"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/config"
+	"github.com/sunhuihui6688-star/ai-panel/pkg/cron"
 )
 
 // RegisterRoutes mounts all API handlers onto the Gin engine.
-func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager, uiFS fs.FS) {
+func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager, cronEngine *cron.Engine, uiFS fs.FS) {
+	// ── CORS middleware (allow all origins in dev mode) ────────────────────
+	r.Use(corsMiddleware())
+
+	// ── Request logging ───────────────────────────────────────────────────
+	r.Use(requestLogger())
+
 	// ── API routes ────────────────────────────────────────────────────────
 	v1 := r.Group("/api")
 	v1.Use(authMiddleware(cfg.Auth.Token))
@@ -44,15 +53,15 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager, uiFS 
 	agents.DELETE("/:id/files/*path", fileH.Delete)
 
 	// Cron jobs
-	cronH := &cronHandler{cfg: cfg, manager: mgr}
-	cron := v1.Group("/cron")
+	cronH := &cronHandler{engine: cronEngine}
+	cronGroup := v1.Group("/cron")
 	{
-		cron.GET("", cronH.List)
-		cron.POST("", cronH.Create)
-		cron.PATCH("/:jobId", cronH.Update)
-		cron.DELETE("/:jobId", cronH.Delete)
-		cron.POST("/:jobId/run", cronH.Run)
-		cron.GET("/:jobId/runs", cronH.Runs)
+		cronGroup.GET("", cronH.List)
+		cronGroup.POST("", cronH.Create)
+		cronGroup.PATCH("/:jobId", cronH.Update)
+		cronGroup.DELETE("/:jobId", cronH.Delete)
+		cronGroup.POST("/:jobId/run", cronH.Run)
+		cronGroup.GET("/:jobId/runs", cronH.Runs)
 	}
 
 	// Config
@@ -75,16 +84,13 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager, uiFS 
 		fileServer := http.FileServer(http.FS(uiFS))
 		r.NoRoute(func(c *gin.Context) {
 			path := c.Request.URL.Path
-			// Try to serve the exact file
 			if !strings.HasPrefix(path, "/api") && !strings.HasPrefix(path, "/ws") {
-				// Check if file exists in the embedded FS
 				f, err := uiFS.Open(strings.TrimPrefix(path, "/"))
 				if err == nil {
 					f.Close()
 					fileServer.ServeHTTP(c.Writer, c.Request)
 					return
 				}
-				// Fallback to index.html for client-side routing
 				c.Request.URL.Path = "/"
 				fileServer.ServeHTTP(c.Writer, c.Request)
 				return
@@ -93,8 +99,33 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager, uiFS 
 		})
 	} else {
 		r.GET("/", func(c *gin.Context) {
-			c.JSON(http.StatusOK, gin.H{"status": "ok", "version": "0.2.0", "message": "AI Company Panel — build UI with: cd ui && npm run build"})
+			c.JSON(http.StatusOK, gin.H{"status": "ok", "version": "0.3.0", "message": "AI Company Panel — build UI with: cd ui && npm run build"})
 		})
+	}
+}
+
+// corsMiddleware allows all origins (for dev mode).
+func corsMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Header("Access-Control-Allow-Origin", "*")
+		c.Header("Access-Control-Allow-Headers", "Authorization, Content-Type")
+		c.Header("Access-Control-Allow-Methods", "GET, POST, PATCH, PUT, DELETE, OPTIONS")
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(204)
+			return
+		}
+		c.Next()
+	}
+}
+
+// requestLogger logs each request method + path + status + duration.
+func requestLogger() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		start := time.Now()
+		c.Next()
+		latency := time.Since(start)
+		status := c.Writer.Status()
+		log.Printf("[api] %s %s → %d (%s)", c.Request.Method, c.Request.URL.Path, status, latency.Round(time.Millisecond))
 	}
 }
 

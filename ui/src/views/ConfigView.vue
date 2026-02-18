@@ -57,12 +57,37 @@
         <!-- Channels -->
         <el-tab-pane label="消息通道">
           <el-card header="Telegram Bot">
-            <el-form label-width="120px">
+            <el-form label-width="140px">
               <el-form-item label="启用">
                 <el-switch v-model="telegram.enabled" />
               </el-form-item>
               <el-form-item label="Bot Token">
                 <el-input v-model="telegram.botToken" type="password" show-password style="max-width: 400px" />
+              </el-form-item>
+              <el-form-item label="默认 Agent">
+                <el-input v-model="telegram.defaultAgent" placeholder="main" style="max-width: 200px" />
+              </el-form-item>
+              <el-form-item label="允许的发送者 ID">
+                <el-input
+                  v-model="telegram.allowedFromStr"
+                  placeholder="逗号分隔，如 123456,789012（留空允许所有人）"
+                  style="max-width: 400px"
+                />
+                <el-text type="info" size="small" style="display: block; margin-top: 4px">
+                  Telegram 用户 ID，用于限制谁可以与 Bot 对话
+                </el-text>
+              </el-form-item>
+              <el-form-item>
+                <el-button
+                  @click="testTelegram"
+                  :loading="telegramTesting"
+                  :disabled="!telegram.botToken || telegram.botToken.endsWith('***')"
+                >
+                  测试连接
+                </el-button>
+                <el-tag v-if="telegramTestResult !== null" :type="telegramTestResult ? 'success' : 'danger'" style="margin-left: 8px">
+                  {{ telegramTestResult ? '连接成功' : '连接失败' }}
+                </el-tag>
               </el-form-item>
             </el-form>
           </el-card>
@@ -86,7 +111,14 @@ import { config as configApi } from '../api'
 
 const primaryModel = ref('anthropic/claude-sonnet-4-6')
 const saving = ref(false)
-const telegram = reactive({ enabled: false, botToken: '' })
+const telegram = reactive({
+  enabled: false,
+  botToken: '',
+  defaultAgent: 'main',
+  allowedFromStr: '',
+})
+const telegramTesting = ref(false)
+const telegramTestResult = ref<boolean | null>(null)
 
 interface ProviderRow {
   id: string; name: string; key: string;
@@ -111,6 +143,10 @@ onMounted(async () => {
     if (cfg.channels?.telegram) {
       telegram.enabled = cfg.channels.telegram.enabled
       telegram.botToken = cfg.channels.telegram.botToken || ''
+      telegram.defaultAgent = cfg.channels.telegram.defaultAgent || 'main'
+      if (cfg.channels.telegram.allowedFrom) {
+        telegram.allowedFromStr = cfg.channels.telegram.allowedFrom.join(',')
+      }
     }
   } catch {}
 })
@@ -136,6 +172,28 @@ async function testKey(row: ProviderRow) {
   }
 }
 
+async function testTelegram() {
+  telegramTesting.value = true
+  telegramTestResult.value = null
+  try {
+    // Test by calling Telegram getMe API directly
+    const token = telegram.botToken
+    const resp = await fetch(`https://api.telegram.org/bot${token}/getMe`)
+    const data = await resp.json()
+    telegramTestResult.value = data.ok === true
+    if (data.ok) {
+      ElMessage.success(`Bot: @${data.result.username}`)
+    } else {
+      ElMessage.error(`连接失败: ${data.description}`)
+    }
+  } catch {
+    telegramTestResult.value = false
+    ElMessage.error('连接失败')
+  } finally {
+    telegramTesting.value = false
+  }
+}
+
 async function saveConfig() {
   saving.value = true
   try {
@@ -143,9 +201,25 @@ async function saveConfig() {
     for (const p of providers.value) {
       if (p.key && !p.key.endsWith('***')) apiKeys[p.id] = p.key
     }
+
+    // Parse allowed sender IDs
+    const allowedFrom: number[] = telegram.allowedFromStr
+      .split(',')
+      .map(s => s.trim())
+      .filter(s => s.length > 0)
+      .map(s => parseInt(s, 10))
+      .filter(n => !isNaN(n))
+
     await configApi.patch({
       models: { primary: primaryModel.value, apiKeys },
-      channels: { telegram: { enabled: telegram.enabled, botToken: telegram.botToken } },
+      channels: {
+        telegram: {
+          enabled: telegram.enabled,
+          botToken: telegram.botToken,
+          defaultAgent: telegram.defaultAgent,
+          allowedFrom,
+        },
+      },
     })
     ElMessage.success('配置已保存')
   } catch (e: any) {

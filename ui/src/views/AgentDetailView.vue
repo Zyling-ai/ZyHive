@@ -31,9 +31,19 @@
                   <div v-else class="msg-text" v-html="renderMarkdown(msg.text)"></div>
                 </div>
               </div>
-              <div v-if="streaming" class="chat-msg assistant">
+              <!-- Typing indicator -->
+              <div v-if="streaming && !streamText" class="chat-msg assistant">
                 <div class="msg-bubble">
-                  <div class="msg-text">{{ streamText }}<span class="cursor">▊</span></div>
+                  <div class="typing-indicator">
+                    <span></span><span></span><span></span>
+                  </div>
+                </div>
+              </div>
+              <!-- Streaming text -->
+              <div v-if="streaming && streamText" class="chat-msg assistant">
+                <div class="msg-bubble">
+                  <div class="msg-text" v-html="renderMarkdown(streamText)"></div>
+                  <span class="cursor">▊</span>
                 </div>
               </div>
             </div>
@@ -42,7 +52,7 @@
                 v-model="chatInput"
                 type="textarea"
                 :rows="2"
-                placeholder="输入消息..."
+                placeholder="输入消息... (Ctrl+Enter 发送)"
                 @keydown.enter.ctrl="sendMessage"
               />
               <el-button type="primary" @click="sendMessage" :loading="streaming" style="margin-top: 8px">
@@ -84,21 +94,43 @@
             <el-input
               v-model="memoryContent"
               type="textarea"
-              :rows="15"
+              :rows="10"
               @blur="saveFile('MEMORY.md', memoryContent)"
             />
           </el-card>
-          <el-card header="记忆文件" style="margin-top: 16px">
+          <el-card header="每日记忆文件" style="margin-top: 16px">
             <div v-if="memoryFiles.length === 0">
               <el-empty description="暂无记忆文件" :image-size="60" />
             </div>
-            <el-tag
-              v-for="f in memoryFiles"
-              :key="f.name"
-              style="margin: 4px; cursor: pointer"
-              @click="openMemoryFile(f.name)"
-            >{{ f.name }}</el-tag>
+            <el-timeline v-else>
+              <el-timeline-item
+                v-for="f in memoryFiles"
+                :key="f.name"
+                :timestamp="f.date || f.name"
+                placement="top"
+              >
+                <el-card shadow="hover" class="memory-card" @click="openMemoryFile(f.name)">
+                  <div style="display: flex; justify-content: space-between; align-items: center">
+                    <span>{{ f.name }}</span>
+                    <el-text type="info" size="small">{{ formatSize(f.size) }}</el-text>
+                  </div>
+                </el-card>
+              </el-timeline-item>
+            </el-timeline>
           </el-card>
+
+          <!-- Memory file editor dialog -->
+          <el-dialog v-model="showMemoryEditor" :title="editingMemoryFile" width="700px">
+            <el-input
+              v-model="editingMemoryContent"
+              type="textarea"
+              :rows="20"
+            />
+            <template #footer>
+              <el-button @click="showMemoryEditor = false">取消</el-button>
+              <el-button type="primary" @click="saveMemoryFile">保存</el-button>
+            </template>
+          </el-dialog>
         </el-tab-pane>
 
         <!-- Tab 4: Workspace -->
@@ -144,6 +176,19 @@
             <el-table-column prop="name" label="名称" />
             <el-table-column label="调度">
               <template #default="{ row }">{{ row.schedule?.expr }} ({{ row.schedule?.tz }})</template>
+            </el-table-column>
+            <el-table-column label="最近运行" width="180">
+              <template #default="{ row }">
+                <template v-if="row.state?.lastRunAtMs">
+                  <el-tag :type="row.state?.lastStatus === 'ok' ? 'success' : 'danger'" size="small">
+                    {{ row.state?.lastStatus }}
+                  </el-tag>
+                  <el-text type="info" size="small" style="margin-left: 4px">
+                    {{ formatTimestamp(row.state?.lastRunAtMs) }}
+                  </el-text>
+                </template>
+                <el-text v-else type="info" size="small">未运行</el-text>
+              </template>
             </el-table-column>
             <el-table-column label="启用" width="80">
               <template #default="{ row }">
@@ -193,7 +238,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, nextTick } from 'vue'
+import { ref, onMounted, nextTick, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ArrowLeft } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
@@ -216,7 +261,12 @@ const chatMessagesRef = ref<HTMLElement>()
 const identityContent = ref('')
 const soulContent = ref('')
 const memoryContent = ref('')
-const memoryFiles = ref<FileEntry[]>([])
+const memoryFiles = ref<any[]>([])
+
+// Memory editor
+const showMemoryEditor = ref(false)
+const editingMemoryFile = ref('')
+const editingMemoryContent = ref('')
 
 // Workspace
 const fileTreeData = ref<any[]>([])
@@ -236,7 +286,6 @@ function statusLabel(s?: string) {
   return s === 'running' ? '运行中' : s === 'stopped' ? '已停止' : '空闲'
 }
 function renderMarkdown(text: string) {
-  // Simple markdown: bold, code, newlines
   return (text || '')
     .replace(/&/g, '&amp;').replace(/</g, '&lt;')
     .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
@@ -244,12 +293,17 @@ function renderMarkdown(text: string) {
     .replace(/\n/g, '<br>')
 }
 function formatSize(bytes: number) {
+  if (!bytes) return '0 B'
   if (bytes < 1024) return bytes + ' B'
   if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB'
   return (bytes / 1048576).toFixed(1) + ' MB'
 }
 function formatTime(t: string) {
   return new Date(t).toLocaleString()
+}
+function formatTimestamp(ms: number) {
+  if (!ms) return ''
+  return new Date(ms).toLocaleString()
 }
 
 // Load agent
@@ -265,7 +319,10 @@ onMounted(async () => {
   loadCron()
 })
 
-// Chat
+// Auto-scroll chat when streaming
+watch(streamText, () => scrollChat())
+
+// Chat — uses fetch + ReadableStream for SSE (supports auth headers)
 async function sendMessage() {
   const msg = chatInput.value.trim()
   if (!msg || streaming.value) return
@@ -281,11 +338,15 @@ async function sendMessage() {
   chatSSE(agentId, msg, (ev) => {
     if (ev.type === 'text_delta') {
       streamText.value += ev.text
-      scrollChat()
     } else if (ev.type === 'tool_call') {
+      // Show tool call as collapsed card
+      if (streamText.value) {
+        chatMessages.value.push({ role: 'assistant', text: streamText.value })
+        streamText.value = ''
+      }
       chatMessages.value.push({ role: 'tool', text: '', toolName: ev.tool_call?.name || 'tool' })
+      scrollChat()
     } else if (ev.type === 'tool_result') {
-      // Update last tool message
       const last = chatMessages.value[chatMessages.value.length - 1]
       if (last?.role === 'tool') last.text = ev.text
     } else if (ev.type === 'done') {
@@ -294,6 +355,7 @@ async function sendMessage() {
       }
       streamText.value = ''
       streaming.value = false
+      scrollChat()
     } else if (ev.type === 'error') {
       ElMessage.error(ev.error || '请求失败')
       streaming.value = false
@@ -323,7 +385,17 @@ async function loadIdentityFiles() {
   // Load memory files
   try {
     const res = await filesApi.read(agentId, 'memory')
-    if (Array.isArray(res.data)) memoryFiles.value = res.data
+    if (Array.isArray(res.data)) {
+      memoryFiles.value = res.data
+        .filter((f: FileEntry) => !f.isDir)
+        .sort((a: any, b: any) => new Date(b.modTime).getTime() - new Date(a.modTime).getTime())
+        .map((f: FileEntry) => ({
+          name: f.name,
+          date: f.name.replace('.md', ''),
+          size: f.size,
+          modTime: f.modTime,
+        }))
+    }
   } catch {}
 }
 
@@ -337,12 +409,25 @@ async function saveFile(name: string, content: string) {
 }
 
 async function openMemoryFile(name: string) {
-  currentFile.value = `memory/${name}`
+  editingMemoryFile.value = name
   try {
     const res = await filesApi.read(agentId, `memory/${name}`)
-    currentFileContent.value = res.data?.content || ''
-    activeTab.value = 'workspace'
-  } catch {}
+    editingMemoryContent.value = res.data?.content || ''
+    showMemoryEditor.value = true
+  } catch {
+    ElMessage.error('读取文件失败')
+  }
+}
+
+async function saveMemoryFile() {
+  try {
+    await filesApi.write(agentId, `memory/${editingMemoryFile.value}`, editingMemoryContent.value)
+    ElMessage.success('记忆文件已保存')
+    showMemoryEditor.value = false
+    loadIdentityFiles()
+  } catch {
+    ElMessage.error('保存失败')
+  }
 }
 
 // Workspace
@@ -382,7 +467,7 @@ async function saveCurrentFile() {
 async function loadCron() {
   try {
     const res = await cronApi.list()
-    cronJobs.value = res.data
+    cronJobs.value = res.data || []
   } catch {}
 }
 
@@ -392,9 +477,9 @@ async function createCron() {
       name: cronForm.value.name,
       enabled: cronForm.value.enabled,
       schedule: { kind: 'cron', expr: cronForm.value.expr, tz: cronForm.value.tz },
-      payload: { kind: 'agentTurn', message: cronForm.value.message, agentId },
+      payload: { kind: 'agentTurn', message: cronForm.value.message },
       delivery: { mode: 'announce' },
-    })
+    } as any)
     ElMessage.success('任务创建成功')
     showCronCreate.value = false
     loadCron()
@@ -403,7 +488,7 @@ async function createCron() {
   }
 }
 
-async function toggleCron(job: CronJob) {
+async function toggleCron(job: any) {
   try {
     await cronApi.update(job.id, job)
   } catch {
@@ -411,16 +496,17 @@ async function toggleCron(job: CronJob) {
   }
 }
 
-async function runCronNow(job: CronJob) {
+async function runCronNow(job: any) {
   try {
     await cronApi.run(job.id)
     ElMessage.success('已触发运行')
+    setTimeout(loadCron, 2000)
   } catch {
     ElMessage.error('运行失败')
   }
 }
 
-async function deleteCron(job: CronJob) {
+async function deleteCron(job: any) {
   try {
     await cronApi.delete(job.id)
     ElMessage.success('已删除')
@@ -499,8 +585,29 @@ async function deleteCron(job: CronJob) {
 }
 .tool-block { font-size: 13px; }
 .tool-result { white-space: pre-wrap; font-size: 12px; max-height: 200px; overflow-y: auto; }
-.cursor { animation: blink 1s infinite; }
+.cursor { animation: blink 1s infinite; color: #409EFF; }
 @keyframes blink { 0%,100% { opacity: 1 } 50% { opacity: 0 } }
+
+/* Typing indicator */
+.typing-indicator {
+  display: flex;
+  gap: 4px;
+  padding: 4px 0;
+}
+.typing-indicator span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #909399;
+  animation: typing 1.4s infinite;
+}
+.typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+.typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes typing {
+  0%, 100% { opacity: 0.3; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
 .chat-input {
   padding: 12px 0 0;
 }
@@ -509,5 +616,13 @@ async function deleteCron(job: CronJob) {
   padding: 2px 4px;
   border-radius: 3px;
   font-size: 13px;
+}
+
+/* Memory timeline */
+.memory-card {
+  cursor: pointer;
+}
+.memory-card:hover {
+  border-color: #409EFF;
 }
 </style>
