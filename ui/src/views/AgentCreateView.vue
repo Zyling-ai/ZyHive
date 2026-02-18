@@ -193,7 +193,7 @@ import { ref, computed, onMounted, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { ArrowLeft, Plus, Close } from '@element-plus/icons-vue'
-import { agents as agentsApi, models, channels, tools, skills, type AgentInfo, type ModelEntry, type ChannelEntry, type ToolEntry, type SkillEntry } from '../api'
+import { agents as agentsApi, files as filesApi, models, channels, tools, skills, type AgentInfo, type ModelEntry, type ChannelEntry, type ToolEntry, type SkillEntry } from '../api'
 import AiChat from '../components/AiChat.vue'
 
 const router = useRouter()
@@ -267,10 +267,22 @@ async function save() {
   if (!form.id.trim()) { ElMessage.warning('请填写 ID'); return }
   saving.value = true
   try {
+    // 1. 创建 Agent 基本信息
     await agentsApi.create({
       ...form,
       model: form.modelId || '',
     })
+
+    // 2. 写入 IDENTITY.md / SOUL.md（如果有内容）
+    const writes: Promise<any>[] = []
+    if (form.identity.trim()) {
+      writes.push(filesApi.write(form.id, 'IDENTITY.md', form.identity))
+    }
+    if (form.soul.trim()) {
+      writes.push(filesApi.write(form.id, 'SOUL.md', form.soul))
+    }
+    if (writes.length) await Promise.all(writes)
+
     ElMessage.success('Agent 创建成功！')
     router.push(`/agents/${form.id}`)
   } catch (e: any) {
