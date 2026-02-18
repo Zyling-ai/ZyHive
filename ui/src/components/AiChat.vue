@@ -1,313 +1,404 @@
-<!--
-  AiChat — 统一 AI 对话组件
-  支持：流式输出 · 多模态输入(图片粘贴/拖拽/上传) · 思考过程展开 · 工具调用展示 · 多尺寸自适应
-  调用方通过 props 传入 agentId + context/scenario 完成定制
--->
 <template>
-  <div class="ai-chat" :class="{ compact, 'has-thinking': showThinking }" :style="{ height }">
+  <div class="ai-chat" :class="{ compact, 'has-bg': bgColor }" :style="rootStyle">
 
-    <!-- ─── 消息列表 ─── -->
-    <div class="chat-messages" ref="messagesRef">
-      <!-- 欢迎语 -->
-      <div v-if="!messages.length && welcomeMessage" class="welcome-msg">
-        <div class="welcome-icon">🤖</div>
-        <div class="welcome-text" v-html="renderMd(welcomeMessage)" />
-      </div>
-
-      <!-- 示例 chips（仅无消息时且有 examples 时） -->
-      <div v-if="!messages.length && examples.length" class="examples-wrap">
-        <div v-for="ex in examples" :key="ex" class="example-chip" @click="fillInput(ex)">
-          {{ ex }}
+    <!-- ── 消息列表 ── -->
+    <div class="chat-messages" ref="msgListRef">
+      <!-- 欢迎语 / 空状态 -->
+      <div v-if="!messages.length" class="chat-empty">
+        <div v-if="welcomeMessage" class="welcome-msg">{{ welcomeMessage }}</div>
+        <div v-if="examples.length" class="examples">
+          <div v-for="(ex, i) in examples" :key="i"
+            class="example-chip" @click="fillInput(ex)">{{ ex }}</div>
         </div>
       </div>
 
-      <!-- 消息列表 -->
       <template v-for="(msg, i) in messages" :key="i">
+
         <!-- 用户消息 -->
         <div v-if="msg.role === 'user'" class="msg-row user">
-          <div class="msg-bubble user-bubble">
-            <!-- 附图预览 -->
+          <div class="msg-bubble user">
+            <!-- 图片附件 -->
             <div v-if="msg.images?.length" class="msg-images">
-              <img v-for="(img, ii) in msg.images" :key="ii" :src="img" class="msg-img-thumb"
-                @click="lightboxSrc = img" />
+              <img v-for="(src, j) in msg.images" :key="j" :src="src" class="msg-img" @click="previewImg(src)" />
             </div>
-            <div class="msg-text" v-html="renderMd(msg.text)" />
+            <div class="msg-text">{{ msg.text }}</div>
           </div>
         </div>
 
         <!-- AI 消息 -->
         <div v-else-if="msg.role === 'assistant'" class="msg-row assistant">
-          <div class="msg-bubble assistant-bubble">
-            <!-- 思考过程（可折叠） -->
-            <details v-if="msg.thinking" class="thinking-block" :open="false">
+          <div class="msg-col">
+            <!-- 思考过程 -->
+            <details v-if="msg.thinking" class="thinking-block" :open="showThinking">
               <summary class="thinking-summary">
                 <span class="thinking-icon">💭</span> 思考过程
-                <span class="thinking-len">{{ wordCount(msg.thinking) }} 词</span>
+                <span class="thinking-len">{{ msg.thinking.length }} 字符</span>
               </summary>
-              <div class="thinking-content" v-html="renderMd(msg.thinking)" />
+              <pre class="thinking-content">{{ msg.thinking }}</pre>
             </details>
 
-            <!-- 工具调用列表 -->
-            <div v-for="(tc, ti) in msg.toolCalls" :key="ti" class="tool-call-block">
-              <details class="tool-details">
-                <summary class="tool-summary">
-                  <span class="tool-icon">🔧</span>
-                  <span class="tool-name">{{ tc.name }}</span>
-                  <span v-if="tc.status === 'running'" class="tool-status running">运行中…</span>
-                  <span v-else-if="tc.status === 'ok'" class="tool-status ok">✓</span>
-                  <span v-else-if="tc.status === 'error'" class="tool-status error">✗</span>
-                </summary>
-                <div class="tool-body">
-                  <div v-if="tc.input" class="tool-section">
-                    <div class="tool-section-label">输入</div>
-                    <pre class="tool-pre">{{ formatJson(tc.input) }}</pre>
+            <!-- 消息气泡 -->
+            <div class="msg-bubble assistant">
+              <!-- Tool calls -->
+              <div v-for="(tc, ti) in msg.toolCalls" :key="ti" class="tool-call-block">
+                <details class="tool-details">
+                  <summary class="tool-summary">
+                    <span class="tool-icon">🔧</span>
+                    <span class="tool-name">{{ tc.name }}</span>
+                    <span v-if="tc.status === 'running'" class="tool-status running">运行中…</span>
+                    <span v-else-if="tc.status === 'done'" class="tool-status done">完成</span>
+                    <span v-else-if="tc.status === 'error'" class="tool-status error">失败</span>
+                  </summary>
+                  <div class="tool-body">
+                    <div v-if="tc.input" class="tool-section">
+                      <div class="tool-label">输入</div>
+                      <pre class="tool-pre">{{ fmtJson(tc.input) }}</pre>
+                    </div>
+                    <div v-if="tc.result" class="tool-section">
+                      <div class="tool-label">输出</div>
+                      <pre class="tool-pre result">{{ tc.result.slice(0, 800) }}{{ tc.result.length > 800 ? '\n…(截断)' : '' }}</pre>
+                    </div>
                   </div>
-                  <div v-if="tc.result" class="tool-section">
-                    <div class="tool-section-label">输出</div>
-                    <pre class="tool-pre">{{ tc.result.slice(0, 800) }}{{ tc.result.length > 800 ? '\n…（截断）' : '' }}</pre>
-                  </div>
-                </div>
-              </details>
-            </div>
-
-            <!-- 正文 -->
-            <div v-if="msg.text" class="msg-text" v-html="renderMd(msg.text)" />
-
-            <!-- 操作栏 -->
-            <div class="msg-actions">
-              <button class="action-btn" @click="copyText(msg.text)" title="复制">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-              </button>
-            </div>
-
-            <!-- Apply 卡（如果有结构化 applyData） -->
-            <div v-if="msg.applyData" class="apply-card">
-              <div class="apply-fields">
-                <div v-for="(val, key) in msg.applyData" :key="key" class="apply-row">
-                  <span class="apply-key">{{ fieldLabel(String(key)) }}</span>
-                  <span class="apply-val">{{ String(val).slice(0, 50) }}{{ String(val).length > 50 ? '…' : '' }}</span>
-                </div>
+                </details>
               </div>
-              <button class="apply-btn" @click="emit('apply', msg.applyData)">
-                应用到表单 ↙
-              </button>
+
+              <!-- 正文 -->
+              <div v-if="msg.text" class="msg-text" v-html="renderMd(msg.text)" />
+
+              <!-- Apply card（给 agent-creation 页用） -->
+              <div v-if="msg.applyData" class="apply-card">
+                <div class="apply-preview">
+                  <div v-for="(val, key) in msg.applyData" :key="key" class="apply-row">
+                    <span class="apply-key">{{ key }}</span>
+                    <span class="apply-val">{{ String(val).slice(0, 50) }}{{ String(val).length > 50 ? '…' : '' }}</span>
+                  </div>
+                </div>
+                <button class="apply-btn" @click="$emit('apply', msg.applyData)">
+                  应用到表单 ↙
+                </button>
+              </div>
+
+              <!-- 操作栏 -->
+              <div class="msg-actions">
+                <button class="act-btn" @click="copyMsg(msg.text)" :title="copied === i ? '已复制' : '复制'">
+                  {{ copied === i ? '✓' : '⎘' }}
+                </button>
+                <button class="act-btn" @click="retryMsg(i)" title="重试">↺</button>
+              </div>
             </div>
           </div>
         </div>
+
+        <!-- 系统提示 / 错误 -->
+        <div v-else-if="msg.role === 'system'" class="msg-row system">
+          <div class="msg-system">{{ msg.text }}</div>
+        </div>
+
       </template>
 
-      <!-- 流式：思考中 -->
-      <div v-if="streaming && streamThinking" class="msg-row assistant">
-        <div class="msg-bubble assistant-bubble">
-          <details class="thinking-block" open>
+      <!-- 流式占位 -->
+      <div v-if="streaming" class="msg-row assistant">
+        <div class="msg-col">
+          <!-- 流式思考 -->
+          <details v-if="streamThinking && showThinking" class="thinking-block" open>
             <summary class="thinking-summary">
               <span class="thinking-icon">💭</span> 思考中…
             </summary>
-            <div class="thinking-content streaming-thinking">{{ streamThinking }}<span class="cursor">▊</span></div>
+            <pre class="thinking-content">{{ streamThinking }}<span class="blink">▊</span></pre>
           </details>
-        </div>
-      </div>
-
-      <!-- 流式：正文 -->
-      <div v-if="streaming && (streamText || (!streamThinking && !streamText))" class="msg-row assistant">
-        <div class="msg-bubble assistant-bubble">
-          <div v-if="streamText" class="msg-text" v-html="renderMd(streamText)" />
-          <div v-else class="typing-dots"><span/><span/><span/></div>
-          <span v-if="streamText" class="cursor">▊</span>
+          <div class="msg-bubble assistant">
+            <!-- 打字指示器 or 流式文字 -->
+            <div v-if="!streamText" class="typing-dots">
+              <span /><span /><span />
+            </div>
+            <div v-else class="msg-text" v-html="renderMd(streamText)" />
+            <span v-if="streamText" class="blink">▊</span>
+          </div>
         </div>
       </div>
     </div>
 
-    <!-- ─── 图片灯箱 ─── -->
-    <div v-if="lightboxSrc" class="lightbox" @click="lightboxSrc = ''">
-      <img :src="lightboxSrc" class="lightbox-img" />
+    <!-- ── 图片预览弹窗 ── -->
+    <div v-if="previewSrc" class="img-preview-mask" @click="previewSrc = ''">
+      <img :src="previewSrc" class="img-preview-full" />
     </div>
 
-    <!-- ─── 输入区 ─── -->
-    <div class="chat-input-area" @dragover.prevent="dragOver = true" @dragleave="dragOver = false"
-      @drop.prevent="handleDrop" :class="{ 'drag-over': dragOver }">
-
-      <!-- 附图预览条 -->
-      <div v-if="pendingImages.length" class="pending-images">
-        <div v-for="(img, i) in pendingImages" :key="i" class="pending-img-wrap">
-          <img :src="img" class="pending-img" />
-          <button class="remove-img" @click="pendingImages.splice(i, 1)">×</button>
+    <!-- ── 输入区 ── -->
+    <div class="chat-input-area">
+      <!-- 图片附件预览条 -->
+      <div v-if="pendingImages.length" class="attachments-bar">
+        <div v-for="(src, i) in pendingImages" :key="i" class="attach-thumb">
+          <img :src="src" />
+          <button class="remove-attach" @click="removeImage(i)">×</button>
         </div>
       </div>
 
       <div class="input-row">
-        <!-- 附图按钮 -->
-        <button class="input-icon-btn" title="附加图片" @click="imgInput?.click()">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="3" y="3" width="18" height="18" rx="2"/>
-            <circle cx="8.5" cy="8.5" r="1.5"/>
-            <polyline points="21 15 16 10 5 21"/>
-          </svg>
-        </button>
-        <input ref="imgInput" type="file" accept="image/*" multiple style="display:none"
-          @change="handleFileSelect" />
-
-        <textarea ref="inputRef" v-model="inputText"
-          class="chat-textarea"
-          :placeholder="placeholder || '输入消息... (Ctrl+Enter 发送)'"
-          :disabled="streaming"
-          rows="1"
-          @keydown.enter.ctrl.prevent="send"
-          @paste="handlePaste"
-          @input="autoResize" />
-
-        <button class="send-btn" :disabled="streaming || (!inputText.trim() && !pendingImages.length)"
-          @click="send">
-          <svg v-if="!streaming" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-            <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
-          </svg>
-          <span v-else class="spin">⟳</span>
-        </button>
+        <div class="textarea-wrap">
+          <textarea
+            ref="inputRef"
+            v-model="inputText"
+            :placeholder="placeholder || '输入消息… (Ctrl+Enter 发送)'"
+            :disabled="streaming"
+            rows="1"
+            class="chat-textarea"
+            @keydown.enter.ctrl.prevent="send"
+            @keydown.enter.meta.prevent="send"
+            @paste="handlePaste"
+            @input="autoGrow"
+            @dragover.prevent
+            @drop.prevent="handleDrop"
+          />
+        </div>
+        <div class="input-actions">
+          <!-- 图片上传 -->
+          <label class="icon-btn" title="上传图片">
+            📎
+            <input type="file" accept="image/*" multiple hidden @change="handleFileSelect" />
+          </label>
+          <!-- 发送 -->
+          <button class="send-btn" :disabled="streaming || (!inputText.trim() && !pendingImages.length)"
+            @click="send">
+            <span v-if="streaming" class="spinner" />
+            <span v-else>↑</span>
+          </button>
+        </div>
       </div>
+
+      <div class="input-hint">Ctrl+Enter 发送 · 支持粘贴图片</div>
     </div>
+
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick, onMounted } from 'vue'
+import { ref, computed, nextTick, onMounted } from 'vue'
 import { chatSSE, type ChatParams } from '../api'
 
 // ── Props ─────────────────────────────────────────────────────────────────
-const props = withDefaults(defineProps<{
+interface Props {
   agentId: string
-  context?: string        // extra system context (injected per page)
-  scenario?: string       // label for logging
+  /** 注入到系统提示的额外上下文（页面场景、表单状态等） */
+  context?: string
+  /** 场景标签，传给后端用于日志 */
+  scenario?: string
   placeholder?: string
   welcomeMessage?: string
-  examples?: string[]     // quick-start example chips
-  showThinking?: boolean  // whether to surface thinking blocks (default: true)
-  height?: string         // CSS height, default "100%"
-  compact?: boolean       // reduces padding/font for sidepanel use
-  initialMessages?: ChatMessage[]
-}>(), {
-  showThinking: true,
-  height: '100%',
-  compact: false,
+  /** 快捷示例 chips */
+  examples?: string[]
+  /** 是否展开显示思考过程 */
+  showThinking?: boolean
+  /** 紧凑模式（用于侧边栏等窄场景） */
+  compact?: boolean
+  /** 预设背景色（可选） */
+  bgColor?: string
+  /** 组件高度（CSS 值），默认 100% */
+  height?: string
+  /** 初始消息列表 */
+  initialMessages?: ChatMsg[]
+  /** 是否允许在 apply card 上显示「应用」按钮 */
+  applyable?: boolean
+}
+
+const props = withDefaults(defineProps<Props>(), {
   examples: () => [],
+  showThinking: false,
+  compact: false,
+  applyable: false,
 })
 
 // ── Emits ─────────────────────────────────────────────────────────────────
 const emit = defineEmits<{
-  message: [text: string]
-  response: [text: string]
-  apply: [data: Record<string, string>]
-  error: [msg: string]
+  (e: 'message', text: string, images: string[]): void
+  (e: 'response', text: string): void
+  (e: 'apply', data: Record<string, string>): void
 }>()
 
 // ── Types ─────────────────────────────────────────────────────────────────
 interface ToolCallEntry {
+  id: string
   name: string
   input?: string
   result?: string
-  status: 'running' | 'ok' | 'error'
+  status: 'running' | 'done' | 'error'
 }
 
-interface ChatMessage {
-  role: 'user' | 'assistant'
+export interface ChatMsg {
+  role: 'user' | 'assistant' | 'system'
   text: string
+  images?: string[]
   thinking?: string
   toolCalls?: ToolCallEntry[]
-  images?: string[]
   applyData?: Record<string, string>
 }
 
 // ── State ─────────────────────────────────────────────────────────────────
-const messages = ref<ChatMessage[]>(props.initialMessages ? [...props.initialMessages] : [])
+const messages = ref<ChatMsg[]>(props.initialMessages ? [...props.initialMessages] : [])
 const inputText = ref('')
 const pendingImages = ref<string[]>([])
 const streaming = ref(false)
 const streamText = ref('')
 const streamThinking = ref('')
-const messagesRef = ref<HTMLElement>()
+const copied = ref<number | null>(null)
+const previewSrc = ref('')
+
+const msgListRef = ref<HTMLElement>()
 const inputRef = ref<HTMLTextAreaElement>()
-const imgInput = ref<HTMLInputElement>()
-const dragOver = ref(false)
-const lightboxSrc = ref('')
 
-// Active tool during streaming
-let streamingToolCalls: ToolCallEntry[] = []
+// ── Computed ──────────────────────────────────────────────────────────────
+const rootStyle = computed(() => ({
+  height: props.height ?? '100%',
+  '--bg': props.bgColor ?? 'transparent',
+}))
 
-// ── Input handling ────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────
+function scrollBottom() {
+  nextTick(() => {
+    if (msgListRef.value) {
+      msgListRef.value.scrollTop = msgListRef.value.scrollHeight
+    }
+  })
+}
+
+function autoGrow() {
+  if (!inputRef.value) return
+  inputRef.value.style.height = 'auto'
+  inputRef.value.style.height = Math.min(inputRef.value.scrollHeight, 160) + 'px'
+}
+
 function fillInput(text: string) {
   inputText.value = text
   nextTick(() => inputRef.value?.focus())
 }
 
-function autoResize() {
-  const el = inputRef.value
-  if (!el) return
-  el.style.height = 'auto'
-  el.style.height = Math.min(el.scrollHeight, 160) + 'px'
+function fmtJson(raw: string) {
+  try { return JSON.stringify(JSON.parse(raw), null, 2) } catch { return raw }
 }
 
-async function handlePaste(e: ClipboardEvent) {
+function copyMsg(text: string) {
+  navigator.clipboard?.writeText(text)
+  const idx = messages.value.findIndex(m => m.text === text)
+  copied.value = idx
+  setTimeout(() => { copied.value = null }, 1500)
+}
+
+function retryMsg(idx: number) {
+  for (let i = idx - 1; i >= 0; i--) {
+    const m = messages.value[i]
+    if (m && m.role === 'user') {
+      const text = m.text
+      const imgs = m.images ?? []
+      messages.value.splice(i, messages.value.length - i)
+      runChat(text, imgs)
+      return
+    }
+  }
+}
+
+function previewImg(src: string) { previewSrc.value = src }
+
+// ── Markdown renderer (lightweight) ──────────────────────────────────────
+function renderMd(text: string): string {
+  if (!text) return ''
+  let html = text
+    // Escape HTML first
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    // Code blocks (```lang\n...\n```)
+    .replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) =>
+      `<pre class="code-block${lang ? ' lang-' + lang : ''}"><code>${code}</code></pre>`)
+    // Inline code
+    .replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>')
+    // Bold
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    // Italic
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    // Links
+    .replace(/\[(.+?)\]\((https?:\/\/[^\)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+    // Headings
+    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+    .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+    // Unordered list items
+    .replace(/^[-*] (.+)$/gm, '<li>$1</li>')
+    // Ordered list items
+    .replace(/^\d+\. (.+)$/gm, '<li>$1</li>')
+    // Wrap consecutive <li> in <ul>
+    .replace(/(<li>[\s\S]+?<\/li>)(\n(?!<li>)|$)/g, '<ul>$1</ul>$2')
+    // Newlines → <br> (outside block elements)
+    .replace(/([^>])\n([^<])/g, '$1<br>$2')
+
+  return html
+}
+
+// ── Image handling ────────────────────────────────────────────────────────
+function handlePaste(e: ClipboardEvent) {
   const items = e.clipboardData?.items
   if (!items) return
   for (const item of Array.from(items)) {
     if (item.type.startsWith('image/')) {
       e.preventDefault()
       const file = item.getAsFile()
-      if (file) await addImageFile(file)
+      if (file) readImageFile(file)
     }
   }
 }
 
 function handleDrop(e: DragEvent) {
-  dragOver.value = false
   const files = e.dataTransfer?.files
   if (!files) return
-  for (const f of Array.from(files)) {
-    if (f.type.startsWith('image/')) addImageFile(f)
+  for (const file of Array.from(files)) {
+    if (file.type.startsWith('image/')) readImageFile(file)
   }
 }
 
 function handleFileSelect(e: Event) {
   const files = (e.target as HTMLInputElement).files
   if (!files) return
-  for (const f of Array.from(files)) addImageFile(f)
-  ;(e.target as HTMLInputElement).value = ''
+  for (const file of Array.from(files)) readImageFile(file)
 }
 
-function addImageFile(file: File): Promise<void> {
-  return new Promise(resolve => {
-    const reader = new FileReader()
-    reader.onload = (ev) => {
-      if (ev.target?.result) {
-        pendingImages.value.push(ev.target.result as string)
-      }
-      resolve()
-    }
-    reader.readAsDataURL(file)
-  })
+function readImageFile(file: File) {
+  const reader = new FileReader()
+  reader.onload = () => {
+    if (typeof reader.result === 'string') pendingImages.value.push(reader.result)
+  }
+  reader.readAsDataURL(file)
 }
+
+function removeImage(i: number) { pendingImages.value.splice(i, 1) }
 
 // ── Send ──────────────────────────────────────────────────────────────────
-async function send() {
-  const msg = inputText.value.trim()
-  if ((!msg && !pendingImages.value.length) || streaming.value) return
-
+function send() {
+  const text = inputText.value.trim()
   const imgs = [...pendingImages.value]
+  if (!text && !imgs.length) return
+  if (streaming.value) return
+
   inputText.value = ''
   pendingImages.value = []
-  nextTick(autoResize)
-
-  messages.value.push({
-    role: 'user',
-    text: msg,
-    images: imgs.length ? imgs : undefined,
+  nextTick(() => {
+    if (inputRef.value) { inputRef.value.style.height = 'auto' }
   })
-  emit('message', msg)
+
+  emit('message', text, imgs)
+  runChat(text, imgs)
+}
+
+function runChat(text: string, imgs: string[]) {
+  messages.value.push({ role: 'user', text, images: imgs.length ? imgs : undefined })
   scrollBottom()
 
   streaming.value = true
   streamText.value = ''
   streamThinking.value = ''
-  streamingToolCalls = []
+
+  // Current assistant message being built
+  const assistantMsg: ChatMsg = { role: 'assistant', text: '', toolCalls: [] }
+  messages.value.push(assistantMsg)
+  const msgIdx = messages.value.length - 1
+
+  // Track active tool call
+  let activeToolId = ''
 
   const params: ChatParams = {
     context: props.context,
@@ -315,140 +406,94 @@ async function send() {
     images: imgs.length ? imgs : undefined,
   }
 
-  chatSSE(props.agentId, msg, (ev) => {
-    if (ev.type === 'thinking_delta') {
-      streamThinking.value += ev.text
-      scrollBottom()
-    } else if (ev.type === 'text_delta') {
-      streamText.value += ev.text
-      scrollBottom()
-    } else if (ev.type === 'tool_call') {
-      const tc: ToolCallEntry = {
-        name: ev.tool_call?.name || 'tool',
-        input: ev.tool_call?.input ? JSON.stringify(ev.tool_call.input, null, 2) : undefined,
-        status: 'running',
-      }
-      streamingToolCalls.push(tc)
-    } else if (ev.type === 'tool_result') {
-      const last = streamingToolCalls[streamingToolCalls.length - 1]
-      if (last) { last.result = ev.text; last.status = 'ok' }
-    } else if (ev.type === 'done' || ev.type === 'error') {
-      if (ev.type === 'error') emit('error', ev.error || 'Unknown error')
+  chatSSE(props.agentId, text, (ev) => {
+    switch (ev.type) {
+      case 'thinking_delta':
+        streamThinking.value += ev.text
+        scrollBottom()
+        break
 
-      // Parse apply data from response text
-      let applyData: Record<string, string> | undefined
-      const jsonMatch = streamText.value.match(/```json\s*([\s\S]+?)\s*```/)
-      if (jsonMatch) {
-        try {
-          applyData = JSON.parse(jsonMatch[1] as string)
-          streamText.value = streamText.value.replace(/```json[\s\S]+?```/, '').trim()
-        } catch {}
+      case 'text':
+      case 'text_delta':
+        streamText.value += ev.text
+        scrollBottom()
+        break
+
+      case 'tool_call': {
+        const tc: ToolCallEntry = {
+          id: ev.tool_call?.id ?? String(Date.now()),
+          name: ev.tool_call?.name ?? 'tool',
+          input: ev.tool_call?.input ? JSON.stringify(ev.tool_call.input) : undefined,
+          status: 'running',
+        }
+        messages.value[msgIdx]!.toolCalls!.push(tc)
+        activeToolId = tc.id
+        scrollBottom()
+        break
       }
 
-      const finalMsg: ChatMessage = {
-        role: 'assistant',
-        text: streamText.value,
-        thinking: streamThinking.value || undefined,
-        toolCalls: streamingToolCalls.length ? [...streamingToolCalls] : undefined,
-        applyData,
+      case 'tool_result': {
+        const tc = messages.value[msgIdx]!.toolCalls?.find(t => t.id === activeToolId)
+        if (tc) { tc.result = ev.text; tc.status = 'done' }
+        scrollBottom()
+        break
       }
-      messages.value.push(finalMsg)
-      emit('response', streamText.value)
 
-      streamText.value = ''
-      streamThinking.value = ''
-      streaming.value = false
-      scrollBottom()
+      case 'done':
+      case 'error': {
+        const cur = messages.value[msgIdx]!
+        cur.text = streamText.value
+        cur.thinking = streamThinking.value || undefined
+
+        if (props.applyable) {
+          const m = streamText.value.match(/```json\s*([\s\S]+?)\s*```/)
+          if (m) {
+            try {
+              cur.applyData = JSON.parse(m[1] as string)
+              cur.text = streamText.value.replace(/```json[\s\S]+?```/, '').trim()
+            } catch { /* ignore */ }
+          }
+        }
+
+        if (ev.type === 'error') {
+          cur.text = `❌ ${ev.error}`
+          const tc = cur.toolCalls?.find(t => t.status === 'running')
+          if (tc) tc.status = 'error'
+        }
+
+        streaming.value = false
+        streamText.value = ''
+        streamThinking.value = ''
+        emit('response', cur.text)
+        scrollBottom()
+        break
+      }
     }
   }, params)
 }
 
-function scrollBottom() {
-  nextTick(() => {
-    if (messagesRef.value) {
-      messagesRef.value.scrollTop = messagesRef.value.scrollHeight
-    }
-  })
-}
+// ── Public API (expose for parent use) ───────────────────────────────────
+function clearMessages() { messages.value = [] }
+function appendMessage(msg: ChatMsg) { messages.value.push(msg); scrollBottom() }
+function sendText(text: string) { fillInput(text); nextTick(send) }
 
-// ── Helpers ───────────────────────────────────────────────────────────────
-function copyText(text: string) {
-  navigator.clipboard.writeText(text).catch(() => {})
-}
+defineExpose({ clearMessages, appendMessage, sendText, messages })
 
-function wordCount(text: string) {
-  return text.trim().split(/\s+/).length
-}
-
-function formatJson(raw: string) {
-  try { return JSON.stringify(JSON.parse(raw), null, 2) } catch { return raw }
-}
-
-function fieldLabel(key: string): string {
-  const map: Record<string, string> = {
-    name: '名称', id: 'ID', description: '描述',
-    identity: 'IDENTITY', soul: 'SOUL',
-  }
-  return map[key] || key
-}
-
-// ── Markdown renderer (lightweight, no extra deps) ────────────────────────
-function renderMd(text: string): string {
-  if (!text) return ''
-  let html = text
-    // code block
-    .replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => {
-      const escaped = escHtml(code.trim())
-      return `<pre class="code-block"><code class="lang-${lang || 'text'}">${escaped}</code></pre>`
-    })
-    // inline code
-    .replace(/`([^`]+)`/g, (_, c) => `<code class="inline-code">${escHtml(c)}</code>`)
-    // bold
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    // italic
-    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
-    // heading
-    .replace(/^### (.+)$/gm, '<h4>$1</h4>')
-    .replace(/^## (.+)$/gm, '<h3>$1</h3>')
-    .replace(/^# (.+)$/gm, '<h2>$1</h2>')
-    // list items
-    .replace(/^[-*] (.+)$/gm, '<li>$1</li>')
-    // newlines → <br> (outside block elements)
-    .replace(/\n/g, '<br>')
-    // wrap consecutive <li> in <ul>
-    .replace(/(<li>.*?<\/li><br>)+/g, (m) => `<ul>${m.replace(/<br>/g, '')}</ul>`)
-
-  return html
-}
-
-function escHtml(s: string) {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-}
-
-// ── Init ──────────────────────────────────────────────────────────────────
+// ── Init ─────────────────────────────────────────────────────────────────
 onMounted(() => {
   scrollBottom()
 })
-
-// expose so parent can call programmatically
-defineExpose({ send, fillInput, messages })
 </script>
 
 <style scoped>
-/* ── Layout ── */
 .ai-chat {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: #f5f7fa;
-  font-size: 14px;
+  background: var(--bg, transparent);
   container-type: inline-size;
+  font-size: 14px;
 }
-
-/* compact mode */
-.ai-chat.compact { font-size: 13px; }
-.ai-chat.compact .msg-bubble { padding: 8px 10px; }
-.ai-chat.compact .chat-input-area { padding: 8px; }
 
 /* ── Messages ── */
 .chat-messages {
@@ -457,207 +502,170 @@ defineExpose({ send, fillInput, messages })
   padding: 16px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 14px;
   scroll-behavior: smooth;
 }
-.ai-chat.compact .chat-messages { padding: 10px; gap: 8px; }
 
-.welcome-msg {
+.chat-empty {
+  margin: auto;
   text-align: center;
-  padding: 24px 16px;
-  color: #606266;
+  color: #909399;
 }
-.welcome-icon { font-size: 32px; margin-bottom: 8px; }
-.welcome-text { line-height: 1.7; }
-
-.examples-wrap {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  justify-content: center;
-  padding: 0 8px 8px;
-}
+.welcome-msg { font-size: 15px; margin-bottom: 12px; color: #606266; }
+.examples { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 8px; }
 .example-chip {
+  padding: 6px 14px;
   background: #fff;
   border: 1px solid #dcdfe6;
-  border-radius: 18px;
-  padding: 6px 14px;
+  border-radius: 16px;
   cursor: pointer;
   color: #409eff;
+  transition: all .15s;
   font-size: 13px;
-  transition: all 0.15s;
 }
 .example-chip:hover { background: #ecf5ff; border-color: #409eff; }
 
 /* ── Message rows ── */
 .msg-row { display: flex; }
-.msg-row.user { justify-content: flex-end; }
+.msg-row.user  { justify-content: flex-end; }
 .msg-row.assistant { justify-content: flex-start; }
+.msg-row.system { justify-content: center; }
+.msg-col { display: flex; flex-direction: column; gap: 6px; max-width: 82%; }
 
-.msg-bubble {
-  max-width: 80%;
-  padding: 10px 14px;
-  border-radius: 12px;
-  line-height: 1.65;
-  position: relative;
+.msg-system {
+  background: #fdf6ec;
+  color: #e6a23c;
+  border-radius: 6px;
+  padding: 4px 12px;
+  font-size: 12px;
 }
-.user-bubble {
+
+/* ── Bubbles ── */
+.msg-bubble {
+  position: relative;
+  padding: 10px 14px;
+  border-radius: 14px;
+  line-height: 1.65;
+  word-break: break-word;
+}
+.msg-bubble.user {
   background: #409eff;
   color: #fff;
   border-bottom-right-radius: 4px;
+  max-width: 72cqi; /* container query units */
 }
-.assistant-bubble {
+.msg-bubble.assistant {
   background: #fff;
   color: #303133;
   border-bottom-left-radius: 4px;
   box-shadow: 0 1px 4px rgba(0,0,0,.08);
 }
 
-/* Responsive: narrow screens → wider bubbles */
-@container (max-width: 400px) {
-  .msg-bubble { max-width: 95%; }
+/* narrow containers → full width */
+@container (max-width: 480px) {
+  .msg-bubble { max-width: 92cqi !important; }
+  .msg-col    { max-width: 94%; }
 }
 
-/* ── Images in messages ── */
-.msg-images { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
-.msg-img-thumb {
-  width: 80px; height: 80px;
-  object-fit: cover;
-  border-radius: 6px;
-  cursor: pointer;
-  border: 2px solid rgba(255,255,255,.3);
-}
-
-/* ── Thinking block ── */
+/* ── Thinking ── */
 .thinking-block {
-  margin-bottom: 8px;
-  border: 1px solid #e0e6ef;
+  background: #f8f9fa;
+  border: 1px solid #e4e7ed;
   border-radius: 8px;
   overflow: hidden;
-  background: #f9fbff;
 }
 .thinking-summary {
+  padding: 6px 12px;
+  cursor: pointer;
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 7px 12px;
-  cursor: pointer;
   font-size: 12px;
-  color: #909399;
+  color: #606266;
   user-select: none;
   list-style: none;
 }
 .thinking-summary::-webkit-details-marker { display: none; }
 .thinking-icon { font-size: 14px; }
-.thinking-len { margin-left: auto; font-size: 11px; }
+.thinking-len  { margin-left: auto; color: #c0c4cc; }
 .thinking-content {
-  padding: 8px 12px 10px;
+  padding: 8px 12px;
   font-size: 12px;
-  color: #606266;
-  border-top: 1px solid #e0e6ef;
   white-space: pre-wrap;
-  max-height: 300px;
+  color: #606266;
+  max-height: 200px;
   overflow-y: auto;
+  border-top: 1px solid #f0f0f0;
+  margin: 0;
 }
-.streaming-thinking { font-style: italic; }
 
-/* ── Tool call block ── */
+/* ── Tool calls ── */
 .tool-call-block { margin-bottom: 6px; }
-.tool-details {
-  border: 1px solid #e4e7ed;
-  border-radius: 6px;
-  overflow: hidden;
-  background: #fafafa;
-}
+.tool-details { background: #fafafa; border: 1px solid #ebeef5; border-radius: 6px; overflow: hidden; }
 .tool-summary {
+  padding: 5px 10px;
+  cursor: pointer;
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 10px;
-  cursor: pointer;
   font-size: 12px;
   list-style: none;
-  user-select: none;
 }
 .tool-summary::-webkit-details-marker { display: none; }
-.tool-icon { font-size: 13px; }
-.tool-name { font-family: monospace; font-size: 12px; }
-.tool-status { margin-left: auto; font-size: 11px; }
+.tool-icon  { font-size: 13px; }
+.tool-name  { font-weight: 500; color: #303133; flex: 1; }
 .tool-status.running { color: #e6a23c; }
-.tool-status.ok { color: #67c23a; }
-.tool-status.error { color: #f56c6c; }
-.tool-body { border-top: 1px solid #e4e7ed; padding: 8px; }
+.tool-status.done    { color: #67c23a; }
+.tool-status.error   { color: #f56c6c; }
+.tool-body   { padding: 8px 10px; border-top: 1px solid #f0f0f0; }
 .tool-section { margin-bottom: 6px; }
-.tool-section-label { font-size: 11px; color: #909399; margin-bottom: 3px; }
+.tool-label  { font-size: 11px; color: #909399; margin-bottom: 3px; text-transform: uppercase; }
 .tool-pre {
   margin: 0;
   font-size: 11px;
-  white-space: pre-wrap;
-  word-break: break-all;
-  background: #f0f0f0;
+  background: #f5f7fa;
   border-radius: 4px;
   padding: 6px 8px;
-  max-height: 160px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 150px;
   overflow-y: auto;
+  color: #303133;
 }
+.tool-pre.result { color: #067065; }
 
-/* ── Message text / markdown ── */
+/* ── Markdown ── */
 .msg-text :deep(pre.code-block) {
-  margin: 8px 0 4px;
-  padding: 10px 12px;
-  background: rgba(0,0,0,.07);
-  border-radius: 6px;
+  background: #1e1e2e;
+  color: #cdd6f4;
+  border-radius: 8px;
+  padding: 12px;
   overflow-x: auto;
-  font-size: 12px;
-  line-height: 1.5;
+  font-size: 13px;
+  margin: 8px 0;
 }
-.user-bubble .msg-text :deep(pre.code-block) { background: rgba(0,0,0,.15); }
-.msg-text :deep(code.inline-code) {
+.msg-text :deep(.inline-code) {
   background: rgba(0,0,0,.08);
-  border-radius: 3px;
-  padding: 1px 4px;
-  font-size: .9em;
-}
-.msg-text :deep(h2), .msg-text :deep(h3), .msg-text :deep(h4) {
-  margin: 10px 0 4px;
-  font-size: 1em;
-}
-.msg-text :deep(ul) { margin: 4px 0; padding-left: 20px; }
-.msg-text :deep(li) { margin: 2px 0; }
-
-/* ── Message actions ── */
-.msg-actions {
-  display: flex;
-  gap: 4px;
-  margin-top: 6px;
-  opacity: 0;
-  transition: opacity 0.15s;
-}
-.assistant-bubble:hover .msg-actions { opacity: 1; }
-.action-btn {
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: #909399;
-  padding: 2px 4px;
+  padding: 1px 5px;
   border-radius: 4px;
+  font-family: monospace;
+  font-size: 0.9em;
 }
-.action-btn:hover { color: #409eff; background: #f0f2f5; }
+.msg-bubble.user .msg-text :deep(.inline-code) { background: rgba(255,255,255,.25); }
+.msg-text :deep(ul)  { margin: 4px 0 4px 16px; }
+.msg-text :deep(li)  { margin: 2px 0; }
+.msg-text :deep(h1, h2, h3) { margin: 8px 0 4px; }
+.msg-text :deep(a)   { color: #409eff; }
 
 /* ── Apply card ── */
 .apply-card {
   margin-top: 10px;
-  border-top: 1px solid #e4e7ed;
-  padding-top: 8px;
+  padding-top: 10px;
+  border-top: 1px solid #f0f0f0;
 }
-.apply-fields { margin-bottom: 8px; }
-.apply-row {
-  display: flex;
-  gap: 8px;
-  font-size: 12px;
-  padding: 2px 0;
-}
-.apply-key { color: #909399; min-width: 60px; flex-shrink: 0; }
+.apply-preview { margin-bottom: 8px; }
+.apply-row { display: flex; gap: 8px; font-size: 12px; padding: 2px 0; }
+.apply-key { color: #909399; flex-shrink: 0; min-width: 70px; }
 .apply-val { color: #303133; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .apply-btn {
   background: #409eff;
@@ -665,145 +673,165 @@ defineExpose({ send, fillInput, messages })
   border: none;
   border-radius: 6px;
   padding: 5px 14px;
-  font-size: 12px;
   cursor: pointer;
-  transition: background 0.15s;
+  font-size: 13px;
+  transition: background .15s;
 }
 .apply-btn:hover { background: #337ecc; }
 
-/* ── Streaming cursor ── */
-@keyframes blink { 50% { opacity: 0; } }
-.cursor { animation: blink 0.7s infinite; font-size: 13px; }
-
-/* ── Typing dots ── */
-.typing-dots {
+/* ── Msg actions ── */
+.msg-actions {
   display: flex;
   gap: 4px;
-  align-items: center;
-  padding: 4px 0;
+  margin-top: 6px;
+  opacity: 0;
+  transition: opacity .2s;
 }
-.typing-dots span {
-  width: 7px; height: 7px;
-  background: #c0c4cc;
-  border-radius: 50%;
-  animation: bounce 1.2s infinite;
-}
-.typing-dots span:nth-child(2) { animation-delay: .2s; }
-.typing-dots span:nth-child(3) { animation-delay: .4s; }
-@keyframes bounce { 0%,80%,100% { transform: scale(0.6); } 40% { transform: scale(1); } }
-
-/* ── Input area ── */
-.chat-input-area {
-  padding: 10px 12px;
-  background: #fff;
-  border-top: 1px solid #e4e7ed;
-  flex-shrink: 0;
-  transition: box-shadow 0.15s;
-}
-.chat-input-area.drag-over {
-  box-shadow: inset 0 0 0 2px #409eff;
-  background: #ecf5ff;
-}
-
-.pending-images {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-  padding-bottom: 8px;
-}
-.pending-img-wrap { position: relative; }
-.pending-img {
-  width: 56px; height: 56px;
-  object-fit: cover;
-  border-radius: 6px;
-  border: 1px solid #dcdfe6;
-}
-.remove-img {
-  position: absolute;
-  top: -4px; right: -4px;
-  width: 16px; height: 16px;
-  border-radius: 50%;
-  background: #f56c6c;
-  color: #fff;
-  border: none;
-  cursor: pointer;
-  font-size: 10px;
-  line-height: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.input-row {
-  display: flex;
-  align-items: flex-end;
-  gap: 6px;
-}
-
-.input-icon-btn {
+.msg-bubble.assistant:hover .msg-actions { opacity: 1; }
+.act-btn {
   background: none;
-  border: none;
+  border: 1px solid #e4e7ed;
+  border-radius: 5px;
+  padding: 2px 8px;
   cursor: pointer;
-  color: #909399;
-  padding: 6px;
+  font-size: 12px;
+  color: #606266;
+  transition: all .15s;
+}
+.act-btn:hover { background: #f0f2f5; color: #303133; }
+
+/* ── Images in user msg ── */
+.msg-images { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+.msg-img {
+  max-width: 160px;
+  max-height: 120px;
   border-radius: 6px;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
+  cursor: zoom-in;
+  object-fit: cover;
 }
-.input-icon-btn:hover { color: #409eff; background: #f0f2f5; }
 
-.chat-textarea {
-  flex: 1;
-  border: 1px solid #dcdfe6;
-  border-radius: 8px;
-  padding: 8px 10px;
-  font-size: 13px;
-  resize: none;
-  outline: none;
-  line-height: 1.5;
-  min-height: 36px;
-  max-height: 160px;
-  font-family: inherit;
-  transition: border-color 0.15s;
-  overflow-y: auto;
-}
-.chat-textarea:focus { border-color: #409eff; }
-.chat-textarea:disabled { background: #f5f7fa; }
-
-.send-btn {
-  background: #409eff;
-  color: #fff;
-  border: none;
-  border-radius: 8px;
-  width: 36px; height: 36px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  transition: background 0.15s;
-}
-.send-btn:hover:not(:disabled) { background: #337ecc; }
-.send-btn:disabled { background: #c0c4cc; cursor: not-allowed; }
-
-@keyframes spin { to { transform: rotate(360deg); } }
-.spin { display: inline-block; animation: spin 0.8s linear infinite; }
-
-/* ── Lightbox ── */
-.lightbox {
+/* ── Preview overlay ── */
+.img-preview-mask {
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,.8);
+  background: rgba(0,0,0,.7);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 9999;
   cursor: zoom-out;
 }
-.lightbox-img {
-  max-width: 90vw;
-  max-height: 90vh;
-  border-radius: 8px;
+.img-preview-full { max-width: 90vw; max-height: 90vh; border-radius: 8px; }
+
+/* ── Streaming ── */
+.typing-dots { display: flex; gap: 4px; align-items: center; padding: 2px 0; }
+.typing-dots span {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: #c0c4cc;
+  animation: bounce 1.2s infinite;
 }
+.typing-dots span:nth-child(2) { animation-delay: .2s; }
+.typing-dots span:nth-child(3) { animation-delay: .4s; }
+@keyframes bounce { 0%, 80%, 100% { transform: scale(0.7); } 40% { transform: scale(1.1); } }
+
+@keyframes blink { 50% { opacity: 0; } }
+.blink { animation: blink .8s infinite; font-size: 12px; }
+
+/* ── Input area ── */
+.chat-input-area {
+  flex-shrink: 0;
+  background: #fff;
+  border-top: 1px solid #e4e7ed;
+  padding: 10px 12px;
+}
+
+.attachments-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.attach-thumb { position: relative; display: inline-block; }
+.attach-thumb img { width: 48px; height: 48px; object-fit: cover; border-radius: 6px; border: 1px solid #e4e7ed; }
+.remove-attach {
+  position: absolute;
+  top: -5px; right: -5px;
+  width: 16px; height: 16px;
+  background: #f56c6c;
+  color: #fff;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0;
+}
+
+.input-row { display: flex; gap: 8px; align-items: flex-end; }
+.textarea-wrap { flex: 1; }
+.chat-textarea {
+  width: 100%;
+  resize: none;
+  border: 1px solid #dcdfe6;
+  border-radius: 10px;
+  padding: 9px 12px;
+  font-size: 14px;
+  font-family: inherit;
+  color: #303133;
+  background: #f5f7fa;
+  outline: none;
+  transition: border-color .2s;
+  box-sizing: border-box;
+  line-height: 1.5;
+  overflow-y: hidden;
+}
+.chat-textarea:focus { border-color: #409eff; background: #fff; }
+.chat-textarea:disabled { opacity: .6; cursor: not-allowed; }
+
+.input-actions { display: flex; flex-direction: column; gap: 4px; }
+.icon-btn {
+  width: 32px; height: 32px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 16px;
+  transition: background .15s;
+}
+.icon-btn:hover { background: #f0f2f5; }
+.send-btn {
+  width: 36px; height: 36px;
+  background: #409eff;
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 18px;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .15s;
+  flex-shrink: 0;
+}
+.send-btn:hover:not(:disabled) { background: #337ecc; }
+.send-btn:disabled { background: #c0c4cc; cursor: not-allowed; }
+
+.input-hint { font-size: 11px; color: #c0c4cc; margin-top: 5px; text-align: right; }
+
+/* ── Spinner ── */
+@keyframes spin { to { transform: rotate(360deg); } }
+.spinner {
+  width: 14px; height: 14px;
+  border: 2px solid rgba(255,255,255,.4);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin .6s linear infinite;
+  display: inline-block;
+}
+
+/* ── Compact mode ── */
+.compact .chat-messages { padding: 10px; gap: 10px; }
+.compact .msg-bubble { padding: 8px 11px; font-size: 13px; }
+.compact .chat-input-area { padding: 8px; }
+.compact .chat-textarea { font-size: 13px; padding: 7px 10px; }
+.compact .input-hint { display: none; }
 </style>
