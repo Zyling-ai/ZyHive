@@ -229,6 +229,44 @@ func (s *Store) ReadAll(sessionID string) ([]json.RawMessage, error) {
 	return entries, scanner.Err()
 }
 
+// DeleteSession removes a session file and its index entry.
+func (s *Store) DeleteSession(sessionID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Remove JSONL file
+	path := filepath.Join(s.dir, sessionID+".jsonl")
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+
+	// Remove from index
+	idx, err := s.loadIndex()
+	if err != nil {
+		return err
+	}
+	delete(idx.Sessions, sessionID)
+	return s.saveIndex(idx)
+}
+
+// UpdateTitle updates the title of a session in the index.
+func (s *Store) UpdateTitle(sessionID, title string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	idx, err := s.loadIndex()
+	if err != nil {
+		return err
+	}
+	entry, ok := idx.Sessions[sessionID]
+	if !ok {
+		return fmt.Errorf("session %s not found", sessionID)
+	}
+	entry.Title = title
+	idx.Sessions[sessionID] = entry
+	return s.saveIndex(idx)
+}
+
 // ListSessions returns all session entries from the index file.
 func (s *Store) ListSessions() ([]SessionIndexEntry, error) {
 	s.mu.Lock()

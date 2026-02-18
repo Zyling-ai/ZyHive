@@ -241,4 +241,44 @@ export function chatSSE(agentId: string, message: string, onEvent: (ev: any) => 
   return ctrl
 }
 
+// ── Session types ────────────────────────────────────────────────────────
+
+export interface SessionSummary {
+  id: string
+  agentId: string
+  agentName: string
+  filePath: string
+  createdAt: number
+  title?: string
+  messageCount: number
+  lastAt: number
+  tokenEstimate: number
+}
+
+export interface ParsedMessage {
+  role: 'user' | 'assistant' | 'compaction'
+  text: string
+  timestamp: number
+  isCompact?: boolean
+}
+
+export interface SessionDetail {
+  session: SessionSummary
+  messages: ParsedMessage[]
+  agent: { id: string; name: string }
+}
+
+// ── Sessions API ─────────────────────────────────────────────────────────
+
+export const sessions = {
+  list: (params?: { agentId?: string; limit?: number }) =>
+    api.get<{ sessions: SessionSummary[]; total: number }>('/sessions', { params }),
+  get: (agentId: string, sid: string) =>
+    api.get<SessionDetail>(`/sessions/${agentId}/${sid}`),
+  delete: (agentId: string, sid: string) =>
+    api.delete(`/sessions/${agentId}/${sid}`),
+  rename: (agentId: string, sid: string, title: string) =>
+    api.patch(`/sessions/${agentId}/${sid}`, { title }),
+}
+
 export default api

@@ -27,6 +27,11 @@
           <template #title>AI 员工</template>
         </el-menu-item>
 
+        <el-menu-item index="/chats">
+          <el-icon><ChatLineRound /></el-icon>
+          <template #title>对话管理</template>
+        </el-menu-item>
+
         <el-sub-menu index="config" v-if="!collapsed">
           <template #title>
             <el-icon><Setting /></el-icon>
@@ -52,6 +57,10 @@
 
         <!-- Collapsed: show config items flat -->
         <template v-if="collapsed">
+          <el-menu-item index="/chats">
+            <el-icon><ChatLineRound /></el-icon>
+            <template #title>对话管理</template>
+          </el-menu-item>
           <el-menu-item index="/config/models">
             <el-icon><Cpu /></el-icon>
             <template #title>模型</template>
