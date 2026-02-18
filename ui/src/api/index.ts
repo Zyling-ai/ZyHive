@@ -70,6 +70,15 @@ export const config = {
   testKey: (provider: string, key: string) => api.post('/config/test-key', { provider, key }),
 }
 
+export const memoryApi = {
+  tree: (agentId: string) => api.get(`/agents/${agentId}/memory/tree`),
+  readFile: (agentId: string, path: string) => api.get(`/agents/${agentId}/memory/file/${path}`),
+  writeFile: (agentId: string, path: string, content: string) =>
+    api.put(`/agents/${agentId}/memory/file/${path}`, content, { headers: { 'Content-Type': 'text/plain' } }),
+  dailyLog: (agentId: string, content: string) =>
+    api.post(`/agents/${agentId}/memory/daily`, content, { headers: { 'Content-Type': 'text/plain' } }),
+}
+
 export const cron = {
   list: () => api.get<CronJob[]>('/cron'),
   create: (job: Partial<CronJob>) => api.post<CronJob>('/cron', job),

@@ -5,6 +5,8 @@ package agent
 import (
 	"os"
 	"path/filepath"
+
+	"github.com/sunhuihui6688-star/ai-panel/pkg/memory"
 )
 
 // ReadIdentity reads IDENTITY.md from the agent's workspace.
@@ -27,18 +29,15 @@ func WriteSoul(workspaceDir, content string) error {
 	return writeMD(workspaceDir, "SOUL.md", content)
 }
 
-// ReadMemory reads MEMORY.md from the agent's workspace.
+// ReadMemory reads MEMORY.md from the agent's workspace (legacy, for backward compat).
 func ReadMemory(workspaceDir string) (string, error) {
 	return readMD(workspaceDir, "MEMORY.md")
 }
 
 // InitWorkspace creates the standard workspace structure for a new agent.
+// Now uses hierarchical memory tree instead of flat MEMORY.md.
 // Reference: openclaw/src/agents/workspace-templates.ts
 func InitWorkspace(workspaceDir, agentName, role string) error {
-	if err := os.MkdirAll(filepath.Join(workspaceDir, "memory"), 0755); err != nil {
-		return err
-	}
-
 	identity := "# IDENTITY.md\n\n- **Name:** " + agentName + "\n- **Role:** " + role + "\n"
 	if err := writeMD(workspaceDir, "IDENTITY.md", identity); err != nil {
 		return err
@@ -49,7 +48,9 @@ func InitWorkspace(workspaceDir, agentName, role string) error {
 		return err
 	}
 
-	return writeMD(workspaceDir, "MEMORY.md", "# MEMORY.md\n\n")
+	// Initialize hierarchical memory tree
+	mt := memory.NewMemoryTree(workspaceDir)
+	return mt.Init(agentName)
 }
 
 func readMD(dir, filename string) (string, error) {

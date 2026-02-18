@@ -10,9 +10,12 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sync"
+
+	"github.com/sunhuihui6688-star/ai-panel/pkg/memory"
 )
 
 // Agent represents a single AI agent (employee) managed by the panel.
@@ -86,13 +89,21 @@ func (m *Manager) LoadAll() error {
 			continue
 		}
 
+		wsDir := filepath.Join(agentDir, "workspace")
 		m.agents[cfg.ID] = &Agent{
 			ID:           cfg.ID,
 			Name:         cfg.Name,
 			Model:        cfg.Model,
-			WorkspaceDir: filepath.Join(agentDir, "workspace"),
+			WorkspaceDir: wsDir,
 			SessionDir:   filepath.Join(agentDir, "sessions"),
 			Status:       "idle",
+		}
+
+		// Migrate flat MEMORY.md → hierarchical memory tree if needed
+		if migrated, err := memory.MigrateFromFlatMemory(wsDir); err != nil {
+			log.Printf("[manager] warning: memory migration failed for agent %s: %v", cfg.ID, err)
+		} else if migrated {
+			log.Printf("[manager] migrated agent %s from flat MEMORY.md to memory tree", cfg.ID)
 		}
 	}
 

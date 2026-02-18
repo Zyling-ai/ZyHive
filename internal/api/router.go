@@ -52,6 +52,13 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager, cronE
 	agents.PUT("/:id/files/*path", fileH.Write)
 	agents.DELETE("/:id/files/*path", fileH.Delete)
 
+	// Memory tree API
+	memH := &memoryHandler{manager: mgr}
+	agents.GET("/:id/memory/tree", memH.Tree)
+	agents.GET("/:id/memory/file/*path", memH.ReadFile)
+	agents.PUT("/:id/memory/file/*path", memH.WriteFile)
+	agents.POST("/:id/memory/daily", memH.DailyLog)
+
 	// Cron jobs
 	cronH := &cronHandler{engine: cronEngine}
 	cronGroup := v1.Group("/cron")

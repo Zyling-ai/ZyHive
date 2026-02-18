@@ -54,6 +54,34 @@
           </el-form>
         </el-tab-pane>
 
+        <!-- Memory Settings -->
+        <el-tab-pane label="记忆设置">
+          <el-form label-width="160px" style="max-width: 600px;">
+            <el-form-item label="上下文注入模式">
+              <el-select v-model="memorySettings.injectionMode">
+                <el-option label="仅 INDEX.md（默认）" value="index_only" />
+                <el-option label="Core 文件" value="core_files" />
+                <el-option label="全部文件（不推荐）" value="all_files" />
+              </el-select>
+              <el-text type="info" size="small" style="display: block; margin-top: 4px">
+                控制系统提示词中注入多少记忆内容。INDEX.md 模式最轻量。
+              </el-text>
+            </el-form-item>
+            <el-form-item label="每日日志">
+              <el-switch v-model="memorySettings.dailyLogEnabled" />
+              <el-text type="info" size="small" style="margin-left: 8px">
+                启用后 Agent 可自动写入每日日志
+              </el-text>
+            </el-form-item>
+            <el-form-item label="记忆最大 Token 数">
+              <el-slider v-model="memorySettings.maxTokens" :min="0" :max="50000" :step="1000" show-input />
+              <el-text type="info" size="small" style="display: block; margin-top: 4px">
+                系统提示词中记忆内容的最大 token 数（0 = 无限制）
+              </el-text>
+            </el-form-item>
+          </el-form>
+        </el-tab-pane>
+
         <!-- Channels -->
         <el-tab-pane label="消息通道">
           <el-card header="Telegram Bot">
@@ -116,6 +144,11 @@ const telegram = reactive({
   botToken: '',
   defaultAgent: 'main',
   allowedFromStr: '',
+})
+const memorySettings = reactive({
+  injectionMode: 'index_only',
+  dailyLogEnabled: true,
+  maxTokens: 5000,
 })
 const telegramTesting = ref(false)
 const telegramTestResult = ref<boolean | null>(null)
