@@ -159,11 +159,39 @@ func handleBash(_ context.Context, input json.RawMessage) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "bash", "-c", p.Command)
+	cmd.Dir = t.workspaceDir
+	// Pass sanitized environment — strip API keys, tokens, secrets
+	cmd.Env = sanitizeEnv(os.Environ())
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return string(out), fmt.Errorf("command failed: %w\n%s", err, out)
 	}
 	return string(out), nil
+}
+
+// sanitizeEnv removes sensitive env vars (API keys, secrets, tokens) from the
+// environment passed to agent subprocesses.
+func sanitizeEnv(env []string) []string {
+	blocked := []string{
+		"_API_KEY", "_SECRET", "_TOKEN", "_PASSWORD", "_PASSWD",
+		"_PRIVATE_KEY", "_ACCESS_KEY", "_AUTH_KEY", "ANTHROPIC_", "OPENAI_",
+		"DEEPSEEK_", "OPENROUTER_",
+	}
+	result := make([]string, 0, len(env))
+	for _, e := range env {
+		sensitive := false
+		upper := strings.ToUpper(e)
+		for _, b := range blocked {
+			if strings.Contains(upper, b) {
+				sensitive = true
+				break
+			}
+		}
+		if !sensitive {
+			result = append(result, e)
+		}
+	}
+	return result
 }
 
 // ── Grep ────────────────────────────────────────────────────────────────────
