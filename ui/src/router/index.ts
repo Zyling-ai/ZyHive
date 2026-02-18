@@ -15,16 +15,63 @@ const router = createRouter({
       meta: { requiresAuth: true }
     },
     {
+      path: '/agents',
+      name: 'agents',
+      component: () => import('../views/AgentsView.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
       path: '/agents/:id',
       name: 'agent-detail',
       component: () => import('../views/AgentDetailView.vue'),
       meta: { requiresAuth: true }
     },
     {
-      path: '/config',
-      name: 'config',
-      component: () => import('../views/ConfigView.vue'),
+      path: '/config/models',
+      name: 'models',
+      component: () => import('../views/ModelsView.vue'),
       meta: { requiresAuth: true }
+    },
+    {
+      path: '/config/channels',
+      name: 'channels',
+      component: () => import('../views/ChannelsView.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/config/tools',
+      name: 'tools',
+      component: () => import('../views/ToolsView.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/config/skills',
+      name: 'skills',
+      component: () => import('../views/SkillsView.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/cron',
+      name: 'cron',
+      component: () => import('../views/CronView.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/logs',
+      name: 'logs',
+      component: () => import('../views/LogsView.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/settings',
+      name: 'settings',
+      component: () => import('../views/SettingsView.vue'),
+      meta: { requiresAuth: true }
+    },
+    // Legacy redirect
+    {
+      path: '/config',
+      redirect: '/config/models'
     }
   ]
 })
@@ -32,11 +79,8 @@ const router = createRouter({
 router.beforeEach((to) => {
   if (to.meta.requiresAuth) {
     const token = localStorage.getItem('aipanel_token')
-    // Allow access if no token is required (default "changeme" mode)
-    // The backend allows all requests when token is "changeme"
     if (!token && to.name !== 'login') {
-      // Check if auth is needed by trying a request
-      return true // Allow by default, login page is optional
+      return true
     }
   }
   return true

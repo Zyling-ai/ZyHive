@@ -1,119 +1,118 @@
 <template>
-  <el-container class="dashboard">
-    <!-- Sidebar -->
-    <el-aside width="240px" class="sidebar">
-      <div class="sidebar-header">
-        <el-icon :size="20"><Monitor /></el-icon>
-        <span class="title">AI 员工</span>
-      </div>
-      <el-menu :default-active="''" class="sidebar-menu">
-        <el-menu-item
-          v-for="agent in store.list"
-          :key="agent.id"
-          :index="agent.id"
-          @click="$router.push(`/agents/${agent.id}`)"
-        >
-          <el-icon><User /></el-icon>
-          <span>{{ agent.name }}</span>
-          <el-tag
-            :type="statusType(agent.status)"
-            size="small"
-            style="margin-left: auto"
-          >{{ statusLabel(agent.status) }}</el-tag>
-        </el-menu-item>
-      </el-menu>
-      <div class="sidebar-footer">
-        <el-button type="primary" @click="showCreate = true" style="width: 100%">
-          <el-icon><Plus /></el-icon> 新建员工
-        </el-button>
-      </div>
-    </el-aside>
+  <div class="dashboard-page">
+    <h2 style="margin: 0 0 20px">仪表盘</h2>
 
-    <!-- Main -->
-    <el-main class="main-area">
-      <div class="top-bar">
-        <h2>仪表盘</h2>
-        <el-button @click="$router.push('/config')">
-          <el-icon><Setting /></el-icon> 配置中心
-        </el-button>
-      </div>
+    <!-- Stats cards -->
+    <el-row :gutter="16" style="margin-bottom: 24px">
+      <el-col :span="6">
+        <el-card shadow="hover" class="stat-card">
+          <div class="stat-icon" style="background: #ecf5ff; color: #409eff">👥</div>
+          <div class="stat-info">
+            <div class="stat-value">{{ agentStore.list.length }}</div>
+            <div class="stat-label">AI 员工</div>
+          </div>
+        </el-card>
+      </el-col>
+      <el-col :span="6">
+        <el-card shadow="hover" class="stat-card">
+          <div class="stat-icon" style="background: #f0f9eb; color: #67c23a">✅</div>
+          <div class="stat-info">
+            <div class="stat-value">{{ runningCount }}</div>
+            <div class="stat-label">运行中</div>
+          </div>
+        </el-card>
+      </el-col>
+      <el-col :span="6">
+        <el-card shadow="hover" class="stat-card">
+          <div class="stat-icon" style="background: #fdf6ec; color: #e6a23c">🤖</div>
+          <div class="stat-info">
+            <div class="stat-value">{{ modelCount }}</div>
+            <div class="stat-label">已配置模型</div>
+          </div>
+        </el-card>
+      </el-col>
+      <el-col :span="6">
+        <el-card shadow="hover" class="stat-card">
+          <div class="stat-icon" style="background: #fef0f0; color: #f56c6c">📡</div>
+          <div class="stat-info">
+            <div class="stat-value">{{ channelCount }}</div>
+            <div class="stat-label">消息通道</div>
+          </div>
+        </el-card>
+      </el-col>
+    </el-row>
 
-      <el-row :gutter="20">
-        <el-col :span="8" v-for="agent in store.list" :key="agent.id">
-          <el-card class="agent-card" shadow="hover" @click="$router.push(`/agents/${agent.id}`)">
-            <div class="agent-card-header">
-              <div>
-                <h3>{{ agent.name }}</h3>
-                <el-text type="info" size="small">{{ agent.model }}</el-text>
-              </div>
-              <el-tag :type="statusType(agent.status)">{{ statusLabel(agent.status) }}</el-tag>
-            </div>
-            <div class="agent-card-stats">
-              <div class="stat">
-                <span class="stat-label">ID</span>
-                <span class="stat-value" style="font-size: 14px">{{ agent.id }}</span>
-              </div>
-              <div class="stat">
-                <span class="stat-label">状态</span>
-                <span class="stat-value">{{ statusLabel(agent.status) }}</span>
-              </div>
-            </div>
-            <el-button type="primary" size="small" style="width: 100%; margin-top: 12px">
-              <el-icon><ChatDotRound /></el-icon> 对话
-            </el-button>
-          </el-card>
-        </el-col>
-      </el-row>
-
-      <el-empty v-if="!store.loading && store.list.length === 0" description="暂无 AI 员工，点击「新建员工」开始" />
-    </el-main>
-
-    <!-- Create Dialog -->
-    <el-dialog v-model="showCreate" title="新建 AI 员工" width="480px">
-      <el-form :model="form" label-width="80px">
-        <el-form-item label="ID">
-          <el-input v-model="form.id" placeholder="英文标识，如 analyst" />
-        </el-form-item>
-        <el-form-item label="名称">
-          <el-input v-model="form.name" placeholder="如：数据分析师" />
-        </el-form-item>
-        <el-form-item label="模型">
-          <el-select v-model="form.model" style="width: 100%">
-            <el-option label="Claude Sonnet 4" value="anthropic/claude-sonnet-4-6" />
-            <el-option label="Claude Opus 4" value="anthropic/claude-opus-4-0" />
-            <el-option label="GPT-4o" value="openai/gpt-4o" />
-            <el-option label="DeepSeek V3" value="deepseek/deepseek-chat" />
-          </el-select>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="showCreate = false">取消</el-button>
-        <el-button type="primary" @click="createAgent" :loading="creating">创建</el-button>
+    <!-- Agent status table -->
+    <el-card shadow="hover">
+      <template #header>
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <span style="font-weight: 600">员工状态</span>
+          <el-button type="primary" size="small" @click="$router.push('/agents')">
+            管理员工
+          </el-button>
+        </div>
       </template>
-    </el-dialog>
-  </el-container>
+      <el-table :data="agentStore.list" stripe style="width: 100%">
+        <el-table-column label="名称" min-width="150">
+          <template #default="{ row }">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <div
+                class="avatar-dot"
+                :style="{ background: row.avatarColor || '#409eff' }"
+              >{{ row.name.charAt(0) }}</div>
+              <span>{{ row.name }}</span>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="模型" min-width="180">
+          <template #default="{ row }">
+            <el-tag size="small" type="info">{{ row.modelId || row.model || '-' }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="通道" min-width="140">
+          <template #default="{ row }">
+            <template v-if="row.channelIds?.length">
+              <el-tag v-for="ch in row.channelIds" :key="ch" size="small" style="margin-right: 4px">{{ ch }}</el-tag>
+            </template>
+            <el-text v-else type="info" size="small">—</el-text>
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" width="100">
+          <template #default="{ row }">
+            <el-tag :type="statusType(row.status)" size="small">{{ statusLabel(row.status) }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="100">
+          <template #default="{ row }">
+            <el-button type="primary" size="small" link @click="$router.push(`/agents/${row.id}`)">
+              对话
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <el-empty v-if="agentStore.list.length === 0" description="暂无 AI 员工" />
+    </el-card>
+  </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ref, computed, onMounted } from 'vue'
 import { useAgentsStore } from '../stores/agents'
+import { models as modelsApi, channels as channelsApi } from '../api'
 
-const store = useAgentsStore()
-const showCreate = ref(false)
-const creating = ref(false)
-const form = ref({ id: '', name: '', model: 'anthropic/claude-sonnet-4-6' })
+const agentStore = useAgentsStore()
+const modelCount = ref(0)
+const channelCount = ref(0)
 
-let refreshTimer: ReturnType<typeof setInterval> | null = null
+const runningCount = computed(() => agentStore.list.filter(a => a.status === 'running').length)
 
-onMounted(() => {
-  store.fetchAll()
-  // Periodic refresh every 30s
-  refreshTimer = setInterval(() => store.fetchAll(), 30000)
-})
-
-onUnmounted(() => {
-  if (refreshTimer) clearInterval(refreshTimer)
+onMounted(async () => {
+  agentStore.fetchAll()
+  try {
+    const [mRes, cRes] = await Promise.all([modelsApi.list(), channelsApi.list()])
+    modelCount.value = mRes.data.length
+    channelCount.value = cRes.data.length
+  } catch {}
 })
 
 function statusType(s: string) {
@@ -122,93 +121,43 @@ function statusType(s: string) {
 function statusLabel(s: string) {
   return s === 'running' ? '运行中' : s === 'stopped' ? '已停止' : '空闲'
 }
-
-async function createAgent() {
-  if (!form.value.id || !form.value.name) {
-    ElMessage.warning('请填写 ID 和名称')
-    return
-  }
-  creating.value = true
-  try {
-    await store.createAgent(form.value.id, form.value.name, form.value.model)
-    ElMessage.success('创建成功')
-    showCreate.value = false
-    form.value = { id: '', name: '', model: 'anthropic/claude-sonnet-4-6' }
-  } catch (e: any) {
-    ElMessage.error(e.response?.data?.error || '创建失败')
-  } finally {
-    creating.value = false
-  }
-}
 </script>
 
 <style scoped>
-.dashboard {
-  min-height: 100vh;
-}
-.sidebar {
-  background: #fff;
-  border-right: 1px solid #e4e7ed;
-  display: flex;
-  flex-direction: column;
-}
-.sidebar-header {
-  padding: 20px 16px;
+.stat-card {
   display: flex;
   align-items: center;
-  gap: 8px;
-  border-bottom: 1px solid #e4e7ed;
+  padding: 0;
 }
-.sidebar-header .title {
-  font-weight: 600;
-  font-size: 16px;
-}
-.sidebar-menu {
-  flex: 1;
-  border-right: none;
-}
-.sidebar-footer {
-  padding: 16px;
-}
-.main-area {
-  background: #f5f7fa;
-}
-.top-bar {
+.stat-card :deep(.el-card__body) {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
+  gap: 16px;
+  width: 100%;
 }
-.top-bar h2 {
-  margin: 0;
-}
-.agent-card {
-  cursor: pointer;
-  margin-bottom: 20px;
-}
-.agent-card-header {
+.stat-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
   display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  flex-shrink: 0;
 }
-.agent-card-header h3 {
-  margin: 0 0 4px;
-}
-.agent-card-stats {
+.stat-info { flex: 1; }
+.stat-value { font-size: 24px; font-weight: 700; line-height: 1.2; }
+.stat-label { font-size: 13px; color: #909399; }
+.avatar-dot {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
   display: flex;
-  gap: 24px;
-  margin-top: 16px;
-}
-.stat {
-  display: flex;
-  flex-direction: column;
-}
-.stat-label {
-  font-size: 12px;
-  color: #909399;
-}
-.stat-value {
-  font-size: 18px;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
   font-weight: 600;
+  font-size: 14px;
+  flex-shrink: 0;
 }
 </style>

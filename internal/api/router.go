@@ -1,5 +1,4 @@
 // Package api registers all REST API routes.
-// Reference: openclaw/src/gateway/server-*.ts
 package api
 
 import (
@@ -15,15 +14,13 @@ import (
 	"github.com/sunhuihui6688-star/ai-panel/pkg/cron"
 )
 
+const configFilePath = "aipanel.json"
+
 // RegisterRoutes mounts all API handlers onto the Gin engine.
 func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager, cronEngine *cron.Engine, uiFS fs.FS) {
-	// ── CORS middleware (allow all origins in dev mode) ────────────────────
 	r.Use(corsMiddleware())
-
-	// ── Request logging ───────────────────────────────────────────────────
 	r.Use(requestLogger())
 
-	// ── API routes ────────────────────────────────────────────────────────
 	v1 := r.Group("/api")
 	v1.Use(authMiddleware(cfg.Auth.Token))
 
@@ -59,6 +56,50 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager, cronE
 	agents.PUT("/:id/memory/file/*path", memH.WriteFile)
 	agents.POST("/:id/memory/daily", memH.DailyLog)
 
+	// ── Global Config Registries ──────────────────────────────────────────
+
+	// Model registry
+	modelH := &modelHandler{cfg: cfg, configPath: configFilePath}
+	models := v1.Group("/models")
+	{
+		models.GET("", modelH.List)
+		models.POST("", modelH.Create)
+		models.PATCH("/:id", modelH.Update)
+		models.DELETE("/:id", modelH.Delete)
+		models.POST("/:id/test", modelH.Test)
+	}
+
+	// Channel registry
+	channelH := &channelHandler{cfg: cfg, configPath: configFilePath}
+	channels := v1.Group("/channels")
+	{
+		channels.GET("", channelH.List)
+		channels.POST("", channelH.Create)
+		channels.PATCH("/:id", channelH.Update)
+		channels.DELETE("/:id", channelH.Delete)
+		channels.POST("/:id/test", channelH.Test)
+	}
+
+	// Tool/capability registry
+	toolH := &toolHandler{cfg: cfg, configPath: configFilePath}
+	toolsGroup := v1.Group("/tools")
+	{
+		toolsGroup.GET("", toolH.List)
+		toolsGroup.POST("", toolH.Create)
+		toolsGroup.PATCH("/:id", toolH.Update)
+		toolsGroup.DELETE("/:id", toolH.Delete)
+		toolsGroup.POST("/:id/test", toolH.Test)
+	}
+
+	// Skill registry
+	skillH := &skillHandler{cfg: cfg, configPath: configFilePath}
+	skillsGroup := v1.Group("/skills")
+	{
+		skillsGroup.GET("", skillH.List)
+		skillsGroup.POST("/install", skillH.Install)
+		skillsGroup.DELETE("/:id", skillH.Delete)
+	}
+
 	// Cron jobs
 	cronH := &cronHandler{engine: cronEngine}
 	cronGroup := v1.Group("/cron")
@@ -71,8 +112,8 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager, cronE
 		cronGroup.GET("/:jobId/runs", cronH.Runs)
 	}
 
-	// Config
-	cfgH := &configHandler{cfg: cfg, configPath: "aipanel.json"}
+	// Config (legacy)
+	cfgH := &configHandler{cfg: cfg, configPath: configFilePath}
 	v1.GET("/config", cfgH.Get)
 	v1.PATCH("/config", cfgH.Patch)
 	v1.POST("/config/test-key", cfgH.TestKey)
@@ -106,12 +147,11 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager, cronE
 		})
 	} else {
 		r.GET("/", func(c *gin.Context) {
-			c.JSON(http.StatusOK, gin.H{"status": "ok", "version": "0.3.0", "message": "AI Company Panel — build UI with: cd ui && npm run build"})
+			c.JSON(http.StatusOK, gin.H{"status": "ok", "version": "0.4.0", "message": "AI Company Panel — build UI with: cd ui && npm run build"})
 		})
 	}
 }
 
-// corsMiddleware allows all origins (for dev mode).
 func corsMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Header("Access-Control-Allow-Origin", "*")
@@ -125,7 +165,6 @@ func corsMiddleware() gin.HandlerFunc {
 	}
 }
 
-// requestLogger logs each request method + path + status + duration.
 func requestLogger() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
