@@ -221,13 +221,30 @@ func (h *modelHandler) FetchModels(c *gin.Context) {
 		return
 	}
 
-	if apiKey != "" {
-		req.Header.Set("Authorization", "Bearer "+apiKey)
-		// Anthropic also needs these headers
-		req.Header.Set("x-api-key", apiKey)
+	// Provider-specific headers
+	switch provider {
+	case "anthropic":
+		// Anthropic uses x-api-key + version header; Bearer is optional but also supported
+		if apiKey != "" {
+			req.Header.Set("x-api-key", apiKey)
+			req.Header.Set("Authorization", "Bearer "+apiKey)
+		}
 		req.Header.Set("anthropic-version", "2023-06-01")
+	default:
+		// OpenAI-compatible: standard Bearer token only
+		if apiKey != "" {
+			req.Header.Set("Authorization", "Bearer "+apiKey)
+		}
 	}
 	req.Header.Set("User-Agent", "ai-panel/0.4.0")
+
+	// If still no key and not OpenRouter (which has a public endpoint), warn early
+	if apiKey == "" && provider != "openrouter" && provider != "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": fmt.Sprintf("未配置 API Key（也未找到 %s 环境变量），请填写后再获取", envVarForProvider[provider]),
+		})
+		return
+	}
 
 	client := &http.Client{Timeout: 20 * time.Second}
 	resp, err := client.Do(req)
