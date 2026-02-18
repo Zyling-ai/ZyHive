@@ -92,6 +92,38 @@ ai-panel/
 
 ---
 
+## ⚙️ Configuration
+
+Copy the example config and fill in your API key:
+
+```bash
+cp aipanel.example.json aipanel.json
+```
+
+Edit `aipanel.json`:
+
+```json
+{
+  "gateway": {"port": 8080, "bind": "lan"},
+  "agents": {"dir": "./agents"},
+  "models": {"primary": "anthropic/claude-sonnet-4-6", "apiKeys": {"anthropic": "sk-ant-YOUR-KEY"}},
+  "auth": {"mode": "token", "token": "change-me-in-production"}
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `gateway.port` | HTTP server port (default: 8080) |
+| `gateway.bind` | Bind mode: `"localhost"`, `"lan"`, or `"0.0.0.0"` |
+| `agents.dir` | Root directory for agent workspaces and sessions |
+| `models.primary` | Default LLM model in `provider/model` format |
+| `models.apiKeys` | Map of provider name → API key (e.g. `{"anthropic": "sk-ant-..."}`) |
+| `models.fallbacks` | Optional list of fallback model names |
+| `auth.mode` | Authentication mode (`"token"` is the only supported mode currently) |
+| `auth.token` | Bearer token required for API access. Set to `"changeme"` to disable auth. |
+
+---
+
 ## 📋 实现计划
 
 详见 [idear/ai-panel/PLAN.md](https://github.com/sunhuihui6688-star/ai-panel) — 15 个模块，5 个阶段。
@@ -99,7 +131,7 @@ ai-panel/
 | 阶段 | 内容 | 状态 |
 |------|------|------|
 | Phase 0 | 项目骨架 + 目录结构 | ✅ 完成 |
-| Phase 1 | LLM 客户端 + Session + Tools + Runner | 🚧 进行中 |
+| Phase 1 | LLM 客户端 + Session + Tools + Runner + Agent Manager + Chat SSE API | ✅ 完成 |
 | Phase 2 | Agent 管理 + REST API + 基础 UI | ⏳ 待开始 |
 | Phase 3 | Telegram + Cron + 记忆管理 | ⏳ 待开始 |
 | Phase 4 | 完整面板 UI + Skills + 组织协同 | ⏳ 待开始 |

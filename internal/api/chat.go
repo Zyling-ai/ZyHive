@@ -1,27 +1,151 @@
 // Chat handler — streaming SSE conversation endpoint.
 // Reference: openclaw/src/gateway/server-chat.ts
-// Full implementation: Phase 2 (pkg/runner must be complete first)
+//
+// The Chat endpoint creates a runner.Runner, calls runner.Run(ctx, message),
+// and streams RunEvents back as Server-Sent Events (SSE).
+// SSE format: data: {"type":"text_delta","text":"..."}\n\n
 package api
 
 import (
+	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
+	"strings"
+
 	"github.com/gin-gonic/gin"
+	"github.com/sunhuihui6688-star/ai-panel/pkg/agent"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/config"
+	"github.com/sunhuihui6688-star/ai-panel/pkg/llm"
+	"github.com/sunhuihui6688-star/ai-panel/pkg/runner"
+	"github.com/sunhuihui6688-star/ai-panel/pkg/session"
+	"github.com/sunhuihui6688-star/ai-panel/pkg/tools"
 )
 
-type chatHandler struct{ cfg *config.Config }
+type chatHandler struct {
+	cfg     *config.Config
+	manager *agent.Manager
+}
 
-// Chat POST /api/agents/:id/chat  (SSE streaming)
+// Chat POST /api/agents/:id/chat (SSE streaming)
+// Accepts: {"message": "user text here"}
+// Streams back SSE events as the agent processes the message.
 func (h *chatHandler) Chat(c *gin.Context) {
-	// TODO: validate agent exists → call runner.Run(agentID, message) →
-	// stream StreamEvents back as SSE: data: {"type":"text_delta","text":"..."}\n\n
-	c.JSON(http.StatusNotImplemented, gin.H{"message": "TODO: Phase 2"})
+	id := c.Param("id")
+	ag, ok := h.manager.Get(id)
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{"error": "agent not found"})
+		return
+	}
+
+	var req struct {
+		Message string `json:"message" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Resolve API key: extract provider from model name (e.g. "anthropic/claude-...")
+	model := ag.Model
+	if model == "" {
+		model = h.cfg.Models.Primary
+	}
+	provider := "anthropic"
+	if parts := strings.SplitN(model, "/", 2); len(parts) == 2 {
+		provider = parts[0]
+	}
+	apiKey := ""
+	if h.cfg.Models.APIKeys != nil {
+		apiKey = h.cfg.Models.APIKeys[provider]
+	}
+	if apiKey == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "no API key configured for provider: " + provider})
+		return
+	}
+
+	// Create runner dependencies
+	llmClient := llm.NewAnthropicClient()
+	toolRegistry := tools.New()
+	store := session.NewStore(ag.SessionDir)
+
+	r := runner.New(runner.Config{
+		AgentID:      ag.ID,
+		WorkspaceDir: ag.WorkspaceDir,
+		Model:        model,
+		APIKey:       apiKey,
+		LLM:          llmClient,
+		Tools:        toolRegistry,
+		Session:      store,
+	})
+
+	// Set SSE headers
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
+
+	// Run the agent and stream events back as SSE
+	ctx := c.Request.Context()
+	events := r.Run(ctx, req.Message)
+
+	c.Stream(func(w io.Writer) bool {
+		ev, ok := <-events
+		if !ok {
+			return false
+		}
+		sseEvent := map[string]any{"type": ev.Type}
+		switch ev.Type {
+		case "text_delta":
+			sseEvent["text"] = ev.Text
+		case "tool_call":
+			if ev.ToolCall != nil {
+				sseEvent["tool_call"] = ev.ToolCall
+			}
+		case "tool_result":
+			sseEvent["text"] = ev.Text
+		case "error":
+			sseEvent["error"] = fmt.Sprintf("%v", ev.Error)
+		case "done":
+			// final event
+		}
+		data, _ := json.Marshal(sseEvent)
+		fmt.Fprintf(w, "data: %s\n\n", data)
+		return true
+	})
 }
 
+// ListSessions GET /api/agents/:id/sessions
 func (h *chatHandler) ListSessions(c *gin.Context) {
-	c.JSON(http.StatusOK, []any{})
+	id := c.Param("id")
+	ag, ok := h.manager.Get(id)
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{"error": "agent not found"})
+		return
+	}
+	store := session.NewStore(ag.SessionDir)
+	sessions, err := store.ListSessions()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, sessions)
 }
 
+// GetSession GET /api/agents/:id/sessions/:sid
 func (h *chatHandler) GetSession(c *gin.Context) {
-	c.JSON(http.StatusNotImplemented, gin.H{"message": "TODO: Phase 2"})
+	id := c.Param("id")
+	ag, ok := h.manager.Get(id)
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{"error": "agent not found"})
+		return
+	}
+	sid := c.Param("sid")
+	store := session.NewStore(ag.SessionDir)
+	entries, err := store.ReadAll(sid)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, entries)
 }

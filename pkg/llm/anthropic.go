@@ -14,6 +14,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 )
@@ -60,8 +61,9 @@ func (c *AnthropicClient) Stream(ctx context.Context, req *ChatRequest) (<-chan 
 		return nil, fmt.Errorf("http request: %w", err)
 	}
 	if resp.StatusCode != 200 {
-		resp.Body.Close()
-		return nil, fmt.Errorf("anthropic api error: status %d", resp.StatusCode)
+		defer resp.Body.Close()
+		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return nil, fmt.Errorf("anthropic api error: status %d: %s", resp.StatusCode, string(errBody))
 	}
 
 	events := make(chan StreamEvent, 32)
@@ -111,7 +113,7 @@ func normaliseAnthropicModel(model string) string {
 //   content_block_stop      → block complete
 //   message_delta           → stop_reason + usage
 //   message_stop            → stream end
-func parseAnthropicSSE(ctx context.Context, body interface{ Read([]byte) (int, error) }, events chan<- StreamEvent) {
+func parseAnthropicSSE(ctx context.Context, body io.Reader, events chan<- StreamEvent) {
 	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 512*1024), 512*1024)
 
