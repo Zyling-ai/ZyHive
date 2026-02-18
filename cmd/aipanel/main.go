@@ -3,8 +3,10 @@
 package main
 
 import (
+	"embed"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"net"
 	"net/http"
@@ -16,6 +18,9 @@ import (
 	"github.com/sunhuihui6688-star/ai-panel/pkg/agent"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/config"
 )
+
+//go:embed all:ui_dist
+var embeddedUI embed.FS
 
 func main() {
 	// Load config
@@ -48,9 +53,19 @@ func main() {
 		}
 	}
 
-	// Setup router — pass manager to API handlers
+	// Try to get embedded UI filesystem
+	var uiFS fs.FS
+	if sub, err := fs.Sub(embeddedUI, "ui_dist"); err == nil {
+		// Check if it has any files
+		if entries, err := fs.ReadDir(sub, "."); err == nil && len(entries) > 0 {
+			uiFS = sub
+			log.Println("Serving embedded Vue UI")
+		}
+	}
+
+	// Setup router
 	r := gin.Default()
-	api.RegisterRoutes(r, cfg, mgr)
+	api.RegisterRoutes(r, cfg, mgr, uiFS)
 
 	// Print access URLs
 	port := cfg.Gateway.Port
@@ -76,7 +91,6 @@ func main() {
 	}
 }
 
-// getLocalIP returns the first non-loopback IPv4 address.
 func getLocalIP() string {
 	addrs, err := net.InterfaceAddrs()
 	if err != nil {
@@ -92,13 +106,10 @@ func getLocalIP() string {
 	return ""
 }
 
-// getPublicIP fetches the public IP from api.ipify.org with a 3-second timeout.
-// Falls back to PUBLIC_IP env var if the request fails.
 func getPublicIP() string {
 	client := &http.Client{Timeout: 3 * time.Second}
 	resp, err := client.Get("https://api.ipify.org")
 	if err != nil {
-		// Fallback to env
 		return os.Getenv("PUBLIC_IP")
 	}
 	defer resp.Body.Close()

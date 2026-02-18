@@ -3,7 +3,9 @@
 package api
 
 import (
+	"io/fs"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/agent"
@@ -11,18 +13,12 @@ import (
 )
 
 // RegisterRoutes mounts all API handlers onto the Gin engine.
-// The agent.Manager is used by agent and chat handlers for real data.
-func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager) {
-	// Serve embedded Vue 3 SPA (TODO: go:embed ui/dist)
-	r.GET("/", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok", "version": "0.1.0"})
-	})
-
+func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager, uiFS fs.FS) {
+	// ── API routes ────────────────────────────────────────────────────────
 	v1 := r.Group("/api")
-	// Auth middleware (token check)
 	v1.Use(authMiddleware(cfg.Auth.Token))
 
-	// ── Agents (AI Employees) ─────────────────────────────────────────────
+	// Agents
 	agentH := &agentHandler{cfg: cfg, manager: mgr}
 	agents := v1.Group("/agents")
 	{
@@ -35,20 +31,20 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager) {
 		agents.POST("/:id/stop", agentH.Stop)
 	}
 
-	// ── Chat (streaming SSE) ──────────────────────────────────────────────
+	// Chat (streaming SSE)
 	chatH := &chatHandler{cfg: cfg, manager: mgr}
 	agents.POST("/:id/chat", chatH.Chat)
 	agents.GET("/:id/sessions", chatH.ListSessions)
 	agents.GET("/:id/sessions/:sid", chatH.GetSession)
 
-	// ── Workspace files ───────────────────────────────────────────────────
-	fileH := &fileHandler{cfg: cfg}
+	// Workspace files
+	fileH := &fileHandler{manager: mgr}
 	agents.GET("/:id/files/*path", fileH.Read)
 	agents.PUT("/:id/files/*path", fileH.Write)
 	agents.DELETE("/:id/files/*path", fileH.Delete)
 
-	// ── Cron jobs ─────────────────────────────────────────────────────────
-	cronH := &cronHandler{cfg: cfg}
+	// Cron jobs
+	cronH := &cronHandler{cfg: cfg, manager: mgr}
 	cron := v1.Group("/cron")
 	{
 		cron.GET("", cronH.List)
@@ -59,20 +55,47 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager) {
 		cron.GET("/:jobId/runs", cronH.Runs)
 	}
 
-	// ── Config ────────────────────────────────────────────────────────────
-	cfgH := &configHandler{cfg: cfg}
+	// Config
+	cfgH := &configHandler{cfg: cfg, configPath: "aipanel.json"}
 	v1.GET("/config", cfgH.Get)
 	v1.PATCH("/config", cfgH.Patch)
 	v1.POST("/config/test-key", cfgH.TestKey)
 
-	// ── Stats & Health ────────────────────────────────────────────────────
+	// Health & Stats
 	v1.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "healthy"})
 	})
 	v1.GET("/stats", statsHandler)
 
-	// ── WebSocket ─────────────────────────────────────────────────────────
+	// WebSocket
 	r.GET("/ws", wsHandler)
+
+	// ── Serve embedded Vue SPA ────────────────────────────────────────────
+	if uiFS != nil {
+		fileServer := http.FileServer(http.FS(uiFS))
+		r.NoRoute(func(c *gin.Context) {
+			path := c.Request.URL.Path
+			// Try to serve the exact file
+			if !strings.HasPrefix(path, "/api") && !strings.HasPrefix(path, "/ws") {
+				// Check if file exists in the embedded FS
+				f, err := uiFS.Open(strings.TrimPrefix(path, "/"))
+				if err == nil {
+					f.Close()
+					fileServer.ServeHTTP(c.Writer, c.Request)
+					return
+				}
+				// Fallback to index.html for client-side routing
+				c.Request.URL.Path = "/"
+				fileServer.ServeHTTP(c.Writer, c.Request)
+				return
+			}
+			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+		})
+	} else {
+		r.GET("/", func(c *gin.Context) {
+			c.JSON(http.StatusOK, gin.H{"status": "ok", "version": "0.2.0", "message": "AI Company Panel — build UI with: cd ui && npm run build"})
+		})
+	}
 }
 
 func authMiddleware(token string) gin.HandlerFunc {
