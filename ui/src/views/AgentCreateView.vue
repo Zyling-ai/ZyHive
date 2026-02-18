@@ -126,12 +126,10 @@
       <!-- Agent Tab 切换器 -->
       <div class="agent-tabs-bar">
         <div class="agent-tabs-scroll">
-          <!-- 固定：配置助手 -->
           <div class="agent-tab" :class="{ active: activeAgentTab === '__assist__' }"
             @click="switchTab('__assist__')">
             <span class="tab-icon">🤖</span> 配置助手
           </div>
-          <!-- 其他已有 agent -->
           <div v-for="ag in agentList" :key="ag.id"
             class="agent-tab" :class="{ active: activeAgentTab === ag.id }"
             @click="switchTab(ag.id)">
@@ -141,100 +139,61 @@
             {{ ag.name }}
             <el-icon class="tab-close" @click.stop="closeTab(ag.id)"><Close /></el-icon>
           </div>
-          <!-- 添加更多 -->
           <el-dropdown @command="openTab" trigger="click">
-            <div class="agent-tab add-tab">
-              <el-icon><Plus /></el-icon> 更多
-            </div>
+            <div class="agent-tab add-tab"><el-icon><Plus /></el-icon> 更多</div>
             <template #dropdown>
               <el-dropdown-menu>
                 <el-dropdown-item v-for="ag in allAgents" :key="ag.id" :command="ag.id">
                   {{ ag.name }}
                 </el-dropdown-item>
-                <el-dropdown-item v-if="allAgents.length === 0" disabled>
-                  暂无其他 Agent
-                </el-dropdown-item>
+                <el-dropdown-item v-if="allAgents.length === 0" disabled>暂无其他 Agent</el-dropdown-item>
               </el-dropdown-menu>
             </template>
           </el-dropdown>
         </div>
       </div>
 
-      <!-- 配置助手提示（仅在该Tab显示）-->
-      <div v-if="activeAgentTab === '__assist__'" class="assist-hint">
-        <el-icon><ChatDotRound /></el-icon>
-        告诉我这个 Agent 要做什么，我来帮你生成配置
-      </div>
+      <!-- 配置助手 AiChat（用 v-show 保留对话历史） -->
+      <AiChat
+        v-show="activeAgentTab === '__assist__'"
+        :agent-id="assistAgentId"
+        :context="assistContext"
+        scenario="agent-creation"
+        placeholder="告诉我这个 Agent 要做什么..."
+        :examples="[
+          '我需要一个电商客服 Agent，负责解答订单问题，语气亲切',
+          '帮我创建一个代码审查助手，专注于 Python 代码规范',
+          '创建一个每天早上发送天气报告的 Agent',
+        ]"
+        height="100%"
+        :compact="true"
+        :show-thinking="true"
+        @apply="applyToForm"
+      />
 
-      <!-- 聊天区域 -->
-      <div class="chat-messages" ref="chatMsgRef">
-        <template v-if="currentMessages.length === 0">
-          <div class="chat-empty">
-            <template v-if="activeAgentTab === '__assist__'">
-              <p>✨ 例如：</p>
-              <div class="example-chip" @click="fillExample('我需要一个电商客服 Agent，负责解答订单问题，语气亲切友好')">
-                我需要一个电商客服 Agent...
-              </div>
-              <div class="example-chip" @click="fillExample('帮我创建一个代码审查助手，专注于 Python 代码规范')">
-                帮我创建一个代码审查助手...
-              </div>
-              <div class="example-chip" @click="fillExample('创建一个每天早上发送天气报告的 Agent')">
-                创建一个天气报告 Agent...
-              </div>
-            </template>
-            <template v-else>
-              <p>与 <strong>{{ currentAgentName }}</strong> 对话</p>
-            </template>
-          </div>
-        </template>
-
-        <div v-for="(msg, i) in currentMessages" :key="i"
-          :class="['chat-msg', msg.role]">
-          <div class="msg-bubble">
-            <div v-if="msg.role === 'assistant' && msg.applyData" class="apply-card">
-              <div class="apply-fields">
-                <div v-for="(val, key) in msg.applyData" :key="key" class="apply-field">
-                  <span class="field-name">{{ fieldLabel(key) }}</span>
-                  <span class="field-preview">{{ val.slice(0, 60) }}{{ val.length > 60 ? '...' : '' }}</span>
-                </div>
-              </div>
-              <el-button type="primary" size="small" @click="applyToForm(msg.applyData)">
-                应用到表单 ↙
-              </el-button>
-            </div>
-            <div v-else class="msg-text" v-html="renderText(msg.text)" />
-          </div>
-        </div>
-
-        <div v-if="chatStreaming" class="chat-msg assistant">
-          <div class="msg-bubble">
-            <div class="msg-text">
-              {{ streamText }}<span class="cursor-blink">▊</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 输入框 -->
-      <div class="chat-input-area">
-        <el-input v-model="chatInput" type="textarea" :rows="2"
-          placeholder="输入需求，或问任何问题... (Ctrl+Enter 发送)"
-          @keydown.enter.ctrl.prevent="sendChat"
-          :disabled="chatStreaming" />
-        <el-button type="primary" :loading="chatStreaming" @click="sendChat" class="send-btn">
-          发送
-        </el-button>
-      </div>
+      <!-- 其他已打开的 Agent（每个保留独立对话历史） -->
+      <template v-for="ag in agentList" :key="ag.id">
+        <AiChat
+          v-show="activeAgentTab === ag.id"
+          :agent-id="ag.id"
+          scenario="general"
+          :welcome-message="`你好，我是 **${ag.name}**，有什么需要帮忙的？`"
+          height="100%"
+          :compact="true"
+          :show-thinking="true"
+        />
+      </template>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick, reactive } from 'vue'
+import { ref, computed, onMounted, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ArrowLeft, Plus, Close, ChatDotRound } from '@element-plus/icons-vue'
-import { agents as agentsApi, models, channels, tools, skills, chatSSE, type AgentInfo, type ModelEntry, type ChannelEntry, type ToolEntry, type SkillEntry } from '../api'
+import { ArrowLeft, Plus, Close } from '@element-plus/icons-vue'
+import { agents as agentsApi, models, channels, tools, skills, type AgentInfo, type ModelEntry, type ChannelEntry, type ToolEntry, type SkillEntry } from '../api'
+import AiChat from '../components/AiChat.vue'
 
 const router = useRouter()
 
@@ -327,14 +286,32 @@ const agentList = computed(() =>
 const allAgents = computed(() =>
   allAgentsFull.value.filter(a => !openedAgentIds.value.includes(a.id))
 )
-const currentAgentName = computed(() => {
-  if (activeAgentTab.value === '__assist__') return '配置助手'
-  return allAgentsFull.value.find(a => a.id === activeAgentTab.value)?.name || activeAgentTab.value
+
+// 配置助手使用系统内第一个 agent 作为 LLM 后端
+const assistAgentId = computed(() => allAgentsFull.value[0]?.id || 'main')
+
+// 实时将左侧表单状态注入对话上下文
+const assistContext = computed(() => {
+  const parts = [
+    '你是一个 AI 配置助手，帮助用户设计和生成 AI Agent 的配置文件（IDENTITY 和 SOUL）。',
+    '用户正在新建一个 Agent，当前表单状态如下（未填字段为空）：',
+    `- 名称: ${form.name || '（未填）'}`,
+    `- ID: ${form.id || '（未填）'}`,
+    `- 描述: ${form.description || '（未填）'}`,
+    form.identity ? `- IDENTITY（已填）: ${form.identity.slice(0, 100)}...` : '- IDENTITY: （未填）',
+    form.soul ? `- SOUL（已填）: ${form.soul.slice(0, 100)}...` : '- SOUL: （未填）',
+    '',
+    '当你为用户生成配置时，请在回答末尾附上如下格式的 JSON 块，方便用户一键应用：',
+    '```json',
+    '{"name":"...","description":"...","identity":"...","soul":"..."}',
+    '```',
+    '如果某个字段不需要更改，就省略它。',
+  ]
+  return parts.join('\n')
 })
 
 function switchTab(id: string) {
   activeAgentTab.value = id
-  nextTick(() => scrollToBottom())
 }
 
 function openTab(id: string) {
@@ -345,139 +322,6 @@ function openTab(id: string) {
 function closeTab(id: string) {
   openedAgentIds.value = openedAgentIds.value.filter(x => x !== id)
   if (activeAgentTab.value === id) switchTab('__assist__')
-}
-
-// ── Chat ─────────────────────────────────────────────────────────────────
-interface ChatMsg {
-  role: 'user' | 'assistant'
-  text: string
-  applyData?: Record<string, string>
-}
-
-const allMessages = reactive<Record<string, ChatMsg[]>>({ '__assist__': [] })
-const currentMessages = computed(() => allMessages[activeAgentTab.value] || [])
-
-const chatInput = ref('')
-const chatStreaming = ref(false)
-const streamText = ref('')
-const chatMsgRef = ref<HTMLElement>()
-
-function scrollToBottom() {
-  nextTick(() => {
-    if (chatMsgRef.value) {
-      chatMsgRef.value.scrollTop = chatMsgRef.value.scrollHeight
-    }
-  })
-}
-
-function fillExample(text: string) {
-  chatInput.value = text
-}
-
-function renderText(text: string) {
-  return text.replace(/\n/g, '<br>')
-}
-
-function fieldLabel(key: string) {
-  const map: Record<string, string> = {
-    name: '名称', id: 'ID', description: '描述',
-    identity: 'IDENTITY', soul: 'SOUL',
-  }
-  return map[key] || key
-}
-
-async function sendChat() {
-  const msg = chatInput.value.trim()
-  if (!msg || chatStreaming.value) return
-
-  if (!allMessages[activeAgentTab.value]) {
-    allMessages[activeAgentTab.value] = []
-  }
-  ;(allMessages[activeAgentTab.value] as ChatMsg[]).push({ role: 'user', text: msg })
-  chatInput.value = ''
-  chatStreaming.value = true
-  streamText.value = ''
-  scrollToBottom()
-
-  if (activeAgentTab.value === '__assist__') {
-    // AI 配置助手：调用配置助手 API
-    await runAssist(msg)
-  } else {
-    // 普通 Agent 对话
-    await runAgentChat(activeAgentTab.value, msg)
-  }
-}
-
-async function runAssist(userMsg: string) {
-  // 用配置助手 Agent 生成配置，解析 JSON 字段
-  // 临时：把当前表单状态拼入 system context
-  const context = `当前表单状态：名称="${form.name || '（未填）'}", 描述="${form.description || '（未填）'}"。
-用户要求：${userMsg}
-
-请生成 Agent 配置。如果有足够信息，在回答末尾附上JSON块（字段：name/description/identity/soul），格式：
-\`\`\`json
-{"name":"...","description":"...","identity":"...","soul":"..."}
-\`\`\``
-
-  let fullText = ''
-  let applyData: Record<string, string> | undefined
-
-  try {
-    // 用 main agent 作为配置助手（有 LLM 能力）
-    const assistAgentId = allAgentsFull.value[0]?.id || 'main'
-    await new Promise<void>((resolve) => {
-      chatSSE(assistAgentId, context, (ev) => {
-        if (ev.type === 'text') {
-          streamText.value += ev.text
-          fullText += ev.text
-          scrollToBottom()
-        } else if (ev.type === 'done' || ev.type === 'error') {
-          resolve()
-        }
-      })
-    })
-
-    // 解析 JSON 块
-    const jsonMatch = fullText.match(/```json\s*([\s\S]+?)\s*```/)
-    if (jsonMatch) {
-      try {
-        applyData = JSON.parse(jsonMatch[1] as string)
-        fullText = fullText.replace(/```json[\s\S]+?```/, '').trim()
-      } catch {}
-    }
-  } catch (e) {
-    fullText = '抱歉，生成配置时出错了。请检查是否已配置模型 API Key。'
-  }
-
-  ;(allMessages['__assist__'] as ChatMsg[]).push({
-    role: 'assistant',
-    text: fullText || streamText.value,
-    applyData,
-  })
-  streamText.value = ''
-  chatStreaming.value = false
-  scrollToBottom()
-}
-
-async function runAgentChat(agentId: string, msg: string) {
-  let fullText = ''
-
-  chatSSE(agentId, msg, (ev) => {
-    if (ev.type === 'text') {
-      streamText.value += ev.text
-      fullText += ev.text
-      scrollToBottom()
-    } else if (ev.type === 'done' || ev.type === 'error') {
-      if (!allMessages[agentId]) allMessages[agentId] = []
-      ;(allMessages[agentId] as ChatMsg[]).push({
-        role: 'assistant',
-        text: fullText || streamText.value || (ev.error ? `❌ ${ev.error}` : ''),
-      })
-      streamText.value = ''
-      chatStreaming.value = false
-      scrollToBottom()
-    }
-  })
 }
 
 // ── Init ─────────────────────────────────────────────────────────────────

@@ -38,7 +38,10 @@ func (h *chatHandler) Chat(c *gin.Context) {
 	}
 
 	var req struct {
-		Message string `json:"message" binding:"required"`
+		Message  string   `json:"message" binding:"required"`
+		Context  string   `json:"context"`   // extra system context (page scenario, background)
+		Scenario string   `json:"scenario"`  // label e.g. "agent-creation", "general"
+		Images   []string `json:"images"`    // base64 data URIs: "data:image/png;base64,..."
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -82,6 +85,8 @@ func (h *chatHandler) Chat(c *gin.Context) {
 		LLM:          llmClient,
 		Tools:        toolRegistry,
 		Session:      store,
+		ExtraContext: req.Context,
+		Images:       req.Images,
 	})
 
 	// Set SSE headers
@@ -102,6 +107,8 @@ func (h *chatHandler) Chat(c *gin.Context) {
 		sseEvent := map[string]any{"type": ev.Type}
 		switch ev.Type {
 		case "text_delta":
+			sseEvent["text"] = ev.Text
+		case "thinking_delta":
 			sseEvent["text"] = ev.Text
 		case "tool_call":
 			if ev.ToolCall != nil {

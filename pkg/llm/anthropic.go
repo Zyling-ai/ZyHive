@@ -169,6 +169,7 @@ func parseAnthropicSSE(ctx context.Context, body io.Reader, events chan<- Stream
 			var delta struct {
 				Type        string `json:"type"`
 				Text        string `json:"text"`
+				Thinking    string `json:"thinking"`
 				PartialJSON string `json:"partial_json"`
 			}
 			if err := json.Unmarshal(event.Delta, &delta); err != nil {
@@ -177,6 +178,8 @@ func parseAnthropicSSE(ctx context.Context, body io.Reader, events chan<- Stream
 			switch delta.Type {
 			case "text_delta":
 				events <- StreamEvent{Type: EventTextDelta, Text: delta.Text}
+			case "thinking_delta":
+				events <- StreamEvent{Type: EventThinkingDelta, Text: delta.Thinking}
 			case "input_json_delta":
 				toolInputBuf.WriteString(delta.PartialJSON)
 				events <- StreamEvent{Type: EventToolDelta, ToolDelta: delta.PartialJSON}
