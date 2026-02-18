@@ -116,10 +116,12 @@ export const models = {
   update: (id: string, data: Partial<ModelEntry>) => api.patch<ModelEntry>(`/models/${id}`, data),
   delete: (id: string) => api.delete(`/models/${id}`),
   test: (id: string) => api.post<{ valid: boolean; error?: string }>(`/models/${id}/test`),
-  probe: (baseUrl: string, apiKey?: string) =>
+  probe: (baseUrl: string, apiKey?: string, provider?: string) =>
     api.get<{ models: ProbeModelInfo[]; count: number }>('/models/probe', {
-      params: { baseUrl, apiKey: apiKey || undefined },
+      params: { baseUrl, apiKey: apiKey || undefined, provider: provider || undefined },
     }),
+  envKeys: () =>
+    api.get<{ envKeys: { provider: string; envVar: string; masked: string; baseUrl: string }[] }>('/models/env-keys'),
 }
 
 export const channels = {
