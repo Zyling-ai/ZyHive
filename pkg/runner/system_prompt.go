@@ -1,4 +1,4 @@
-// System prompt builder — assembles identity, soul, memory, and agent files into a system prompt.
+// System prompt builder — assembles identity, soul, memory index into a system prompt.
 // Reference: pi-coding-agent/dist/core/agent-session.js (buildSystemPrompt)
 package runner
 
@@ -9,11 +9,13 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/sunhuihui6688-star/ai-panel/pkg/memory"
 )
 
-// BuildSystemPrompt reads IDENTITY.md, SOUL.md, MEMORY.md, and optionally files
-// listed in AGENTS.md from the workspace directory, and returns the full system prompt.
-// Missing files are silently skipped.
+// BuildSystemPrompt reads IDENTITY.md, SOUL.md, and memory/INDEX.md from the
+// workspace directory, and returns the full system prompt.
+// Only INDEX.md is injected (lightweight). Full memory tree is accessible via tools.
 func BuildSystemPrompt(workspaceDir string) (string, error) {
 	var sb strings.Builder
 
@@ -25,14 +27,32 @@ func BuildSystemPrompt(workspaceDir string) (string, error) {
 	now := time.Now().In(loc)
 	sb.WriteString(fmt.Sprintf("Current date and time: %s\n\n", now.Format("2006-01-02 15:04:05 MST")))
 
-	// Read core identity files in order
-	for _, filename := range []string{"IDENTITY.md", "SOUL.md", "MEMORY.md"} {
+	// Read IDENTITY.md and SOUL.md
+	for _, filename := range []string{"IDENTITY.md", "SOUL.md"} {
 		content, err := readFileIfExists(filepath.Join(workspaceDir, filename))
 		if err != nil || content == "" {
 			continue
 		}
 		sb.WriteString(fmt.Sprintf("--- %s ---\n%s\n\n", filename, strings.TrimSpace(content)))
 	}
+
+	// Read memory/INDEX.md (lightweight, always injected)
+	mt := memory.NewMemoryTree(workspaceDir)
+	indexContent, err := mt.GetIndex()
+	if err == nil && strings.TrimSpace(indexContent) != "" {
+		sb.WriteString(fmt.Sprintf("--- memory/INDEX.md ---\n%s\n\n", strings.TrimSpace(indexContent)))
+	}
+
+	// Legacy: if MEMORY.md still exists and no INDEX.md, include it
+	if strings.TrimSpace(indexContent) == "" {
+		memContent, err := readFileIfExists(filepath.Join(workspaceDir, "MEMORY.md"))
+		if err == nil && strings.TrimSpace(memContent) != "" {
+			sb.WriteString(fmt.Sprintf("--- MEMORY.md ---\n%s\n\n", strings.TrimSpace(memContent)))
+		}
+	}
+
+	// Memory tree hint for the agent
+	sb.WriteString("[Memory tree available. Use read tool to access: memory/core/, memory/projects/, memory/daily/, memory/topics/]\n\n")
 
 	// Read AGENTS.md — if it exists, also read any files it references (one per line)
 	agentsContent, err := readFileIfExists(filepath.Join(workspaceDir, "AGENTS.md"))
@@ -46,7 +66,6 @@ func BuildSystemPrompt(workspaceDir string) (string, error) {
 			if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "-") {
 				continue
 			}
-			// Try to read the referenced file relative to workspace
 			refPath := line
 			if !filepath.IsAbs(refPath) {
 				refPath = filepath.Join(workspaceDir, refPath)

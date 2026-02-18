@@ -88,47 +88,97 @@
           </el-row>
         </el-tab-pane>
 
-        <!-- Tab 3: Memory -->
+        <!-- Tab 3: Memory Tree -->
         <el-tab-pane label="记忆" name="memory">
-          <el-card header="MEMORY.md">
+          <div class="memory-toolbar" style="margin-bottom: 12px; display: flex; gap: 8px;">
+            <el-button type="primary" size="small" @click="showNewMemoryFile = true">
+              <el-icon><Plus /></el-icon> 新建文件
+            </el-button>
+            <el-button size="small" @click="showDailyEntry = true">
+              <el-icon><EditPen /></el-icon> 添加日志
+            </el-button>
+            <el-button size="small" @click="loadMemoryTree">
+              <el-icon><Refresh /></el-icon> 刷新
+            </el-button>
+          </div>
+          <el-row :gutter="16">
+            <!-- Left: tree navigator (30%) -->
+            <el-col :span="7">
+              <el-card header="记忆目录" shadow="hover">
+                <el-tree
+                  :data="memoryTreeData"
+                  :props="{ label: 'name', children: 'children', isLeaf: (d: any) => !d.isDir }"
+                  @node-click="handleMemoryNodeClick"
+                  highlight-current
+                  default-expand-all
+                  :expand-on-click-node="false"
+                >
+                  <template #default="{ data }">
+                    <span style="display: flex; align-items: center; gap: 4px; font-size: 13px;">
+                      <el-icon v-if="data.isDir" style="color: #E6A23C"><FolderOpened /></el-icon>
+                      <el-icon v-else style="color: #409EFF"><Document /></el-icon>
+                      <span>{{ data.name }}</span>
+                      <el-text v-if="!data.isDir && data.size" type="info" size="small" style="margin-left: auto">
+                        {{ formatSize(data.size) }}
+                      </el-text>
+                    </span>
+                  </template>
+                </el-tree>
+                <el-empty v-if="memoryTreeData.length === 0" description="记忆树为空" :image-size="40" />
+              </el-card>
+            </el-col>
+            <!-- Right: file editor (70%) -->
+            <el-col :span="17">
+              <el-card shadow="hover">
+                <template #header>
+                  <div style="display: flex; align-items: center; justify-content: space-between;">
+                    <el-breadcrumb separator="/">
+                      <el-breadcrumb-item>memory</el-breadcrumb-item>
+                      <el-breadcrumb-item v-for="(seg, i) in memoryFileBreadcrumb" :key="i">{{ seg }}</el-breadcrumb-item>
+                    </el-breadcrumb>
+                    <el-button v-if="memoryEditPath" type="primary" size="small" @click="saveMemoryFile" :loading="memorySaving">保存</el-button>
+                  </div>
+                </template>
+                <template v-if="memoryEditPath">
+                  <el-input
+                    v-model="memoryEditContent"
+                    type="textarea"
+                    :rows="22"
+                    style="font-family: monospace;"
+                  />
+                </template>
+                <template v-else>
+                  <el-empty description="点击左侧文件查看和编辑" :image-size="60" />
+                </template>
+              </el-card>
+            </el-col>
+          </el-row>
+
+          <!-- New memory file dialog -->
+          <el-dialog v-model="showNewMemoryFile" title="新建记忆文件" width="480px">
+            <el-form label-width="80px">
+              <el-form-item label="路径">
+                <el-input v-model="newMemoryPath" placeholder="例如: projects/my-project.md 或 topics/cooking.md" />
+                <el-text type="info" size="small" style="margin-top: 4px">相对于 memory/ 目录</el-text>
+              </el-form-item>
+            </el-form>
+            <template #footer>
+              <el-button @click="showNewMemoryFile = false">取消</el-button>
+              <el-button type="primary" @click="createMemoryFile">创建</el-button>
+            </template>
+          </el-dialog>
+
+          <!-- Daily log entry dialog -->
+          <el-dialog v-model="showDailyEntry" title="添加今日日志" width="600px">
             <el-input
-              v-model="memoryContent"
+              v-model="dailyEntryContent"
               type="textarea"
               :rows="10"
-              @blur="saveFile('MEMORY.md', memoryContent)"
-            />
-          </el-card>
-          <el-card header="每日记忆文件" style="margin-top: 16px">
-            <div v-if="memoryFiles.length === 0">
-              <el-empty description="暂无记忆文件" :image-size="60" />
-            </div>
-            <el-timeline v-else>
-              <el-timeline-item
-                v-for="f in memoryFiles"
-                :key="f.name"
-                :timestamp="f.date || f.name"
-                placement="top"
-              >
-                <el-card shadow="hover" class="memory-card" @click="openMemoryFile(f.name)">
-                  <div style="display: flex; justify-content: space-between; align-items: center">
-                    <span>{{ f.name }}</span>
-                    <el-text type="info" size="small">{{ formatSize(f.size) }}</el-text>
-                  </div>
-                </el-card>
-              </el-timeline-item>
-            </el-timeline>
-          </el-card>
-
-          <!-- Memory file editor dialog -->
-          <el-dialog v-model="showMemoryEditor" :title="editingMemoryFile" width="700px">
-            <el-input
-              v-model="editingMemoryContent"
-              type="textarea"
-              :rows="20"
+              placeholder="记录今天的重要事项、学习心得、待办..."
             />
             <template #footer>
-              <el-button @click="showMemoryEditor = false">取消</el-button>
-              <el-button type="primary" @click="saveMemoryFile">保存</el-button>
+              <el-button @click="showDailyEntry = false">取消</el-button>
+              <el-button type="primary" @click="submitDailyEntry">提交</el-button>
             </template>
           </el-dialog>
         </el-tab-pane>
@@ -240,9 +290,9 @@
 <script setup lang="ts">
 import { ref, onMounted, nextTick, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { ArrowLeft } from '@element-plus/icons-vue'
+import { ArrowLeft, Plus, EditPen, Refresh, FolderOpened, Document } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
-import { agents as agentsApi, files as filesApi, cron as cronApi, chatSSE, type AgentInfo, type FileEntry, type CronJob } from '../api'
+import { agents as agentsApi, files as filesApi, memoryApi, cron as cronApi, chatSSE, type AgentInfo, type FileEntry, type CronJob } from '../api'
 
 const route = useRoute()
 const agentId = route.params.id as string
@@ -257,16 +307,20 @@ const streaming = ref(false)
 const streamText = ref('')
 const chatMessagesRef = ref<HTMLElement>()
 
-// Identity/Soul/Memory
+// Identity/Soul
 const identityContent = ref('')
 const soulContent = ref('')
-const memoryContent = ref('')
-const memoryFiles = ref<any[]>([])
 
-// Memory editor
-const showMemoryEditor = ref(false)
-const editingMemoryFile = ref('')
-const editingMemoryContent = ref('')
+// Memory tree
+const memoryTreeData = ref<any[]>([])
+const memoryEditPath = ref('')
+const memoryEditContent = ref('')
+const memorySaving = ref(false)
+const memoryFileBreadcrumb = ref<string[]>([])
+const showNewMemoryFile = ref(false)
+const newMemoryPath = ref('')
+const showDailyEntry = ref(false)
+const dailyEntryContent = ref('')
 
 // Workspace
 const fileTreeData = ref<any[]>([])
@@ -373,30 +427,14 @@ function scrollChat() {
 // Identity files
 async function loadIdentityFiles() {
   try {
-    const [id, soul, mem] = await Promise.all([
+    const [id, soul] = await Promise.all([
       filesApi.read(agentId, 'IDENTITY.md'),
       filesApi.read(agentId, 'SOUL.md'),
-      filesApi.read(agentId, 'MEMORY.md'),
     ])
     identityContent.value = id.data?.content || ''
     soulContent.value = soul.data?.content || ''
-    memoryContent.value = mem.data?.content || ''
   } catch {}
-  // Load memory files
-  try {
-    const res = await filesApi.read(agentId, 'memory')
-    if (Array.isArray(res.data)) {
-      memoryFiles.value = res.data
-        .filter((f: FileEntry) => !f.isDir)
-        .sort((a: any, b: any) => new Date(b.modTime).getTime() - new Date(a.modTime).getTime())
-        .map((f: FileEntry) => ({
-          name: f.name,
-          date: f.name.replace('.md', ''),
-          size: f.size,
-          modTime: f.modTime,
-        }))
-    }
-  } catch {}
+  loadMemoryTree()
 }
 
 async function saveFile(name: string, content: string) {
@@ -408,25 +446,71 @@ async function saveFile(name: string, content: string) {
   }
 }
 
-async function openMemoryFile(name: string) {
-  editingMemoryFile.value = name
+// Memory tree functions
+async function loadMemoryTree() {
   try {
-    const res = await filesApi.read(agentId, `memory/${name}`)
-    editingMemoryContent.value = res.data?.content || ''
-    showMemoryEditor.value = true
+    const res = await memoryApi.tree(agentId)
+    memoryTreeData.value = res.data || []
   } catch {
-    ElMessage.error('读取文件失败')
+    memoryTreeData.value = []
+  }
+}
+
+async function handleMemoryNodeClick(data: any) {
+  if (data.isDir) return
+  memoryEditPath.value = data.path
+  memoryFileBreadcrumb.value = data.path.split('/')
+  try {
+    const res = await memoryApi.readFile(agentId, data.path)
+    memoryEditContent.value = res.data?.content || ''
+  } catch {
+    memoryEditContent.value = '(无法读取)'
   }
 }
 
 async function saveMemoryFile() {
+  if (!memoryEditPath.value) return
+  memorySaving.value = true
   try {
-    await filesApi.write(agentId, `memory/${editingMemoryFile.value}`, editingMemoryContent.value)
+    await memoryApi.writeFile(agentId, memoryEditPath.value, memoryEditContent.value)
     ElMessage.success('记忆文件已保存')
-    showMemoryEditor.value = false
-    loadIdentityFiles()
+    loadMemoryTree()
   } catch {
     ElMessage.error('保存失败')
+  } finally {
+    memorySaving.value = false
+  }
+}
+
+async function createMemoryFile() {
+  const p = newMemoryPath.value.trim()
+  if (!p) { ElMessage.warning('请输入路径'); return }
+  try {
+    await memoryApi.writeFile(agentId, p, `# ${p.split('/').pop()?.replace('.md', '') || 'New File'}\n\n`)
+    ElMessage.success('文件已创建')
+    showNewMemoryFile.value = false
+    newMemoryPath.value = ''
+    loadMemoryTree()
+    // Open the new file
+    memoryEditPath.value = p
+    memoryFileBreadcrumb.value = p.split('/')
+    memoryEditContent.value = `# ${p.split('/').pop()?.replace('.md', '') || 'New File'}\n\n`
+  } catch {
+    ElMessage.error('创建失败')
+  }
+}
+
+async function submitDailyEntry() {
+  const content = dailyEntryContent.value.trim()
+  if (!content) { ElMessage.warning('请输入内容'); return }
+  try {
+    await memoryApi.dailyLog(agentId, content)
+    ElMessage.success('日志已添加')
+    showDailyEntry.value = false
+    dailyEntryContent.value = ''
+    loadMemoryTree()
+  } catch {
+    ElMessage.error('添加失败')
   }
 }
 
