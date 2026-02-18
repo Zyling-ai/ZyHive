@@ -57,9 +57,12 @@
             </el-tooltip>
           </template>
         </el-table-column>
-        <el-table-column label="API Key" width="140">
+        <el-table-column label="API Key" width="160">
           <template #default="{ row }">
-            <code style="font-size: 12px; color: #909399">{{ row.apiKey }}</code>
+            <el-tag v-if="!row.apiKey" type="info" size="small" style="font-size: 11px">
+              🌐 使用环境变量
+            </el-tag>
+            <code v-else style="font-size: 12px; color: #909399">{{ row.apiKey }}</code>
           </template>
         </el-table-column>
         <el-table-column label="状态" width="90">
@@ -116,38 +119,25 @@
           <!-- 检测到环境变量提示 -->
           <el-alert
             v-if="currentEnvKey"
-            type="info"
+            type="success"
             :closable="false"
-            style="margin-bottom: 8px; padding: 6px 10px"
+            style="margin-bottom: 8px; padding: 6px 12px"
           >
             <span style="font-size: 13px">
-              检测到系统环境变量 <code>{{ currentEnvKey.envVar }}</code>
-              <span style="color: #909399; margin-left: 4px">{{ currentEnvKey.masked }}</span>
+              ✅ 检测到 <code>{{ currentEnvKey.envVar }}</code>（{{ currentEnvKey.masked }}）
+              — <strong>不填 API Key 即可自动使用</strong>
             </span>
-            <el-button
-              link
-              type="primary"
-              size="small"
-              style="margin-left: 8px"
-              @click="useEnvKey"
-            >使用此 Key</el-button>
-            <el-button
-              link
-              type="info"
-              size="small"
-              @click="form.apiKey = '__env__'"
-            >留空（自动读取）</el-button>
           </el-alert>
 
           <el-input
             v-model="form.apiKey"
             type="password"
             show-password
-            :placeholder="currentEnvKey ? '不填则自动使用环境变量 ' + currentEnvKey.envVar : 'sk-...'"
+            :placeholder="currentEnvKey ? '留空 = 自动读取 ' + currentEnvKey.envVar : 'sk-...'"
           />
           <div class="field-hint">
-            <span v-if="form.apiKey === '__env__'" style="color: var(--el-color-primary)">
-              ✓ 将自动读取 {{ currentEnvKey?.envVar }} 环境变量
+            <span v-if="!form.apiKey && currentEnvKey" style="color: var(--el-color-success)">
+              ✓ 留空后将自动使用 {{ currentEnvKey.envVar }} 环境变量
             </span>
             <span v-else>手动填写优先级高于环境变量</span>
           </div>
@@ -298,14 +288,6 @@ function onProviderChange() {
   }
 }
 
-function useEnvKey() {
-  // Fill in a placeholder so user knows it's set, but actual value isn't shown
-  if (currentEnvKey.value) {
-    form.apiKey = currentEnvKey.value.masked
-    ElMessage.info('已填入（显示为掩码，实际使用环境变量值）')
-  }
-}
-
 function onModelSelect(modelId: string) {
   const found = probedModels.value.find(m => m.id === modelId)
   if (found) {
@@ -371,7 +353,7 @@ async function quickAddFromEnv(ek: EnvKey) {
       name: capitalize(ek.provider) + ' (env)',
       provider: ek.provider,
       model: '',
-      apiKey: ek.masked,
+      apiKey: '',        // leave empty — backend auto-reads from env var
       baseUrl: ek.baseUrl,
       isDefault: list.value.length === 0,
     })
