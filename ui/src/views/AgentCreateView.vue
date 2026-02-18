@@ -168,6 +168,7 @@
         height="100%"
         :compact="true"
         :show-thinking="true"
+        :applyable="true"
         @apply="applyToForm"
       />
 
@@ -235,20 +236,30 @@ function revertField(field: string) {
 }
 
 function applyToForm(data: Record<string, string>) {
+  // support both lowercase (name/identity/soul) and uppercase (IDENTITY/SOUL)
   const fieldMap: Record<string, keyof typeof form> = {
-    name: 'name', id: 'id', description: 'description',
-    identity: 'identity', soul: 'soul',
+    name: 'name', NAME: 'name',
+    id: 'id', ID: 'id',
+    description: 'description', DESCRIPTION: 'description', desc: 'description',
+    identity: 'identity', IDENTITY: 'identity',
+    soul: 'soul', SOUL: 'soul',
   }
+  let applied = 0
   for (const [key, val] of Object.entries(data)) {
     const formKey = fieldMap[key]
-    if (formKey) {
-      aiFilledSnapshot[key] = (form as any)[formKey]
+    if (formKey && val) {
+      aiFilledSnapshot[key.toLowerCase()] = (form as any)[formKey]
       ;(form as any)[formKey] = val
-      aiFilledFields.add(key)
-      if (key === 'name') autoId()
+      aiFilledFields.add(key.toLowerCase())
+      if (key.toLowerCase() === 'name') autoId()
+      applied++
     }
   }
-  ElMessage.success('已应用到左侧表单')
+  if (applied > 0) {
+    ElMessage.success(`已填入 ${applied} 个字段到左侧表单 ✓`)
+  } else {
+    ElMessage.warning('未识别到可填入的字段，请手动复制')
+  }
 }
 
 async function save() {
