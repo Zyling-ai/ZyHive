@@ -76,7 +76,7 @@ func (p *Pool) Run(ctx context.Context, agentID, message string) (string, error)
 
 	// Create a fresh runner for this invocation
 	llmClient := llm.NewAnthropicClient()
-	toolRegistry := tools.New()
+	toolRegistry := tools.New(ag.WorkspaceDir)
 	store := session.NewStore(ag.SessionDir)
 
 	r := runner.New(runner.Config{

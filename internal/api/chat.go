@@ -78,7 +78,7 @@ func (h *chatHandler) Chat(c *gin.Context) {
 
 	// Create runner dependencies
 	llmClient := llm.NewAnthropicClient()
-	toolRegistry := tools.New()
+	toolRegistry := tools.New(ag.WorkspaceDir)
 	store := session.NewStore(ag.SessionDir)
 
 	// Convert client-side history to llm.ChatMessage slice
