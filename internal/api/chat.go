@@ -69,12 +69,16 @@ func (h *chatHandler) Chat(c *gin.Context) {
 	if modelEntry == nil {
 		modelEntry = h.cfg.DefaultModel()
 	}
-	if modelEntry == nil || modelEntry.APIKey == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "no model/API key configured"})
+	if modelEntry == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "no model configured"})
+		return
+	}
+	apiKey := resolveKey(modelEntry) // uses stored key, falls back to env var
+	if apiKey == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("no API key configured (set %s env var or add key in model settings)", envVarForProvider[modelEntry.Provider])})
 		return
 	}
 	model := modelEntry.ProviderModel()
-	apiKey := modelEntry.APIKey
 
 	// Create runner dependencies
 	llmClient := llm.NewAnthropicClient()
