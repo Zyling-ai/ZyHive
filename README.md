@@ -1,2 +1,112 @@
-# ai-panel
-AI Company OS — Go backend + Vue 3 frontend, multi-agent management panel based on OpenClaw architecture
+# AI Company Panel
+
+> AI 公司操作系统 — 用可视化面板管理你的 AI 员工团队
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Go 1.22+](https://img.shields.io/badge/Go-1.22+-00ADD8.svg)](https://golang.org)
+
+**每个 AI Agent 是一名员工，你是 CEO。**
+
+一行命令安装，打开浏览器即可管理整个 AI 团队：配置每个 AI 的身份、灵魂、记忆、技能，设计组织架构，让 AI 之间互相协作讨论。
+
+---
+
+## 🚀 快速开始
+
+```bash
+curl -sSL https://raw.githubusercontent.com/sunhuihui6688-star/ai-panel/main/scripts/install.sh | bash
+```
+
+安装完成后，终端直接显示访问地址：
+
+```
+✅ AI Company Panel 安装成功！
+
+  本地访问：  http://localhost:8080
+  内网访问：  http://192.168.1.100:8080
+  公网访问：  http://123.45.67.89:8080
+```
+
+---
+
+## ✨ 核心功能
+
+| 功能 | 说明 |
+|------|------|
+| 🧑‍💼 **员工管理** | 创建多个 AI Agent，每个有独立身份、灵魂、记忆、工作区 |
+| 💬 **对话** | 与任意 Agent 实时对话，支持工具调用和流式输出 |
+| 🧠 **记忆管理** | 可视化浏览和编辑 Agent 的记忆文件 |
+| ⏰ **定时任务** | 可视化配置 Cron 任务，查看执行历史 |
+| 🔌 **消息渠道** | 接入 Telegram Bot、iMessage 等 |
+| 🎯 **Skills** | 技能安装与管理 |
+| 🏢 **组织架构** | 拖拽设计 AI 团队组织图 |
+| 🤝 **AI 协同** | 多 Agent 群聊频道，任务委派 |
+| 📊 **监控** | Token 用量统计，费用估算 |
+
+---
+
+## 🛠️ 技术架构
+
+```
+Vue 3 + Element Plus (SPA)
+        ↓ REST API + WebSocket
+Go 后端 (Gin, 单二进制)
+        ↓
+  pkg/runner  ← Agent 对话主循环（工具调用循环）
+  pkg/llm     ← Anthropic / OpenAI 流式客户端
+  pkg/session ← JSONL 会话存储（兼容 OpenClaw 格式）
+  pkg/tools   ← 内置工具（read/write/edit/exec/grep）
+  pkg/agent   ← 多 Agent 生命周期 + 工作区管理
+  pkg/channel ← Telegram / iMessage 渠道
+  pkg/cron    ← 定时任务引擎
+```
+
+**架构参考：** [OpenClaw](https://github.com/openclaw/openclaw)
+
+---
+
+## 📁 项目结构
+
+```
+ai-panel/
+├── cmd/aipanel/main.go     # 入口
+├── internal/
+│   ├── api/                # REST API (Gin handlers)
+│   └── ws/                 # WebSocket hub
+├── pkg/
+│   ├── config/             # 配置文件解析
+│   ├── agent/              # Agent 生命周期
+│   ├── llm/                # LLM 客户端
+│   ├── session/            # JSONL 会话存储
+│   ├── tools/              # 内置工具
+│   ├── runner/             # 对话主循环
+│   ├── compaction/         # 上下文压缩
+│   ├── channel/            # 消息渠道
+│   ├── cron/               # 定时任务
+│   ├── memory/             # 记忆管理
+│   └── skill/              # Skills 管理
+├── ui/                     # Vue 3 前端
+├── scripts/install.sh      # 一行安装脚本
+└── go.mod
+```
+
+---
+
+## 📋 实现计划
+
+详见 [idear/ai-panel/PLAN.md](https://github.com/sunhuihui6688-star/ai-panel) — 15 个模块，5 个阶段。
+
+| 阶段 | 内容 | 状态 |
+|------|------|------|
+| Phase 0 | 项目骨架 + 目录结构 | ✅ 完成 |
+| Phase 1 | LLM 客户端 + Session + Tools + Runner | 🚧 进行中 |
+| Phase 2 | Agent 管理 + REST API + 基础 UI | ⏳ 待开始 |
+| Phase 3 | Telegram + Cron + 记忆管理 | ⏳ 待开始 |
+| Phase 4 | 完整面板 UI + Skills + 组织协同 | ⏳ 待开始 |
+| Phase 5 | 安装脚本 + 多平台发布 | ⏳ 待开始 |
+
+---
+
+## 📄 License
+
+MIT

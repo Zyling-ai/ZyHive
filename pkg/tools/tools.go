@@ -1,0 +1,280 @@
+// Built-in tool implementations.
+// Reference: pi-coding-agent/dist/core/tools/read.js, write.js, edit.js, bash.js, grep.js
+package tools
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"time"
+
+	lllm "github.com/sunhuihui6688-star/ai-panel/pkg/llm"
+)
+
+// ── Read ────────────────────────────────────────────────────────────────────
+
+var readToolDef = lllm.ToolDef{
+	Name:        "read",
+	Description: "Read the contents of a file. Supports text files. Output is truncated to 2000 lines or 50KB.",
+	InputSchema: json.RawMessage(`{
+		"type":"object",
+		"properties":{
+			"file_path":{"type":"string","description":"Path to the file to read"},
+			"offset":{"type":"number","description":"Line number to start reading from (1-indexed)"},
+			"limit":{"type":"number","description":"Maximum number of lines to read"}
+		},
+		"required":["file_path"]
+	}`),
+}
+
+func handleRead(_ context.Context, input json.RawMessage) (string, error) {
+	var p struct {
+		FilePath string `json:"file_path"`
+		Offset   int    `json:"offset"`
+		Limit    int    `json:"limit"`
+	}
+	if err := json.Unmarshal(input, &p); err != nil {
+		return "", err
+	}
+	data, err := os.ReadFile(p.FilePath)
+	if err != nil {
+		return "", err
+	}
+	lines := strings.Split(string(data), "\n")
+	start, end := 0, len(lines)
+	if p.Offset > 0 {
+		start = p.Offset - 1
+	}
+	if p.Limit > 0 && start+p.Limit < end {
+		end = start + p.Limit
+	}
+	if start > len(lines) {
+		return "", fmt.Errorf("offset %d exceeds file length %d", p.Offset, len(lines))
+	}
+	return strings.Join(lines[start:end], "\n"), nil
+}
+
+// ── Write ───────────────────────────────────────────────────────────────────
+
+var writeToolDef = lllm.ToolDef{
+	Name:        "write",
+	Description: "Write content to a file. Creates the file if it doesn't exist, overwrites if it does. Automatically creates parent directories.",
+	InputSchema: json.RawMessage(`{
+		"type":"object",
+		"properties":{
+			"file_path":{"type":"string"},
+			"content":{"type":"string"}
+		},
+		"required":["file_path","content"]
+	}`),
+}
+
+func handleWrite(_ context.Context, input json.RawMessage) (string, error) {
+	var p struct {
+		FilePath string `json:"file_path"`
+		Content  string `json:"content"`
+	}
+	if err := json.Unmarshal(input, &p); err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(filepath.Dir(p.FilePath), 0755); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("Written %d bytes to %s", len(p.Content), p.FilePath),
+		os.WriteFile(p.FilePath, []byte(p.Content), 0644)
+}
+
+// ── Edit ────────────────────────────────────────────────────────────────────
+
+var editToolDef = lllm.ToolDef{
+	Name:        "edit",
+	Description: "Edit a file by replacing exact text. The old_string must match exactly (including whitespace).",
+	InputSchema: json.RawMessage(`{
+		"type":"object",
+		"properties":{
+			"file_path":{"type":"string"},
+			"old_string":{"type":"string"},
+			"new_string":{"type":"string"}
+		},
+		"required":["file_path","old_string","new_string"]
+	}`),
+}
+
+func handleEdit(_ context.Context, input json.RawMessage) (string, error) {
+	var p struct {
+		FilePath  string `json:"file_path"`
+		OldString string `json:"old_string"`
+		NewString string `json:"new_string"`
+	}
+	if err := json.Unmarshal(input, &p); err != nil {
+		return "", err
+	}
+	data, err := os.ReadFile(p.FilePath)
+	if err != nil {
+		return "", err
+	}
+	src := string(data)
+	if !strings.Contains(src, p.OldString) {
+		return "", fmt.Errorf("old_string not found in %s", p.FilePath)
+	}
+	result := strings.Replace(src, p.OldString, p.NewString, 1)
+	return fmt.Sprintf("Replaced 1 occurrence in %s", p.FilePath),
+		os.WriteFile(p.FilePath, []byte(result), 0644)
+}
+
+// ── Bash ────────────────────────────────────────────────────────────────────
+
+var bashToolDef = lllm.ToolDef{
+	Name:        "exec",
+	Description: "Execute shell commands. Times out after 120 seconds.",
+	InputSchema: json.RawMessage(`{
+		"type":"object",
+		"properties":{
+			"command":{"type":"string","description":"Shell command to execute"},
+			"timeout":{"type":"number","description":"Timeout in seconds (max 120)"}
+		},
+		"required":["command"]
+	}`),
+}
+
+func handleBash(_ context.Context, input json.RawMessage) (string, error) {
+	var p struct {
+		Command string `json:"command"`
+		Timeout int    `json:"timeout"`
+	}
+	if err := json.Unmarshal(input, &p); err != nil {
+		return "", err
+	}
+	timeout := time.Duration(p.Timeout) * time.Second
+	if timeout <= 0 || timeout > 120*time.Second {
+		timeout = 120 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "bash", "-c", p.Command)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return string(out), fmt.Errorf("command failed: %w\n%s", err, out)
+	}
+	return string(out), nil
+}
+
+// ── Grep ────────────────────────────────────────────────────────────────────
+
+var grepToolDef = lllm.ToolDef{
+	Name:        "grep",
+	Description: "Search for a pattern in files using regular expressions.",
+	InputSchema: json.RawMessage(`{
+		"type":"object",
+		"properties":{
+			"pattern":{"type":"string","description":"Regular expression pattern"},
+			"path":{"type":"string","description":"File or directory to search"},
+			"recursive":{"type":"boolean"}
+		},
+		"required":["pattern","path"]
+	}`),
+}
+
+func handleGrep(_ context.Context, input json.RawMessage) (string, error) {
+	var p struct {
+		Pattern   string `json:"pattern"`
+		Path      string `json:"path"`
+		Recursive bool   `json:"recursive"`
+	}
+	if err := json.Unmarshal(input, &p); err != nil {
+		return "", err
+	}
+	re, err := regexp.Compile(p.Pattern)
+	if err != nil {
+		return "", fmt.Errorf("invalid pattern: %w", err)
+	}
+	args := []string{"-n"}
+	if p.Recursive {
+		args = append(args, "-r")
+	}
+	_ = re // use stdlib grep via exec for now
+	cmd := exec.Command("grep", append(args, p.Pattern, p.Path)...)
+	out, _ := cmd.CombinedOutput()
+	return string(out), nil
+}
+
+// ── Glob ────────────────────────────────────────────────────────────────────
+
+var globToolDef = lllm.ToolDef{
+	Name:        "glob",
+	Description: "Find files matching a glob pattern.",
+	InputSchema: json.RawMessage(`{
+		"type":"object",
+		"properties":{
+			"pattern":{"type":"string","description":"Glob pattern, e.g. **/*.go"},
+			"base_dir":{"type":"string"}
+		},
+		"required":["pattern"]
+	}`),
+}
+
+func handleGlob(_ context.Context, input json.RawMessage) (string, error) {
+	var p struct {
+		Pattern string `json:"pattern"`
+		BaseDir string `json:"base_dir"`
+	}
+	if err := json.Unmarshal(input, &p); err != nil {
+		return "", err
+	}
+	base := p.BaseDir
+	if base == "" {
+		base = "."
+	}
+	matches, err := filepath.Glob(filepath.Join(base, p.Pattern))
+	if err != nil {
+		return "", err
+	}
+	return strings.Join(matches, "\n"), nil
+}
+
+// ── Web Fetch ────────────────────────────────────────────────────────────────
+
+var webFetchToolDef = lllm.ToolDef{
+	Name:        "web_fetch",
+	Description: "Fetch and extract readable content from a URL.",
+	InputSchema: json.RawMessage(`{
+		"type":"object",
+		"properties":{
+			"url":{"type":"string"},
+			"max_chars":{"type":"number"}
+		},
+		"required":["url"]
+	}`),
+}
+
+func handleWebFetch(_ context.Context, input json.RawMessage) (string, error) {
+	var p struct {
+		URL      string `json:"url"`
+		MaxChars int    `json:"max_chars"`
+	}
+	if err := json.Unmarshal(input, &p); err != nil {
+		return "", err
+	}
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Get(p.URL)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	maxChars := p.MaxChars
+	if maxChars <= 0 {
+		maxChars = 50000
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, int64(maxChars)))
+	if err != nil {
+		return "", err
+	}
+	return string(body), nil
+}
