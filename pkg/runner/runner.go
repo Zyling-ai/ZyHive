@@ -33,6 +33,8 @@ type Config struct {
 	ExtraContext string
 	// Optional: base64 image data URIs attached to the user message
 	Images []string
+	// Optional: preloaded conversation history (from client-side state)
+	PreloadedHistory []llm.ChatMessage
 }
 
 // Runner drives a single agent's conversation lifecycle.
@@ -43,7 +45,11 @@ type Runner struct {
 
 // New creates a Runner for the given agent.
 func New(cfg Config) *Runner {
-	return &Runner{cfg: cfg}
+	r := &Runner{cfg: cfg}
+	if len(cfg.PreloadedHistory) > 0 {
+		r.history = append(r.history, cfg.PreloadedHistory...)
+	}
+	return r
 }
 
 // RunEvent is emitted to the caller during a conversation turn.

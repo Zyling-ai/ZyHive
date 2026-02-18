@@ -42,6 +42,10 @@ func (h *chatHandler) Chat(c *gin.Context) {
 		Context  string   `json:"context"`   // extra system context (page scenario, background)
 		Scenario string   `json:"scenario"`  // label e.g. "agent-creation", "general"
 		Images   []string `json:"images"`    // base64 data URIs: "data:image/png;base64,..."
+		History  []struct {
+			Role    string `json:"role"`    // "user" | "assistant"
+			Content string `json:"content"` // plain text
+		} `json:"history"` // prior conversation turns for multi-turn context
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -77,16 +81,26 @@ func (h *chatHandler) Chat(c *gin.Context) {
 	toolRegistry := tools.New()
 	store := session.NewStore(ag.SessionDir)
 
+	// Convert client-side history to llm.ChatMessage slice
+	var preHistory []llm.ChatMessage
+	for _, h := range req.History {
+		if h.Role == "user" || h.Role == "assistant" {
+			content, _ := json.Marshal(h.Content)
+			preHistory = append(preHistory, llm.ChatMessage{Role: h.Role, Content: content})
+		}
+	}
+
 	r := runner.New(runner.Config{
-		AgentID:      ag.ID,
-		WorkspaceDir: ag.WorkspaceDir,
-		Model:        model,
-		APIKey:       apiKey,
-		LLM:          llmClient,
-		Tools:        toolRegistry,
-		Session:      store,
-		ExtraContext: req.Context,
-		Images:       req.Images,
+		AgentID:          ag.ID,
+		WorkspaceDir:     ag.WorkspaceDir,
+		Model:            model,
+		APIKey:           apiKey,
+		LLM:              llmClient,
+		Tools:            toolRegistry,
+		Session:          store,
+		ExtraContext:     req.Context,
+		Images:           req.Images,
+		PreloadedHistory: preHistory,
 	})
 
 	// Set SSE headers
