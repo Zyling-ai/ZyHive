@@ -2,7 +2,12 @@
 package api
 
 import (
+	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/config"
@@ -78,6 +83,9 @@ func (h *modelHandler) Update(c *gin.Context) {
 			if patch.APIKey != "" && !ismasked(patch.APIKey) {
 				m.APIKey = patch.APIKey
 			}
+			if patch.BaseURL != "" {
+				m.BaseURL = patch.BaseURL
+			}
 			m.IsDefault = patch.IsDefault
 			if patch.Status != "" {
 				m.Status = patch.Status
@@ -138,6 +146,111 @@ func (h *modelHandler) Test(c *gin.Context) {
 		result["error"] = errMsg
 	}
 	c.JSON(http.StatusOK, result)
+}
+
+// FetchModels GET /api/models/probe?baseUrl=...&apiKey=...
+// Proxies to {baseUrl}/v1/models and returns a unified model list.
+// OpenRouter public endpoint works without apiKey.
+func (h *modelHandler) FetchModels(c *gin.Context) {
+	baseURL := strings.TrimRight(c.Query("baseUrl"), "/")
+	apiKey := c.Query("apiKey")
+
+	if baseURL == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "baseUrl is required"})
+		return
+	}
+
+	target := baseURL + "/v1/models"
+	req, err := http.NewRequestWithContext(c.Request.Context(), "GET", target, nil)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid url: " + err.Error()})
+		return
+	}
+
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+		// Anthropic also needs these headers
+		req.Header.Set("x-api-key", apiKey)
+		req.Header.Set("anthropic-version", "2023-06-01")
+	}
+	req.Header.Set("User-Agent", "ai-panel/0.4.0")
+
+	client := &http.Client{Timeout: 20 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "request failed: " + err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 {
+		c.JSON(http.StatusBadGateway, gin.H{
+			"error": fmt.Sprintf("provider returned %d: %s", resp.StatusCode, truncate(string(body), 300)),
+		})
+		return
+	}
+
+	// Parse standard OpenAI-compatible response: {"data": [{id, name/display_name, ...}]}
+	var raw struct {
+		Data []struct {
+			ID          string `json:"id"`
+			Name        string `json:"name"`
+			DisplayName string `json:"display_name"`
+			Object      string `json:"object"`
+		} `json:"data"`
+		// Some providers return a flat array instead
+	}
+
+	type ModelInfo struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}
+
+	if err := json.Unmarshal(body, &raw); err != nil || len(raw.Data) == 0 {
+		// Fallback: maybe it's a flat array of strings or objects
+		var flat []json.RawMessage
+		if json.Unmarshal(body, &flat) == nil && len(flat) > 0 {
+			models := make([]ModelInfo, 0, len(flat))
+			for _, item := range flat {
+				var obj struct {
+					ID   string `json:"id"`
+					Name string `json:"name"`
+				}
+				if json.Unmarshal(item, &obj) == nil && obj.ID != "" {
+					if obj.Name == "" {
+						obj.Name = obj.ID
+					}
+					models = append(models, ModelInfo{ID: obj.ID, Name: obj.Name})
+				}
+			}
+			c.JSON(http.StatusOK, gin.H{"models": models, "count": len(models)})
+			return
+		}
+		c.JSON(http.StatusBadGateway, gin.H{"error": "unexpected response format"})
+		return
+	}
+
+	models := make([]ModelInfo, 0, len(raw.Data))
+	for _, d := range raw.Data {
+		name := d.Name
+		if name == "" {
+			name = d.DisplayName
+		}
+		if name == "" {
+			name = d.ID
+		}
+		models = append(models, ModelInfo{ID: d.ID, Name: name})
+	}
+
+	c.JSON(http.StatusOK, gin.H{"models": models, "count": len(models)})
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
 }
 
 func (h *modelHandler) save(c *gin.Context) {

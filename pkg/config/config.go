@@ -31,9 +31,10 @@ type AgentsConfig struct {
 type ModelEntry struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
-	Provider  string `json:"provider"` // "anthropic" | "openai" | "deepseek"
+	Provider  string `json:"provider"` // "anthropic" | "openai" | "deepseek" | "openrouter" | "custom"
 	Model     string `json:"model"`    // "claude-sonnet-4-6"
 	APIKey    string `json:"apiKey"`
+	BaseURL   string `json:"baseUrl,omitempty"` // API base URL; empty = provider default
 	IsDefault bool   `json:"isDefault"`
 	Status    string `json:"status"` // "ok" | "error" | "untested"
 }
