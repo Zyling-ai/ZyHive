@@ -2,7 +2,7 @@
   <div class="agents-page">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px">
       <h2 style="margin: 0">AI 员工</h2>
-      <el-button type="primary" @click="openWizard">
+      <el-button type="primary" @click="$router.push('/agents/new')">
         <el-icon><Plus /></el-icon> 新建 Agent
       </el-button>
     </div>
@@ -262,6 +262,8 @@ onMounted(() => {
   store.fetchAll()
 })
 
+// kept for potential reuse
+// @ts-ignore
 async function openWizard() {
   wizardStep.value = 0
   Object.assign(wizardForm, {

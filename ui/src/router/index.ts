@@ -21,6 +21,12 @@ const router = createRouter({
       meta: { requiresAuth: true }
     },
     {
+      path: '/agents/new',
+      name: 'agent-create',
+      component: () => import('../views/AgentCreateView.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
       path: '/agents/:id',
       name: 'agent-detail',
       component: () => import('../views/AgentDetailView.vue'),
