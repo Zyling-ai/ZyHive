@@ -1,11 +1,11 @@
 # AI Company Panel
 
-> AI 公司操作系统 — 用可视化面板管理你的 AI 员工团队
+> AI 团队操作系统 — 用可视化面板管理你的 AI 成员团队
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Go 1.22+](https://img.shields.io/badge/Go-1.22+-00ADD8.svg)](https://golang.org)
 
-**每个 AI Agent 是一名员工，你是 CEO。**
+**以团队为核心，每个 AI Agent 是团队成员。**
 
 一行命令安装，打开浏览器即可管理整个 AI 团队：配置每个 AI 的身份、灵魂、记忆、技能，设计组织架构，让 AI 之间互相协作讨论。
 
@@ -35,7 +35,7 @@ curl -sSL https://raw.githubusercontent.com/sunhuihui6688-star/ai-panel/main/scr
 
 | 仪表盘 | 对话界面 | 配置中心 |
 |--------|---------|---------|
-| 员工卡片网格，状态一目了然 | SSE 流式对话 + 工具调用折叠卡 | API Key 测试、模型选择、Telegram 配置 |
+| 成员卡片网格，状态一目了然 | SSE 流式对话 + 工具调用折叠卡 | API Key 测试、模型选择、Telegram 配置 |
 
 ---
 
@@ -43,7 +43,7 @@ curl -sSL https://raw.githubusercontent.com/sunhuihui6688-star/ai-panel/main/scr
 
 | 功能 | 状态 | 说明 |
 |------|------|------|
-| 🧑‍💼 **员工管理** | ✅ | 创建多个 AI Agent，每个有独立身份、灵魂、记忆、工作区 |
+| 🧑‍💼 **成员管理** | ✅ | 创建多个 AI Agent，每个有独立身份、灵魂、记忆、工作区 |
 | 💬 **SSE 对话** | ✅ | 与任意 Agent 实时对话，支持工具调用和流式输出 |
 | 📝 **身份编辑** | ✅ | 可视化编辑 IDENTITY.md / SOUL.md，自动保存 |
 | 🧠 **记忆管理** | ✅ | 可视化浏览和编辑 Agent 的记忆文件 |

@@ -5,7 +5,7 @@
         <div class="login-header">
           <el-icon :size="32" color="#409EFF"><Monitor /></el-icon>
           <h2>AI Company Panel</h2>
-          <p class="subtitle">AI 公司操作系统</p>
+          <p class="subtitle">AI 团队操作系统</p>
         </div>
       </template>
       <el-form @submit.prevent="handleLogin">

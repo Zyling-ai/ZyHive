@@ -9,7 +9,7 @@
           <div class="stat-icon" style="background: #ecf5ff; color: #409eff">👥</div>
           <div class="stat-info">
             <div class="stat-value">{{ agentStore.list.length }}</div>
-            <div class="stat-label">AI 员工</div>
+            <div class="stat-label">AI 成员</div>
           </div>
         </el-card>
       </el-col>
@@ -46,9 +46,9 @@
     <el-card shadow="hover">
       <template #header>
         <div style="display: flex; justify-content: space-between; align-items: center;">
-          <span style="font-weight: 600">员工状态</span>
+          <span style="font-weight: 600">成员状态</span>
           <el-button type="primary" size="small" @click="$router.push('/agents')">
-            管理员工
+            管理成员
           </el-button>
         </div>
       </template>
@@ -90,7 +90,7 @@
           </template>
         </el-table-column>
       </el-table>
-      <el-empty v-if="agentStore.list.length === 0" description="暂无 AI 员工" />
+      <el-empty v-if="agentStore.list.length === 0" description="暂无 AI 成员" />
     </el-card>
   </div>
 </template>
