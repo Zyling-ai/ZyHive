@@ -352,12 +352,20 @@ export interface MemConfig {
   cronJobId: string
 }
 
+export interface MemRunLog {
+  timestamp: number // unix ms
+  status: 'ok' | 'error'
+  message: string
+}
+
 export const memoryConfigApi = {
   getConfig: (agentId: string) => api.get<MemConfig>(`/agents/${agentId}/memory/config`),
   setConfig: (agentId: string, cfg: Partial<MemConfig>) =>
     api.put<MemConfig>(`/agents/${agentId}/memory/config`, cfg),
   consolidate: (agentId: string) =>
     api.post<{ ok: boolean; message: string }>(`/agents/${agentId}/memory/consolidate`),
+  runLog: (agentId: string) =>
+    api.get<MemRunLog[]>(`/agents/${agentId}/memory/run-log`),
 }
 
 export default api

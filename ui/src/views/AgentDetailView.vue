@@ -366,26 +366,23 @@
                 <el-button size="small" text @click="loadMemLogs" :loading="memLogsLoading">刷新</el-button>
               </div>
             </template>
-            <div v-if="!memCfg.enabled" style="text-align: center; color: #c0c4cc; padding: 16px 0; font-size: 13px;">
-              开启自动记忆后此处显示运行记录
+            <div v-if="memLogs.length === 0 && !memLogsLoading" style="text-align: center; color: #c0c4cc; padding: 16px 0; font-size: 13px;">
+              暂无运行记录，点击「立即整理」触发第一次
             </div>
-            <div v-else-if="memLogs.length === 0 && !memLogsLoading" style="text-align: center; color: #c0c4cc; padding: 16px 0; font-size: 13px;">
-              暂无运行记录
-            </div>
-            <el-table v-else :data="memLogs.slice(0, 10)" size="small">
+            <el-table v-else :data="memLogs.slice(0, 20)" size="small">
               <el-table-column label="时间" width="160">
                 <template #default="{ row }">
-                  <span style="font-size: 12px;">{{ formatTimestamp(row.startedAt) }}</span>
+                  <span style="font-size: 12px;">{{ formatTimestamp(row.timestamp) }}</span>
                 </template>
               </el-table-column>
-              <el-table-column label="状态" width="80">
+              <el-table-column label="状态" width="72">
                 <template #default="{ row }">
                   <el-tag :type="row.status === 'ok' ? 'success' : 'danger'" size="small">{{ row.status }}</el-tag>
                 </template>
               </el-table-column>
               <el-table-column label="结果" min-width="200" show-overflow-tooltip>
                 <template #default="{ row }">
-                  <span style="font-size: 12px; color: #606266;">{{ row.output || row.error || '—' }}</span>
+                  <span style="font-size: 12px; color: #606266;">{{ row.message || '—' }}</span>
                 </template>
               </el-table-column>
             </el-table>
@@ -599,7 +596,7 @@ import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ArrowLeft, Plus, EditPen, Refresh, FolderOpened, Document } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
-import { agents as agentsApi, files as filesApi, memoryApi, cron as cronApi, sessions as sessionsApi, relationsApi, memoryConfigApi, type AgentInfo, type FileEntry, type CronJob, type SessionSummary, type RelationRow, type MemConfig } from '../api'
+import { agents as agentsApi, files as filesApi, memoryApi, cron as cronApi, sessions as sessionsApi, relationsApi, memoryConfigApi, type AgentInfo, type FileEntry, type CronJob, type SessionSummary, type RelationRow, type MemConfig, type MemRunLog } from '../api'
 import AiChat, { type ChatMsg } from '../components/AiChat.vue'
 
 const route = useRoute()
@@ -740,7 +737,7 @@ async function loadMemConfig() {
   try {
     const res = await memoryConfigApi.getConfig(agentId)
     memCfg.value = res.data
-    if (res.data.cronJobId) loadMemLogs()
+    loadMemLogs()
   } catch {
     // use defaults
   }
@@ -763,8 +760,8 @@ async function consolidateNow() {
   memConsolidating.value = true
   try {
     await memoryConfigApi.consolidate(agentId)
-    ElMessage.success('记忆整理已在后台启动，稍后刷新记忆文件查看结果')
-    setTimeout(loadMemLogs, 3000) // 3秒后刷新日志
+    ElMessage.success('记忆整理已在后台启动（约需10~30秒），稍后自动刷新日志')
+    setTimeout(loadMemLogs, 10000) // 10秒后刷新日志
   } catch {
     ElMessage.error('整理失败')
   } finally {
@@ -773,16 +770,14 @@ async function consolidateNow() {
 }
 
 // Consolidation run log
-interface RunRecord { jobId: string; runId: string; startedAt: number; endedAt: number; status: string; output: string; error?: string }
-const memLogs = ref<RunRecord[]>([])
+const memLogs = ref<MemRunLog[]>([])
 const memLogsLoading = ref(false)
 
 async function loadMemLogs() {
-  if (!memCfg.value.cronJobId) return
   memLogsLoading.value = true
   try {
-    const res = await cronApi.runs(memCfg.value.cronJobId)
-    memLogs.value = (res.data as RunRecord[]).slice().reverse() // newest first
+    const res = await memoryConfigApi.runLog(agentId)
+    memLogs.value = res.data || []
   } catch {
     memLogs.value = []
   } finally {

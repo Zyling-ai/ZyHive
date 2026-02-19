@@ -70,6 +70,7 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager, pool 
 	agents.GET("/:id/memory/config", memH.GetConfig)
 	agents.PUT("/:id/memory/config", memH.SetConfig)
 	agents.POST("/:id/memory/consolidate", memH.ConsolidateNow)
+	agents.GET("/:id/memory/run-log", memH.RunLog)
 
 	// ── Global Config Registries ──────────────────────────────────────────
 

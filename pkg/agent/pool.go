@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/sunhuihui6688-star/ai-panel/pkg/config"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/llm"
@@ -109,9 +111,23 @@ func (p *Pool) ConsolidateMemory(ctx context.Context, agentID string) (string, e
 	store := session.NewStore(ag.SessionDir)
 	memTree := memory.NewMemoryTree(ag.WorkspaceDir)
 
-	if err := memory.Consolidate(ctx, store, memTree, ag.Name, convCfg, callLLM); err != nil {
+	nowMs := time.Now().UnixMilli()
+	err = memory.Consolidate(ctx, store, memTree, ag.Name, convCfg, callLLM)
+	if err != nil {
+		log.Printf("[memory] consolidate agent=%s error: %v", agentID, err)
+		_ = memory.AppendRunLog(ag.WorkspaceDir, memory.RunLogEntry{
+			Timestamp: nowMs,
+			Status:    "error",
+			Message:   err.Error(),
+		})
 		return "", err
 	}
+	log.Printf("[memory] consolidate agent=%s ok", agentID)
+	_ = memory.AppendRunLog(ag.WorkspaceDir, memory.RunLogEntry{
+		Timestamp: nowMs,
+		Status:    "ok",
+		Message:   "整理完成，摘要已写入 MEMORY.md",
+	})
 	return "✅ 记忆整理完成", nil
 }
 
