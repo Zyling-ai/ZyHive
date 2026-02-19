@@ -54,7 +54,7 @@
               :y2="edgeEnd(edge).y"
               :stroke="edgeColor(edge.type)"
               :stroke-width="edgeWidth(edge.strength)"
-              stroke-opacity="0.7"
+              stroke-opacity="0.85"
               :marker-end="`url(#arrow-${encodeType(edge.type)})`"
               class="graph-edge"
               @mouseenter="(e: MouseEvent) => showEdgeTooltip(e, edge)"
@@ -215,25 +215,24 @@ function nodePos(id: string): { x: number; y: number } {
   return posMap.value[id] ?? { x: cx, y: cy }
 }
 
-// Shrink edge endpoints to node boundary to avoid overlapping
+// Shrink edge endpoints to node boundary so lines don't overlap circles.
+// Direction: source (edge.from) → destination (edge.to)
 function edgeStart(edge: TeamGraphEdge): { x: number; y: number } {
-  return edgePoint(edge.from, edge.to, nodeRadius + 2)
+  const a = nodePos(edge.from)
+  const b = nodePos(edge.to)
+  const dx = b.x - a.x, dy = b.y - a.y
+  const len = Math.sqrt(dx * dx + dy * dy) || 1
+  const r = nodeRadius + 2
+  return { x: a.x + (dx / len) * r, y: a.y + (dy / len) * r }
 }
 
 function edgeEnd(edge: TeamGraphEdge): { x: number; y: number } {
-  return edgePoint(edge.to, edge.from, -(nodeRadius + 12))
-}
-
-function edgePoint(from: string, to: string, offset: number): { x: number; y: number } {
-  const a = nodePos(from)
-  const b = nodePos(to)
-  const dx = b.x - a.x
-  const dy = b.y - a.y
+  const a = nodePos(edge.from)
+  const b = nodePos(edge.to)
+  const dx = b.x - a.x, dy = b.y - a.y
   const len = Math.sqrt(dx * dx + dy * dy) || 1
-  return {
-    x: a.x + (dx / len) * (offset > 0 ? offset : len + offset),
-    y: a.y + (dy / len) * (offset > 0 ? offset : len + offset),
-  }
+  const r = nodeRadius + 12 // extra space for arrowhead
+  return { x: b.x - (dx / len) * r, y: b.y - (dy / len) * r }
 }
 
 const nodeColorPalette = ['#409EFF', '#67C23A', '#E6A23C', '#F56C6C', '#7C3AED', '#0891B2', '#B45309', '#64748B']
@@ -260,9 +259,9 @@ const typeColors: Record<string, string> = {
 }
 
 const strengthWidths: Record<string, number> = {
-  '核心': 3,
-  '常用': 2,
-  '偶尔': 1,
+  '核心': 4,
+  '常用': 2.5,
+  '偶尔': 1.5,
 }
 
 function edgeColor(type: string): string {
