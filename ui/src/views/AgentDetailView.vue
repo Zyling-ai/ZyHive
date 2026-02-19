@@ -358,6 +358,39 @@
             </el-form>
           </el-card>
 
+          <!-- Consolidation Log Card -->
+          <el-card style="margin-bottom: 16px;" shadow="never">
+            <template #header>
+              <div style="display: flex; align-items: center; justify-content: space-between;">
+                <span style="font-weight: 600;">整理日志</span>
+                <el-button size="small" text @click="loadMemLogs" :loading="memLogsLoading">刷新</el-button>
+              </div>
+            </template>
+            <div v-if="!memCfg.enabled" style="text-align: center; color: #c0c4cc; padding: 16px 0; font-size: 13px;">
+              开启自动记忆后此处显示运行记录
+            </div>
+            <div v-else-if="memLogs.length === 0 && !memLogsLoading" style="text-align: center; color: #c0c4cc; padding: 16px 0; font-size: 13px;">
+              暂无运行记录
+            </div>
+            <el-table v-else :data="memLogs.slice(0, 10)" size="small">
+              <el-table-column label="时间" width="160">
+                <template #default="{ row }">
+                  <span style="font-size: 12px;">{{ formatTimestamp(row.startedAt) }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="状态" width="80">
+                <template #default="{ row }">
+                  <el-tag :type="row.status === 'ok' ? 'success' : 'danger'" size="small">{{ row.status }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="结果" min-width="200" show-overflow-tooltip>
+                <template #default="{ row }">
+                  <span style="font-size: 12px; color: #606266;">{{ row.output || row.error || '—' }}</span>
+                </template>
+              </el-table-column>
+            </el-table>
+          </el-card>
+
           <div class="memory-toolbar" style="margin-bottom: 12px; display: flex; gap: 8px;">
             <el-button type="primary" size="small" @click="showNewMemoryFile = true">
               <el-icon><Plus /></el-icon> 新建文件
@@ -513,10 +546,16 @@
                 <el-switch v-model="row.enabled" @change="toggleCron(row)" />
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="200">
+            <el-table-column label="操作" width="220">
               <template #default="{ row }">
-                <el-button size="small" @click="runCronNow(row)">立即运行</el-button>
-                <el-button size="small" type="danger" @click="deleteCron(row)">删除</el-button>
+                <template v-if="row.payload?.message === '__MEMORY_CONSOLIDATE__'">
+                  <el-tag type="info" size="small" style="margin-right: 8px;">记忆管理</el-tag>
+                  <el-button size="small" @click="runCronNow(row)">立即运行</el-button>
+                </template>
+                <template v-else>
+                  <el-button size="small" @click="runCronNow(row)">立即运行</el-button>
+                  <el-button size="small" type="danger" @click="deleteCron(row)">删除</el-button>
+                </template>
               </template>
             </el-table-column>
           </el-table>
@@ -701,6 +740,7 @@ async function loadMemConfig() {
   try {
     const res = await memoryConfigApi.getConfig(agentId)
     memCfg.value = res.data
+    if (res.data.cronJobId) loadMemLogs()
   } catch {
     // use defaults
   }
@@ -724,10 +764,29 @@ async function consolidateNow() {
   try {
     await memoryConfigApi.consolidate(agentId)
     ElMessage.success('记忆整理已在后台启动，稍后刷新记忆文件查看结果')
+    setTimeout(loadMemLogs, 3000) // 3秒后刷新日志
   } catch {
     ElMessage.error('整理失败')
   } finally {
     memConsolidating.value = false
+  }
+}
+
+// Consolidation run log
+interface RunRecord { jobId: string; runId: string; startedAt: number; endedAt: number; status: string; output: string; error?: string }
+const memLogs = ref<RunRecord[]>([])
+const memLogsLoading = ref(false)
+
+async function loadMemLogs() {
+  if (!memCfg.value.cronJobId) return
+  memLogsLoading.value = true
+  try {
+    const res = await cronApi.runs(memCfg.value.cronJobId)
+    memLogs.value = (res.data as RunRecord[]).slice().reverse() // newest first
+  } catch {
+    memLogs.value = []
+  } finally {
+    memLogsLoading.value = false
   }
 }
 
@@ -786,9 +845,12 @@ async function deleteRelation(index: number) {
 }
 
 function serializeRelations(): string {
-  return parsedRelations.value
-    .map(r => `${r.agentId} | ${r.agentName} | ${r.relationType} | ${r.strength} | ${r.desc || ''}`)
+  if (parsedRelations.value.length === 0) return ''
+  const header = '| 成员ID | 成员名称 | 关系类型 | 关系程度 | 说明 |\n|--------|--------|--------|--------|------|'
+  const rows = parsedRelations.value
+    .map(r => `| ${r.agentId} | ${r.agentName} | ${r.relationType} | ${r.strength} | ${r.desc || ''} |`)
     .join('\n')
+  return header + '\n' + rows
 }
 
 async function saveRelations() {

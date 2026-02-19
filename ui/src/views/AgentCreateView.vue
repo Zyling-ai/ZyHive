@@ -193,7 +193,7 @@ import { ref, computed, onMounted, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { ArrowLeft, Plus, Close } from '@element-plus/icons-vue'
-import { agents as agentsApi, files as filesApi, models, channels, tools, skills, type AgentInfo, type ModelEntry, type ChannelEntry, type ToolEntry, type SkillEntry } from '../api'
+import { agents as agentsApi, files as filesApi, models, channels, tools, skills, memoryConfigApi, type AgentInfo, type ModelEntry, type ChannelEntry, type ToolEntry, type SkillEntry } from '../api'
 import AiChat from '../components/AiChat.vue'
 
 const router = useRouter()
@@ -297,6 +297,17 @@ async function save() {
       writes.push(filesApi.write(form.id, 'SOUL.md', form.soul))
     }
     if (writes.length) await Promise.all(writes)
+
+    // 3. 默认开启自动记忆
+    try {
+      await memoryConfigApi.setConfig(form.id, {
+        enabled: true,
+        schedule: 'daily',
+        keepTurns: 3,
+        focusHint: '',
+        cronJobId: '',
+      })
+    } catch { /* 非致命错误，忽略 */ }
 
     ElMessage.success('Agent 创建成功！')
     router.push(`/agents/${form.id}`)
