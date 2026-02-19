@@ -193,3 +193,18 @@ func (h *memoryHandler) ConsolidateNow(c *gin.Context) {
 	}()
 	c.JSON(http.StatusOK, gin.H{"ok": true, "message": "记忆整理已在后台启动"})
 }
+
+// RunLog GET /api/agents/:id/memory/run-log — read consolidation run history
+func (h *memoryHandler) RunLog(c *gin.Context) {
+	ag, ok := h.manager.Get(c.Param("id"))
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{"error": "agent not found"})
+		return
+	}
+	entries, err := memory.ReadRunLog(ag.WorkspaceDir, 20)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, entries)
+}
