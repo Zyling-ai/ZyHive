@@ -10,10 +10,19 @@
     <el-card shadow="hover">
       <el-table :data="jobs" stripe>
         <el-table-column prop="name" label="名称" min-width="160" />
-        <el-table-column label="调度" min-width="200">
-          <template #default="{ row }">{{ row.schedule?.expr }} ({{ row.schedule?.tz }})</template>
+        <el-table-column label="备注" min-width="180" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span v-if="row.remark" style="font-size: 13px; color: #606266;">{{ row.remark }}</span>
+            <span v-else style="color: #c0c4cc; font-size: 12px;">—</span>
+          </template>
         </el-table-column>
-        <el-table-column label="最近运行" width="200">
+        <el-table-column label="调度" min-width="160">
+          <template #default="{ row }">
+            <span style="font-size: 12px; font-family: monospace;">{{ row.schedule?.expr }}</span>
+            <el-text type="info" size="small" style="margin-left: 4px;">({{ row.schedule?.tz }})</el-text>
+          </template>
+        </el-table-column>
+        <el-table-column label="最近运行" width="180">
           <template #default="{ row }">
             <template v-if="row.state?.lastRunAtMs">
               <el-tag :type="row.state?.lastStatus === 'ok' ? 'success' : 'danger'" size="small">
@@ -26,15 +35,28 @@
             <el-text v-else type="info" size="small">未运行</el-text>
           </template>
         </el-table-column>
-        <el-table-column label="启用" width="80">
+        <el-table-column label="启用" width="70">
           <template #default="{ row }">
-            <el-switch v-model="row.enabled" @change="toggleCron(row)" size="small" />
+            <el-switch
+              v-model="row.enabled"
+              @change="toggleCron(row)"
+              size="small"
+              :disabled="isMemoryJob(row)"
+            />
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="200">
+        <el-table-column label="操作" width="180">
           <template #default="{ row }">
-            <el-button size="small" @click="runNow(row)">立即运行</el-button>
-            <el-button size="small" type="danger" @click="deleteCron(row)">删除</el-button>
+            <!-- Memory-managed job: no delete, only view + run -->
+            <template v-if="isMemoryJob(row)">
+              <el-tag type="info" size="small" style="margin-right: 6px;">记忆管理</el-tag>
+              <el-button size="small" @click="goToAgent(row)">查看</el-button>
+            </template>
+            <!-- Normal job -->
+            <template v-else>
+              <el-button size="small" @click="runNow(row)">立即运行</el-button>
+              <el-button size="small" type="danger" @click="deleteCron(row)">删除</el-button>
+            </template>
           </template>
         </el-table-column>
       </el-table>
@@ -44,10 +66,16 @@
     <el-dialog v-model="showCreate" title="新建定时任务" width="520px">
       <el-form :model="form" label-width="100px">
         <el-form-item label="名称">
-          <el-input v-model="form.name" />
+          <el-input v-model="form.name" placeholder="任务名称" />
+        </el-form-item>
+        <el-form-item label="备注">
+          <el-input v-model="form.remark" placeholder="可选，说明这个任务的用途" />
         </el-form-item>
         <el-form-item label="Cron 表达式">
           <el-input v-model="form.expr" placeholder="0 9 * * *" />
+          <el-text type="info" size="small" style="margin-top: 4px; display: block;">
+            格式：秒(可选) 分 时 日 月 周。例：0 0 9 * * * = 每天09:00
+          </el-text>
         </el-form-item>
         <el-form-item label="时区">
           <el-select v-model="form.tz">
@@ -57,7 +85,7 @@
           </el-select>
         </el-form-item>
         <el-form-item label="消息">
-          <el-input v-model="form.message" type="textarea" :rows="3" />
+          <el-input v-model="form.message" type="textarea" :rows="3" placeholder="发送给 Agent 的消息内容" />
         </el-form-item>
         <el-form-item label="启用">
           <el-switch v-model="form.enabled" />
@@ -73,12 +101,22 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import { Plus } from '@element-plus/icons-vue'
 import { cron as cronApi, type CronJob } from '../api'
 
+const router = useRouter()
 const jobs = ref<CronJob[]>([])
 const showCreate = ref(false)
-const form = reactive({ name: '', expr: '0 9 * * *', tz: 'Asia/Shanghai', message: '', enabled: true })
+const form = reactive({
+  name: '',
+  remark: '',
+  expr: '0 0 9 * * *',
+  tz: 'Asia/Shanghai',
+  message: '',
+  enabled: true,
+})
 
 onMounted(loadJobs)
 
@@ -90,13 +128,24 @@ async function loadJobs() {
 }
 
 function formatTime(ms: number) {
-  return ms ? new Date(ms).toLocaleString() : ''
+  return ms ? new Date(ms).toLocaleString('zh-CN') : ''
+}
+
+function isMemoryJob(row: CronJob): boolean {
+  return row.payload?.message === '__MEMORY_CONSOLIDATE__'
+}
+
+function goToAgent(row: CronJob) {
+  if (row.agentId) {
+    router.push({ path: `/agents/${row.agentId}`, query: { tab: 'memory' } })
+  }
 }
 
 async function createCron() {
   try {
     await cronApi.create({
       name: form.name,
+      remark: form.remark || undefined,
       enabled: form.enabled,
       schedule: { kind: 'cron', expr: form.expr, tz: form.tz },
       payload: { kind: 'agentTurn', message: form.message },
@@ -104,25 +153,26 @@ async function createCron() {
     } as any)
     ElMessage.success('创建成功')
     showCreate.value = false
+    Object.assign(form, { name: '', remark: '', expr: '0 0 9 * * *', message: '', enabled: true })
     loadJobs()
   } catch (e: any) {
     ElMessage.error(e.response?.data?.error || '创建失败')
   }
 }
 
-async function toggleCron(job: any) {
-  try { await cronApi.update(job.id, job) } catch { ElMessage.error('更新失败') }
+async function toggleCron(job: CronJob) {
+  try { await cronApi.update(job.id, job as any) } catch { ElMessage.error('更新失败') }
 }
 
-async function runNow(job: any) {
+async function runNow(job: CronJob) {
   try {
     await cronApi.run(job.id)
     ElMessage.success('已触发')
     setTimeout(loadJobs, 2000)
-  } catch { ElMessage.error('失败') }
+  } catch { ElMessage.error('触发失败') }
 }
 
-async function deleteCron(job: any) {
+async function deleteCron(job: CronJob) {
   try {
     await cronApi.delete(job.id)
     ElMessage.success('已删除')

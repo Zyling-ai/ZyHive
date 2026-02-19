@@ -151,7 +151,8 @@ func (h *memoryHandler) SetConfig(c *gin.Context) {
 	// Create new cron job if enabling
 	if incoming.Enabled && h.cronEngine != nil {
 		job := &cron.Job{
-			Name:    "memory-consolidate-" + ag.ID,
+			Name:    "自动记忆整理 · " + ag.Name,
+			Remark:  "由「" + ag.Name + "」的记忆模块自动管理，请勿手动删除",
 			Enabled: true,
 			AgentID: ag.ID,
 			Schedule: cron.Schedule{
