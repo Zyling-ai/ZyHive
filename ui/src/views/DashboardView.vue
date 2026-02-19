@@ -8,39 +8,66 @@
         <el-card shadow="hover" class="stat-card">
           <div class="stat-icon" style="background: #ecf5ff; color: #409eff">👥</div>
           <div class="stat-info">
-            <div class="stat-value">{{ agentStore.list.length }}</div>
+            <div class="stat-value">{{ stats?.agents.total ?? agentStore.list.length }}</div>
             <div class="stat-label">AI 成员</div>
           </div>
         </el-card>
       </el-col>
       <el-col :span="6">
         <el-card shadow="hover" class="stat-card">
-          <div class="stat-icon" style="background: #f0f9eb; color: #67c23a">✅</div>
+          <div class="stat-icon" style="background: #f0f9eb; color: #67c23a">💬</div>
           <div class="stat-info">
-            <div class="stat-value">{{ runningCount }}</div>
-            <div class="stat-label">运行中</div>
+            <div class="stat-value">{{ stats?.sessions.total ?? 0 }}</div>
+            <div class="stat-label">对话总数</div>
           </div>
         </el-card>
       </el-col>
       <el-col :span="6">
         <el-card shadow="hover" class="stat-card">
-          <div class="stat-icon" style="background: #fdf6ec; color: #e6a23c">🤖</div>
+          <div class="stat-icon" style="background: #fdf6ec; color: #e6a23c">📨</div>
           <div class="stat-info">
-            <div class="stat-value">{{ modelCount }}</div>
-            <div class="stat-label">已配置模型</div>
+            <div class="stat-value">{{ stats?.sessions.totalMessages ?? 0 }}</div>
+            <div class="stat-label">消息总数</div>
           </div>
         </el-card>
       </el-col>
       <el-col :span="6">
         <el-card shadow="hover" class="stat-card">
-          <div class="stat-icon" style="background: #fef0f0; color: #f56c6c">📡</div>
+          <div class="stat-icon" style="background: #fef0f0; color: #f56c6c">🔢</div>
           <div class="stat-info">
-            <div class="stat-value">{{ channelCount }}</div>
-            <div class="stat-label">消息通道</div>
+            <div class="stat-value">{{ formatTokens(stats?.sessions.totalTokens ?? 0) }}</div>
+            <div class="stat-label">Token 用量</div>
           </div>
         </el-card>
       </el-col>
     </el-row>
+
+    <!-- Top Agents card -->
+    <el-card shadow="hover" style="margin-bottom: 24px" v-if="stats?.topAgents?.length">
+      <template #header>
+        <span style="font-weight: 600">📊 成员用量排行</span>
+      </template>
+      <el-table :data="stats!.topAgents" stripe style="width: 100%">
+        <el-table-column label="成员" min-width="140">
+          <template #default="{ row }">
+            <el-button type="primary" link @click="$router.push(`/agents/${row.id}`)">{{ row.name }}</el-button>
+          </template>
+        </el-table-column>
+        <el-table-column label="对话数" width="100" align="center">
+          <template #default="{ row }"><el-tag size="small" type="info">{{ row.sessions }}</el-tag></template>
+        </el-table-column>
+        <el-table-column label="消息数" width="100" align="center">
+          <template #default="{ row }">{{ row.messages }}</template>
+        </el-table-column>
+        <el-table-column label="Token 用量" width="130" align="center">
+          <template #default="{ row }">
+            <el-tag size="small" :type="row.tokens > 100000 ? 'danger' : row.tokens > 50000 ? 'warning' : 'success'" effect="plain">
+              {{ formatTokens(row.tokens) }}
+            </el-tag>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
 
     <!-- Agent status table -->
     <el-card shadow="hover">
@@ -96,22 +123,18 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useAgentsStore } from '../stores/agents'
-import { models as modelsApi, channels as channelsApi } from '../api'
+import { statsApi, type StatsResult } from '../api'
 
 const agentStore = useAgentsStore()
-const modelCount = ref(0)
-const channelCount = ref(0)
-
-const runningCount = computed(() => agentStore.list.filter(a => a.status === 'running').length)
+const stats = ref<StatsResult | null>(null)
 
 onMounted(async () => {
   agentStore.fetchAll()
   try {
-    const [mRes, cRes] = await Promise.all([modelsApi.list(), channelsApi.list()])
-    modelCount.value = mRes.data.length
-    channelCount.value = cRes.data.length
+    const res = await statsApi.get()
+    stats.value = res.data
   } catch {}
 })
 
@@ -120,6 +143,12 @@ function statusType(s: string) {
 }
 function statusLabel(s: string) {
   return s === 'running' ? '运行中' : s === 'stopped' ? '已停止' : '空闲'
+}
+function formatTokens(n: number): string {
+  if (!n) return '0'
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`
+  return String(n)
 }
 </script>
 

@@ -102,9 +102,10 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" width="130" @click.stop>
+        <el-table-column label="操作" width="190" @click.stop>
           <template #default="{ row }">
             <el-button size="small" @click.stop="openDetail(row)">查看</el-button>
+            <el-button size="small" type="primary" @click.stop="continueSession(row)">继续对话</el-button>
             <el-popconfirm
               title="确认删除此对话？"
               @confirm="deleteSession(row)"
@@ -194,17 +195,34 @@
 
         <el-empty v-if="!detailMessages.length && !detailLoading" description="暂无消息记录" />
       </div>
+
+      <template #footer>
+        <div style="display: flex; justify-content: flex-end; gap: 10px; padding: 12px 0 0">
+          <el-button @click="drawerVisible = false">关闭</el-button>
+          <el-button
+            type="primary"
+            :icon="ChatLineRound"
+            @click="continueSession(drawerSession!)"
+            :disabled="!drawerSession"
+          >
+            继续对话
+          </el-button>
+        </div>
+      </template>
     </el-drawer>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Refresh, Search, EditPen, Loading, Fold } from '@element-plus/icons-vue'
+import { Refresh, Search, EditPen, Loading, Fold, ChatLineRound } from '@element-plus/icons-vue'
 import { sessions as sessionsApi, agents as agentsApi, type SessionSummary, type ParsedMessage, type AgentInfo } from '../api'
 
 // ── State ────────────────────────────────────────────────────────────────
+
+const router = useRouter()
 
 const sessionList = ref<SessionSummary[]>([])
 const total = ref(0)
@@ -282,6 +300,11 @@ async function openDetail(row: SessionSummary) {
   } finally {
     detailLoading.value = false
   }
+}
+
+function continueSession(row: SessionSummary) {
+  if (!row) return
+  router.push(`/agents/${row.agentId}?resumeSession=${row.id}`)
 }
 
 async function deleteSession(row: SessionSummary) {

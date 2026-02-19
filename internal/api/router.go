@@ -2,9 +2,13 @@
 package api
 
 import (
+	"bufio"
 	"io/fs"
 	"log"
 	"net/http"
+	"os"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -12,6 +16,7 @@ import (
 	"github.com/sunhuihui6688-star/ai-panel/pkg/agent"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/config"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/cron"
+	"github.com/sunhuihui6688-star/ai-panel/pkg/session"
 )
 
 const configFilePath = "aipanel.json"
@@ -134,7 +139,11 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager, cronE
 	v1.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "healthy"})
 	})
-	v1.GET("/stats", statsHandler)
+	statsH := &statsHandler{manager: mgr}
+	v1.GET("/stats", statsH.Handle)
+
+	// Logs
+	v1.GET("/logs", logsHandler)
 
 	// WebSocket
 	r.GET("/ws", wsHandler)
@@ -202,8 +211,113 @@ func authMiddleware(token string) gin.HandlerFunc {
 	}
 }
 
-func statsHandler(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"message": "stats not yet implemented"})
+// statsHandler aggregates stats across all agents and their sessions.
+type statsHandler struct {
+	manager *agent.Manager
+}
+
+func (h *statsHandler) Handle(c *gin.Context) {
+	agents := h.manager.List()
+
+	type agentStats struct {
+		ID       string `json:"id"`
+		Name     string `json:"name"`
+		Sessions int    `json:"sessions"`
+		Messages int    `json:"messages"`
+		Tokens   int    `json:"tokens"`
+	}
+
+	totalSessions := 0
+	totalMessages := 0
+	totalTokens := 0
+	runningCount := 0
+	var topAgents []agentStats
+
+	for _, ag := range agents {
+		if ag.Status == "running" {
+			runningCount++
+		}
+		store := session.NewStore(ag.SessionDir)
+		sessions, err := store.ListSessions()
+		if err != nil {
+			continue
+		}
+		msgs := 0
+		toks := 0
+		for _, s := range sessions {
+			msgs += s.MessageCount
+			toks += s.TokenEstimate
+		}
+		totalSessions += len(sessions)
+		totalMessages += msgs
+		totalTokens += toks
+		topAgents = append(topAgents, agentStats{
+			ID:       ag.ID,
+			Name:     ag.Name,
+			Sessions: len(sessions),
+			Messages: msgs,
+			Tokens:   toks,
+		})
+	}
+
+	// Sort topAgents by sessions desc
+	sort.Slice(topAgents, func(i, j int) bool {
+		return topAgents[i].Sessions > topAgents[j].Sessions
+	})
+	// Keep top 5
+	if len(topAgents) > 5 {
+		topAgents = topAgents[:5]
+	}
+	if topAgents == nil {
+		topAgents = []agentStats{}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"agents": gin.H{
+			"total":   len(agents),
+			"running": runningCount,
+		},
+		"sessions": gin.H{
+			"total":         totalSessions,
+			"totalMessages": totalMessages,
+			"totalTokens":   totalTokens,
+		},
+		"topAgents": topAgents,
+	})
+}
+
+// logsHandler reads /tmp/aipanel.log and returns the last N lines.
+// GET /api/logs?limit=200
+func logsHandler(c *gin.Context) {
+	limitStr := c.DefaultQuery("limit", "200")
+	limit, _ := strconv.Atoi(limitStr)
+	if limit <= 0 || limit > 2000 {
+		limit = 200
+	}
+
+	const logPath = "/tmp/aipanel.log"
+	f, err := os.Open(logPath)
+	if err != nil {
+		// Return empty lines if file doesn't exist
+		c.JSON(http.StatusOK, gin.H{"lines": []string{}})
+		return
+	}
+	defer f.Close()
+
+	var lines []string
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+	}
+
+	// Return last N lines
+	if len(lines) > limit {
+		lines = lines[len(lines)-limit:]
+	}
+	if lines == nil {
+		lines = []string{}
+	}
+	c.JSON(http.StatusOK, gin.H{"lines": lines})
 }
 
 func wsHandler(c *gin.Context) {
