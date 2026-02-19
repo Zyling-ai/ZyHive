@@ -3,8 +3,16 @@
 
     <!-- ── 消息列表 ── -->
     <div class="chat-messages" ref="msgListRef">
+      <!-- 历史加载中 -->
+      <div v-if="historyLoading" class="history-loading">
+        <div class="history-loading-dots">
+          <span /><span /><span />
+        </div>
+        <div class="history-loading-text">加载历史对话…</div>
+      </div>
+
       <!-- 欢迎语 / 空状态 -->
-      <div v-if="!messages.length" class="chat-empty">
+      <div v-if="!messages.length && !historyLoading" class="chat-empty">
         <div v-if="welcomeMessage" class="welcome-msg">{{ welcomeMessage }}</div>
         <div v-if="examples.length" class="examples">
           <div v-for="(ex, i) in examples" :key="i"
@@ -156,7 +164,7 @@
             ref="inputRef"
             v-model="inputText"
             :placeholder="placeholder || '输入消息… (Ctrl+Enter 发送)'"
-            :disabled="streaming"
+            :disabled="streaming || historyLoading"
             rows="1"
             class="chat-textarea"
             @keydown.enter.ctrl.prevent="send"
@@ -174,7 +182,7 @@
             <input type="file" accept="image/*" multiple hidden @change="handleFileSelect" />
           </label>
           <!-- 发送 -->
-          <button class="send-btn" :disabled="streaming || (!inputText.trim() && !pendingImages.length)"
+          <button class="send-btn" :disabled="streaming || historyLoading || (!inputText.trim() && !pendingImages.length)"
             @click="send">
             <span v-if="streaming" class="spinner" />
             <span v-else>↑</span>
@@ -190,7 +198,7 @@
 
 <script setup lang="ts">
 import { ref, computed, nextTick, onMounted } from 'vue'
-import { chatSSE, type ChatParams } from '../api'
+import { chatSSE, sessions as sessionsApi, type ChatParams } from '../api'
 
 // ── Props ─────────────────────────────────────────────────────────────────
 interface Props {
@@ -267,6 +275,7 @@ const previewSrc = ref('')
 // Session management — server-side persistent history
 // Once set, subsequent requests use sessionId instead of sending full history[]
 const currentSessionId = ref<string | undefined>(props.sessionId)
+const historyLoading = ref(false)
 
 const msgListRef = ref<HTMLElement>()
 const inputRef = ref<HTMLTextAreaElement>()
@@ -626,10 +635,35 @@ function runChat(text: string, imgs: string[]) {
 function clearMessages() { messages.value = [] }
 function appendMessage(msg: ChatMsg) { messages.value.push(msg); scrollBottom() }
 
-/** Resume an existing session (clears messages, loads from server on next send) */
-function resumeSession(sessionId: string) {
+/** Resume an existing session — immediately loads history from server */
+async function resumeSession(sessionId: string) {
   currentSessionId.value = sessionId
   messages.value = []
+  historyLoading.value = true
+  try {
+    const res = await sessionsApi.get(props.agentId, sessionId)
+    const parsed = res.data.messages ?? []
+    const loaded: ChatMsg[] = []
+    // Insert a compaction marker if any compaction entry exists
+    const hasCompaction = parsed.some(m => m.isCompact || m.role === 'compaction')
+    if (hasCompaction) {
+      loaded.push({ role: 'system', text: '📦 更早的内容已压缩' })
+    }
+    for (const m of parsed) {
+      if (m.role === 'compaction') continue  // skip raw compaction entries
+      loaded.push({
+        role: m.role as 'user' | 'assistant',
+        text: m.text,
+      })
+    }
+    messages.value = loaded
+    scrollBottom()
+  } catch (e) {
+    console.error('[AiChat] resumeSession failed', e)
+    messages.value = [{ role: 'system', text: '⚠️ 历史加载失败，继续对话仍可接续' }]
+  } finally {
+    historyLoading.value = false
+  }
 }
 
 /** Start a brand new session (clears sessionId + messages) */
@@ -1017,6 +1051,30 @@ onMounted(() => {
   animation: spin .6s linear infinite;
   display: inline-block;
 }
+
+/* ── History loading ── */
+.history-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 40px 0;
+  color: #909399;
+}
+.history-loading-dots {
+  display: flex;
+  gap: 5px;
+}
+.history-loading-dots span {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: #c0c4cc;
+  animation: bounce 1.2s infinite;
+}
+.history-loading-dots span:nth-child(2) { animation-delay: .2s; }
+.history-loading-dots span:nth-child(3) { animation-delay: .4s; }
+.history-loading-text { font-size: 13px; }
 
 /* ── Compact mode ── */
 .compact .chat-messages { padding: 10px; gap: 10px; }
