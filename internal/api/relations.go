@@ -53,7 +53,7 @@ func (h *relationsHandler) Get(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"content": content, "parsed": parsed})
 }
 
-// Put writes RELATIONS.md for an agent.
+// Put writes RELATIONS.md for an agent and syncs bidirectional relations.
 // PUT /api/agents/:id/relations
 func (h *relationsHandler) Put(c *gin.Context) {
 	id := c.Param("id")
@@ -70,12 +70,143 @@ func (h *relationsHandler) Put(c *gin.Context) {
 	}
 
 	filePath := filepath.Join(ag.WorkspaceDir, relationsFilename)
+
+	// Read old relations before overwriting (for diff)
+	var oldRows []RelationRow
+	if oldData, err2 := os.ReadFile(filePath); err2 == nil {
+		oldRows = parseRelationsMarkdown(string(oldData))
+	}
+
+	// Write new content
 	if err := os.WriteFile(filePath, body, 0644); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
+	// Compute diff and sync bidirectional relations
+	newRows := parseRelationsMarkdown(string(body))
+	h.syncBidirectional(ag, oldRows, newRows)
+
 	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// inverseRelationType returns the inverse of a relation type.
+// 上级↔下级 are inverses; 平级协作 and 支持 are symmetric.
+func inverseRelationType(t string) string {
+	switch t {
+	case "上级":
+		return "下级"
+	case "下级":
+		return "上级"
+	default:
+		return t // 平级协作, 支持 → symmetric
+	}
+}
+
+// syncBidirectional adds/removes inverse relations on peer agents.
+func (h *relationsHandler) syncBidirectional(src *agent.Agent, oldRows, newRows []RelationRow) {
+	// Build maps for quick lookup
+	oldMap := make(map[string]RelationRow, len(oldRows))
+	for _, r := range oldRows {
+		oldMap[r.AgentID] = r
+	}
+	newMap := make(map[string]RelationRow, len(newRows))
+	for _, r := range newRows {
+		newMap[r.AgentID] = r
+	}
+
+	// Added relations → add inverse on peer
+	for targetID, row := range newMap {
+		if _, existed := oldMap[targetID]; !existed {
+			h.addInverseRelation(targetID, RelationRow{
+				AgentID:      src.ID,
+				AgentName:    src.Name,
+				RelationType: inverseRelationType(row.RelationType),
+				Strength:     row.Strength,
+				Desc:         row.Desc,
+			})
+		}
+	}
+
+	// Removed relations → remove inverse on peer
+	for targetID := range oldMap {
+		if _, stillExists := newMap[targetID]; !stillExists {
+				h.removeInverseRelation(targetID, src.ID)
+		}
+	}
+}
+
+// addInverseRelation adds a relation row to targetAgentID's RELATIONS.md (if agent exists).
+// Skips if the inverse already exists (dedup).
+func (h *relationsHandler) addInverseRelation(targetAgentID string, row RelationRow) {
+	target, ok := h.manager.Get(targetAgentID)
+	if !ok {
+		return // target agent not registered — skip
+	}
+
+	filePath := filepath.Join(target.WorkspaceDir, relationsFilename)
+	var existing []RelationRow
+	if data, err := os.ReadFile(filePath); err == nil {
+		existing = parseRelationsMarkdown(string(data))
+	}
+
+	// Dedup: don't add if already present
+	for _, r := range existing {
+		if r.AgentID == row.AgentID {
+			return
+		}
+	}
+
+	existing = append(existing, row)
+	_ = writeRelationsFile(filePath, existing)
+}
+
+// removeInverseRelation removes the relation pointing to sourceAgentID from targetAgentID's RELATIONS.md.
+func (h *relationsHandler) removeInverseRelation(targetAgentID, sourceAgentID string) {
+	target, ok := h.manager.Get(targetAgentID)
+	if !ok {
+		return
+	}
+
+	filePath := filepath.Join(target.WorkspaceDir, relationsFilename)
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return
+	}
+
+	rows := parseRelationsMarkdown(string(data))
+	filtered := rows[:0]
+	for _, r := range rows {
+		if r.AgentID != sourceAgentID {
+			filtered = append(filtered, r)
+		}
+	}
+
+	_ = writeRelationsFile(filePath, filtered)
+}
+
+// writeRelationsFile serializes RelationRows as a markdown table and writes to disk.
+func writeRelationsFile(filePath string, rows []RelationRow) error {
+	if len(rows) == 0 {
+		return os.WriteFile(filePath, []byte(""), 0644)
+	}
+	var sb strings.Builder
+	sb.WriteString("| 成员ID | 成员名称 | 关系类型 | 关系程度 | 说明 |\n")
+	sb.WriteString("|--------|--------|--------|--------|------|\n")
+	for _, r := range rows {
+		sb.WriteString("| ")
+		sb.WriteString(r.AgentID)
+		sb.WriteString(" | ")
+		sb.WriteString(r.AgentName)
+		sb.WriteString(" | ")
+		sb.WriteString(r.RelationType)
+		sb.WriteString(" | ")
+		sb.WriteString(r.Strength)
+		sb.WriteString(" | ")
+		sb.WriteString(r.Desc)
+		sb.WriteString(" |\n")
+	}
+	return os.WriteFile(filePath, []byte(sb.String()), 0644)
 }
 
 // Graph aggregates RELATIONS.md from all agents and returns graph data.
