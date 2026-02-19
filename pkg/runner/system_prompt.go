@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/sunhuihui6688-star/ai-panel/pkg/memory"
+	"github.com/sunhuihui6688-star/ai-panel/pkg/skill"
 )
 
 // BuildSystemPrompt reads IDENTITY.md, SOUL.md, and memory/INDEX.md from the
@@ -53,6 +54,16 @@ func BuildSystemPrompt(workspaceDir string) (string, error) {
 
 	// Memory tree hint for the agent
 	sb.WriteString("[Memory tree available. Use read tool to access: memory/core/, memory/projects/, memory/daily/, memory/topics/]\n\n")
+
+	// Inject skills from workspaceDir/skills/
+	skillsDir := filepath.Join(workspaceDir, "skills")
+	skills, err := skill.LoadAll(skillsDir)
+	if err == nil && len(skills) > 0 {
+		sb.WriteString("--- Skills ---\n")
+		for _, sk := range skills {
+			sb.WriteString(fmt.Sprintf("### Skill: %s\n%s\n\n", sk.Name, sk.Content))
+		}
+	}
 
 	// Read AGENTS.md — if it exists, also read any files it references (one per line)
 	agentsContent, err := readFileIfExists(filepath.Join(workspaceDir, "AGENTS.md"))

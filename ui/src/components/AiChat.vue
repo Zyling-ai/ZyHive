@@ -534,10 +534,13 @@ function runChat(text: string, imgs: string[]) {
   // Track active tool call
   let activeToolId = ''
 
-  // Session-aware history: if we have a server-side sessionId, the server owns history.
-  // Otherwise fall back to client-side history (legacy, capped at 20 turns).
+  // Session-aware history:
+  //   - sessionId exists → server already owns full history; never send history[] to avoid duplication.
+  //   - no sessionId    → legacy mode: build client-side history (capped at 20 turns).
   let historyParam: { role: 'user' | 'assistant'; content: string }[] | undefined
-  if (!currentSessionId.value) {
+  if (currentSessionId.value) {
+    historyParam = undefined  // server owns history — explicit, not sent
+  } else {
     const historyMsgs = messages.value
       .slice(0, -1)
       .filter(m => (m.role === 'user' || m.role === 'assistant') && m.text)
