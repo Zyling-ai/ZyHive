@@ -1,6 +1,6 @@
-# AI Company Panel
+# 引巢 · ZyHive
 
-> AI 团队操作系统 — 用可视化面板管理你的 AI 成员团队
+> zyling 旗下 AI 团队操作系统 — 让每一个 AI 成员各司其职、协同引领
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Go 1.22+](https://img.shields.io/badge/Go-1.22+-00ADD8.svg)](https://golang.org)
@@ -20,7 +20,7 @@ curl -sSL https://raw.githubusercontent.com/sunhuihui6688-star/ai-panel/main/scr
 安装完成后，终端直接显示访问地址：
 
 ```
-✅ AI Company Panel 安装成功！
+✅ 引巢 · ZyHive 安装成功！
 
   本地访问：  http://localhost:8080
   内网访问：  http://192.168.1.100:8080

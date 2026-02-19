@@ -7,7 +7,7 @@
     <el-aside :width="collapsed ? '64px' : '200px'" class="app-sidebar">
       <div class="sidebar-logo" @click="collapsed = !collapsed">
         <span class="logo-icon">🤖</span>
-        <span v-if="!collapsed" class="logo-text">AI Panel</span>
+        <span v-if="!collapsed" class="logo-text">ZyHive</span>
       </div>
 
       <el-menu
