@@ -12,6 +12,7 @@ import (
 type agentHandler struct {
 	cfg     *config.Config
 	manager *agent.Manager
+	pool    *agent.Pool
 }
 
 // AgentInfo is the JSON shape returned to the frontend.
@@ -134,4 +135,48 @@ func (h *agentHandler) Start(c *gin.Context) {
 // Stop POST /api/agents/:id/stop
 func (h *agentHandler) Stop(c *gin.Context) {
 	c.JSON(http.StatusNotImplemented, gin.H{"message": "TODO: Phase 2"})
+}
+
+// Message POST /api/agents/:id/message
+// 让一个 Agent 同步发消息给另一个 Agent，等待响应后返回。
+// Body:   { "message": "...", "fromAgentId": "..." }
+// Return: { "response": "..." }
+func (h *agentHandler) Message(c *gin.Context) {
+	targetID := c.Param("id")
+
+	var req struct {
+		Message     string `json:"message" binding:"required"`
+		FromAgentID string `json:"fromAgentId"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Verify target agent exists
+	if _, ok := h.manager.Get(targetID); !ok {
+		c.JSON(http.StatusNotFound, gin.H{"error": "target agent not found"})
+		return
+	}
+
+	if h.pool == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "agent pool not initialized"})
+		return
+	}
+
+	// Optionally prepend sender context so the target agent knows who is talking
+	message := req.Message
+	if req.FromAgentID != "" {
+		if from, ok := h.manager.Get(req.FromAgentID); ok {
+			message = "[来自 Agent「" + from.Name + "」的消息]\n" + req.Message
+		}
+	}
+
+	response, err := h.pool.Run(c.Request.Context(), targetID, message)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"response": response})
 }

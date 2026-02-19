@@ -113,7 +113,7 @@ func main() {
 
 	// Setup router
 	r := gin.Default()
-	api.RegisterRoutes(r, cfg, mgr, cronEngine, uiFS)
+	api.RegisterRoutes(r, cfg, mgr, pool, cronEngine, uiFS)
 
 	// Print access URLs
 	port := cfg.Gateway.Port

@@ -676,7 +676,7 @@ function startNewSession() {
 }
 function sendText(text: string) { fillInput(text); nextTick(send) }
 
-defineExpose({ clearMessages, appendMessage, sendText, messages, currentSessionId, resumeSession, startNewSession })
+defineExpose({ clearMessages, appendMessage, sendText, fillInput, messages, currentSessionId, resumeSession, startNewSession })
 
 // ── Init ─────────────────────────────────────────────────────────────────
 onMounted(() => {
