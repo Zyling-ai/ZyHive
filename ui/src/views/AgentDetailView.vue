@@ -48,7 +48,58 @@
                   还没有对话记录
                 </div>
               </div>
+
+              <!-- @ 其他成员面板 -->
+              <div class="at-panel">
+                <el-button
+                  size="small"
+                  plain
+                  class="at-toggle-btn"
+                  @click="toggleAtPanel"
+                >
+                  <span class="at-icon">@</span> 其他成员
+                </el-button>
+
+                <!-- 内联转发表单 -->
+                <div v-if="showAtPanel" class="at-form">
+                  <el-select
+                    v-model="atTargetId"
+                    placeholder="选择成员"
+                    size="small"
+                    style="width: 100%; margin-bottom: 6px"
+                    @change="onAtAgentSelect"
+                  >
+                    <el-option
+                      v-for="a in otherAgents"
+                      :key="a.id"
+                      :label="a.name"
+                      :value="a.id"
+                    />
+                  </el-select>
+
+                  <el-input
+                    v-model="atMessage"
+                    type="textarea"
+                    :rows="3"
+                    placeholder="输入要转发的消息…"
+                    size="small"
+                    style="margin-bottom: 6px"
+                  />
+
+                  <el-button
+                    type="primary"
+                    size="small"
+                    style="width: 100%"
+                    :loading="atSending"
+                    :disabled="!atTargetId || !atMessage.trim()"
+                    @click="sendAtMessage"
+                  >
+                    转发
+                  </el-button>
+                </div>
+              </div>
             </div>
+          
 
             <!-- Chat Area -->
             <div class="chat-area">
@@ -296,7 +347,7 @@ import { useRoute } from 'vue-router'
 import { ArrowLeft, Plus, EditPen, Refresh, FolderOpened, Document } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { agents as agentsApi, files as filesApi, memoryApi, cron as cronApi, sessions as sessionsApi, type AgentInfo, type FileEntry, type CronJob, type SessionSummary } from '../api'
-import AiChat from '../components/AiChat.vue'
+import AiChat, { type ChatMsg } from '../components/AiChat.vue'
 
 const route = useRoute()
 const agentId = route.params.id as string
@@ -341,6 +392,80 @@ function formatRelative(ms: number): string {
   if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}分前`
   if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}小时前`
   return `${Math.floor(diff / 86_400_000)}天前`
+}
+
+// ── @ 其他成员 ─────────────────────────────────────────────────────────────
+const showAtPanel   = ref(false)
+const atTargetId    = ref('')
+const atMessage     = ref('')
+const atSending     = ref(false)
+const otherAgents   = ref<AgentInfo[]>([])
+
+function toggleAtPanel() {
+  showAtPanel.value = !showAtPanel.value
+  if (showAtPanel.value && !otherAgents.value.length) loadOtherAgents()
+}
+
+async function loadOtherAgents() {
+  try {
+    const res = await agentsApi.list()
+    otherAgents.value = res.data.filter(a => a.id !== agentId)
+  } catch {
+    otherAgents.value = []
+  }
+}
+
+function onAtAgentSelect(id: string) {
+  // 同步在 AiChat 输入框填入 @AgentName: 前缀（方便用户知道当前 @ 模式）
+  const target = otherAgents.value.find(a => a.id === id)
+  if (target) {
+    aiChatRef.value?.fillInput(`@${target.name}: `)
+  }
+}
+
+async function sendAtMessage() {
+  const targetId = atTargetId.value
+  const msg = atMessage.value.trim()
+  if (!targetId || !msg) return
+
+  const targetAgent = otherAgents.value.find(a => a.id === targetId)
+  const targetName  = targetAgent?.name ?? targetId
+
+  atSending.value = true
+
+  // 在对话区显示「转发」提示气泡
+  const forwardBubble: ChatMsg = {
+    role: 'user',
+    text: `→ 转发给 ${targetName}：\n${msg}`,
+  }
+  aiChatRef.value?.appendMessage(forwardBubble)
+
+  try {
+    const res = await agentsApi.message(targetId, msg, agentId)
+    const reply = res.data.response
+
+    // 显示「回复」气泡
+    const replyBubble: ChatMsg = {
+      role: 'assistant',
+      text: `← **${targetName}** 回复：\n\n${reply}`,
+    }
+    aiChatRef.value?.appendMessage(replyBubble)
+
+    // 清空输入
+    atMessage.value = ''
+    atTargetId.value = ''
+    showAtPanel.value = false
+    ElMessage.success(`${targetName} 已回复`)
+  } catch (e: any) {
+    const errMsg: ChatMsg = {
+      role: 'system',
+      text: `❌ 转发失败：${e.response?.data?.error ?? e.message ?? '网络错误'}`,
+    }
+    aiChatRef.value?.appendMessage(errMsg)
+    ElMessage.error('转发失败')
+  } finally {
+    atSending.value = false
+  }
 }
 
 // Identity/Soul
@@ -788,5 +913,38 @@ async function deleteCron(job: any) {
 .chat-area {
   flex: 1;
   overflow: hidden;
+}
+
+/* @ 其他成员面板 */
+.at-panel {
+  flex-shrink: 0;
+  border-top: 1px solid #e4e7ed;
+  padding: 8px 8px 10px;
+  background: #f5f7fa;
+}
+
+.at-toggle-btn {
+  width: 100%;
+  justify-content: flex-start;
+  color: #909399;
+  font-size: 12px;
+  border-color: #dcdfe6;
+}
+
+.at-toggle-btn:hover {
+  color: #409eff;
+  border-color: #b3d8ff;
+  background: #ecf5ff;
+}
+
+.at-icon {
+  font-weight: 700;
+  color: #409eff;
+  margin-right: 2px;
+  font-size: 13px;
+}
+
+.at-form {
+  margin-top: 8px;
 }
 </style>

@@ -22,7 +22,7 @@ import (
 const configFilePath = "aipanel.json"
 
 // RegisterRoutes mounts all API handlers onto the Gin engine.
-func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager, cronEngine *cron.Engine, uiFS fs.FS) {
+func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager, pool *agent.Pool, cronEngine *cron.Engine, uiFS fs.FS) {
 	r.Use(corsMiddleware())
 	r.Use(requestLogger())
 
@@ -30,7 +30,7 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager, cronE
 	v1.Use(authMiddleware(cfg.Auth.Token))
 
 	// Agents
-	agentH := &agentHandler{cfg: cfg, manager: mgr}
+	agentH := &agentHandler{cfg: cfg, manager: mgr, pool: pool}
 	agents := v1.Group("/agents")
 	{
 		agents.GET("", agentH.List)
@@ -40,6 +40,7 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager, cronE
 		agents.DELETE("/:id", agentH.Delete)
 		agents.POST("/:id/start", agentH.Start)
 		agents.POST("/:id/stop", agentH.Stop)
+		agents.POST("/:id/message", agentH.Message) // Agent 间通信
 	}
 
 	// Chat (streaming SSE)
