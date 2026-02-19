@@ -1,0 +1,24 @@
+[
+  {
+    "id": "job-a9813a2b",
+    "name": "memory-consolidate-agent-5ch-3eya",
+    "enabled": true,
+    "schedule": {
+      "kind": "cron",
+      "expr": "0 0 2 * * *",
+      "tz": "Asia/Shanghai"
+    },
+    "payload": {
+      "kind": "agentTurn",
+      "message": "__MEMORY_CONSOLIDATE__"
+    },
+    "delivery": {
+      "mode": "none"
+    },
+    "agentId": "agent-5ch-3eya",
+    "createdAtMs": 1771543822402,
+    "state": {
+      "nextRunAtMs": 1771610400000
+    }
+  }
+]
