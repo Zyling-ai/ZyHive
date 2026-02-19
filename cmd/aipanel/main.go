@@ -1,4 +1,4 @@
-// cmd/aipanel/main.go — entry point for the AI Company Panel server.
+// cmd/aipanel/main.go — entry point for 引巢 · ZyHive (zyling AI 团队操作系统)
 // Reference: openclaw/src/main.ts
 package main
 
@@ -123,7 +123,7 @@ func main() {
 	addr := fmt.Sprintf(":%d", port)
 
 	fmt.Println("")
-	fmt.Println("✅ AI Company Panel 启动成功！")
+	fmt.Println("✅ 引巢 · ZyHive 启动成功！")
 	fmt.Println("")
 	fmt.Printf("  本地访问：  http://localhost:%d\n", port)
 	if ip := getLocalIP(); ip != "" {
