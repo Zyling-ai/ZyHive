@@ -921,6 +921,10 @@ onMounted(async () => {
   loadCron()
   await loadAgentSessions()
 
+  // Handle ?tab=<name> query param (e.g. from CronView "查看" button)
+  const tabParam = route.query.tab as string | undefined
+  if (tabParam) activeTab.value = tabParam
+
   // Handle ?resumeSession=<id> query param (from ChatsView 继续对话 button)
   const resumeId = route.query.resumeSession as string | undefined
   if (resumeId) {

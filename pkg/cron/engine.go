@@ -24,6 +24,7 @@ type RunnerFunc func(ctx context.Context, agentID, message string) (string, erro
 type Job struct {
 	ID          string   `json:"id"`
 	Name        string   `json:"name"`
+	Remark      string   `json:"remark,omitempty"` // human-readable note
 	Enabled     bool     `json:"enabled"`
 	Schedule    Schedule `json:"schedule"`
 	Payload     Payload  `json:"payload"`
@@ -168,6 +169,9 @@ func (e *Engine) Update(id string, patch *Job) error {
 	// Apply patch fields
 	if patch.Name != "" {
 		existing.Name = patch.Name
+	}
+	if patch.Remark != "" {
+		existing.Remark = patch.Remark
 	}
 	existing.Enabled = patch.Enabled
 	if patch.Schedule.Expr != "" {

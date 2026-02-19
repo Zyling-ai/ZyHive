@@ -89,6 +89,7 @@ export interface FileEntry {
 export interface CronJob {
   id: string
   name: string
+  remark?: string
   enabled: boolean
   schedule: { kind: string; expr: string; tz: string }
   payload: { kind: string; message: string; model?: string }
