@@ -400,7 +400,22 @@ onMounted(async () => {
   loadIdentityFiles()
   loadWorkspace()
   loadCron()
-  loadAgentSessions()
+  await loadAgentSessions()
+
+  // Handle ?resumeSession=<id> query param (from ChatsView 继续对话 button)
+  const resumeId = route.query.resumeSession as string | undefined
+  if (resumeId) {
+    activeSessionId.value = resumeId
+    // Give AiChat a tick to mount before calling resumeSession
+    await new Promise(r => setTimeout(r, 100))
+    aiChatRef.value?.resumeSession(resumeId)
+    // Scroll the sidebar item into view by highlighting
+    const target = agentSessions.value.find(s => s.id === resumeId)
+    if (!target) {
+      // Session not in list yet — still set active id so it highlights when list loads
+      activeSessionId.value = resumeId
+    }
+  }
 })
 
 // Identity files

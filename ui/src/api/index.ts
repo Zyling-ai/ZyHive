@@ -282,4 +282,22 @@ export const sessions = {
     api.patch(`/sessions/${agentId}/${sid}`, { title }),
 }
 
+// ── Stats API ─────────────────────────────────────────────────────────────
+
+export interface StatsResult {
+  agents: { total: number; running: number }
+  sessions: { total: number; totalMessages: number; totalTokens: number }
+  topAgents: { id: string; name: string; sessions: number; messages: number; tokens: number }[]
+}
+
+export const statsApi = {
+  get: () => api.get<StatsResult>('/stats'),
+}
+
+// ── Logs API ──────────────────────────────────────────────────────────────
+
+export const logsApi = {
+  get: (limit = 200) => api.get<{ lines: string[] }>('/logs', { params: { limit } }),
+}
+
 export default api
