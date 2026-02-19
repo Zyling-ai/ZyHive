@@ -158,14 +158,22 @@ func (h *relationsHandler) Graph(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"nodes": nodes, "edges": edges})
 }
 
-// parseRelationsMarkdown scans a RELATIONS.md and extracts table rows.
-// It skips the header row (containing "成员") and separator rows (starting with "-").
+// parseRelationsMarkdown scans a RELATIONS.md and extracts relation rows.
+// Supports two formats:
+//   New (markdown table): | agentId | agentName | type | strength | desc |
+//   Old (pipe-separated): agentId | agentName | type | strength | desc
 func parseRelationsMarkdown(content string) []RelationRow {
 	var rows []RelationRow
+	seen := make(map[string]bool)
 
 	for _, line := range strings.Split(content, "\n") {
 		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, "|") {
+		if line == "" {
+			continue
+		}
+
+		// Must contain at least one pipe
+		if !strings.Contains(line, "|") {
 			continue
 		}
 
@@ -174,7 +182,7 @@ func parseRelationsMarkdown(content string) []RelationRow {
 		for _, p := range parts {
 			cols = append(cols, strings.TrimSpace(p))
 		}
-		// Remove leading/trailing empty strings from outer pipes
+		// Remove leading/trailing empty strings from outer pipes (markdown table format)
 		if len(cols) > 0 && cols[0] == "" {
 			cols = cols[1:]
 		}
@@ -182,28 +190,62 @@ func parseRelationsMarkdown(content string) []RelationRow {
 			cols = cols[:len(cols)-1]
 		}
 
-		if len(cols) < 5 {
+		if len(cols) < 4 {
 			continue
 		}
 
 		first := cols[0]
-
-		// Skip header row
-		if strings.Contains(first, "成员") || strings.Contains(first, "Member") || strings.Contains(first, "ID") {
+		if first == "" {
 			continue
 		}
 
-		// Skip separator row
-		if strings.HasPrefix(first, "-") || strings.HasPrefix(first, ":") {
+		// Skip header rows
+		if strings.Contains(first, "成员") || strings.Contains(first, "Member") ||
+			strings.Contains(first, "ID") || strings.Contains(first, "id") {
 			continue
 		}
+
+		// Skip separator rows (---, :--:, etc.)
+		stripped := strings.Trim(first, "-: ")
+		if stripped == "" {
+			continue
+		}
+
+		agentName := ""
+		relationType := ""
+		strength := ""
+		desc := ""
+		if len(cols) > 1 {
+			agentName = cols[1]
+		}
+		if len(cols) > 2 {
+			relationType = cols[2]
+		}
+		if len(cols) > 3 {
+			strength = cols[3]
+		}
+		if len(cols) > 4 {
+			desc = cols[4]
+		}
+
+		// Validate: relationType must be one of the known values
+		validTypes := map[string]bool{"上级": true, "下级": true, "平级协作": true, "支持": true}
+		if relationType != "" && !validTypes[relationType] {
+			continue
+		}
+
+		// Dedup by agentId
+		if seen[first] {
+			continue
+		}
+		seen[first] = true
 
 		rows = append(rows, RelationRow{
 			AgentID:      first,
-			AgentName:    cols[1],
-			RelationType: cols[2],
-			Strength:     cols[3],
-			Desc:         cols[4],
+			AgentName:    agentName,
+			RelationType: relationType,
+			Strength:     strength,
+			Desc:         desc,
 		})
 	}
 
