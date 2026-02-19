@@ -145,37 +145,143 @@
         <!-- Tab 3: Relations -->
         <el-tab-pane label="关系" name="relations">
           <el-row :gutter="20">
-            <!-- Left: editor -->
-            <el-col :span="12">
+            <!-- Left: form + table -->
+            <el-col :span="14">
+              <!-- Add relation form -->
+              <el-card style="margin-bottom: 16px;">
+                <template #header>
+                  <span style="font-weight: 600;">添加关系</span>
+                </template>
+                <el-form :model="newRelation" label-position="top" size="default">
+                  <el-row :gutter="12">
+                    <el-col :span="10">
+                      <el-form-item label="关联成员">
+                        <el-select
+                          v-model="newRelation.agentId"
+                          placeholder="选择系统成员"
+                          filterable
+                          style="width: 100%;"
+                          @change="onRelationAgentChange"
+                        >
+                          <el-option
+                            v-for="a in otherAgents"
+                            :key="a.id"
+                            :label="a.name"
+                            :value="a.id"
+                          >
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                              <div style="width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; color: #fff; flex-shrink: 0;"
+                                :style="{ background: avatarColor(a.id) }">
+                                {{ a.name.charAt(0) }}
+                              </div>
+                              <span>{{ a.name }}</span>
+                            </div>
+                          </el-option>
+                        </el-select>
+                      </el-form-item>
+                    </el-col>
+                    <el-col :span="7">
+                      <el-form-item label="关系类型">
+                        <el-select v-model="newRelation.relationType" style="width: 100%;">
+                          <el-option label="上级" value="上级" />
+                          <el-option label="下级" value="下级" />
+                          <el-option label="平级协作" value="平级协作" />
+                          <el-option label="支持" value="支持" />
+                        </el-select>
+                      </el-form-item>
+                    </el-col>
+                    <el-col :span="7">
+                      <el-form-item label="协作程度">
+                        <el-select v-model="newRelation.strength" style="width: 100%;">
+                          <el-option label="核心" value="核心" />
+                          <el-option label="常用" value="常用" />
+                          <el-option label="偶尔" value="偶尔" />
+                        </el-select>
+                      </el-form-item>
+                    </el-col>
+                  </el-row>
+                  <el-row :gutter="12">
+                    <el-col :span="18">
+                      <el-form-item label="说明（选填）">
+                        <el-input v-model="newRelation.desc" placeholder="简要描述这段关系..." />
+                      </el-form-item>
+                    </el-col>
+                    <el-col :span="6">
+                      <el-form-item label=" ">
+                        <el-button
+                          type="primary"
+                          style="width: 100%;"
+                          :disabled="!newRelation.agentId || !newRelation.relationType || !newRelation.strength"
+                          :loading="relationsSaving"
+                          @click="addRelation"
+                        >
+                          添加
+                        </el-button>
+                      </el-form-item>
+                    </el-col>
+                  </el-row>
+                </el-form>
+              </el-card>
+
+              <!-- Relations table -->
               <el-card>
                 <template #header>
-                  <div style="display: flex; align-items: center; justify-content: space-between;">
-                    <span>RELATIONS.md</span>
-                    <el-button type="primary" size="small" @click="saveRelations" :loading="relationsSaving">保存</el-button>
-                  </div>
+                  <span style="font-weight: 600;">已有关系 <el-badge :value="parsedRelations.length" type="info" style="margin-left: 4px;" /></span>
                 </template>
-                <el-text type="info" size="small" style="display: block; margin-bottom: 8px; line-height: 1.6;">
-                  格式：每行一条关系，五列：成员ID | 成员名称 | 关系类型（上级/下级/平级协作/支持）| 关系程度（核心/常用/偶尔）| 说明
-                </el-text>
-                <el-input
-                  v-model="relationsContent"
-                  type="textarea"
-                  :rows="20"
-                  style="font-family: monospace; font-size: 13px;"
-                  @blur="saveRelations"
-                />
+                <div v-if="parsedRelations.length === 0" style="text-align: center; color: #c0c4cc; padding: 32px 0; font-size: 14px;">
+                  暂无关系，请在上方添加
+                </div>
+                <el-table v-else :data="parsedRelations" size="small" style="width: 100%;">
+                  <el-table-column label="成员" min-width="120">
+                    <template #default="{ row }">
+                      <div style="display: flex; align-items: center; gap: 8px;">
+                        <div style="width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; color: #fff; flex-shrink: 0;"
+                          :style="{ background: avatarColor(row.agentId) }">
+                          {{ row.agentName.charAt(0) }}
+                        </div>
+                        <span style="font-size: 13px;">{{ row.agentName }}</span>
+                      </div>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="类型" width="100">
+                    <template #default="{ row }">
+                      <el-tag :type="relationTypeColor(row.relationType)" size="small">{{ row.relationType }}</el-tag>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="程度" width="80">
+                    <template #default="{ row }">
+                      <el-tag :type="strengthColor(row.strength)" size="small" effect="plain">{{ row.strength }}</el-tag>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="说明" min-width="120" show-overflow-tooltip>
+                    <template #default="{ row }">
+                      <span style="font-size: 13px; color: #606266;">{{ row.desc || '—' }}</span>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="操作" width="70" fixed="right">
+                    <template #default="{ $index }">
+                      <el-button
+                        type="danger"
+                        link
+                        size="small"
+                        @click="deleteRelation($index)"
+                      >删除</el-button>
+                    </template>
+                  </el-table-column>
+                </el-table>
               </el-card>
             </el-col>
-            <!-- Right: preview -->
-            <el-col :span="12">
+
+            <!-- Right: preview cards -->
+            <el-col :span="10">
               <el-card header="关系预览">
                 <div v-if="parsedRelations.length === 0" style="text-align: center; color: #c0c4cc; padding: 40px 0;">
-                  暂无关系数据，请在左侧编辑 RELATIONS.md
+                  暂无关系数据
                 </div>
                 <div v-else class="relations-list">
                   <div v-for="row in parsedRelations" :key="row.agentId" class="relation-card">
                     <div class="relation-avatar" :style="{ background: avatarColor(row.agentId) }">
-                      {{ row.agentId.charAt(0).toUpperCase() }}
+                      {{ row.agentName.charAt(0).toUpperCase() }}
                     </div>
                     <div class="relation-info">
                       <div class="relation-name">{{ row.agentName }}</div>
@@ -540,29 +646,53 @@ const currentFileContent = ref('')
 const currentFileInfo = ref<FileEntry | null>(null)
 
 // Relations
-const relationsContent = ref('')
 const parsedRelations = ref<RelationRow[]>([])
 const relationsSaving = ref(false)
+const newRelation = ref({ agentId: '', agentName: '', relationType: '平级协作', strength: '常用', desc: '' })
 
 async function loadRelations() {
   try {
     const res = await relationsApi.get(agentId)
-    relationsContent.value = res.data.content || ''
     parsedRelations.value = res.data.parsed || []
   } catch {
-    relationsContent.value = ''
     parsedRelations.value = []
   }
+}
+
+function onRelationAgentChange(id: string) {
+  const a = otherAgents.value.find(x => x.id === id)
+  newRelation.value.agentName = a ? a.name : id
+}
+
+async function addRelation() {
+  if (!newRelation.value.agentId) return
+  // Avoid duplicate
+  const exists = parsedRelations.value.find(r => r.agentId === newRelation.value.agentId)
+  if (exists) {
+    ElMessage.warning('该成员关系已存在，请先删除再重新添加')
+    return
+  }
+  parsedRelations.value.push({ ...newRelation.value })
+  newRelation.value = { agentId: '', agentName: '', relationType: '平级协作', strength: '常用', desc: '' }
+  await saveRelations()
+}
+
+async function deleteRelation(index: number) {
+  parsedRelations.value.splice(index, 1)
+  await saveRelations()
+}
+
+function serializeRelations(): string {
+  return parsedRelations.value
+    .map(r => `${r.agentId} | ${r.agentName} | ${r.relationType} | ${r.strength} | ${r.desc || ''}`)
+    .join('\n')
 }
 
 async function saveRelations() {
   relationsSaving.value = true
   try {
-    await relationsApi.put(agentId, relationsContent.value)
-    // Re-parse after save
-    const res = await relationsApi.get(agentId)
-    parsedRelations.value = res.data.parsed || []
-    ElMessage.success('RELATIONS.md 已保存')
+    await relationsApi.put(agentId, serializeRelations())
+    ElMessage.success('关系已保存')
   } catch {
     ElMessage.error('保存失败')
   } finally {
@@ -625,6 +755,7 @@ onMounted(async () => {
   }
   loadIdentityFiles()
   loadRelations()
+  loadOtherAgents()
   loadWorkspace()
   loadCron()
   await loadAgentSessions()
