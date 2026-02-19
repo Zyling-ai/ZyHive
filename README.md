@@ -139,16 +139,14 @@ Edit `aipanel.json`:
 
 ## 📋 实现计划
 
-详见 [idear/ai-panel/PLAN.md](https://github.com/sunhuihui6688-star/ai-panel) — 15 个模块，5 个阶段。
-
 | 阶段 | 内容 | 状态 |
 |------|------|------|
-| Phase 0 | 项目骨架 + 目录结构 | ✅ 完成 |
-| Phase 1 | LLM 客户端 + Session + Tools + Runner + Agent Manager + Chat SSE API | ✅ 完成 |
-| Phase 2 | Agent 管理 + REST API + 基础 UI | ⏳ 待开始 |
-| Phase 3 | Telegram + Cron + 记忆管理 | ⏳ 待开始 |
-| Phase 4 | 完整面板 UI + Skills + 组织协同 | ⏳ 待开始 |
-| Phase 5 | 安装脚本 + 多平台发布 | ⏳ 待开始 |
+| Phase 0 | 项目骨架 + 目录结构（15个模块） | ✅ 完成 |
+| Phase 1 | LLM 客户端 + Session 存储 + Tools + Runner + Agent Manager + Chat SSE API | ✅ 完成 |
+| Phase 2 | Vue 3 UI（仪表盘 / 对话 / 身份编辑器 / 工作区 / Cron）| ✅ 完成 |
+| Phase 3 | Telegram 渠道 + Cron 引擎 + 上下文压缩 + 多 Agent 池 | ✅ 完成 |
+| Phase 4 | 双栏 AgentCreate + 统一 AiChat 组件 + Session 持久化 + 对话管理页 | ✅ 完成 |
+| Phase 5 | Auth 登录页 + Stats 端点 + Telegram 集成测试 + 安装脚本 | 🔨 进行中 |
 
 ---
 
