@@ -3,12 +3,14 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
 
 	"github.com/sunhuihui6688-star/ai-panel/pkg/config"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/llm"
+	"github.com/sunhuihui6688-star/ai-panel/pkg/memory"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/runner"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/session"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/tools"
@@ -55,9 +57,71 @@ func (p *Pool) resolveModel(ag *Agent) (*config.ModelEntry, error) {
 	return nil, fmt.Errorf("no model configured")
 }
 
+// ConsolidateMemory triggers memory consolidation for an agent (summarise + trim sessions).
+func (p *Pool) ConsolidateMemory(ctx context.Context, agentID string) (string, error) {
+	ag, ok := p.manager.Get(agentID)
+	if !ok {
+		return "", fmt.Errorf("agent %q not found", agentID)
+	}
+	modelEntry, err := p.resolveModel(ag)
+	if err != nil {
+		return "", err
+	}
+	apiKey := modelEntry.APIKey
+	if apiKey == "" {
+		return "", fmt.Errorf("no API key for model: %s", modelEntry.ProviderModel())
+	}
+
+	memCfg, _ := memory.ReadMemConfig(ag.WorkspaceDir)
+	convCfg := memory.ConsolidateConfig{
+		KeepTurns: memCfg.KeepTurns,
+		FocusHint: memCfg.FocusHint,
+	}
+
+	llmClient := llm.NewAnthropicClient()
+	callLLM := func(ctx context.Context, system, user string) (string, error) {
+		userJSON, _ := json.Marshal(user)
+		req := &llm.ChatRequest{
+			Model:  modelEntry.ProviderModel(),
+			APIKey: apiKey,
+			System: system,
+			Messages: []llm.ChatMessage{
+				{Role: "user", Content: userJSON},
+			},
+			MaxTokens: 2048,
+		}
+		ch, err := llmClient.Stream(ctx, req)
+		if err != nil {
+			return "", err
+		}
+		var resp strings.Builder
+		for ev := range ch {
+			if ev.Type == llm.EventTextDelta {
+				resp.WriteString(ev.Text)
+			}
+			if ev.Type == llm.EventError && ev.Err != nil {
+				return resp.String(), ev.Err
+			}
+		}
+		return resp.String(), nil
+	}
+
+	store := session.NewStore(ag.SessionDir)
+	memTree := memory.NewMemoryTree(ag.WorkspaceDir)
+
+	if err := memory.Consolidate(ctx, store, memTree, ag.Name, convCfg, callLLM); err != nil {
+		return "", err
+	}
+	return "✅ 记忆整理完成", nil
+}
+
 // Run executes a message against the specified agent and returns the full
 // response text (collects all text_delta events).
 func (p *Pool) Run(ctx context.Context, agentID, message string) (string, error) {
+	// Special: memory consolidation trigger from cron
+	if message == "__MEMORY_CONSOLIDATE__" {
+		return p.ConsolidateMemory(ctx, agentID)
+	}
 	ag, ok := p.manager.Get(agentID)
 	if !ok {
 		return "", fmt.Errorf("agent %q not found", agentID)

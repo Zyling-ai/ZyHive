@@ -62,11 +62,14 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager, pool 
 	v1.GET("/team/graph", relH.Graph)
 
 	// Memory tree API
-	memH := &memoryHandler{manager: mgr}
+	memH := &memoryHandler{manager: mgr, cronEngine: cronEngine, pool: pool}
 	agents.GET("/:id/memory/tree", memH.Tree)
 	agents.GET("/:id/memory/file/*path", memH.ReadFile)
 	agents.PUT("/:id/memory/file/*path", memH.WriteFile)
 	agents.POST("/:id/memory/daily", memH.DailyLog)
+	agents.GET("/:id/memory/config", memH.GetConfig)
+	agents.PUT("/:id/memory/config", memH.SetConfig)
+	agents.POST("/:id/memory/consolidate", memH.ConsolidateNow)
 
 	// ── Global Config Registries ──────────────────────────────────────────
 
