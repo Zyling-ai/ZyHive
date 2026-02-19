@@ -80,6 +80,12 @@ const router = createRouter({
       component: () => import('../views/SettingsView.vue'),
       meta: { requiresAuth: true }
     },
+    {
+      path: '/team',
+      name: 'team',
+      component: () => import('../views/TeamView.vue'),
+      meta: { requiresAuth: true }
+    },
     // Legacy redirect
     {
       path: '/config',

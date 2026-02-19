@@ -55,6 +55,12 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager, pool 
 	agents.PUT("/:id/files/*path", fileH.Write)
 	agents.DELETE("/:id/files/*path", fileH.Delete)
 
+	// Relations (RELATIONS.md per agent + team graph)
+	relH := &relationsHandler{manager: mgr}
+	agents.GET("/:id/relations", relH.Get)
+	agents.PUT("/:id/relations", relH.Put)
+	v1.GET("/team/graph", relH.Graph)
+
 	// Memory tree API
 	memH := &memoryHandler{manager: mgr}
 	agents.GET("/:id/memory/tree", memH.Tree)

@@ -27,6 +27,11 @@
           <template #title>AI 成员</template>
         </el-menu-item>
 
+        <el-menu-item index="/team">
+          <el-icon><Share /></el-icon>
+          <template #title>团队</template>
+        </el-menu-item>
+
         <el-menu-item index="/chats">
           <el-icon><ChatLineRound /></el-icon>
           <template #title>对话管理</template>
