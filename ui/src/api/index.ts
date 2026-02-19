@@ -303,4 +303,45 @@ export const logsApi = {
   get: (limit = 200) => api.get<{ lines: string[] }>('/logs', { params: { limit } }),
 }
 
+// ── Relations API ─────────────────────────────────────────────────────────
+
+export interface RelationRow {
+  agentId: string
+  agentName: string
+  relationType: string
+  strength: string
+  desc: string
+}
+
+export interface RelationsResponse {
+  content: string
+  parsed: RelationRow[]
+}
+
+export interface TeamGraphNode {
+  id: string
+  name: string
+  status: string
+}
+
+export interface TeamGraphEdge {
+  from: string
+  to: string
+  type: string
+  strength: string
+  label: string
+}
+
+export interface TeamGraph {
+  nodes: TeamGraphNode[]
+  edges: TeamGraphEdge[]
+}
+
+export const relationsApi = {
+  get: (agentId: string) => api.get<RelationsResponse>(`/agents/${agentId}/relations`),
+  put: (agentId: string, content: string) =>
+    api.put(`/agents/${agentId}/relations`, content, { headers: { 'Content-Type': 'text/plain' } }),
+  graph: () => api.get<TeamGraph>('/team/graph'),
+}
+
 export default api

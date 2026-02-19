@@ -142,7 +142,57 @@
           </el-row>
         </el-tab-pane>
 
-        <!-- Tab 3: Memory Tree -->
+        <!-- Tab 3: Relations -->
+        <el-tab-pane label="关系" name="relations">
+          <el-row :gutter="20">
+            <!-- Left: editor -->
+            <el-col :span="12">
+              <el-card>
+                <template #header>
+                  <div style="display: flex; align-items: center; justify-content: space-between;">
+                    <span>RELATIONS.md</span>
+                    <el-button type="primary" size="small" @click="saveRelations" :loading="relationsSaving">保存</el-button>
+                  </div>
+                </template>
+                <el-text type="info" size="small" style="display: block; margin-bottom: 8px; line-height: 1.6;">
+                  格式：每行一条关系，五列：成员ID | 成员名称 | 关系类型（上级/下级/平级协作/支持）| 关系程度（核心/常用/偶尔）| 说明
+                </el-text>
+                <el-input
+                  v-model="relationsContent"
+                  type="textarea"
+                  :rows="20"
+                  style="font-family: monospace; font-size: 13px;"
+                  @blur="saveRelations"
+                />
+              </el-card>
+            </el-col>
+            <!-- Right: preview -->
+            <el-col :span="12">
+              <el-card header="关系预览">
+                <div v-if="parsedRelations.length === 0" style="text-align: center; color: #c0c4cc; padding: 40px 0;">
+                  暂无关系数据，请在左侧编辑 RELATIONS.md
+                </div>
+                <div v-else class="relations-list">
+                  <div v-for="row in parsedRelations" :key="row.agentId" class="relation-card">
+                    <div class="relation-avatar" :style="{ background: avatarColor(row.agentId) }">
+                      {{ row.agentId.charAt(0).toUpperCase() }}
+                    </div>
+                    <div class="relation-info">
+                      <div class="relation-name">{{ row.agentName }}</div>
+                      <div class="relation-tags">
+                        <el-tag :type="relationTypeColor(row.relationType)" size="small">{{ row.relationType }}</el-tag>
+                        <el-tag :type="strengthColor(row.strength)" size="small" effect="plain">{{ row.strength }}</el-tag>
+                      </div>
+                      <div class="relation-desc">{{ row.desc }}</div>
+                    </div>
+                  </div>
+                </div>
+              </el-card>
+            </el-col>
+          </el-row>
+        </el-tab-pane>
+
+        <!-- Tab 4: Memory Tree -->
         <el-tab-pane label="记忆" name="memory">
           <div class="memory-toolbar" style="margin-bottom: 12px; display: flex; gap: 8px;">
             <el-button type="primary" size="small" @click="showNewMemoryFile = true">
@@ -346,7 +396,7 @@ import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ArrowLeft, Plus, EditPen, Refresh, FolderOpened, Document } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
-import { agents as agentsApi, files as filesApi, memoryApi, cron as cronApi, sessions as sessionsApi, type AgentInfo, type FileEntry, type CronJob, type SessionSummary } from '../api'
+import { agents as agentsApi, files as filesApi, memoryApi, cron as cronApi, sessions as sessionsApi, relationsApi, type AgentInfo, type FileEntry, type CronJob, type SessionSummary, type RelationRow } from '../api'
 import AiChat, { type ChatMsg } from '../components/AiChat.vue'
 
 const route = useRoute()
@@ -489,6 +539,57 @@ const currentFile = ref('')
 const currentFileContent = ref('')
 const currentFileInfo = ref<FileEntry | null>(null)
 
+// Relations
+const relationsContent = ref('')
+const parsedRelations = ref<RelationRow[]>([])
+const relationsSaving = ref(false)
+
+async function loadRelations() {
+  try {
+    const res = await relationsApi.get(agentId)
+    relationsContent.value = res.data.content || ''
+    parsedRelations.value = res.data.parsed || []
+  } catch {
+    relationsContent.value = ''
+    parsedRelations.value = []
+  }
+}
+
+async function saveRelations() {
+  relationsSaving.value = true
+  try {
+    await relationsApi.put(agentId, relationsContent.value)
+    // Re-parse after save
+    const res = await relationsApi.get(agentId)
+    parsedRelations.value = res.data.parsed || []
+    ElMessage.success('RELATIONS.md 已保存')
+  } catch {
+    ElMessage.error('保存失败')
+  } finally {
+    relationsSaving.value = false
+  }
+}
+
+function avatarColor(id: string): string {
+  const colors = ['#409EFF', '#67C23A', '#E6A23C', '#F56C6C', '#909399', '#B45309', '#7C3AED', '#0891B2']
+  let hash = 0
+  for (let i = 0; i < id.length; i++) hash = id.charCodeAt(i) + ((hash << 5) - hash)
+  return colors[Math.abs(hash) % colors.length] ?? '#409EFF'
+}
+
+function relationTypeColor(type: string): '' | 'success' | 'warning' | 'info' | 'danger' {
+  if (type === '上级') return 'danger'
+  if (type === '下级') return ''     // blue = default primary
+  if (type === '平级协作') return 'success'
+  return 'info'  // 支持
+}
+
+function strengthColor(s: string): '' | 'success' | 'warning' | 'info' | 'danger' {
+  if (s === '核心') return 'danger'
+  if (s === '常用') return 'warning'
+  return 'info'
+}
+
 // Cron
 const cronJobs = ref<CronJob[]>([])
 const showCronCreate = ref(false)
@@ -523,6 +624,7 @@ onMounted(async () => {
     ElMessage.error('加载 Agent 失败')
   }
   loadIdentityFiles()
+  loadRelations()
   loadWorkspace()
   loadCron()
   await loadAgentSessions()
@@ -946,5 +1048,53 @@ async function deleteCron(job: any) {
 
 .at-form {
   margin-top: 8px;
+}
+
+/* Relations tab */
+.relations-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.relation-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid #e4e7ed;
+  border-radius: 8px;
+  background: #fafafa;
+}
+.relation-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-weight: 700;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+.relation-info {
+  flex: 1;
+  min-width: 0;
+}
+.relation-name {
+  font-weight: 600;
+  font-size: 14px;
+  color: #303133;
+  margin-bottom: 4px;
+}
+.relation-tags {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.relation-desc {
+  font-size: 12px;
+  color: #606266;
+  line-height: 1.5;
 }
 </style>

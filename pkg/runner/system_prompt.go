@@ -55,6 +55,12 @@ func BuildSystemPrompt(workspaceDir string) (string, error) {
 	// Memory tree hint for the agent
 	sb.WriteString("[Memory tree available. Use read tool to access: memory/core/, memory/projects/, memory/daily/, memory/topics/]\n\n")
 
+	// Inject RELATIONS.md if it exists
+	relationsContent, err := readFileIfExists(filepath.Join(workspaceDir, "RELATIONS.md"))
+	if err == nil && strings.TrimSpace(relationsContent) != "" {
+		sb.WriteString(fmt.Sprintf("--- RELATIONS.md ---\n%s\n\n", strings.TrimSpace(relationsContent)))
+	}
+
 	// Inject skills from workspaceDir/skills/
 	skillsDir := filepath.Join(workspaceDir, "skills")
 	skills, err := skill.LoadAll(skillsDir)
