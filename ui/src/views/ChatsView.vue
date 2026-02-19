@@ -5,7 +5,7 @@
       <div>
         <h2 style="margin: 0">💬 对话管理</h2>
         <div style="font-size: 13px; color: #909399; margin-top: 4px">
-          共 {{ total }} 条对话 · 跨所有 AI 员工
+          共 {{ total }} 条对话 · 跨所有 AI 成员
         </div>
       </div>
       <el-button @click="loadSessions" :loading="loading" :icon="Refresh">刷新</el-button>
@@ -16,7 +16,7 @@
       <div class="filter-bar">
         <el-select
           v-model="filterAgent"
-          placeholder="全部员工"
+          placeholder="全部成员"
           clearable
           style="width: 180px"
           @change="loadSessions"
@@ -66,7 +66,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="AI 员工" width="130">
+        <el-table-column label="AI 成员" width="130">
           <template #default="{ row }">
             <el-tag size="small" type="primary" effect="plain">{{ row.agentName || row.agentId }}</el-tag>
           </template>

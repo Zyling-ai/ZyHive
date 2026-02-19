@@ -24,7 +24,7 @@
 
         <el-menu-item index="/agents">
           <el-icon><User /></el-icon>
-          <template #title>AI 员工</template>
+          <template #title>AI 成员</template>
         </el-menu-item>
 
         <el-menu-item index="/chats">

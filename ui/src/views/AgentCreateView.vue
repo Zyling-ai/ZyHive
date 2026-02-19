@@ -6,7 +6,7 @@
         <el-button text @click="$router.push('/agents')" class="back-btn">
           <el-icon><ArrowLeft /></el-icon> 返回
         </el-button>
-        <h2 style="margin: 0">新建 AI 员工</h2>
+        <h2 style="margin: 0">新建 AI 成员</h2>
       </div>
 
       <el-form :model="form" label-position="top" class="create-form">

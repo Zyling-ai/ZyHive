@@ -1,7 +1,7 @@
 <template>
   <div class="agents-page">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px">
-      <h2 style="margin: 0">AI 员工</h2>
+      <h2 style="margin: 0">AI 成员</h2>
       <el-button type="primary" @click="$router.push('/agents/new')">
         <el-icon><Plus /></el-icon> 新建 Agent
       </el-button>
@@ -39,10 +39,10 @@
       </el-col>
     </el-row>
 
-    <el-empty v-if="!store.loading && store.list.length === 0" description="暂无 AI 员工，点击「新建 Agent」开始" />
+    <el-empty v-if="!store.loading && store.list.length === 0" description="暂无 AI 成员，点击「新建 Agent」开始" />
 
     <!-- ═══ Agent Creation Wizard ═══ -->
-    <el-dialog v-model="wizardVisible" title="新建 AI 员工" width="680px" :close-on-click-modal="false">
+    <el-dialog v-model="wizardVisible" title="新建 AI 成员" width="680px" :close-on-click-modal="false">
       <el-steps :active="wizardStep" finish-status="success" simple style="margin-bottom: 24px">
         <el-step title="基本信息" />
         <el-step title="选择模型" />
