@@ -300,6 +300,64 @@
 
         <!-- Tab 4: Memory Tree -->
         <el-tab-pane label="记忆" name="memory">
+          <!-- Memory Config Card -->
+          <el-card style="margin-bottom: 16px;" shadow="never">
+            <template #header>
+              <div style="display: flex; align-items: center; justify-content: space-between;">
+                <span style="font-weight: 600;">自动记忆</span>
+                <el-switch
+                  v-model="memCfg.enabled"
+                  active-text="已开启"
+                  inactive-text="已关闭"
+                  @change="saveMemConfig"
+                />
+              </div>
+            </template>
+            <el-form :model="memCfg" label-position="top" size="small" :disabled="!memCfg.enabled">
+              <el-row :gutter="16">
+                <el-col :span="6">
+                  <el-form-item label="整理频率">
+                    <el-select v-model="memCfg.schedule" style="width: 100%;">
+                      <el-option label="每小时" value="hourly" />
+                      <el-option label="每6小时" value="every6h" />
+                      <el-option label="每天" value="daily" />
+                      <el-option label="每周" value="weekly" />
+                    </el-select>
+                  </el-form-item>
+                </el-col>
+                <el-col :span="5">
+                  <el-form-item label="每个会话保留轮数">
+                    <el-input-number
+                      v-model="memCfg.keepTurns"
+                      :min="1"
+                      :max="20"
+                      style="width: 100%;"
+                    />
+                  </el-form-item>
+                </el-col>
+                <el-col :span="13">
+                  <el-form-item label="记录重点（留空则自动）">
+                    <el-input
+                      v-model="memCfg.focusHint"
+                      placeholder="例如：记录数学解题步骤和用户常见错误"
+                    />
+                  </el-form-item>
+                </el-col>
+              </el-row>
+              <div style="display: flex; gap: 8px; margin-top: 4px;">
+                <el-button type="primary" size="small" :loading="memCfgSaving" @click="saveMemConfig">
+                  保存设置
+                </el-button>
+                <el-button size="small" :loading="memConsolidating" @click="consolidateNow">
+                  立即整理
+                </el-button>
+                <el-text type="info" size="small" style="align-self: center; margin-left: 4px;">
+                  整理后：LLM提炼摘要写入 MEMORY.md，每个会话只保留最近 {{ memCfg.keepTurns }} 轮对话
+                </el-text>
+              </div>
+            </el-form>
+          </el-card>
+
           <div class="memory-toolbar" style="margin-bottom: 12px; display: flex; gap: 8px;">
             <el-button type="primary" size="small" @click="showNewMemoryFile = true">
               <el-icon><Plus /></el-icon> 新建文件
@@ -502,7 +560,7 @@ import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ArrowLeft, Plus, EditPen, Refresh, FolderOpened, Document } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
-import { agents as agentsApi, files as filesApi, memoryApi, cron as cronApi, sessions as sessionsApi, relationsApi, type AgentInfo, type FileEntry, type CronJob, type SessionSummary, type RelationRow } from '../api'
+import { agents as agentsApi, files as filesApi, memoryApi, cron as cronApi, sessions as sessionsApi, relationsApi, memoryConfigApi, type AgentInfo, type FileEntry, type CronJob, type SessionSummary, type RelationRow, type MemConfig } from '../api'
 import AiChat, { type ChatMsg } from '../components/AiChat.vue'
 
 const route = useRoute()
@@ -627,6 +685,51 @@ async function sendAtMessage() {
 // Identity/Soul
 const identityContent = ref('')
 const soulContent = ref('')
+
+// Memory config (automatic consolidation)
+const memCfg = ref<MemConfig>({
+  enabled: false,
+  schedule: 'daily',
+  keepTurns: 3,
+  focusHint: '',
+  cronJobId: '',
+})
+const memCfgSaving = ref(false)
+const memConsolidating = ref(false)
+
+async function loadMemConfig() {
+  try {
+    const res = await memoryConfigApi.getConfig(agentId)
+    memCfg.value = res.data
+  } catch {
+    // use defaults
+  }
+}
+
+async function saveMemConfig() {
+  memCfgSaving.value = true
+  try {
+    const res = await memoryConfigApi.setConfig(agentId, memCfg.value)
+    memCfg.value = res.data
+    ElMessage.success(memCfg.value.enabled ? '自动记忆已开启' : '自动记忆已关闭')
+  } catch {
+    ElMessage.error('保存失败')
+  } finally {
+    memCfgSaving.value = false
+  }
+}
+
+async function consolidateNow() {
+  memConsolidating.value = true
+  try {
+    await memoryConfigApi.consolidate(agentId)
+    ElMessage.success('记忆整理已在后台启动，稍后刷新记忆文件查看结果')
+  } catch {
+    ElMessage.error('整理失败')
+  } finally {
+    memConsolidating.value = false
+  }
+}
 
 // Memory tree
 const memoryTreeData = ref<any[]>([])
@@ -756,6 +859,7 @@ onMounted(async () => {
   loadIdentityFiles()
   loadRelations()
   loadOtherAgents()
+  loadMemConfig()
   loadWorkspace()
   loadCron()
   await loadAgentSessions()

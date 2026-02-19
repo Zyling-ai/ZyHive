@@ -375,6 +375,84 @@ func truncateRune(s string, maxRunes int) string {
 	return string(runes[:maxRunes]) + "…"
 }
 
+// TrimToLastN rewrites the session JSONL keeping only the last keepMsgs messages.
+// keepMsgs = keepTurns * 2 (each turn = 1 user + 1 assistant message).
+// Non-message entries (session header, compaction) are preserved.
+func (s *Store) TrimToLastN(sessionID string, keepMsgs int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	path := filepath.Join(s.dir, sessionID+".jsonl")
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+
+	var headerLines [][]byte
+	var msgLines [][]byte
+
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 8*1024*1024), 8*1024*1024)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+		var base BaseEntry
+		if err2 := json.Unmarshal(line, &base); err2 != nil {
+			continue
+		}
+		if base.Type == EntryTypeMessage {
+			msgLines = append(msgLines, append([]byte{}, line...))
+		} else {
+			headerLines = append(headerLines, append([]byte{}, line...))
+		}
+	}
+	f.Close()
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+
+	// Keep only last keepMsgs messages
+	if len(msgLines) > keepMsgs {
+		msgLines = msgLines[len(msgLines)-keepMsgs:]
+	}
+
+	// Rewrite atomically via temp file
+	tmp, err := os.CreateTemp(s.dir, ".trim-*")
+	if err != nil {
+		return err
+	}
+	for _, line := range headerLines {
+		fmt.Fprintf(tmp, "%s\n", line)
+	}
+	for _, line := range msgLines {
+		fmt.Fprintf(tmp, "%s\n", line)
+	}
+	tmp.Close()
+
+	if err := os.Rename(tmp.Name(), path); err != nil {
+		os.Remove(tmp.Name())
+		return err
+	}
+
+	// Update index
+	idx, err := s.loadIndex()
+	if err == nil {
+		if meta, ok := idx.Sessions[sessionID]; ok {
+			var tokens int
+			for _, line := range msgLines {
+				tokens += len(line) / 4
+			}
+			meta.TokenEstimate = tokens
+			meta.MessageCount = len(msgLines)
+			idx.Sessions[sessionID] = meta
+			_ = s.saveIndex(idx)
+		}
+	}
+	return nil
+}
+
 // nowMs returns current Unix timestamp in milliseconds.
 func nowMs() int64 {
 	return time.Now().UnixMilli()
