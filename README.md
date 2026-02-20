@@ -2,7 +2,7 @@
 
 > zyling 旗下 AI 团队操作系统 — 让每一个 AI 成员各司其职、协同引领
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 [![Go 1.22+](https://img.shields.io/badge/Go-1.22+-00ADD8.svg)](https://golang.org)
 
 **以团队为核心，每个 AI Agent 是团队成员。**
@@ -152,4 +152,18 @@ Edit `aipanel.json`:
 
 ## 📄 License
 
-MIT
+引巢 · ZyHive 采用 **GNU Affero General Public License v3.0（AGPL-3.0）** 开源协议。
+
+- ✅ 个人使用、学习、研究 — 完全免费
+- ✅ 自托管私用 — 完全免费
+- ✅ 修改和二次开发 — 必须以相同协议开源
+- ⚠️ 基于本项目构建网络服务对外提供 — 必须开源全部改动
+- 🚫 商业闭源集成或托管销售 — 需要商业授权
+
+### 商业授权
+
+如需在商业产品中使用，或作为托管 SaaS 服务销售，请联系我们获取商业授权：
+
+**zyling（智引领科技）** — 邮件 / Telegram 联系方式见官网
+
+> 完整协议见 [LICENSE](LICENSE) 文件。
