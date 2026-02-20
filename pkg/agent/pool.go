@@ -222,15 +222,18 @@ func (p *Pool) RunStreamEvents(ctx context.Context, agentID, message string, med
 	toolRegistry := tools.New(ag.WorkspaceDir)
 	store := session.NewStore(ag.SessionDir)
 
-	// Convert MediaInput to base64 data URI strings for the runner
+	// Convert MediaInput to base64 data URI strings for the runner.
+	// Anthropic Vision only accepts: image/jpeg, image/png, image/gif, image/webp
+	// (plus application/pdf for documents). Normalize and validate content types.
 	var images []string
 	for _, m := range media {
 		if len(m.Data) == 0 {
 			continue
 		}
-		ct := m.ContentType
+		ct := normalizeVisionContentType(m.ContentType, m.FileName)
 		if ct == "" {
-			ct = "image/jpeg"
+			log.Printf("[pool] skipping media %q: unsupported content type %q", m.FileName, m.ContentType)
+			continue
 		}
 		encoded := base64.StdEncoding.EncodeToString(m.Data)
 		images = append(images, "data:"+ct+";base64,"+encoded)
@@ -298,4 +301,55 @@ func (p *Pool) RunStream(ctx context.Context, agentID, message string) (<-chan r
 	})
 
 	return r.Run(ctx, message), nil
+}
+
+// normalizeVisionContentType maps raw Content-Type values (from Telegram CDN or elsewhere)
+// to the set accepted by Anthropic Vision: image/jpeg, image/png, image/gif, image/webp,
+// or application/pdf. Returns "" for unsupported types.
+func normalizeVisionContentType(ct, fileName string) string {
+	// Strip parameters (e.g. "image/jpeg; charset=binary" → "image/jpeg")
+	if i := strings.Index(ct, ";"); i >= 0 {
+		ct = strings.TrimSpace(ct[:i])
+	}
+	ct = strings.ToLower(strings.TrimSpace(ct))
+
+	switch ct {
+	case "image/jpeg", "image/jpg":
+		return "image/jpeg"
+	case "image/png":
+		return "image/png"
+	case "image/gif":
+		return "image/gif"
+	case "image/webp":
+		return "image/webp"
+	case "application/pdf":
+		return "application/pdf"
+	}
+
+	// Fall back to guessing from file extension
+	lower := strings.ToLower(fileName)
+	switch {
+	case strings.HasSuffix(lower, ".jpg") || strings.HasSuffix(lower, ".jpeg"):
+		return "image/jpeg"
+	case strings.HasSuffix(lower, ".png"):
+		return "image/png"
+	case strings.HasSuffix(lower, ".gif"):
+		return "image/gif"
+	case strings.HasSuffix(lower, ".webp"):
+		return "image/webp"
+	case strings.HasSuffix(lower, ".pdf"):
+		return "application/pdf"
+	}
+
+	// For unknown types from photo/sticker fields, default to jpeg
+	if ct == "application/octet-stream" || ct == "" {
+		if strings.HasSuffix(lower, ".photo") || lower == "photo.jpg" || lower == "sticker.webp" {
+			if strings.HasSuffix(lower, ".webp") {
+				return "image/webp"
+			}
+			return "image/jpeg"
+		}
+	}
+
+	return "" // unsupported
 }

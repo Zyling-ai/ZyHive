@@ -964,9 +964,25 @@ func (b *TelegramBot) downloadTelegramFile(ctx context.Context, filePath string)
 	}
 
 	ct := resp.Header.Get("Content-Type")
-	if ct == "" {
-		// Guess from extension
-		lower := strings.ToLower(filePath)
+	// Strip content-type parameters (e.g. "image/jpeg; charset=binary" → "image/jpeg")
+	if i := strings.Index(ct, ";"); i >= 0 {
+		ct = strings.TrimSpace(ct[:i])
+	}
+	// Normalize and guess from extension if needed
+	lower := strings.ToLower(filePath)
+	switch strings.ToLower(ct) {
+	case "image/jpeg", "image/jpg":
+		ct = "image/jpeg"
+	case "image/png":
+		ct = "image/png"
+	case "image/webp":
+		ct = "image/webp"
+	case "image/gif":
+		ct = "image/gif"
+	case "application/pdf":
+		ct = "application/pdf"
+	default:
+		// Guess from file extension
 		switch {
 		case strings.HasSuffix(lower, ".jpg") || strings.HasSuffix(lower, ".jpeg"):
 			ct = "image/jpeg"
@@ -979,7 +995,7 @@ func (b *TelegramBot) downloadTelegramFile(ctx context.Context, filePath string)
 		case strings.HasSuffix(lower, ".gif"):
 			ct = "image/gif"
 		default:
-			ct = "application/octet-stream"
+			ct = "image/jpeg" // sensible default for Telegram photos
 		}
 	}
 
