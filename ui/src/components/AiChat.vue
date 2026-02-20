@@ -416,22 +416,57 @@ function manualApply(msg: ChatMsg) {
   }
 }
 
-function tryExtractJson(text: string): Record<string, string> | null {
-  // Strategy 1: standard ```json ... ``` block
-  const fenceMatch = text.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/)
-  if (fenceMatch?.[1]) {
-    const r = safeParse(fenceMatch[1])
-    if (r) return r
-    // Strategy 3: same block but escape raw newlines inside string values
-    const escaped = escapeJsonNewlines(fenceMatch[1])
-    const r2 = safeParse(escaped)
-    if (r2) return r2
+/**
+ * 用括号平衡计数从文本中提取第一个合法 JSON 对象字符串。
+ * 比正则更可靠：能正确处理值中含 `}` 的情况。
+ */
+function extractBalancedJson(text: string, fromIndex = 0): { raw: string; end: number } | null {
+  const start = text.indexOf('{', fromIndex)
+  if (start === -1) return null
+  let depth = 0
+  let inStr = false
+  let esc = false
+  for (let i = start; i < text.length; i++) {
+    const c = text[i]!
+    if (esc) { esc = false; continue }
+    if (c === '\\' && inStr) { esc = true; continue }
+    if (c === '"') { inStr = !inStr; continue }
+    if (!inStr) {
+      if (c === '{') depth++
+      else if (c === '}') { depth--; if (depth === 0) return { raw: text.slice(start, i + 1), end: i + 1 } }
+    }
   }
-  // Strategy 2: last standalone {...} block in the text (handles no fence)
-  const blockMatches = [...text.matchAll(/(\{[^{}]{20,}\})/g)]
-  for (let i = blockMatches.length - 1; i >= 0; i--) {
-    const raw = blockMatches[i]?.[1]
-    if (!raw) continue
+  return null
+}
+
+function tryExtractJson(text: string): Record<string, string> | null {
+  // Strategy 1: all ```(json)? ... ``` fence blocks — try LAST one first (most likely final config)
+  const fenceRe = /```(?:json)?\s*\n?([\s\S]*?)```/g
+  const fenceBlocks: string[] = []
+  let fm: RegExpExecArray | null
+  while ((fm = fenceRe.exec(text)) !== null) {
+    const inner = (fm[1] ?? '').trim()
+    if (inner.startsWith('{')) fenceBlocks.push(inner)
+  }
+  for (let i = fenceBlocks.length - 1; i >= 0; i--) {
+    const raw = fenceBlocks[i]!
+    const balanced = extractBalancedJson(raw)
+    if (!balanced) continue
+    const r = safeParse(balanced.raw) ?? safeParse(escapeJsonNewlines(balanced.raw))
+    if (r) return r
+  }
+
+  // Strategy 2: balanced brace scan over full text — collect all, try last first
+  const candidates: string[] = []
+  let pos = 0
+  while (pos < text.length) {
+    const found = extractBalancedJson(text, pos)
+    if (!found) break
+    candidates.push(found.raw)
+    pos = found.end
+  }
+  for (let i = candidates.length - 1; i >= 0; i--) {
+    const raw = candidates[i]!
     const r = safeParse(raw) ?? safeParse(escapeJsonNewlines(raw))
     if (r) return r
   }
