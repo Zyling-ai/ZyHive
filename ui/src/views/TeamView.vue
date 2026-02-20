@@ -25,7 +25,7 @@
       </div>
 
       <!-- Graph -->
-      <div v-else class="graph-container">
+      <div v-else class="graph-container" ref="graphContainerRef">
         <!-- Connect-mode banner -->
         <div v-if="selectedNode" class="connect-banner">
           <el-icon style="margin-right:6px"><Link /></el-icon>
@@ -35,9 +35,8 @@
 
         <svg ref="svgRef" :width="svgW" :height="svgH" class="graph-svg"
           @mousemove="onSvgMouseMove"
-          @mouseup="onSvgMouseUp"
-          @mouseleave="onSvgMouseLeave"
-          @click.self="onSvgBgClick">
+          @click.self="onSvgBgClick"
+          style="display:block;width:100%;">
 
           <!-- Connection preview line (dashed, from selected node to cursor) -->
           <line v-if="selectedNode"
@@ -183,17 +182,18 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, reactive } from 'vue'
+import { ref, computed, onMounted, onUnmounted, reactive } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { relationsApi, type TeamGraph, type TeamGraphEdge, type TeamGraphNode } from '../api'
 import RelTypeForm from '../components/RelTypeForm.vue'
 
 const svgRef = ref<SVGSVGElement>()
+const graphContainerRef = ref<HTMLDivElement>()
 const loading = ref(false)
 const graph = ref<TeamGraph>({ nodes: [], edges: [] })
 
 // ── Layout constants ───────────────────────────────────────────────────────
-const svgW = 860
+const svgW = ref(860)   // updated by ResizeObserver
 const NODE_R = 28
 const LEVEL_H = 160
 const PAD_TOP = 90
@@ -236,12 +236,13 @@ const levelMap = computed(() => computeLevels(graph.value.nodes, graph.value.edg
 
 const svgH = computed(() => {
   const maxLevel = Object.values(levelMap.value).reduce((m, v) => Math.max(m, v), 0)
-  return Math.max(400, PAD_TOP + maxLevel * LEVEL_H + 160)
+  return Math.max(600, PAD_TOP + maxLevel * LEVEL_H + 160)
 })
 
 const posMap = computed<Record<string, { x: number; y: number }>>(() => {
   const nodes = graph.value.nodes
   const levels = levelMap.value
+  const w = svgW.value
   const byLevel: Record<number, string[]> = {}
   nodes.forEach(n => {
     const lv = levels[n.id] ?? 0
@@ -252,11 +253,11 @@ const posMap = computed<Record<string, { x: number; y: number }>>(() => {
   for (const [lvStr, ids] of Object.entries(byLevel)) {
     const lv = Number(lvStr)
     const y = PAD_TOP + lv * LEVEL_H
-    const usableW = svgW - PAD_X * 2
+    const usableW = w - PAD_X * 2
     const gap = ids.length > 1 ? usableW / (ids.length - 1) : 0
     ids.forEach((id, i) => {
       map[id] = {
-        x: Math.round(ids.length === 1 ? svgW / 2 : PAD_X + i * gap),
+        x: Math.round(ids.length === 1 ? w / 2 : PAD_X + i * gap),
         y: Math.round(y),
       }
     })
@@ -271,14 +272,16 @@ interface DragState {
 }
 const dragPositions = ref<Record<string, { x: number; y: number }>>({})
 const dragState = ref<DragState | null>(null)
-const mousePos = ref({ x: svgW / 2, y: PAD_TOP })
+const mousePos = ref({ x: 400, y: PAD_TOP })
 
 /** Effective position: drag override → computed layout */
 function effPos(id: string): { x: number; y: number } {
-  return dragPositions.value[id] ?? posMap.value[id] ?? { x: svgW / 2, y: PAD_TOP }
+  return dragPositions.value[id] ?? posMap.value[id] ?? { x: svgW.value / 2, y: PAD_TOP }
 }
 
+// ── Document-level drag (works even when pointer leaves SVG) ──────────────
 function onNodeMouseDown(e: MouseEvent, nodeId: string) {
+  e.preventDefault()
   const pos = effPos(nodeId)
   dragState.value = {
     id: nodeId,
@@ -286,28 +289,48 @@ function onNodeMouseDown(e: MouseEvent, nodeId: string) {
     startNodeX: pos.x, startNodeY: pos.y,
     moved: false,
   }
+  document.addEventListener('mousemove', onDocMouseMove)
+  document.addEventListener('mouseup', onDocMouseUp)
 }
 
-function onSvgMouseMove(e: MouseEvent) {
-  const rect = svgRef.value!.getBoundingClientRect()
-  mousePos.value = { x: e.clientX - rect.left, y: e.clientY - rect.top }
+function onDocMouseMove(e: MouseEvent) {
+  // Update mousePos for connection preview (SVG-relative)
+  if (svgRef.value) {
+    const rect = svgRef.value.getBoundingClientRect()
+    mousePos.value = { x: e.clientX - rect.left, y: e.clientY - rect.top }
+  }
   if (!dragState.value) return
   const dx = e.clientX - dragState.value.startClientX
   const dy = e.clientY - dragState.value.startClientY
   if (Math.abs(dx) > 4 || Math.abs(dy) > 4) dragState.value.moved = true
   if (dragState.value.moved) {
+    // Clamp within SVG bounds with padding
+    const minX = NODE_R + 4, maxX = svgW.value - NODE_R - 4
+    const minY = NODE_R + 4, maxY = svgH.value - NODE_R - 24
     dragPositions.value = {
       ...dragPositions.value,
       [dragState.value.id]: {
-        x: dragState.value.startNodeX + dx,
-        y: dragState.value.startNodeY + dy,
+        x: Math.round(Math.max(minX, Math.min(maxX, dragState.value.startNodeX + dx))),
+        y: Math.round(Math.max(minY, Math.min(maxY, dragState.value.startNodeY + dy))),
       },
     }
   }
 }
 
-function onSvgMouseUp() { dragState.value = null }
-function onSvgMouseLeave() { dragState.value = null }
+function onDocMouseUp() {
+  dragState.value = null
+  document.removeEventListener('mousemove', onDocMouseMove)
+  document.removeEventListener('mouseup', onDocMouseUp)
+}
+
+function onSvgMouseMove(e: MouseEvent) {
+  // Keep mousePos updated for connection-preview line (SVG-relative coords)
+  if (!dragState.value && svgRef.value) {
+    const rect = svgRef.value.getBoundingClientRect()
+    mousePos.value = { x: e.clientX - rect.left, y: e.clientY - rect.top }
+  }
+}
+
 function onSvgBgClick() { selectedNode.value = null }
 
 // ── Connection creation ───────────────────────────────────────────────────
@@ -452,7 +475,28 @@ async function clearAllRelations() {
   } catch { ElMessage.error('清空失败') }
 }
 
-onMounted(loadGraph)
+let ro: ResizeObserver | null = null
+onMounted(() => {
+  loadGraph()
+  // Dynamic width: track graph container
+  if (graphContainerRef.value) {
+    ro = new ResizeObserver(entries => {
+      const w = entries[0]?.contentRect.width
+      if (w && w > 100) {
+        svgW.value = Math.floor(w)
+        // When layout changes, reset drag positions so nodes reflow
+        dragPositions.value = {}
+      }
+    })
+    ro.observe(graphContainerRef.value)
+  }
+})
+
+onUnmounted(() => {
+  ro?.disconnect()
+  document.removeEventListener('mousemove', onDocMouseMove)
+  document.removeEventListener('mouseup', onDocMouseUp)
+})
 </script>
 
 <style scoped>
@@ -463,7 +507,7 @@ onMounted(loadGraph)
 .page-header h2 { margin: 0; font-size: 20px; font-weight: 700; color: #303133; }
 .graph-card { margin-bottom: 16px; }
 .empty-state { padding: 60px 0; }
-.graph-container { position: relative; display: flex; flex-direction: column; overflow: hidden; }
+.graph-container { position: relative; display: flex; flex-direction: column; overflow: hidden; width: 100%; }
 
 /* Connect-mode banner */
 .connect-banner {
