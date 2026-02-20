@@ -141,32 +141,42 @@ func (b *TelegramBot) handleUpdate(ctx context.Context, update TelegramUpdate) {
 	senderID := msg.From.ID
 	isStart := msg.Text == "/start"
 
-	// Check allow list
-	if len(b.allowFrom) > 0 {
-		allowed := false
-		for _, id := range b.allowFrom {
-			if id == senderID {
-				allowed = true
-				break
-			}
+	// ── Access control ────────────────────────────────────────────────────
+	if len(b.allowFrom) == 0 {
+		// No whitelist configured → pairing mode: tell user to send their ID to the admin
+		log.Printf("[telegram] Pairing mode — message from %d (%s)", senderID, msg.From.Username)
+		if b.pendingStore != nil {
+			b.pendingStore.Add(senderID, msg.From.Username, msg.From.FirstName)
 		}
-		if !allowed {
-			log.Printf("[telegram] Pending user %d (%s): %s", senderID, msg.From.Username, truncate(msg.Text, 40))
-			// Log to pending store so admin can approve from UI
-			if b.pendingStore != nil {
-				b.pendingStore.Add(senderID, msg.From.Username, msg.From.FirstName)
-			}
-			// Send a friendly reply if it's /start or first contact
-			if isStart {
-				_ = b.SendMessage(msg.Chat.ID, "👋 你好！你的请求已收到，等待管理员审核后即可使用。\n\nYour request has been received. Please wait for admin approval.")
-			}
-			return
-		}
+		pairMsg := fmt.Sprintf(
+			"👋 你好！此 Bot 尚未完成配对。\n\n请将以下信息发送给管理员，管理员将你加入白名单后即可开始使用：\n\n🔑 你的 Telegram ID：<code>%d</code>",
+			senderID,
+		)
+		_ = b.sendHTML(msg.Chat.ID, pairMsg)
+		return
 	}
 
-	// For allowed users sending /start: record them too (so admin knows who's using the bot)
-	if isStart && b.pendingStore != nil {
-		// Remove from pending (they're already allowed) and just greet
+	// Whitelist is set — check if sender is allowed
+	allowed := false
+	for _, id := range b.allowFrom {
+		if id == senderID {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
+		log.Printf("[telegram] Blocked (pending) user %d (%s): %s", senderID, msg.From.Username, truncate(msg.Text, 40))
+		if b.pendingStore != nil {
+			b.pendingStore.Add(senderID, msg.From.Username, msg.From.FirstName)
+		}
+		if isStart {
+			_ = b.SendMessage(msg.Chat.ID, "👋 你好！你的申请已收到，等待管理员审核后即可使用。\n\nYour request has been received. Please wait for admin approval.")
+		}
+		return
+	}
+
+	// Allowed user: clean up pending entry if present
+	if b.pendingStore != nil {
 		b.pendingStore.Remove(senderID)
 	}
 
@@ -203,6 +213,26 @@ func (b *TelegramBot) handleUpdate(ctx context.Context, update TelegramUpdate) {
 			}
 		}
 	}()
+}
+
+// sendHTML sends a message with HTML parse mode (supports <code>, <b>, etc.)
+func (b *TelegramBot) sendHTML(chatID int64, html string) error {
+	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", b.token)
+	payload, _ := json.Marshal(map[string]any{
+		"chat_id":    chatID,
+		"text":       html,
+		"parse_mode": "HTML",
+	})
+	resp, err := b.client.Post(url, "application/json", bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return fmt.Errorf("telegram sendMessage: status %d: %s", resp.StatusCode, string(body))
+	}
+	return nil
 }
 
 // SendMessage sends a text message to a Telegram chat.

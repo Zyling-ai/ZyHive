@@ -623,7 +623,7 @@
                   <template v-if="ch.config?.allowedFrom">
                     <el-tag v-for="uid in ch.config.allowedFrom.split(',')" :key="uid" size="small" style="margin-right: 4px">{{ uid.trim() }}</el-tag>
                   </template>
-                  <el-text v-else type="info" size="small">未设置（接受所有用户）</el-text>
+                  <el-text v-else type="warning" size="small">未设置（配对模式，向用户返回其 ID）</el-text>
                 </span>
               </div>
 
@@ -701,9 +701,9 @@
                   </el-text>
                 </el-form-item>
                 <el-form-item label="白名单用户">
-                  <el-input v-model="channelForm.allowedFrom" placeholder="留空 = 接受所有人；或填入 Telegram 用户 ID，逗号分隔" />
+                  <el-input v-model="channelForm.allowedFrom" placeholder="填入 Telegram 用户 ID，多个用逗号分隔" />
                   <el-text type="info" size="small" style="display:block;margin-top:4px">
-                    💡 留空后，让用户发送 /start，在渠道卡片中审核添加
+                    💡 留空时 Bot 进入配对模式——向用户返回其 ID，引导联系管理员添加白名单
                   </el-text>
                 </el-form-item>
               </template>
