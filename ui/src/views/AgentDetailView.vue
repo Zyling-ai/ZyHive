@@ -592,56 +592,94 @@
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px">
             <el-text type="info" size="small">每个 AI 成员独立配置自己的消息通道（如 Telegram Bot Token）</el-text>
             <el-button type="primary" size="small" @click="openAddChannel">
-              <el-icon><Plus /></el-icon> 添加渠道
+              <el-icon><Plus /></el-icon> 添加消息渠道
             </el-button>
           </div>
 
-          <el-table :data="agentChannelList" stripe v-loading="channelsLoading">
-            <el-table-column label="类型" width="110">
-              <template #default="{ row }">
-                <el-tag size="small">{{ row.type }}</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column prop="name" label="名称" min-width="140" />
-            <el-table-column label="配置" min-width="200">
-              <template #default="{ row }">
-                <el-text type="info" size="small">
-                  <span v-for="(v, k) in row.config" :key="k" style="margin-right: 8px">
-                    <template v-if="!String(k).toLowerCase().includes('token') && !String(k).toLowerCase().includes('key')">
-                      {{ k }}: {{ v }}
-                    </template>
-                    <template v-else>
-                      {{ k }}: ••••••
-                    </template>
-                  </span>
-                </el-text>
-              </template>
-            </el-table-column>
-            <el-table-column label="启用" width="80">
-              <template #default="{ row }">
-                <el-switch v-model="row.enabled" size="small" @change="saveChannels" />
-              </template>
-            </el-table-column>
-            <el-table-column label="状态" width="90">
-              <template #default="{ row }">
-                <el-tag :type="row.status === 'ok' ? 'success' : row.status === 'error' ? 'danger' : 'info'" size="small">
-                  {{ row.status === 'ok' ? '✓ 正常' : row.status === 'error' ? '✗ 错误' : '? 未测试' }}
-                </el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column label="操作" width="190">
-              <template #default="{ row }">
-                <el-button size="small" @click="testAgentChannel(row)" :loading="testingChannelId === row.id">测试</el-button>
-                <el-button size="small" @click="openEditChannel(row)">编辑</el-button>
-                <el-button size="small" type="danger" @click="deleteAgentChannel(row)">删除</el-button>
-              </template>
-            </el-table-column>
-          </el-table>
+          <!-- Channel cards -->
+          <div v-for="ch in agentChannelList" :key="ch.id" class="channel-card">
+            <div class="channel-card-header">
+              <div class="channel-card-left">
+                <el-tag size="small" style="margin-right: 8px">{{ ch.type }}</el-tag>
+                <span class="channel-card-name">{{ ch.name }}</span>
+                <el-tag
+                  :type="ch.status === 'ok' ? 'success' : ch.status === 'error' ? 'danger' : 'info'"
+                  size="small" effect="plain" style="margin-left: 8px"
+                >{{ ch.status === 'ok' ? '✓ 正常' : ch.status === 'error' ? '✗ 错误' : '未测试' }}</el-tag>
+              </div>
+              <div class="channel-card-actions">
+                <el-switch v-model="ch.enabled" size="small" @change="saveChannels" style="margin-right: 8px" />
+                <el-button size="small" @click="testAgentChannel(ch)" :loading="testingChannelId === ch.id">测试连接</el-button>
+                <el-button size="small" @click="openEditChannel(ch)">编辑</el-button>
+                <el-button size="small" type="danger" plain @click="deleteAgentChannel(ch)">删除</el-button>
+              </div>
+            </div>
 
-          <el-empty v-if="!channelsLoading && !agentChannelList.length" description="暂无渠道，点击「添加渠道」开始配置" :image-size="80" style="margin-top: 40px" />
+            <!-- Telegram whitelist info -->
+            <div v-if="ch.type === 'telegram'" class="channel-card-body">
+              <div class="channel-info-row">
+                <span class="channel-info-label">白名单用户</span>
+                <span class="channel-info-value">
+                  <template v-if="ch.config?.allowedFrom">
+                    <el-tag v-for="uid in ch.config.allowedFrom.split(',')" :key="uid" size="small" style="margin-right: 4px">{{ uid.trim() }}</el-tag>
+                  </template>
+                  <el-text v-else type="info" size="small">未设置（接受所有用户）</el-text>
+                </span>
+              </div>
+
+              <!-- Pending users section -->
+              <div class="pending-section">
+                <div class="pending-section-header" @click="togglePending(ch.id)">
+                  <span>待审核用户</span>
+                  <el-badge
+                    :value="(pendingUsers[ch.id] || []).length"
+                    :hidden="!(pendingUsers[ch.id] || []).length"
+                    type="warning"
+                    style="margin-left: 6px"
+                  />
+                  <el-button size="small" link @click.stop="loadPendingUsers(ch.id)" style="margin-left: 8px">刷新</el-button>
+                  <el-icon style="margin-left: 4px; transition: transform 0.2s" :style="{ transform: expandedPending === ch.id ? 'rotate(180deg)' : '' }">
+                    <ArrowDown />
+                  </el-icon>
+                </div>
+
+                <div v-if="expandedPending === ch.id" class="pending-list">
+                  <div v-if="pendingLoading[ch.id]" style="text-align: center; padding: 12px">
+                    <el-text type="info" size="small">加载中...</el-text>
+                  </div>
+                  <template v-else-if="(pendingUsers[ch.id] || []).length">
+                    <div v-for="user in pendingUsers[ch.id]" :key="user.id" class="pending-user-row">
+                      <div class="pending-user-info">
+                        <span class="pending-user-name">{{ user.firstName || '未知' }}</span>
+                        <span v-if="user.username" class="pending-user-username">@{{ user.username }}</span>
+                        <span class="pending-user-id">ID: {{ user.id }}</span>
+                        <el-text type="info" size="small" style="margin-left: 8px">{{ formatRelative(user.lastSeen) }}</el-text>
+                      </div>
+                      <div class="pending-user-actions">
+                        <el-button
+                          size="small" type="success" plain
+                          @click="allowUser(ch.id, user.id)"
+                          :loading="allowingUserId === `${ch.id}-${user.id}`"
+                        >加入白名单</el-button>
+                        <el-button
+                          size="small" type="danger" plain
+                          @click="dismissUser(ch.id, user.id)"
+                        >忽略</el-button>
+                      </div>
+                    </div>
+                  </template>
+                  <div v-else class="pending-empty">
+                    暂无待审核用户。让用户向 Bot 发送 /start 即可出现在此处。
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <el-empty v-if="!channelsLoading && !agentChannelList.length" description="暂无消息渠道，点击「添加消息渠道」开始配置" :image-size="80" style="margin-top: 40px" />
 
           <!-- Add/Edit Dialog -->
-          <el-dialog v-model="channelDialogVisible" :title="channelEditingId ? '编辑渠道' : '添加渠道'" width="520px">
+          <el-dialog v-model="channelDialogVisible" :title="channelEditingId ? '编辑消息渠道' : '添加消息渠道'" width="540px">
             <el-form :model="channelForm" label-width="120px">
               <el-form-item label="类型" required>
                 <el-select v-model="channelForm.type" style="width: 100%">
@@ -651,17 +689,22 @@
                 </el-select>
               </el-form-item>
               <el-form-item label="名称" required>
-                <el-input v-model="channelForm.name" placeholder="如 我的 Telegram Bot" />
+                <el-input v-model="channelForm.name" placeholder="如：客服 Bot" />
               </el-form-item>
 
               <!-- Telegram-specific -->
               <template v-if="channelForm.type === 'telegram'">
                 <el-form-item label="Bot Token" required>
                   <el-input v-model="channelForm.botToken" type="password" show-password placeholder="从 @BotFather 获取" />
+                  <el-text type="info" size="small" style="display:block;margin-top:4px">
+                    💡 保存后点击「测试连接」验证 Token 是否有效
+                  </el-text>
                 </el-form-item>
-                <el-form-item label="允许的用户">
-                  <el-input v-model="channelForm.allowedFrom" placeholder="逗号分隔的 Telegram 用户 ID（留空=全部）" />
-                  <el-text type="info" size="small">留空则接受任何人发送的消息</el-text>
+                <el-form-item label="白名单用户">
+                  <el-input v-model="channelForm.allowedFrom" placeholder="留空 = 接受所有人；或填入 Telegram 用户 ID，逗号分隔" />
+                  <el-text type="info" size="small" style="display:block;margin-top:4px">
+                    💡 留空后，让用户发送 /start，在渠道卡片中审核添加
+                  </el-text>
                 </el-form-item>
               </template>
 
@@ -684,9 +727,9 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
-import { ArrowLeft, Plus, EditPen, Refresh, FolderOpened, Document } from '@element-plus/icons-vue'
+import { ArrowLeft, Plus, EditPen, Refresh, FolderOpened, Document, ArrowDown } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
-import { agents as agentsApi, files as filesApi, memoryApi, cron as cronApi, sessions as sessionsApi, relationsApi, memoryConfigApi, agentChannels as agentChannelsApi, type AgentInfo, type FileEntry, type CronJob, type SessionSummary, type RelationRow, type MemConfig, type MemRunLog, type ChannelEntry } from '../api'
+import { agents as agentsApi, files as filesApi, memoryApi, cron as cronApi, sessions as sessionsApi, relationsApi, memoryConfigApi, agentChannels as agentChannelsApi, type AgentInfo, type FileEntry, type CronJob, type SessionSummary, type RelationRow, type MemConfig, type MemRunLog, type ChannelEntry, type PendingUser } from '../api'
 import AiChat, { type ChatMsg } from '../components/AiChat.vue'
 
 const route = useRoute()
@@ -1116,6 +1159,57 @@ async function testAgentChannel(row: ChannelEntry) {
     ElMessage.error('测试请求失败')
   } finally {
     testingChannelId.value = ''
+  }
+}
+
+// ── Pending users (待审核用户) ────────────────────────────────────────────
+const pendingUsers = ref<Record<string, PendingUser[]>>({})
+const pendingLoading = ref<Record<string, boolean>>({})
+const expandedPending = ref<string>('')
+const allowingUserId = ref('')
+
+async function loadPendingUsers(chId: string) {
+  pendingLoading.value[chId] = true
+  try {
+    const res = await agentChannelsApi.listPending(agentId, chId)
+    pendingUsers.value[chId] = res.data || []
+  } catch {
+    pendingUsers.value[chId] = []
+  } finally {
+    pendingLoading.value[chId] = false
+  }
+}
+
+function togglePending(chId: string) {
+  if (expandedPending.value === chId) {
+    expandedPending.value = ''
+  } else {
+    expandedPending.value = chId
+    loadPendingUsers(chId)
+  }
+}
+
+async function allowUser(chId: string, userId: number) {
+  allowingUserId.value = `${chId}-${userId}`
+  try {
+    await agentChannelsApi.allowUser(agentId, chId, userId)
+    ElMessage.success(`用户 ${userId} 已加入白名单`)
+    await loadPendingUsers(chId)
+    await loadAgentChannels() // refresh allowedFrom display
+  } catch {
+    ElMessage.error('操作失败')
+  } finally {
+    allowingUserId.value = ''
+  }
+}
+
+async function dismissUser(chId: string, userId: number) {
+  try {
+    await agentChannelsApi.dismissUser(agentId, chId, userId)
+    ElMessage.success('已忽略')
+    await loadPendingUsers(chId)
+  } catch {
+    ElMessage.error('操作失败')
   }
 }
 
@@ -1606,5 +1700,117 @@ async function deleteCron(job: any) {
   font-size: 12px;
   color: #606266;
   line-height: 1.5;
+}
+
+/* Channel cards */
+.channel-card {
+  border: 1px solid #e4e7ed;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+.channel-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: #fafafa;
+  border-bottom: 1px solid #f0f0f0;
+}
+.channel-card-left {
+  display: flex;
+  align-items: center;
+}
+.channel-card-name {
+  font-weight: 600;
+  font-size: 14px;
+  color: #303133;
+}
+.channel-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.channel-card-body {
+  padding: 12px 16px;
+}
+.channel-info-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.channel-info-label {
+  font-size: 12px;
+  color: #909399;
+  width: 72px;
+  flex-shrink: 0;
+  padding-top: 2px;
+}
+.channel-info-value {
+  flex: 1;
+}
+.pending-section {
+  border: 1px solid #e4e7ed;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.pending-section-header {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  background: #f5f7fa;
+  cursor: pointer;
+  font-size: 13px;
+  color: #606266;
+  user-select: none;
+}
+.pending-section-header:hover {
+  background: #ebedf0;
+}
+.pending-list {
+  padding: 8px 0;
+}
+.pending-user-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid #f5f7fa;
+}
+.pending-user-row:last-child {
+  border-bottom: none;
+}
+.pending-user-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+}
+.pending-user-name {
+  font-weight: 600;
+  font-size: 13px;
+  color: #303133;
+}
+.pending-user-username {
+  font-size: 12px;
+  color: #409eff;
+}
+.pending-user-id {
+  font-size: 11px;
+  color: #909399;
+  background: #f5f7fa;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+.pending-user-actions {
+  display: flex;
+  gap: 4px;
+}
+.pending-empty {
+  padding: 16px 12px;
+  text-align: center;
+  font-size: 12px;
+  color: #c0c4cc;
 }
 </style>

@@ -13,6 +13,9 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -86,15 +89,22 @@ func main() {
 
 	// Start Telegram bots — one per AI member (per-agent channel config)
 	for _, ag := range mgr.List() {
+		pendingDir := filepath.Join(agentsDir, ag.ID, "channels-pending")
 		for _, ch := range ag.Channels {
 			if ch.Type == "telegram" && ch.Enabled && ch.Config["botToken"] != "" {
 				agentID := ag.ID
-				bot := channel.NewTelegramBot(
-					ch.Config["botToken"],
-					agentID,
-					nil,
-					runnerFunc,
-				)
+				// Parse allowedFrom: comma-separated user IDs stored in config
+				var allowFrom []int64
+				if raw := ch.Config["allowedFrom"]; raw != "" {
+					for _, s := range strings.Split(raw, ",") {
+						s = strings.TrimSpace(s)
+						if id, err := strconv.ParseInt(s, 10, 64); err == nil {
+							allowFrom = append(allowFrom, id)
+						}
+					}
+				}
+				pending := channel.NewPendingStore(pendingDir, ch.ID)
+				bot := channel.NewTelegramBot(ch.Config["botToken"], agentID, allowFrom, runnerFunc, pending)
 				go bot.Start(ctx)
 				log.Printf("Telegram bot started: agent=%s channel=%s", agentID, ch.Name)
 			}

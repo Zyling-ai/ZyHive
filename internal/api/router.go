@@ -50,6 +50,10 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager, pool 
 	agents.GET("/:id/channels", agChH.GetChannels)
 	agents.PUT("/:id/channels", agChH.SetChannels)
 	agents.POST("/:id/channels/:chId/test", agChH.TestChannel)
+	// Pending users (users who messaged the bot but aren't in allowlist yet)
+	agents.GET("/:id/channels/:chId/pending", agChH.ListPending)
+	agents.POST("/:id/channels/:chId/pending/:userId/allow", agChH.AllowPending)
+	agents.DELETE("/:id/channels/:chId/pending/:userId", agChH.DismissPending)
 
 	// Chat (streaming SSE)
 	chatH := &chatHandler{cfg: cfg, manager: mgr}

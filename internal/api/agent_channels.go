@@ -5,7 +5,10 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"net/http"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -159,4 +162,131 @@ func timeStampShort() string {
 		time.Now().Format("0102150405"),
 		":", "",
 	))
+}
+
+// ── Pending users (users who messaged bot but not yet in allowlist) ────────
+
+// pendingDir returns the channels-pending directory for an agent.
+func pendingDir(ag *agent.Agent) string {
+	// WorkspaceDir = {agentsDir}/{agentId}/workspace → parent = {agentsDir}/{agentId}
+	return filepath.Join(filepath.Dir(ag.WorkspaceDir), "channels-pending")
+}
+
+// ListPending GET /api/agents/:id/channels/:chId/pending
+func (h *agentChannelHandler) ListPending(c *gin.Context) {
+	agentID := c.Param("id")
+	chID := c.Param("chId")
+	ag, ok := h.manager.Get(agentID)
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{"error": "agent not found"})
+		return
+	}
+	ps := channel.NewPendingStore(pendingDir(ag), chID)
+	c.JSON(http.StatusOK, ps.List())
+}
+
+// AllowPending POST /api/agents/:id/channels/:chId/pending/:userId/allow
+// Adds the user to the channel's allowedFrom list and removes from pending.
+func (h *agentChannelHandler) AllowPending(c *gin.Context) {
+	agentID := c.Param("id")
+	chID := c.Param("chId")
+	userIDStr := c.Param("userId")
+
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid userId"})
+		return
+	}
+
+	ag, ok := h.manager.Get(agentID)
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{"error": "agent not found"})
+		return
+	}
+
+	// Find the channel
+	chIdx := -1
+	for i, ch := range ag.Channels {
+		if ch.ID == chID {
+			chIdx = i
+			break
+		}
+	}
+	if chIdx < 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "channel not found"})
+		return
+	}
+
+	ch := &ag.Channels[chIdx]
+	if ch.Config == nil {
+		ch.Config = map[string]string{}
+	}
+
+	// Parse existing allowedFrom, add new ID (dedup)
+	existing := ch.Config["allowedFrom"]
+	ids := parseIDList(existing)
+	ids = appendUnique(ids, fmt.Sprintf("%d", userID))
+	ch.Config["allowedFrom"] = strings.Join(ids, ",")
+
+	// Save channels
+	if err := h.manager.UpdateChannels(agentID, ag.Channels); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Remove from pending store
+	ps := channel.NewPendingStore(pendingDir(ag), chID)
+	ps.Remove(userID)
+
+	c.JSON(http.StatusOK, gin.H{"ok": true, "allowedFrom": ch.Config["allowedFrom"]})
+}
+
+// DismissPending DELETE /api/agents/:id/channels/:chId/pending/:userId
+// Removes the user from the pending list without adding to allowlist.
+func (h *agentChannelHandler) DismissPending(c *gin.Context) {
+	agentID := c.Param("id")
+	chID := c.Param("chId")
+	userIDStr := c.Param("userId")
+
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid userId"})
+		return
+	}
+
+	ag, ok := h.manager.Get(agentID)
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{"error": "agent not found"})
+		return
+	}
+
+	ps := channel.NewPendingStore(pendingDir(ag), chID)
+	ps.Remove(userID)
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// parseIDList splits a comma-separated ID string into a slice.
+func parseIDList(s string) []string {
+	if s == "" {
+		return []string{}
+	}
+	parts := strings.Split(s, ",")
+	result := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			result = append(result, p)
+		}
+	}
+	return result
+}
+
+// appendUnique adds id to list if not already present.
+func appendUnique(list []string, id string) []string {
+	for _, v := range list {
+		if v == id {
+			return list
+		}
+	}
+	return append(list, id)
 }

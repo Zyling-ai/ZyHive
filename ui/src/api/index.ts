@@ -142,6 +142,17 @@ export const agentChannels = {
   list: (agentId: string) => api.get<ChannelEntry[]>(`/agents/${agentId}/channels`),
   set: (agentId: string, channels: ChannelEntry[]) => api.put(`/agents/${agentId}/channels`, channels),
   test: (agentId: string, chId: string) => api.post<{ valid: boolean; botName?: string; error?: string }>(`/agents/${agentId}/channels/${chId}/test`),
+  // Pending users
+  listPending: (agentId: string, chId: string) => api.get<PendingUser[]>(`/agents/${agentId}/channels/${chId}/pending`),
+  allowUser: (agentId: string, chId: string, userId: number) => api.post(`/agents/${agentId}/channels/${chId}/pending/${userId}/allow`),
+  dismissUser: (agentId: string, chId: string, userId: number) => api.delete(`/agents/${agentId}/channels/${chId}/pending/${userId}`),
+}
+
+export interface PendingUser {
+  id: number
+  username?: string
+  firstName?: string
+  lastSeen: number
 }
 
 export const tools = {
