@@ -18,7 +18,9 @@
     "agentId": "agent-5ch-3eya",
     "createdAtMs": 1771543822402,
     "state": {
-      "nextRunAtMs": 1771610400000
+      "nextRunAtMs": 1771696800000,
+      "lastRunAtMs": 1771610400002,
+      "lastStatus": "ok"
     }
   },
   {
@@ -41,7 +43,9 @@
     "agentId": "main",
     "createdAtMs": 1771548403812,
     "state": {
-      "nextRunAtMs": 1771610400000
+      "nextRunAtMs": 1771696800000,
+      "lastRunAtMs": 1771610400002,
+      "lastStatus": "ok"
     }
   },
   {
@@ -64,7 +68,34 @@
     "agentId": "arch",
     "createdAtMs": 1771596383761,
     "state": {
-      "nextRunAtMs": 1771610400000
+      "nextRunAtMs": 1771696800000,
+      "lastRunAtMs": 1771610400002,
+      "lastStatus": "ok"
+    }
+  },
+  {
+    "id": "job-c64f63c9",
+    "name": "自动记忆整理 · 足球专家 Footy",
+    "remark": "由「足球专家 Footy」的记忆模块自动管理，请勿手动删除",
+    "enabled": true,
+    "schedule": {
+      "kind": "cron",
+      "expr": "0 0 2 * * *",
+      "tz": "Asia/Shanghai"
+    },
+    "payload": {
+      "kind": "agentTurn",
+      "message": "__MEMORY_CONSOLIDATE__"
+    },
+    "delivery": {
+      "mode": "none"
+    },
+    "agentId": "footy",
+    "createdAtMs": 1771609575622,
+    "state": {
+      "nextRunAtMs": 1771696800000,
+      "lastRunAtMs": 1771610400002,
+      "lastStatus": "ok"
     }
   }
 ]

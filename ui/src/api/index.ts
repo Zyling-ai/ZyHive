@@ -93,6 +93,15 @@ export interface FileEntry {
   modTime: string
 }
 
+export interface FileNode {
+  name: string
+  path: string
+  isDir: boolean
+  size: number
+  modTime: string
+  children?: FileNode[]
+}
+
 export interface CronJob {
   id: string
   name: string
@@ -202,6 +211,7 @@ export const agentSkills = {
 
 export const files = {
   read: (agentId: string, path: string) => api.get(`/agents/${agentId}/files/${path}`),
+  readTree: (agentId: string) => api.get(`/agents/${agentId}/files/?tree=true`),
   write: (agentId: string, path: string, content: string) =>
     api.put(`/agents/${agentId}/files/${path}`, content, { headers: { 'Content-Type': 'text/plain' } }),
   delete: (agentId: string, path: string) => api.delete(`/agents/${agentId}/files/${path}`),
