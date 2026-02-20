@@ -307,6 +307,17 @@ func (b *TelegramBot) getUpdates(ctx context.Context) ([]TelegramUpdate, error) 
 	if !result.OK {
 		return nil, fmt.Errorf("telegram api: %s", result.Desc)
 	}
+	// Debug: log raw update JSON for messages with ReplyToMessage or Photo
+	for _, u := range result.Result {
+		msg := u.Message
+		if msg == nil {
+			continue
+		}
+		if msg.ReplyToMessage != nil || len(msg.Photo) > 0 {
+			raw, _ := json.Marshal(u)
+			log.Printf("[telegram][debug] update json: %s", string(raw))
+		}
+	}
 	return result.Result, nil
 }
 

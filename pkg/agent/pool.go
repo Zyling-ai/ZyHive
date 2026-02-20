@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -170,7 +171,7 @@ func (p *Pool) Run(ctx context.Context, agentID, message string) (string, error)
 
 	// Create a fresh runner for this invocation
 	llmClient := llm.NewAnthropicClient()
-	toolRegistry := tools.New(ag.WorkspaceDir)
+	toolRegistry := tools.New(ag.WorkspaceDir, filepath.Dir(ag.WorkspaceDir), ag.ID)
 	store := session.NewStore(ag.SessionDir)
 
 	r := runner.New(runner.Config{
@@ -219,7 +220,7 @@ func (p *Pool) RunStreamEvents(ctx context.Context, agentID, message string, med
 	}
 
 	llmClient := llm.NewAnthropicClient()
-	toolRegistry := tools.New(ag.WorkspaceDir)
+	toolRegistry := tools.New(ag.WorkspaceDir, filepath.Dir(ag.WorkspaceDir), ag.ID)
 	store := session.NewStore(ag.SessionDir)
 
 	// Convert MediaInput to base64 data URI strings for the runner.
@@ -287,7 +288,7 @@ func (p *Pool) RunStream(ctx context.Context, agentID, message string) (<-chan r
 	}
 
 	llmClient := llm.NewAnthropicClient()
-	toolRegistry := tools.New(ag.WorkspaceDir)
+	toolRegistry := tools.New(ag.WorkspaceDir, filepath.Dir(ag.WorkspaceDir), ag.ID)
 	store := session.NewStore(ag.SessionDir)
 
 	r := runner.New(runner.Config{

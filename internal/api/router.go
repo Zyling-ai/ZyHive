@@ -121,6 +121,13 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager, pool 
 		toolsGroup.POST("/:id/test", toolH.Test)
 	}
 
+	// Per-agent skill management
+	agentSkillH := newAgentSkillHandler(mgr)
+	agents.GET("/:id/skills", agentSkillH.List)
+	agents.POST("/:id/skills", agentSkillH.Create)
+	agents.PATCH("/:id/skills/:skillId", agentSkillH.Update)
+	agents.DELETE("/:id/skills/:skillId", agentSkillH.Delete)
+
 	// Skill registry
 	skillH := &skillHandler{cfg: cfg, configPath: configFilePath}
 	skillsGroup := v1.Group("/skills")

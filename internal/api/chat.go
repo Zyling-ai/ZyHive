@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path/filepath"
 
 	"github.com/gin-gonic/gin"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/agent"
@@ -83,7 +84,7 @@ func (h *chatHandler) Chat(c *gin.Context) {
 
 	// Create runner dependencies
 	llmClient := llm.NewAnthropicClient()
-	toolRegistry := tools.New(ag.WorkspaceDir)
+	toolRegistry := tools.New(ag.WorkspaceDir, filepath.Dir(ag.WorkspaceDir), ag.ID)
 	store := session.NewStore(ag.SessionDir)
 
 	// Resolve session: resume existing or create new
