@@ -14,8 +14,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strconv"
-	"strings"
 	"syscall"
 	"time"
 
@@ -93,23 +91,19 @@ func main() {
 		for _, ch := range ag.Channels {
 			if ch.Type == "telegram" && ch.Enabled && ch.Config["botToken"] != "" {
 				agentID := ag.ID
-				// Parse allowedFrom: comma-separated user IDs stored in config
-				var allowFrom []int64
-				if raw := ch.Config["allowedFrom"]; raw != "" {
-					for _, s := range strings.Split(raw, ",") {
-						s = strings.TrimSpace(s)
-						if id, err := strconv.ParseInt(s, 10, 64); err == nil {
-							allowFrom = append(allowFrom, id)
-						}
-					}
-				}
-				pending := channel.NewPendingStore(pendingDir, ch.ID)
+				chID := ch.ID
+				pending := channel.NewPendingStore(pendingDir, chID)
 				// Use streaming runner for better UX (send+edit draft pattern)
 				streamFunc := func(ctx context.Context, aid, msg string, media []channel.MediaInput) (<-chan channel.StreamEvent, error) {
 					return pool.RunStreamEvents(ctx, aid, msg, media)
 				}
+				// Dynamic allowFrom getter — re-reads config on every message so
+				// admin approvals in the Web UI take effect without a bot restart.
+				getAllowFrom := func() []int64 {
+					return mgr.GetAllowFrom(agentID, chID)
+				}
 				agentDir := filepath.Join(agentsDir, agentID)
-				bot := channel.NewTelegramBotWithStream(ch.Config["botToken"], agentID, agentDir, ch.ID, allowFrom, streamFunc, pending)
+				bot := channel.NewTelegramBotWithStream(ch.Config["botToken"], agentID, agentDir, chID, getAllowFrom, streamFunc, pending)
 				go bot.Start(ctx)
 				log.Printf("Telegram bot started: agent=%s channel=%s", agentID, ch.Name)
 			}

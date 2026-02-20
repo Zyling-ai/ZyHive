@@ -13,6 +13,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/sunhuihui6688-star/ai-panel/pkg/config"
@@ -270,4 +271,50 @@ func (m *Manager) UpdateChannels(agentID string, channels []config.ChannelEntry)
 		return err
 	}
 	return os.WriteFile(cfgPath, out, 0644)
+}
+
+// GetAllowFrom returns the live allowedFrom list for a specific channel of an agent.
+// This is called on every Telegram message by the bot, so admin approvals in the Web UI
+// take effect immediately without restarting the bot process.
+func (m *Manager) GetAllowFrom(agentID, channelID string) []int64 {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	ag, ok := m.agents[agentID]
+	if !ok {
+		return nil
+	}
+	for _, ch := range ag.Channels {
+		if ch.ID == channelID {
+			raw := ch.Config["allowedFrom"]
+			if raw == "" {
+				return nil
+			}
+			var ids []int64
+			for _, s := range splitTrim(raw) {
+				if id, err := parseInt64(s); err == nil {
+					ids = append(ids, id)
+				}
+			}
+			return ids
+		}
+	}
+	return nil
+}
+
+func splitTrim(s string) []string {
+	var out []string
+	for _, part := range strings.Split(s, ",") {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
+func parseInt64(s string) (int64, error) {
+	var v int64
+	_, err := fmt.Sscanf(s, "%d", &v)
+	return v, err
 }

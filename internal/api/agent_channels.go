@@ -6,6 +6,7 @@ package api
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -302,6 +303,16 @@ func (h *agentChannelHandler) AllowPending(c *gin.Context) {
 	}
 	// Remove from pending store
 	ps.Remove(userID)
+
+	// Send welcome message to the newly approved user
+	if botToken := ch.Config["botToken"]; botToken != "" {
+		agentName := ag.Name
+		go func() {
+			if err := channel.SendApprovalWelcome(botToken, userID, agentName); err != nil {
+				log.Printf("[allow-pending] welcome message failed for user=%d: %v", userID, err)
+			}
+		}()
+	}
 
 	c.JSON(http.StatusOK, gin.H{"ok": true, "allowedFrom": ch.Config["allowedFrom"]})
 }

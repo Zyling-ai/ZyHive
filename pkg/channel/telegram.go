@@ -166,7 +166,7 @@ type TelegramBot struct {
 	agentID      string
 	agentDir     string // root dir for this agent (agents/{id}), used for conv logging
 	channelID    string // channel config ID, used for approved user store
-	allowFrom    []int64
+	getAllowFrom func() []int64 // dynamic allowFrom getter — hot-reloads on every message
 	streamFunc   StreamFunc
 	client       *http.Client
 	offset       int64
@@ -206,11 +206,12 @@ func NewTelegramBot(token, agentID, agentDir string, allowFrom []int64, runner R
 		}()
 		return ch, nil
 	}
+	fixedList := allowFrom
 	return &TelegramBot{
 		token:        token,
 		agentID:      agentID,
 		agentDir:     agentDir,
-		allowFrom:    allowFrom,
+		getAllowFrom:  func() []int64 { return fixedList },
 		streamFunc:   sf,
 		client:       &http.Client{Timeout: 90 * time.Second},
 		pendingStore: pending,
@@ -219,18 +220,68 @@ func NewTelegramBot(token, agentID, agentDir string, allowFrom []int64, runner R
 }
 
 // NewTelegramBotWithStream creates a bot that uses a real StreamFunc.
-func NewTelegramBotWithStream(token, agentID, agentDir, channelID string, allowFrom []int64, sf StreamFunc, pending *PendingStore) *TelegramBot {
+// getAllowFrom is called on every message so the allowlist can be updated dynamically
+// (e.g. after admin approves a pending user) without restarting the bot.
+func NewTelegramBotWithStream(token, agentID, agentDir, channelID string, getAllowFrom func() []int64, sf StreamFunc, pending *PendingStore) *TelegramBot {
 	return &TelegramBot{
 		token:        token,
 		agentID:      agentID,
 		agentDir:     agentDir,
 		channelID:    channelID,
-		allowFrom:    allowFrom,
+		getAllowFrom:  getAllowFrom,
 		streamFunc:   sf,
 		client:       &http.Client{Timeout: 90 * time.Second},
 		pendingStore: pending,
 		mediaGroups:  make(map[string]*mediaGroupEntry),
 	}
+}
+
+// SendApprovalWelcome sends a welcome message with inline buttons when a pending user is approved.
+// Called by the AllowPending API endpoint after adding the user to the allowlist.
+func SendApprovalWelcome(token string, chatID int64, agentName string) error {
+	if agentName == "" {
+		agentName = "AI 助手"
+	}
+	text := fmt.Sprintf(
+		"✅ <b>你已通过审核，欢迎使用 %s！</b>\n\n"+
+			"我是你的专属 AI 助手，可以帮你：\n"+
+			"• 💬 回答问题、提供建议\n"+
+			"• 📝 撰写内容、整理思路\n"+
+			"• 🔍 搜索信息、分析数据\n"+
+			"• 🌐 翻译文本、多语言沟通\n"+
+			"• 🖼 识别图片、解读文件\n\n"+
+			"直接发消息就能开始对话，试试说「你好」👋",
+		agentName,
+	)
+	keyboard := map[string]any{
+		"inline_keyboard": [][]map[string]any{
+			{
+				{"text": "💬 开始对话", "callback_data": "你好，介绍一下你自己吧！"},
+				{"text": "🛠 我能做什么", "callback_data": "你都能帮我做什么？列举一下。"},
+			},
+			{
+				{"text": "❓ 使用帮助", "callback_data": "怎么使用你？有什么技巧？"},
+			},
+		},
+	}
+	payload := map[string]any{
+		"chat_id":      chatID,
+		"text":         text,
+		"parse_mode":   "HTML",
+		"reply_markup": keyboard,
+	}
+	data, _ := json.Marshal(payload)
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Post(
+		fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", token),
+		"application/json",
+		bytes.NewReader(data),
+	)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	return nil
 }
 
 // getConvLog returns a ConvLog for a given chatID, or nil if agentDir is unset.
@@ -385,7 +436,9 @@ func (b *TelegramBot) handleUpdate(ctx context.Context, update TelegramUpdate) {
 	}
 
 	// ── Access control ────────────────────────────────────────────────────
-	if len(b.allowFrom) == 0 {
+	// Call getAllowFrom() once per message so admin approvals take effect immediately.
+	currentAllowFrom := b.getAllowFrom()
+	if len(currentAllowFrom) == 0 {
 		// Pairing mode: tell user their ID
 		log.Printf("[telegram] Pairing mode — user %d (%s) in chat %d", senderID, msg.From.Username, msg.Chat.ID)
 		if b.pendingStore != nil {
@@ -400,7 +453,7 @@ func (b *TelegramBot) handleUpdate(ctx context.Context, update TelegramUpdate) {
 	}
 
 	allowed := false
-	for _, id := range b.allowFrom {
+	for _, id := range currentAllowFrom {
 		if id == senderID {
 			allowed = true
 			break
@@ -520,10 +573,11 @@ func (b *TelegramBot) handleCallbackQuery(ctx context.Context, cq *TelegramCallb
 		return
 	}
 
-	// Access control
-	if len(b.allowFrom) > 0 {
+	// Access control (dynamic — reads live allowlist)
+	cbAllowFrom := b.getAllowFrom()
+	if len(cbAllowFrom) > 0 {
 		allowed := false
-		for _, id := range b.allowFrom {
+		for _, id := range cbAllowFrom {
 			if id == senderID {
 				allowed = true
 				break
@@ -589,11 +643,12 @@ func (b *TelegramBot) bufferMediaGroup(ctx context.Context, msg *TelegramMessage
 				}
 			}
 
-			// Access control check using the first sender
+			// Access control check using the first sender (dynamic — reads live allowlist)
 			first := collected[0]
 			senderID := first.From.ID
-			isAllowed := len(b.allowFrom) == 0
-			for _, id := range b.allowFrom {
+			mgAllowFrom := b.getAllowFrom()
+			isAllowed := len(mgAllowFrom) == 0
+			for _, id := range mgAllowFrom {
 				if id == senderID {
 					isAllowed = true
 					break
