@@ -51,7 +51,42 @@ func (h *agentChannelHandler) GetChannels(c *gin.Context) {
 		}
 		result[i].Config = mc
 	}
-	c.JSON(http.StatusOK, result)
+	// Enrich with approved user display info (username/firstName for whitelist entries)
+	type UserInfo struct {
+		ID        int64  `json:"id"`
+		Username  string `json:"username,omitempty"`
+		FirstName string `json:"firstName,omitempty"`
+	}
+	type RichChannel struct {
+		config.ChannelEntry
+		AllowedFromUsers []UserInfo `json:"allowedFromUsers,omitempty"`
+	}
+	rich := make([]RichChannel, len(result))
+	pd := pendingDir(ag)
+	for i, ch := range result {
+		rc := RichChannel{ChannelEntry: ch}
+		if ch.Type == "telegram" && ch.Config["allowedFrom"] != "" {
+			as := channel.NewApprovedStore(pd, ch.ID)
+			for _, idStr := range strings.Split(ch.Config["allowedFrom"], ",") {
+				idStr = strings.TrimSpace(idStr)
+				if idStr == "" {
+					continue
+				}
+				id, err := strconv.ParseInt(idStr, 10, 64)
+				if err != nil {
+					continue
+				}
+				ui := UserInfo{ID: id}
+				if u := as.Get(id); u != nil {
+					ui.Username = u.Username
+					ui.FirstName = u.FirstName
+				}
+				rc.AllowedFromUsers = append(rc.AllowedFromUsers, ui)
+			}
+		}
+		rich[i] = rc
+	}
+	c.JSON(http.StatusOK, rich)
 }
 
 // SetChannels PUT /api/agents/:id/channels
@@ -255,8 +290,17 @@ func (h *agentChannelHandler) AllowPending(c *gin.Context) {
 		return
 	}
 
-	// Remove from pending store
+	// Save user info to approved store (so Web UI can display username)
 	ps := channel.NewPendingStore(pendingDir(ag), chID)
+	pendingList := ps.List()
+	for _, pu := range pendingList {
+		if pu.ID == userID {
+			as := channel.NewApprovedStore(pendingDir(ag), chID)
+			as.Upsert(pu)
+			break
+		}
+	}
+	// Remove from pending store
 	ps.Remove(userID)
 
 	c.JSON(http.StatusOK, gin.H{"ok": true, "allowedFrom": ch.Config["allowedFrom"]})
