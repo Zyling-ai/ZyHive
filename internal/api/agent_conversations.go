@@ -1,14 +1,17 @@
 // Package api — Agent conversation log handlers.
 // Provides read-only admin access to permanent channel conversation logs.
 // Routes:
-//   GET /api/agents/:agentId/conversations           — list channel summaries
+//   GET /api/conversations                            — global: all agents, all channels (filterable)
+//   GET /api/agents/:agentId/conversations           — list channel summaries for one agent
 //   GET /api/agents/:agentId/conversations/:channelId — paginated message list
 package api
 
 import (
 	"net/http"
 	"path/filepath"
+	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/agent"
@@ -77,4 +80,61 @@ func (h *convHandler) Messages(c *gin.Context) {
 		"total":    total,
 		"messages": messages,
 	})
+}
+
+// GlobalConvRow is a flattened conversation entry for the global view.
+type GlobalConvRow struct {
+	AgentID      string `json:"agentId"`
+	AgentName    string `json:"agentName"`
+	ChannelID    string `json:"channelId"`
+	ChannelType  string `json:"channelType"`
+	MessageCount int    `json:"messageCount"`
+	LastAt       string `json:"lastAt"`
+	FirstAt      string `json:"firstAt"`
+}
+
+// GlobalList GET /api/conversations
+// Query params: agentId (optional), channelType (optional: "telegram"|"web"|...)
+// Returns all channel conversation summaries across all agents, newest first.
+func (h *convHandler) GlobalList(c *gin.Context) {
+	filterAgent := c.Query("agentId")
+	filterType := c.Query("channelType")
+
+	agents := h.manager.List()
+	var rows []GlobalConvRow
+
+	for _, ag := range agents {
+		if filterAgent != "" && ag.ID != filterAgent {
+			continue
+		}
+		agentDir := filepath.Join(h.agentsDir, ag.ID)
+		summaries, err := convlog.ListChannels(agentDir)
+		if err != nil {
+			continue
+		}
+		for _, s := range summaries {
+			if filterType != "" && !strings.EqualFold(s.ChannelType, filterType) {
+				continue
+			}
+			rows = append(rows, GlobalConvRow{
+				AgentID:      ag.ID,
+				AgentName:    ag.Name,
+				ChannelID:    s.ChannelID,
+				ChannelType:  s.ChannelType,
+				MessageCount: s.MessageCount,
+				LastAt:       s.LastAt,
+				FirstAt:      s.FirstAt,
+			})
+		}
+	}
+
+	// Sort by lastAt desc
+	sort.Slice(rows, func(i, j int) bool {
+		return rows[i].LastAt > rows[j].LastAt
+	})
+
+	if rows == nil {
+		rows = []GlobalConvRow{}
+	}
+	c.JSON(http.StatusOK, rows)
 }

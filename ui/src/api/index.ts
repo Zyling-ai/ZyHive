@@ -439,6 +439,16 @@ export interface ChannelSummary {
   firstAt: string
 }
 
+export interface GlobalConvRow {
+  agentId: string
+  agentName: string
+  channelId: string
+  channelType: string
+  messageCount: number
+  lastAt: string
+  firstAt: string
+}
+
 export const agentConversations = {
   list: (agentId: string) =>
     api.get<ChannelSummary[]>(`/agents/${agentId}/conversations`),
@@ -447,6 +457,8 @@ export const agentConversations = {
       `/agents/${agentId}/conversations/${channelId}`,
       { params }
     ),
+  globalList: (params?: { agentId?: string; channelType?: string }) =>
+    api.get<GlobalConvRow[]>('/conversations', { params }),
 }
 
 export default api

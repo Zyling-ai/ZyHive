@@ -141,6 +141,8 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager, pool 
 	convH := newConvHandler(mgr, mgr.AgentsDir())
 	agents.GET("/:id/conversations", convH.List)
 	agents.GET("/:id/conversations/:channelId", convH.Messages)
+	// Global conversation view (all agents, all channels)
+	v1.GET("/conversations", convH.GlobalList)
 
 	// Skill registry
 	skillH := &skillHandler{cfg: cfg, configPath: configFilePath}
