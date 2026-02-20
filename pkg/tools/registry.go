@@ -6,7 +6,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
+	"time"
+
+	"github.com/sunhuihui6688-star/ai-panel/pkg/skill"
 
 	"github.com/sunhuihui6688-star/ai-panel/pkg/llm"
 )
@@ -19,12 +23,21 @@ type Registry struct {
 	defs         []llm.ToolDef
 	handlers     map[string]Handler
 	workspaceDir string // agent-specific working directory for path resolution
+	agentDir     string // parent dir of workspace (contains config.json)
+	agentID      string // agent ID (used for self-management tools)
 }
 
 // New creates a Registry pre-loaded with all built-in tools.
 // workspaceDir is the agent's workspace; relative file paths are resolved against it.
-func New(workspaceDir string) *Registry {
-	r := &Registry{handlers: make(map[string]Handler), workspaceDir: workspaceDir}
+// agentDir is the parent directory of workspace (contains config.json).
+// agentID is the agent's unique identifier.
+func New(workspaceDir, agentDir, agentID string) *Registry {
+	r := &Registry{
+		handlers:     make(map[string]Handler),
+		workspaceDir: workspaceDir,
+		agentDir:     agentDir,
+		agentID:      agentID,
+	}
 	r.register(readToolDef, r.handleReadWS)
 	r.register(writeToolDef, r.handleWriteWS)
 	r.register(editToolDef, r.handleEditWS)
@@ -32,6 +45,12 @@ func New(workspaceDir string) *Registry {
 	r.register(grepToolDef, r.handleGrepWS)
 	r.register(globToolDef, r.handleGlobWS)
 	r.register(webFetchToolDef, handleWebFetch)
+	// Self-management tools (available to all agents)
+	r.register(selfListSkillsDef, r.handleSelfListSkills)
+	r.register(selfInstallSkillDef, r.handleSelfInstallSkill)
+	r.register(selfUninstallSkillDef, r.handleSelfUninstallSkill)
+	r.register(selfRenameDef, r.handleSelfRename)
+	r.register(selfUpdateSoulDef, r.handleSelfUpdateSoul)
 	return r
 }
 
@@ -152,4 +171,119 @@ func (r *Registry) handleBashWS(ctx context.Context, input json.RawMessage) (str
 		}
 	}
 	return handleBash(ctx, input)
+}
+
+// ── Self-Management Handlers ─────────────────────────────────────────────────
+
+func (r *Registry) handleSelfListSkills(_ context.Context, _ json.RawMessage) (string, error) {
+	metas, err := skill.ScanSkills(r.workspaceDir)
+	if err != nil {
+		return "", err
+	}
+	data, err := json.MarshalIndent(metas, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+func (r *Registry) handleSelfInstallSkill(_ context.Context, input json.RawMessage) (string, error) {
+	var p struct {
+		ID            string `json:"id"`
+		Name          string `json:"name"`
+		Icon          string `json:"icon"`
+		Category      string `json:"category"`
+		Description   string `json:"description"`
+		PromptContent string `json:"promptContent"`
+	}
+	if err := json.Unmarshal(input, &p); err != nil {
+		return "", err
+	}
+	if p.ID == "" {
+		return "", fmt.Errorf("id is required")
+	}
+	meta := skill.Meta{
+		ID:          p.ID,
+		Name:        p.Name,
+		Icon:        p.Icon,
+		Category:    p.Category,
+		Description: p.Description,
+		Version:     "1.0.0",
+		Enabled:     true,
+		InstalledAt: time.Now().UTC().Format(time.RFC3339),
+		Source:      "local",
+	}
+	if err := skill.WriteSkill(r.workspaceDir, meta); err != nil {
+		return "", fmt.Errorf("write skill: %w", err)
+	}
+	// Write SKILL.md
+	skillMdPath := filepath.Join(r.workspaceDir, "skills", p.ID, "SKILL.md")
+	promptContent := p.PromptContent
+	if promptContent == "" {
+		promptContent = fmt.Sprintf("# %s\n\n%s\n", p.Name, p.Description)
+	}
+	if err := os.WriteFile(skillMdPath, []byte(promptContent), 0644); err != nil {
+		return "", fmt.Errorf("write SKILL.md: %w", err)
+	}
+	return fmt.Sprintf("✅ 技能 \"%s\" 已安装", p.Name), nil
+}
+
+func (r *Registry) handleSelfUninstallSkill(_ context.Context, input json.RawMessage) (string, error) {
+	var p struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(input, &p); err != nil {
+		return "", err
+	}
+	if p.ID == "" {
+		return "", fmt.Errorf("id is required")
+	}
+	if err := skill.RemoveSkill(r.workspaceDir, p.ID); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("✅ 技能 \"%s\" 已卸载", p.ID), nil
+}
+
+func (r *Registry) handleSelfRename(_ context.Context, input json.RawMessage) (string, error) {
+	var p struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(input, &p); err != nil {
+		return "", err
+	}
+	if p.Name == "" {
+		return "", fmt.Errorf("name is required")
+	}
+	configPath := filepath.Join(r.agentDir, "config.json")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return "", fmt.Errorf("read config.json: %w", err)
+	}
+	var cfg map[string]interface{}
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return "", fmt.Errorf("parse config.json: %w", err)
+	}
+	cfg["name"] = p.Name
+	out, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(configPath, out, 0644); err != nil {
+		return "", fmt.Errorf("write config.json: %w", err)
+	}
+	return fmt.Sprintf("已将名字更改为：%s", p.Name), nil
+}
+
+func (r *Registry) handleSelfUpdateSoul(_ context.Context, input json.RawMessage) (string, error) {
+	var p struct {
+		Content string `json:"content"`
+	}
+	if err := json.Unmarshal(input, &p); err != nil {
+		return "", err
+	}
+	soulPath := filepath.Join(r.workspaceDir, "SOUL.md")
+	if err := os.WriteFile(soulPath, []byte(p.Content), 0644); err != nil {
+		return "", fmt.Errorf("write SOUL.md: %w", err)
+	}
+	return "SOUL.md 已更新", nil
 }

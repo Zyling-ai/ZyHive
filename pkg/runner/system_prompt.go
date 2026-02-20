@@ -61,14 +61,17 @@ func BuildSystemPrompt(workspaceDir string) (string, error) {
 		sb.WriteString(fmt.Sprintf("--- RELATIONS.md ---\n%s\n\n", strings.TrimSpace(relationsContent)))
 	}
 
-	// Inject skills from workspaceDir/skills/
-	skillsDir := filepath.Join(workspaceDir, "skills")
-	skills, err := skill.LoadAll(skillsDir)
-	if err == nil && len(skills) > 0 {
-		sb.WriteString("--- Skills ---\n")
-		for _, sk := range skills {
-			sb.WriteString(fmt.Sprintf("### Skill: %s\n%s\n\n", sk.Name, sk.Content))
+	// Inject enabled skills' prompts
+	skills, _ := skill.ScanSkills(workspaceDir)
+	for _, s := range skills {
+		if !s.Enabled {
+			continue
 		}
+		prompt := skill.SkillPrompt(workspaceDir, s.ID)
+		if prompt == "" {
+			continue
+		}
+		sb.WriteString(fmt.Sprintf("--- Skill: %s ---\n%s\n\n", s.Name, strings.TrimSpace(prompt)))
 	}
 
 	// Read AGENTS.md — if it exists, also read any files it references (one per line)

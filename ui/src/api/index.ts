@@ -169,6 +169,28 @@ export const skills = {
   delete: (id: string) => api.delete(`/skills/${id}`),
 }
 
+// Per-agent skill metadata (skill.json based, stored in agent workspace)
+export interface AgentSkillMeta {
+  id: string
+  name: string
+  version: string
+  icon: string
+  category: string
+  description: string
+  enabled: boolean
+  installedAt: string
+  source: string
+}
+
+export const agentSkills = {
+  list: (agentId: string) => api.get<AgentSkillMeta[]>(`/agents/${agentId}/skills`),
+  create: (agentId: string, data: { meta: Partial<AgentSkillMeta>; promptContent?: string }) =>
+    api.post<AgentSkillMeta>(`/agents/${agentId}/skills`, data),
+  update: (agentId: string, skillId: string, data: Partial<AgentSkillMeta>) =>
+    api.patch<AgentSkillMeta>(`/agents/${agentId}/skills/${skillId}`, data),
+  remove: (agentId: string, skillId: string) => api.delete(`/agents/${agentId}/skills/${skillId}`),
+}
+
 export const files = {
   read: (agentId: string, path: string) => api.get(`/agents/${agentId}/files/${path}`),
   write: (agentId: string, path: string, content: string) =>

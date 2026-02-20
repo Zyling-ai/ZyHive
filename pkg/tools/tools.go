@@ -305,3 +305,65 @@ func handleWebFetch(_ context.Context, input json.RawMessage) (string, error) {
 	}
 	return string(body), nil
 }
+
+// ── Self-Management Tools ────────────────────────────────────────────────────
+// These tools let an agent manage its own skills, name, and soul.
+
+var selfListSkillsDef = lllm.ToolDef{
+	Name:        "self_list_skills",
+	Description: "列出当前 Agent 已安装的所有技能。",
+	InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
+}
+
+var selfInstallSkillDef = lllm.ToolDef{
+	Name:        "self_install_skill",
+	Description: "为当前 Agent 安装一个新技能。",
+	InputSchema: json.RawMessage(`{
+		"type":"object",
+		"properties":{
+			"id":{"type":"string","description":"技能唯一ID，如 translate"},
+			"name":{"type":"string","description":"技能名称"},
+			"icon":{"type":"string","description":"图标 emoji"},
+			"category":{"type":"string","description":"分类"},
+			"description":{"type":"string","description":"技能描述"},
+			"promptContent":{"type":"string","description":"注入系统提示的内容 (SKILL.md)，可选"}
+		},
+		"required":["id","name"]
+	}`),
+}
+
+var selfUninstallSkillDef = lllm.ToolDef{
+	Name:        "self_uninstall_skill",
+	Description: "卸载当前 Agent 的指定技能。",
+	InputSchema: json.RawMessage(`{
+		"type":"object",
+		"properties":{
+			"id":{"type":"string","description":"要卸载的技能ID"}
+		},
+		"required":["id"]
+	}`),
+}
+
+var selfRenameDef = lllm.ToolDef{
+	Name:        "self_rename",
+	Description: "修改当前 Agent 的名字。",
+	InputSchema: json.RawMessage(`{
+		"type":"object",
+		"properties":{
+			"name":{"type":"string","description":"新名字"}
+		},
+		"required":["name"]
+	}`),
+}
+
+var selfUpdateSoulDef = lllm.ToolDef{
+	Name:        "self_update_soul",
+	Description: "更新当前 Agent 的灵魂设定 (SOUL.md)。",
+	InputSchema: json.RawMessage(`{
+		"type":"object",
+		"properties":{
+			"content":{"type":"string","description":"新的 SOUL.md 内容"}
+		},
+		"required":["content"]
+	}`),
+}
