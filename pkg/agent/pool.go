@@ -112,7 +112,10 @@ func (p *Pool) ConsolidateMemory(ctx context.Context, agentID string) (string, e
 	memTree := memory.NewMemoryTree(ag.WorkspaceDir)
 
 	nowMs := time.Now().UnixMilli()
-	err = memory.Consolidate(ctx, store, memTree, ag.Name, convCfg, callLLM)
+	loc, _ := time.LoadLocation("Asia/Shanghai")
+	today := time.Now().In(loc).Format("2006-01-02")
+
+	written, err := memory.Consolidate(ctx, store, memTree, ag.Name, convCfg, callLLM)
 	if err != nil {
 		log.Printf("[memory] consolidate agent=%s error: %v", agentID, err)
 		_ = memory.AppendRunLog(ag.WorkspaceDir, memory.RunLogEntry{
@@ -122,11 +125,20 @@ func (p *Pool) ConsolidateMemory(ctx context.Context, agentID string) (string, e
 		})
 		return "", err
 	}
-	log.Printf("[memory] consolidate agent=%s ok", agentID)
+	if !written {
+		log.Printf("[memory] consolidate agent=%s: no new content", agentID)
+		_ = memory.AppendRunLog(ag.WorkspaceDir, memory.RunLogEntry{
+			Timestamp: nowMs,
+			Status:    "ok",
+			Message:   "无新增内容，跳过写入",
+		})
+		return "✅ 无新增内容", nil
+	}
+	log.Printf("[memory] consolidate agent=%s ok → daily/%s", agentID, today)
 	_ = memory.AppendRunLog(ag.WorkspaceDir, memory.RunLogEntry{
 		Timestamp: nowMs,
 		Status:    "ok",
-		Message:   "整理完成，摘要已写入 MEMORY.md",
+		Message:   fmt.Sprintf("已写入 memory/daily/%s.md", today),
 	})
 	return "✅ 记忆整理完成", nil
 }

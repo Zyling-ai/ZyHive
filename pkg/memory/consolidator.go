@@ -1,5 +1,5 @@
 // Package memory — agent memory consolidation.
-// Reads all sessions, summarises via LLM, writes to MEMORY.md, trims sessions to last N turns.
+// Reads sessions, deduplicates against today's existing daily log, writes incremental update.
 package memory
 
 import (
@@ -14,12 +14,19 @@ import (
 
 // ConsolidateConfig controls how memory consolidation works.
 type ConsolidateConfig struct {
-	KeepTurns int    `json:"keepTurns"` // Q&A pairs to keep per session after trim (default 3)
+	KeepTurns int    `json:"keepTurns"` // Q&A pairs to keep per session after trim
 	FocusHint string `json:"focusHint"` // optional hint to LLM on what to record
 }
 
-// Consolidate reads all sessions for an agent, summarises the content via LLM,
-// appends a structured entry to MEMORY.md, and trims each session to the last N turns.
+// Consolidate reads all sessions for an agent, writes an incremental daily memory entry,
+// and trims sessions to the last N turns.
+//
+// Returns (written bool, err error):
+//   written=true  → new content was appended to today's daily log
+//   written=false → no new content (dedup), nothing written
+//
+// Dedup logic: reads today's existing daily log and passes it to the LLM as context.
+// The LLM only outputs new information not already recorded — preventing duplicate entries.
 func Consolidate(
 	ctx context.Context,
 	store *session.Store,
@@ -27,16 +34,24 @@ func Consolidate(
 	agentName string,
 	cfg ConsolidateConfig,
 	callLLM func(ctx context.Context, system, user string) (string, error),
-) error {
+) (written bool, err error) {
+	// ── 1. Load location (Shanghai) ─────────────────────────────────────────
+	loc, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		loc = time.UTC
+	}
+	now := time.Now().In(loc)
+	todayStr := now.Format("2006-01-02")
+	dailyRelPath := fmt.Sprintf("daily/%s/%s/%s.md",
+		now.Format("2006"), now.Format("01"), now.Format("02"))
+
+	// ── 2. Gather conversation content from all sessions ─────────────────────
 	sessions, err := store.ListSessions()
 	if err != nil {
-		return fmt.Errorf("list sessions: %w", err)
+		return false, fmt.Errorf("list sessions: %w", err)
 	}
 
-	// Gather conversation content from all sessions
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Agent: %s\nTime: %s\n\n", agentName, time.Now().Format("2006-01-02 15:04")))
-
+	var convBuf strings.Builder
 	validCount := 0
 	for _, sess := range sessions {
 		msgs, existingSummary, err := store.ReadHistory(sess.ID)
@@ -47,9 +62,9 @@ func Consolidate(
 		if title == "" {
 			title = sess.ID
 		}
-		sb.WriteString(fmt.Sprintf("### 会话: %s\n", title))
+		convBuf.WriteString(fmt.Sprintf("### 会话：%s\n", title))
 		if existingSummary != "" {
-			sb.WriteString(fmt.Sprintf("[已有摘要]: %s\n\n", existingSummary))
+			convBuf.WriteString(fmt.Sprintf("[压缩摘要] %s\n\n", existingSummary))
 		}
 		for _, m := range msgs {
 			text := extractMsgText(m.Content)
@@ -57,27 +72,43 @@ func Consolidate(
 				continue
 			}
 			if m.Role == "user" {
-				sb.WriteString(fmt.Sprintf("用户: %s\n", text))
+				convBuf.WriteString(fmt.Sprintf("用户：%s\n", text))
 			} else {
-				sb.WriteString(fmt.Sprintf("AI: %s\n\n", text))
+				convBuf.WriteString(fmt.Sprintf("AI：%s\n\n", text))
 			}
 		}
 		validCount++
 	}
 
 	if validCount == 0 {
-		return nil // nothing to consolidate
+		return false, nil // no conversations
 	}
 
-	// Build focus instruction
+	// ── 3. Read today's existing daily log (for dedup) ───────────────────────
+	existingToday, _ := memTree.GetFile(dailyRelPath)
+	existingToday = strings.TrimSpace(existingToday)
+
+	// ── 4. Build focus instruction ───────────────────────────────────────────
 	focus := cfg.FocusHint
 	if focus == "" {
-		focus = "提炼关键信息、重要决策、任务进展和知识积累"
+		focus = "关键信息、重要决策、任务进展、知识积累"
 	}
 
-	systemPrompt := fmt.Sprintf(`你是记忆整理助手。根据以下对话内容，%s。
+	// ── 5. Call LLM (with dedup context if today has existing content) ───────
+	var systemPrompt, userMsg string
 
-输出格式（严格遵守）：
+	if existingToday != "" {
+		// Incremental mode: only output NEW content not in existing records
+		systemPrompt = fmt.Sprintf(`你是记忆整理助手。今天（%s）已有如下记忆记录，请对比新对话内容，只输出**尚未记录的新增信息**。
+
+已有记录：
+%s
+
+要求：
+- 对比已有记录，只输出真正新增的内容
+- 如果对话内容与已有记录完全重复，输出：[无新增]
+- 输出格式（只输出有内容的分类，没有则跳过）：
+
 ### 关键信息
 - ...
 
@@ -90,38 +121,69 @@ func Consolidate(
 ### 知识积累
 - ...
 
-要求：条目简洁，每条不超过50字；忽略无意义的闲聊；只输出结构化内容，不要开头的说明语。`, focus)
+条目简洁，每条不超过60字，忽略无意义闲聊，不要开头说明语。`, todayStr, existingToday)
+		userMsg = fmt.Sprintf("【新对话内容】\nAgent: %s\n时间: %s\n\n%s",
+			agentName, now.Format("15:04"), convBuf.String())
+	} else {
+		// First consolidation of the day
+		systemPrompt = fmt.Sprintf(`你是记忆整理助手。请整理以下对话内容，提炼：%s。
 
-	summary, err := callLLM(ctx, systemPrompt, sb.String())
+输出格式（只输出有内容的分类，没有则跳过）：
+
+### 关键信息
+- ...
+
+### 重要决策
+- ...
+
+### 任务进展
+- ...
+
+### 知识积累
+- ...
+
+条目简洁，每条不超过60字，忽略无意义闲聊，不要开头说明语。`, focus)
+		userMsg = fmt.Sprintf("Agent: %s\n时间: %s\n\n%s",
+			agentName, now.Format("15:04"), convBuf.String())
+	}
+
+	summary, err := callLLM(ctx, systemPrompt, userMsg)
 	if err != nil {
-		return fmt.Errorf("llm summarize: %w", err)
+		return false, fmt.Errorf("llm summarize: %w", err)
 	}
 	summary = strings.TrimSpace(summary)
-	if summary == "" {
-		return fmt.Errorf("empty summary from LLM")
+
+	// Check if LLM signals no new content
+	if summary == "" || strings.Contains(summary, "[无新增]") {
+		return false, nil // dedup: nothing new
 	}
 
-	// Append to MEMORY.md
-	today := time.Now().Format("2006-01-02 15:04")
-	entry := fmt.Sprintf("\n---\n\n## %s 自动记忆整理\n\n%s\n", today, summary)
+	// ── 6. Write incremental entry to today's daily log ──────────────────────
+	timeStr := now.Format("15:04")
+	entry := fmt.Sprintf("\n## %s 自动整理\n\n%s\n", timeStr, summary)
 
-	if err := memTree.AppendToFile("MEMORY.md", entry); err != nil {
-		// If MEMORY.md doesn't exist yet, create it
-		if err2 := memTree.WriteFile("MEMORY.md", fmt.Sprintf("# MEMORY.md — 自动记忆\n%s", entry)); err2 != nil {
-			return fmt.Errorf("write MEMORY.md: %w", err2)
+	if existingToday == "" {
+		// First entry: create file with date header
+		header := fmt.Sprintf("# %s 记忆日志\n\n> Agent: %s\n", todayStr, agentName)
+		if err2 := memTree.WriteFile(dailyRelPath, header+entry); err2 != nil {
+			return false, fmt.Errorf("write daily log: %w", err2)
+		}
+	} else {
+		if err2 := memTree.AppendToFile(dailyRelPath, entry); err2 != nil {
+			return false, fmt.Errorf("append daily log: %w", err2)
 		}
 	}
 
-	// Trim sessions: keep last keepTurns Q&A pairs
+	// ── 7. Trim sessions to last N turns ────────────────────────────────────
 	keepMsgs := cfg.KeepTurns * 2
 	if keepMsgs < 2 {
-		keepMsgs = 6 // default: 3 turns
+		keepMsgs = 6 // default 3 turns
 	}
 	for _, sess := range sessions {
 		_ = store.TrimToLastN(sess.ID, keepMsgs)
 	}
 
-	return nil
+	return true, nil
 }
 
 // extractMsgText pulls plain text from raw message content.
