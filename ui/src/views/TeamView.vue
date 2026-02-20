@@ -150,27 +150,14 @@
     </el-card>
 
     <!-- ── Create Relation Dialog ── -->
-    <el-dialog v-model="createRelDialog" title="建立关系" width="400px" :close-on-click-modal="false">
-      <div class="rel-pair">
-        <span class="rel-node">{{ nodeName(relForm.from) }}</span>
-        <el-icon style="color:#909399;flex-shrink:0"><ArrowRight /></el-icon>
-        <span class="rel-node">{{ nodeName(relForm.to) }}</span>
-      </div>
-      <el-form :model="relForm" label-width="80px" style="margin-top:20px">
-        <el-form-item label="关系类型">
-          <el-select v-model="relForm.type" style="width:100%">
-            <el-option v-for="t in relTypes" :key="t" :label="t" :value="t" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="关系程度">
-          <el-radio-group v-model="relForm.strength">
-            <el-radio-button v-for="s in relStrengths" :key="s" :value="s">{{ s }}</el-radio-button>
-          </el-radio-group>
-        </el-form-item>
-        <el-form-item label="说明">
-          <el-input v-model="relForm.desc" placeholder="可选描述" />
-        </el-form-item>
-      </el-form>
+    <el-dialog v-model="createRelDialog" title="建立关系" width="460px" :close-on-click-modal="false">
+      <RelTypeForm
+        :from-name="nodeName(relForm.from)"
+        :to-name="nodeName(relForm.to)"
+        v-model:type="relForm.type"
+        v-model:strength="relForm.strength"
+        v-model:desc="relForm.desc"
+      />
       <template #footer>
         <el-button @click="createRelDialog = false">取消</el-button>
         <el-button type="primary" :loading="savingRel" @click="saveCreateRel">建立</el-button>
@@ -178,27 +165,14 @@
     </el-dialog>
 
     <!-- ── Edit Relation Dialog ── -->
-    <el-dialog v-model="editRelDialog" title="编辑关系" width="400px" :close-on-click-modal="false">
-      <div class="rel-pair">
-        <span class="rel-node">{{ nodeName(editForm.from) }}</span>
-        <el-icon style="color:#909399;flex-shrink:0"><ArrowRight /></el-icon>
-        <span class="rel-node">{{ nodeName(editForm.to) }}</span>
-      </div>
-      <el-form :model="editForm" label-width="80px" style="margin-top:20px">
-        <el-form-item label="关系类型">
-          <el-select v-model="editForm.type" style="width:100%">
-            <el-option v-for="t in relTypes" :key="t" :label="t" :value="t" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="关系程度">
-          <el-radio-group v-model="editForm.strength">
-            <el-radio-button v-for="s in relStrengths" :key="s" :value="s">{{ s }}</el-radio-button>
-          </el-radio-group>
-        </el-form-item>
-        <el-form-item label="说明">
-          <el-input v-model="editForm.desc" placeholder="可选描述" />
-        </el-form-item>
-      </el-form>
+    <el-dialog v-model="editRelDialog" title="编辑关系" width="460px" :close-on-click-modal="false">
+      <RelTypeForm
+        :from-name="nodeName(editForm.from)"
+        :to-name="nodeName(editForm.to)"
+        v-model:type="editForm.type"
+        v-model:strength="editForm.strength"
+        v-model:desc="editForm.desc"
+      />
       <template #footer>
         <el-button type="danger" plain :loading="savingRel" @click="confirmDeleteEdge">删除关系</el-button>
         <el-button @click="editRelDialog = false">取消</el-button>
@@ -212,6 +186,7 @@
 import { ref, computed, onMounted, reactive } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { relationsApi, type TeamGraph, type TeamGraphEdge, type TeamGraphNode } from '../api'
+import RelTypeForm from '../components/RelTypeForm.vue'
 
 const svgRef = ref<SVGSVGElement>()
 const loading = ref(false)
@@ -225,8 +200,6 @@ const PAD_TOP = 90
 const PAD_X = 80
 
 const strengthWidths: Record<string, number> = { '核心': 4, '常用': 2.5, '偶尔': 1.5 }
-const relTypes = ['上级', '下级', '平级协作', '支持']
-const relStrengths = ['核心', '常用', '偶尔']
 
 const typeColors: Record<string, string> = {
   '上级': '#f56c6c', '下级': '#e6a23c', '平级协作': '#409eff', '支持': '#67c23a',
