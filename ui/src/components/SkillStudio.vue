@@ -323,11 +323,7 @@ const chatWelcome = computed(() => {
 
 const chatExamples = computed(() => {
   if (!selected.value) return ['帮我设计一个代码审查技能', '帮我写一个翻译助手的 SKILL.md']
-  if (isNewSkill.value) return [
-    '我需要一个中英互译技能，风格自然流畅',
-    '帮我做一个 Go 代码审查专家，严格遵循最佳实践',
-    '创建一个数据分析助手，擅长 SQL 和 Python',
-  ]
+  if (isNewSkill.value) return []  // AI 会自动推荐，不用静态按钮
   return [
     `帮我优化「${selected.value.name}」的 SKILL.md`,
     '这个技能怎么写效果更好？',
@@ -371,7 +367,7 @@ async function selectSkill(sk: AgentSkillMeta) {
   loadDirFiles()
   reloadPrompt()
   // 从后端加载该技能的对话历史（session ID: skill-studio-{skillId}）
-  ;(aiChatRef.value as any)?.resumeSession?.(`skill-studio-${sk.id}`)
+  await (aiChatRef.value as any)?.resumeSession?.(`skill-studio-${sk.id}`)
 }
 
 async function switchToPrompt() {
@@ -516,6 +512,11 @@ async function openNew() {
       activeFile.value = 'prompt'
       promptContent.value = ''
       isNewSkill.value = true
+      // 自动触发 AI 生成推荐（不显示用户消息，直接出现 AI 回复）
+      const existingNames = skills.value.filter(s => s.id !== id).map(s => s.name).join('、') || '暂无'
+      ;(aiChatRef.value as any)?.sendSilent?.(
+        `现有技能：${existingNames}。请直接推荐3个实用的新技能方向，每条一句话，不要重复已有技能，不需要解释，直接列出3条即可。`
+      )
     }
   } catch (e: any) {
     ElMessage.error(e.response?.data?.error || '创建失败')

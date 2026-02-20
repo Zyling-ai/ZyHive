@@ -518,9 +518,11 @@ function send() {
   runChat(text, imgs)
 }
 
-function runChat(text: string, imgs: string[]) {
-  messages.value.push({ role: 'user', text, images: imgs.length ? imgs : undefined })
-  scrollBottom()
+function runChat(text: string, imgs: string[], silent = false) {
+  if (!silent) {
+    messages.value.push({ role: 'user', text, images: imgs.length ? imgs : undefined })
+    scrollBottom()
+  }
 
   streaming.value = true
   streamText.value = ''
@@ -529,6 +531,7 @@ function runChat(text: string, imgs: string[]) {
   // Current assistant message being built
   const assistantMsg: ChatMsg = { role: 'assistant', text: '', toolCalls: [] }
   messages.value.push(assistantMsg)
+  if (silent) scrollBottom()
   const msgIdx = messages.value.length - 1
 
   // Track active tool call
@@ -681,7 +684,10 @@ function startNewSession() {
 }
 function sendText(text: string) { fillInput(text); nextTick(send) }
 
-defineExpose({ clearMessages, appendMessage, sendText, fillInput, messages, currentSessionId, resumeSession, startNewSession })
+/** 静默发送：只显示 AI 回复，不在聊天中添加用户消息（用于自动触发场景） */
+function sendSilent(text: string) { runChat(text, [], true) }
+
+defineExpose({ clearMessages, appendMessage, sendText, sendSilent, fillInput, messages, currentSessionId, resumeSession, startNewSession })
 
 // ── Init ─────────────────────────────────────────────────────────────────
 onMounted(() => {
