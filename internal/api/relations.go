@@ -129,12 +129,146 @@ func (h *relationsHandler) syncBidirectional(src *agent.Agent, oldRows, newRows 
 		}
 	}
 
+	// Updated relations (type / strength / desc changed)
+	for targetID, newRow := range newMap {
+		if oldRow, existed := oldMap[targetID]; existed {
+			if oldRow.RelationType != newRow.RelationType || oldRow.Strength != newRow.Strength || oldRow.Desc != newRow.Desc {
+				h.updateInverseRelation(targetID, src.ID, RelationRow{
+					AgentID:      src.ID,
+					AgentName:    src.Name,
+					RelationType: inverseRelationType(newRow.RelationType),
+					Strength:     newRow.Strength,
+					Desc:         newRow.Desc,
+				})
+			}
+		}
+	}
+
 	// Removed relations → remove inverse on peer
 	for targetID := range oldMap {
 		if _, stillExists := newMap[targetID]; !stillExists {
-				h.removeInverseRelation(targetID, src.ID)
+			h.removeInverseRelation(targetID, src.ID)
 		}
 	}
+}
+
+// updateInverseRelation updates (or adds) the inverse row in targetAgentID's file.
+func (h *relationsHandler) updateInverseRelation(targetAgentID, sourceAgentID string, row RelationRow) {
+	target, ok := h.manager.Get(targetAgentID)
+	if !ok {
+		return
+	}
+	filePath := filepath.Join(target.WorkspaceDir, relationsFilename)
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return
+	}
+	rows := parseRelationsMarkdown(string(data))
+	for i, r := range rows {
+		if r.AgentID == sourceAgentID {
+			rows[i] = row
+			_ = writeRelationsFile(filePath, rows)
+			return
+		}
+	}
+	// Not found — add it
+	rows = append(rows, row)
+	_ = writeRelationsFile(filePath, rows)
+}
+
+// PutEdge creates or updates a directed edge; backend syncs the inverse automatically.
+// PUT /api/team/relations/edge
+func (h *relationsHandler) PutEdge(c *gin.Context) {
+	var body struct {
+		From     string `json:"from"`
+		To       string `json:"to"`
+		Type     string `json:"type"`
+		Strength string `json:"strength"`
+		Desc     string `json:"desc"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if body.From == "" || body.To == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "from and to required"})
+		return
+	}
+	fromAg, ok := h.manager.Get(body.From)
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{"error": "agent not found: " + body.From})
+		return
+	}
+	toAg, ok2 := h.manager.Get(body.To)
+	if !ok2 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "agent not found: " + body.To})
+		return
+	}
+
+	filePath := filepath.Join(fromAg.WorkspaceDir, relationsFilename)
+	var rows []RelationRow
+	if data, err := os.ReadFile(filePath); err == nil {
+		rows = parseRelationsMarkdown(string(data))
+	}
+	oldRows := append([]RelationRow(nil), rows...)
+
+	newRow := RelationRow{
+		AgentID: toAg.ID, AgentName: toAg.Name,
+		RelationType: body.Type, Strength: body.Strength, Desc: body.Desc,
+	}
+	found := false
+	for i, r := range rows {
+		if r.AgentID == body.To {
+			rows[i] = newRow
+			found = true
+			break
+		}
+	}
+	if !found {
+		rows = append(rows, newRow)
+	}
+	if err := writeRelationsFile(filePath, rows); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	h.syncBidirectional(fromAg, oldRows, rows)
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// DeleteEdge removes an edge between two agents (both directions).
+// DELETE /api/team/relations/edge?from=X&to=Y
+func (h *relationsHandler) DeleteEdge(c *gin.Context) {
+	from := c.Query("from")
+	to := c.Query("to")
+	if from == "" || to == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "from and to required"})
+		return
+	}
+	fromAg, ok := h.manager.Get(from)
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{"error": "agent not found: " + from})
+		return
+	}
+
+	filePath := filepath.Join(fromAg.WorkspaceDir, relationsFilename)
+	var rows []RelationRow
+	if data, err := os.ReadFile(filePath); err == nil {
+		rows = parseRelationsMarkdown(string(data))
+	}
+	oldRows := append([]RelationRow(nil), rows...)
+
+	filtered := rows[:0]
+	for _, r := range rows {
+		if r.AgentID != to {
+			filtered = append(filtered, r)
+		}
+	}
+	if err := writeRelationsFile(filePath, filtered); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	h.syncBidirectional(fromAg, oldRows, filtered)
+	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
 // addInverseRelation adds a relation row to targetAgentID's RELATIONS.md (if agent exists).

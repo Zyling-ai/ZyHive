@@ -82,6 +82,8 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager, pool 
 	agents.PUT("/:id/relations", relH.Put)
 	v1.GET("/team/graph", relH.Graph)
 	v1.DELETE("/team/relations", relH.ClearAllRelations)
+	v1.PUT("/team/relations/edge", relH.PutEdge)
+	v1.DELETE("/team/relations/edge", relH.DeleteEdge)
 
 	// Memory tree API
 	memH := &memoryHandler{manager: mgr, cronEngine: cronEngine, pool: pool}
