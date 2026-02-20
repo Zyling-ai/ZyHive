@@ -17,17 +17,16 @@ type agentHandler struct {
 
 // AgentInfo is the JSON shape returned to the frontend.
 type AgentInfo struct {
-	ID          string   `json:"id"`
-	Name        string   `json:"name"`
-	Description string   `json:"description,omitempty"`
-	Model       string   `json:"model"`
-	ModelID     string   `json:"modelId,omitempty"`
-	ChannelIDs  []string `json:"channelIds,omitempty"`
-	ToolIDs     []string `json:"toolIds,omitempty"`
-	SkillIDs    []string `json:"skillIds,omitempty"`
-	AvatarColor string   `json:"avatarColor,omitempty"`
-	Status      string   `json:"status"`
-	WorkspaceDir string  `json:"workspaceDir"`
+	ID           string   `json:"id"`
+	Name         string   `json:"name"`
+	Description  string   `json:"description,omitempty"`
+	Model        string   `json:"model"`
+	ModelID      string   `json:"modelId,omitempty"`
+	ToolIDs      []string `json:"toolIds,omitempty"`
+	SkillIDs     []string `json:"skillIds,omitempty"`
+	AvatarColor  string   `json:"avatarColor,omitempty"`
+	Status       string   `json:"status"`
+	WorkspaceDir string   `json:"workspaceDir"`
 }
 
 func agentToInfo(a *agent.Agent) AgentInfo {
@@ -37,7 +36,6 @@ func agentToInfo(a *agent.Agent) AgentInfo {
 		Description:  a.Description,
 		Model:        a.Model,
 		ModelID:      a.ModelID,
-		ChannelIDs:   a.ChannelIDs,
 		ToolIDs:      a.ToolIDs,
 		SkillIDs:     a.SkillIDs,
 		AvatarColor:  a.AvatarColor,
@@ -64,7 +62,6 @@ func (h *agentHandler) Create(c *gin.Context) {
 		Description string   `json:"description"`
 		Model       string   `json:"model"`
 		ModelID     string   `json:"modelId"`
-		ChannelIDs  []string `json:"channelIds"`
 		ToolIDs     []string `json:"toolIds"`
 		SkillIDs    []string `json:"skillIds"`
 		AvatarColor string   `json:"avatarColor"`
@@ -94,7 +91,6 @@ func (h *agentHandler) Create(c *gin.Context) {
 		Description: req.Description,
 		Model:       model,
 		ModelID:     modelID,
-		ChannelIDs:  req.ChannelIDs,
 		ToolIDs:     req.ToolIDs,
 		SkillIDs:    req.SkillIDs,
 		AvatarColor: req.AvatarColor,

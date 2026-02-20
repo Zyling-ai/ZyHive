@@ -72,14 +72,14 @@ type SkillEntry struct {
 
 // AgentConfig is the on-disk config.json per agent. References global entries by ID.
 type AgentConfig struct {
-	ID          string   `json:"id"`
-	Name        string   `json:"name"`
-	Description string   `json:"description,omitempty"`
-	ModelID     string   `json:"modelId"`
-	ChannelIDs  []string `json:"channelIds,omitempty"`
-	ToolIDs     []string `json:"toolIds,omitempty"`
-	SkillIDs    []string `json:"skillIds,omitempty"`
-	AvatarColor string   `json:"avatarColor,omitempty"`
+	ID          string         `json:"id"`
+	Name        string         `json:"name"`
+	Description string         `json:"description,omitempty"`
+	ModelID     string         `json:"modelId"`
+	Channels    []ChannelEntry `json:"channels,omitempty"`   // per-agent channel config (own bot tokens)
+	ToolIDs     []string       `json:"toolIds,omitempty"`
+	SkillIDs    []string       `json:"skillIds,omitempty"`
+	AvatarColor string         `json:"avatarColor,omitempty"`
 }
 
 type AuthConfig struct {

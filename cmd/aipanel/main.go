@@ -84,21 +84,20 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Start Telegram bots from channel registry
-	for _, ch := range cfg.Channels {
-		if ch.Type == "telegram" && ch.Enabled && ch.Config["botToken"] != "" {
-			defaultAgent := ch.Config["defaultAgent"]
-			if defaultAgent == "" {
-				defaultAgent = "main"
+	// Start Telegram bots — one per AI member (per-agent channel config)
+	for _, ag := range mgr.List() {
+		for _, ch := range ag.Channels {
+			if ch.Type == "telegram" && ch.Enabled && ch.Config["botToken"] != "" {
+				agentID := ag.ID
+				bot := channel.NewTelegramBot(
+					ch.Config["botToken"],
+					agentID,
+					nil,
+					runnerFunc,
+				)
+				go bot.Start(ctx)
+				log.Printf("Telegram bot started: agent=%s channel=%s", agentID, ch.Name)
 			}
-			bot := channel.NewTelegramBot(
-				ch.Config["botToken"],
-				defaultAgent,
-				nil, // allowedFrom parsed separately if needed
-				runnerFunc,
-			)
-			go bot.Start(ctx)
-			log.Printf("Telegram bot started: %s", ch.Name)
 		}
 	}
 
@@ -113,7 +112,7 @@ func main() {
 
 	// Setup router
 	r := gin.Default()
-	api.RegisterRoutes(r, cfg, mgr, pool, cronEngine, uiFS)
+	api.RegisterRoutes(r, cfg, mgr, pool, cronEngine, uiFS, runnerFunc)
 
 	// Print access URLs
 	port := cfg.Gateway.Port
