@@ -78,26 +78,32 @@
         <div class="editor-body">
           <!-- 文件树 -->
           <div class="file-tree">
-            <div class="tree-title">目录</div>
+            <div class="tree-title">
+              目录
+              <el-button link size="small" :loading="dirLoading" @click="loadDirFiles" style="margin-left:auto;padding:0">
+                <el-icon><Refresh /></el-icon>
+              </el-button>
+            </div>
             <div class="tree-item tree-dir">
               <el-icon><Folder /></el-icon>
               <span>{{ selected.id }}/</span>
             </div>
-            <div
-              :class="['tree-item', { 'tree-active': activeFile === 'meta' }]"
-              @click="activeFile = 'meta'"
-            >
+            <!-- skill.json 固定入口 -->
+            <div :class="['tree-item', { 'tree-active': activeFile === 'meta' }]" @click="activeFile = 'meta'">
               <el-icon><Document /></el-icon>
               <span>skill.json</span>
             </div>
+            <!-- 动态文件列表（排除 skill.json，已在上方固定显示） -->
             <div
-              :class="['tree-item', { 'tree-active': activeFile === 'prompt' }]"
-              @click="switchToPrompt"
+              v-for="f in dirFiles" :key="f.name"
+              :class="['tree-item', { 'tree-active': activeFile === (f.name === 'SKILL.md' ? 'prompt' : f.name) }]"
+              @click="openFile(f.name)"
             >
               <el-icon><Document /></el-icon>
-              <span>SKILL.md</span>
-              <el-tag v-if="selected.enabled" size="small" type="success" effect="plain" style="margin-left:4px;font-size:10px">注入中</el-tag>
+              <span>{{ f.name }}</span>
+              <el-tag v-if="f.name === 'SKILL.md' && selected.enabled" size="small" type="success" effect="plain" style="margin-left:4px;font-size:10px">注入中</el-tag>
             </div>
+            <div v-if="!dirLoading && dirFiles.length === 0" class="tree-empty">空目录</div>
           </div>
 
           <!-- skill.json 元数据编辑 -->
@@ -154,7 +160,7 @@
           </div>
 
           <!-- SKILL.md 编辑 -->
-          <div v-else class="file-editor">
+          <div v-else-if="activeFile === 'prompt'" class="file-editor">
             <div class="file-editor-head">
               <el-icon><Document /></el-icon> SKILL.md
               <span class="file-hint">注入到 AI System Prompt 的指令内容</span>
@@ -179,6 +185,32 @@
 - 规范 1
 - 规范 2"
               @input="promptDirty = true"
+            />
+          </div>
+
+          <!-- 通用文件编辑器（AI 生成的工具文件等） -->
+          <div v-else class="file-editor">
+            <div class="file-editor-head">
+              <el-icon><Document /></el-icon> {{ activeFile }}
+              <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
+                <el-tag v-if="genericDirty" type="warning" size="small">未保存</el-tag>
+                <span style="font-size:11px;color:#c0c4cc">{{ genericContent.length }} 字符</span>
+                <el-button size="small" circle :loading="genericLoading" @click="reloadGenericFile" title="重新加载">
+                  <el-icon><Refresh /></el-icon>
+                </el-button>
+                <el-popconfirm title="确认删除该文件？" @confirm="deleteFile(activeFile)">
+                  <template #reference>
+                    <el-button size="small" circle type="danger" plain><el-icon><Delete /></el-icon></el-button>
+                  </template>
+                </el-popconfirm>
+              </div>
+            </div>
+            <textarea
+              v-model="genericContent"
+              class="code-textarea"
+              spellcheck="false"
+              :placeholder="`编辑 ${activeFile} …`"
+              @input="genericDirty = true"
             />
           </div>
         </div>
@@ -222,7 +254,7 @@ const agentId = props.agentId
 const skills = ref<AgentSkillMeta[]>([])
 const listLoading = ref(false)
 const selected = ref<AgentSkillMeta | null>(null)
-const activeFile = ref<'meta' | 'prompt'>('meta')
+const activeFile = ref<string>('meta')
 
 // Metadata form (mirrors selected skill)
 const metaForm = ref({ name: '', icon: '', category: '', description: '', version: '1.0.0', enabled: true })
@@ -237,6 +269,15 @@ const saving = ref(false)
 // Create
 const creating = ref(false)
 const isNewSkill = ref(false)  // true when just created — AI should guide user
+
+// Dynamic directory listing
+const dirFiles = ref<{ name: string; isDir: boolean }[]>([])
+const dirLoading = ref(false)
+
+// Generic file editor (for non-skill.json / non-SKILL.md files)
+const genericContent = ref('')
+const genericDirty = ref(false)
+const genericLoading = ref(false)
 
 
 // AI chat ref (for sending test messages)
@@ -310,7 +351,8 @@ async function selectSkill(sk: AgentSkillMeta) {
   promptDirty.value = false
   promptContent.value = ''
   isNewSkill.value = false
-  // 预加载 SKILL.md，确保 AI 上下文能读到真实内容（不等 tab 切换）
+  // 预加载目录文件列表 + SKILL.md（确保 AI 上下文正确）
+  loadDirFiles()
   reloadPrompt()
   // 从后端加载该技能的对话历史（session ID: skill-studio-{skillId}）
   ;(aiChatRef.value as any)?.resumeSession?.(`skill-studio-${sk.id}`)
@@ -323,26 +365,75 @@ async function switchToPrompt() {
   if (!promptContent.value) await reloadPrompt()
 }
 
+async function loadDirFiles() {
+  if (!selected.value) return
+  dirLoading.value = true
+  try {
+    const res = await filesApi.read(agentId, `skills/${selected.value.id}/`)
+    dirFiles.value = (Array.isArray(res.data) ? res.data : [])
+      .filter((f: any) => !f.isDir && f.name !== 'skill.json')
+  } catch {
+    // 目录不存在时回退到仅显示 SKILL.md
+    dirFiles.value = [{ name: 'SKILL.md', isDir: false }]
+  } finally {
+    dirLoading.value = false
+  }
+}
+
+async function openFile(filename: string) {
+  if (filename === 'SKILL.md') { await switchToPrompt(); return }
+  activeFile.value = filename
+  genericDirty.value = false
+  await reloadGenericFile()
+}
+
+async function reloadGenericFile() {
+  if (!selected.value || !activeFile.value || activeFile.value === 'meta' || activeFile.value === 'prompt') return
+  genericLoading.value = true
+  try {
+    const res = await filesApi.read(agentId, `skills/${selected.value.id}/${activeFile.value}`)
+    genericContent.value = res.data?.content || ''
+    genericDirty.value = false
+  } catch { genericContent.value = '' }
+  finally { genericLoading.value = false }
+}
+
+async function deleteFile(filename: string) {
+  if (!selected.value) return
+  try {
+    await filesApi.delete(agentId, `skills/${selected.value.id}/${filename}`)
+    if (activeFile.value === filename) activeFile.value = 'prompt'
+    await loadDirFiles()
+    ElMessage.success('已删除')
+  } catch { ElMessage.error('删除失败') }
+}
+
 // ── Save ───────────────────────────────────────────────────────────────────
 async function saveSkill() {
   if (!selected.value) return
   saving.value = true
   try {
-    // Save metadata
-    await skillsApi.update(props.agentId, selected.value.id, {
-      name: metaForm.value.name,
-      icon: metaForm.value.icon,
-      category: metaForm.value.category,
-      description: metaForm.value.description,
-      enabled: metaForm.value.enabled,
-    })
-    // Save SKILL.md if in prompt mode or if content was loaded
-    if (activeFile.value === 'prompt' || promptContent.value) {
-      await filesApi.write(agentId, `skills/${selected.value.id}/SKILL.md`, promptContent.value)
-      promptDirty.value = false
+    if (activeFile.value === 'meta' || activeFile.value === 'prompt') {
+      // Save metadata
+      await skillsApi.update(props.agentId, selected.value.id, {
+        name: metaForm.value.name,
+        icon: metaForm.value.icon,
+        category: metaForm.value.category,
+        description: metaForm.value.description,
+        enabled: metaForm.value.enabled,
+      })
+      // Save SKILL.md if in prompt mode or if content was loaded
+      if (activeFile.value === 'prompt' || promptContent.value) {
+        await filesApi.write(agentId, `skills/${selected.value.id}/SKILL.md`, promptContent.value)
+        promptDirty.value = false
+      }
+      await loadList()
+    } else {
+      // 通用文件保存
+      await filesApi.write(agentId, `skills/${selected.value.id}/${activeFile.value}`, genericContent.value)
+      genericDirty.value = false
     }
     ElMessage.success('保存成功')
-    await loadList()
   } catch (e: any) {
     ElMessage.error(e.response?.data?.error || '保存失败')
   } finally { saving.value = false }
@@ -400,11 +491,13 @@ async function openNew() {
 async function onAiResponse(_text: string) {
   if (!selected.value) return
   isNewSkill.value = false
-  // Reload skill metadata (in case AI modified it)
-  await loadList()
-  // Reload SKILL.md if currently viewing it
+  // Reload skill metadata + directory listing (AI may have created new files)
+  await Promise.all([loadList(), loadDirFiles()])
+  // Reload active file content if it may have changed
   if (activeFile.value === 'prompt') {
     await reloadPrompt()
+  } else if (activeFile.value !== 'meta') {
+    await reloadGenericFile()
   }
 }
 
@@ -541,11 +634,19 @@ onMounted(loadList)
   padding: 8px 0;
 }
 .tree-title {
+  display: flex;
+  align-items: center;
   font-size: 11px;
   color: #c0c4cc;
   text-transform: uppercase;
   letter-spacing: 0.5px;
   padding: 4px 12px 8px;
+}
+.tree-empty {
+  font-size: 11px;
+  color: #dcdfe6;
+  padding: 4px 12px;
+  font-family: monospace;
 }
 .tree-item {
   display: flex;
