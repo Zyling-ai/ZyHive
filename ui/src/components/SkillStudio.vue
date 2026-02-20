@@ -310,6 +310,8 @@ async function selectSkill(sk: AgentSkillMeta) {
   promptDirty.value = false
   promptContent.value = ''
   isNewSkill.value = false
+  // 预加载 SKILL.md，确保 AI 上下文能读到真实内容（不等 tab 切换）
+  reloadPrompt()
   // 从后端加载该技能的对话历史（session ID: skill-studio-{skillId}）
   ;(aiChatRef.value as any)?.resumeSession?.(`skill-studio-${sk.id}`)
 }
