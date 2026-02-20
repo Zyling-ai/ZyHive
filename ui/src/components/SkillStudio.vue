@@ -210,7 +210,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { agentSkills as skillsApi, files as filesApi, type AgentSkillMeta } from '../api'
 import AiChat from './AiChat.vue'
@@ -238,9 +238,6 @@ const saving = ref(false)
 const creating = ref(false)
 const isNewSkill = ref(false)  // true when just created — AI should guide user
 
-// Per-skill chat history cache
-const chatHistoryCache = ref<Record<string, any[]>>({})
-const prevSkillId = ref<string | null>(null)
 
 // AI chat ref (for sending test messages)
 const aiChatRef = ref<InstanceType<typeof AiChat> | null>(null)
@@ -307,26 +304,14 @@ function syncMetaForm(sk: AgentSkillMeta) {
 }
 
 async function selectSkill(sk: AgentSkillMeta) {
-  // 保存当前技能的对话历史
-  const chat = aiChatRef.value as any
-  if (prevSkillId.value && chat) {
-    chatHistoryCache.value[prevSkillId.value] = [...chat.messages.value]
-  }
-
   selected.value = sk
   syncMetaForm(sk)
   activeFile.value = 'meta'
   promptDirty.value = false
   promptContent.value = ''
   isNewSkill.value = false
-  prevSkillId.value = sk.id
-
-  // 恢复目标技能的对话历史
-  await nextTick()
-  const chat2 = aiChatRef.value as any
-  if (chat2) {
-    chat2.messages.value = [...(chatHistoryCache.value[sk.id] ?? [])]
-  }
+  // 从后端加载该技能的对话历史（session ID: skill-studio-{skillId}）
+  ;(aiChatRef.value as any)?.resumeSession?.(`skill-studio-${sk.id}`)
 }
 
 async function switchToPrompt() {
@@ -384,11 +369,6 @@ async function deleteSkill() {
 // 直接在左侧新增空白技能，无弹窗
 async function openNew() {
   if (creating.value) return
-  // 保存当前技能的对话历史
-  const chatNow = aiChatRef.value as any
-  if (prevSkillId.value && chatNow) {
-    chatHistoryCache.value[prevSkillId.value] = [...chatNow.messages.value]
-  }
   creating.value = true
   // 生成唯一 ID：skill_ + base36 timestamp
   const id = 'skill_' + Date.now().toString(36)
