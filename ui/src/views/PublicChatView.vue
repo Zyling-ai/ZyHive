@@ -132,17 +132,41 @@ async function loadInfo() {
     info.value = data
     if (data.title) document.title = data.title
     needPassword.value = data.hasPassword
-    authed.value = !data.hasPassword
+    if (!data.hasPassword) {
+      authed.value = true
+    } else {
+      // Restore saved password from sessionStorage
+      const saved = sessionStorage.getItem(`chat-pw-${agentId}`)
+      if (saved) {
+        password.value = saved
+        authed.value = true
+      } else {
+        authed.value = false
+      }
+    }
     infoLoaded.value = true
   } catch {
     infoLoaded.value = true
   }
 }
 
-function submitPassword() {
+async function submitPassword() {
   if (!passwordInput.value) return
-  password.value = passwordInput.value
-  // Quick validation: try a test request
+  const pw = passwordInput.value
+  // Validate password via info endpoint (no LLM call triggered)
+  try {
+    const res = await fetch(`/pub/chat/${agentId}/info`, {
+      headers: { 'X-Chat-Password': pw },
+    })
+    if (res.status === 401) {
+      passwordError.value = true
+      return
+    }
+  } catch {
+    // Network error — proceed optimistically
+  }
+  password.value = pw
+  sessionStorage.setItem(`chat-pw-${agentId}`, pw)
   authed.value = true
   passwordError.value = false
 }
@@ -172,7 +196,9 @@ async function streamResponse(message: string) {
     })
 
     if (res.status === 401) {
-      // Wrong password — go back to gate
+      // Wrong password — clear saved password and go back to gate
+      password.value = ''
+      sessionStorage.removeItem(`chat-pw-${agentId}`)
       authed.value = false
       passwordError.value = true
       streaming.value = false

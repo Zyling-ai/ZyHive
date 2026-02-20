@@ -36,6 +36,8 @@ func findWebChannel(ag *agent.Agent) *config.ChannelEntry {
 }
 
 // Info GET /pub/chat/:agentId/info
+// Optional: if X-Chat-Password header is provided and the channel has a password,
+// returns 401 if incorrect (used for client-side password validation).
 func (h *publicChatHandler) Info(c *gin.Context) {
 	agentID := c.Param("agentId")
 	ag, ok := h.manager.Get(agentID)
@@ -47,6 +49,13 @@ func (h *publicChatHandler) Info(c *gin.Context) {
 	if ch == nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "web channel not enabled"})
 		return
+	}
+	// If client is submitting a password for validation, check it
+	if pw := c.GetHeader("X-Chat-Password"); pw != "" {
+		if expected := ch.Config["password"]; expected != "" && pw != expected {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "incorrect password"})
+			return
+		}
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"agentId":     ag.ID,

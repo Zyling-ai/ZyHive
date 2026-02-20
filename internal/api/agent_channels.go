@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -17,6 +18,8 @@ import (
 	"github.com/sunhuihui6688-star/ai-panel/pkg/channel"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/config"
 )
+
+func removeFile(path string) error { return os.Remove(path) }
 
 type agentChannelHandler struct {
 	manager    *agent.Manager
@@ -93,6 +96,21 @@ func (h *agentChannelHandler) SetChannels(c *gin.Context) {
 		}
 		if ch.Status == "" {
 			ch.Status = "untested"
+		}
+	}
+
+	// Find channels that were removed and clean up their pending stores
+	incomingIDs := make(map[string]bool)
+	for _, ch := range incoming {
+		incomingIDs[ch.ID] = true
+	}
+	agentDir := filepath.Join(h.manager.AgentsDir(), agentID)
+	pendingDir := filepath.Join(agentDir, "channels-pending")
+	for _, ex := range existing {
+		if !incomingIDs[ex.ID] {
+			// Channel removed — delete its pending store
+			pendingFile := filepath.Join(pendingDir, ex.ID+"-pending.json")
+			_ = removeFile(pendingFile)
 		}
 	}
 

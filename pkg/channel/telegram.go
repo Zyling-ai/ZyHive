@@ -451,11 +451,29 @@ func (b *TelegramBot) handleUpdate(ctx context.Context, update TelegramUpdate) {
 	log.Printf("[telegram] Processing: chat=%d user=%s text=%q", msg.Chat.ID, msg.From.Username, truncate(text, 60))
 
 	// Log inbound user message to permanent conversation log (admin-only, agent-blind)
-	if cl := b.getConvLog(msg.Chat.ID); cl != nil && text != "" {
+	// Always log, even for media-only messages (use placeholder if text empty)
+	if cl := b.getConvLog(msg.Chat.ID); cl != nil {
+		logContent := text
+		if logContent == "" {
+			// media-only message
+			if len(msg.Photo) > 0 {
+				logContent = "[📷 图片]"
+			} else if msg.Voice != nil {
+				logContent = "[🎤 语音]"
+			} else if msg.Video != nil {
+				logContent = "[📹 视频]"
+			} else if msg.Document != nil {
+				logContent = "[📎 文件]"
+			} else if msg.Sticker != nil {
+				logContent = "[贴纸 " + msg.Sticker.Emoji + "]"
+			} else {
+				logContent = "[媒体消息]"
+			}
+		}
 		_ = cl.Append(convlog.Entry{
 			Timestamp:   time.Now().UTC().Format(time.RFC3339),
 			Role:        "user",
-			Content:     text,
+			Content:     logContent,
 			ChannelID:   fmt.Sprintf("telegram-%d", msg.Chat.ID),
 			ChannelType: "telegram",
 			Sender:      fmt.Sprintf("%s (%d)", msg.From.FirstName, msg.From.ID),
