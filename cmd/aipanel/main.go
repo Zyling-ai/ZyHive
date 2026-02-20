@@ -109,7 +109,7 @@ func main() {
 					return pool.RunStreamEvents(ctx, aid, msg, media)
 				}
 				agentDir := filepath.Join(agentsDir, agentID)
-				bot := channel.NewTelegramBotWithStream(ch.Config["botToken"], agentID, agentDir, allowFrom, streamFunc, pending)
+				bot := channel.NewTelegramBotWithStream(ch.Config["botToken"], agentID, agentDir, ch.ID, allowFrom, streamFunc, pending)
 				go bot.Start(ctx)
 				log.Printf("Telegram bot started: agent=%s channel=%s", agentID, ch.Name)
 			}

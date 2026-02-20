@@ -93,3 +93,85 @@ func (ps *PendingStore) save() {
 	data, _ := json.MarshalIndent(list, "", "  ")
 	_ = os.WriteFile(ps.path, data, 0644)
 }
+
+// ── ApprovedStore — persists info about users that were approved ───────────
+// Backed by {dir}/{channelID}-approved.json
+// Used to display username/firstName for whitelist entries in the Web UI.
+
+// ApprovedStore persists approved user display info.
+type ApprovedStore struct {
+	mu    sync.RWMutex
+	path  string
+	users map[int64]PendingUser
+}
+
+// NewApprovedStore creates a store backed by {dir}/{channelID}-approved.json.
+func NewApprovedStore(dir, channelID string) *ApprovedStore {
+	_ = os.MkdirAll(dir, 0755)
+	s := &ApprovedStore{
+		path:  filepath.Join(dir, channelID+"-approved.json"),
+		users: make(map[int64]PendingUser),
+	}
+	s.load()
+	return s
+}
+
+// Upsert inserts or updates an approved user's display info.
+func (s *ApprovedStore) Upsert(u PendingUser) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.users[u.ID] = u
+	s.save()
+}
+
+// Get returns a user by ID, or nil if not found.
+func (s *ApprovedStore) Get(id int64) *PendingUser {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	u, ok := s.users[id]
+	if !ok {
+		return nil
+	}
+	return &u
+}
+
+// List returns all approved users.
+func (s *ApprovedStore) List() []PendingUser {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := make([]PendingUser, 0, len(s.users))
+	for _, u := range s.users {
+		result = append(result, u)
+	}
+	return result
+}
+
+// Remove deletes a user from the approved store (e.g. when removed from whitelist).
+func (s *ApprovedStore) Remove(id int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.users, id)
+	s.save()
+}
+
+func (s *ApprovedStore) load() {
+	data, err := os.ReadFile(s.path)
+	if err != nil {
+		return
+	}
+	var list []PendingUser
+	if json.Unmarshal(data, &list) == nil {
+		for _, u := range list {
+			s.users[u.ID] = u
+		}
+	}
+}
+
+func (s *ApprovedStore) save() {
+	list := make([]PendingUser, 0, len(s.users))
+	for _, u := range s.users {
+		list = append(list, u)
+	}
+	data, _ := json.MarshalIndent(list, "", "  ")
+	_ = os.WriteFile(s.path, data, 0644)
+}

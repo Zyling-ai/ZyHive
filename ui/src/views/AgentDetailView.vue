@@ -785,7 +785,18 @@
               <div class="channel-info-row">
                 <span class="channel-info-label">白名单用户</span>
                 <span class="channel-info-value">
-                  <template v-if="ch.config?.allowedFrom">
+                  <template v-if="ch.allowedFromUsers?.length">
+                    <el-tag
+                      v-for="u in ch.allowedFromUsers"
+                      :key="u.id"
+                      size="small"
+                      style="margin-right: 4px"
+                    >
+                      {{ u.username ? '@' + u.username : u.firstName || String(u.id) }}
+                      <span style="opacity:0.6;font-size:11px;margin-left:3px">({{ u.id }})</span>
+                    </el-tag>
+                  </template>
+                  <template v-else-if="ch.config?.allowedFrom">
                     <el-tag v-for="uid in ch.config.allowedFrom.split(',')" :key="uid" size="small" style="margin-right: 4px">{{ uid.trim() }}</el-tag>
                   </template>
                   <el-text v-else type="warning" size="small">未设置（配对模式，向用户返回其 ID）</el-text>

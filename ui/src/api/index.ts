@@ -51,6 +51,12 @@ export interface ProbeModelInfo {
   name: string
 }
 
+export interface AllowedUserInfo {
+  id: number
+  username?: string
+  firstName?: string
+}
+
 export interface ChannelEntry {
   id: string
   name: string
@@ -58,6 +64,7 @@ export interface ChannelEntry {
   config: Record<string, string>
   enabled: boolean
   status: string
+  allowedFromUsers?: AllowedUserInfo[]
 }
 
 export interface ToolEntry {

@@ -18,6 +18,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -164,6 +165,7 @@ type TelegramBot struct {
 	token        string
 	agentID      string
 	agentDir     string // root dir for this agent (agents/{id}), used for conv logging
+	channelID    string // channel config ID, used for approved user store
 	allowFrom    []int64
 	streamFunc   StreamFunc
 	client       *http.Client
@@ -217,11 +219,12 @@ func NewTelegramBot(token, agentID, agentDir string, allowFrom []int64, runner R
 }
 
 // NewTelegramBotWithStream creates a bot that uses a real StreamFunc.
-func NewTelegramBotWithStream(token, agentID, agentDir string, allowFrom []int64, sf StreamFunc, pending *PendingStore) *TelegramBot {
+func NewTelegramBotWithStream(token, agentID, agentDir, channelID string, allowFrom []int64, sf StreamFunc, pending *PendingStore) *TelegramBot {
 	return &TelegramBot{
 		token:        token,
 		agentID:      agentID,
 		agentDir:     agentDir,
+		channelID:    channelID,
 		allowFrom:    allowFrom,
 		streamFunc:   sf,
 		client:       &http.Client{Timeout: 90 * time.Second},
@@ -414,9 +417,20 @@ func (b *TelegramBot) handleUpdate(ctx context.Context, update TelegramUpdate) {
 		return
 	}
 
-	// Allowed user: clean pending entry and send 👀 reaction
+	// Allowed user: clean pending entry, cache username, send 👀 reaction
 	if b.pendingStore != nil {
 		b.pendingStore.Remove(senderID)
+	}
+	// Cache username info in approved store so Web UI can display it
+	if b.agentDir != "" {
+		pendingDir := filepath.Join(b.agentDir, "channels-pending")
+		as := NewApprovedStore(pendingDir, b.channelID)
+		as.Upsert(PendingUser{
+			ID:        senderID,
+			Username:  msg.From.Username,
+			FirstName: msg.From.FirstName,
+			LastSeen:  msg.Date,
+		})
 	}
 	_ = b.sendReaction(msg.Chat.ID, msg.MessageID, "👀")
 
