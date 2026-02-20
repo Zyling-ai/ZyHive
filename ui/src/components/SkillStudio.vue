@@ -8,7 +8,7 @@
           <el-button size="small" :loading="listLoading" circle @click="loadList">
             <el-icon><Refresh /></el-icon>
           </el-button>
-          <el-button size="small" type="primary" circle @click="openNew">
+          <el-button size="small" type="primary" circle :loading="creating" @click="openNew">
             <el-icon><Plus /></el-icon>
           </el-button>
         </div>
@@ -206,45 +206,6 @@
       </div>
     </div>
 
-    <!-- ── 新建技能弹窗 ── -->
-    <el-dialog v-model="showNew" title="新建技能" width="480px">
-      <el-form :model="newForm" label-width="80px" size="small">
-        <el-form-item label="技能 ID" required>
-          <el-input v-model="newForm.id" placeholder="如 translate（小写字母+下划线）" />
-        </el-form-item>
-        <el-row :gutter="12">
-          <el-col :span="14">
-            <el-form-item label="名称" required>
-              <el-input v-model="newForm.name" placeholder="如 翻译助手" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="10">
-            <el-form-item label="图标">
-              <el-input v-model="newForm.icon" placeholder="emoji" />
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-form-item label="分类">
-          <el-input v-model="newForm.category" placeholder="如 语言 / 开发 / 写作" />
-        </el-form-item>
-        <el-form-item label="描述">
-          <el-input v-model="newForm.description" type="textarea" :rows="2" />
-        </el-form-item>
-        <el-form-item label="SKILL.md">
-          <el-input
-            v-model="newForm.promptContent"
-            type="textarea"
-            :rows="6"
-            placeholder="# 技能名称&#10;&#10;## 功能说明&#10;…"
-            style="font-family:monospace;font-size:12px"
-          />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="showNew = false">取消</el-button>
-        <el-button type="primary" :loading="creating" @click="createSkill">创建</el-button>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
@@ -273,10 +234,9 @@ const promptDirty = ref(false)
 
 const saving = ref(false)
 
-// New skill dialog
-const showNew = ref(false)
+// Create
 const creating = ref(false)
-const newForm = ref({ id: '', name: '', icon: '', category: '', description: '', promptContent: '' })
+const isNewSkill = ref(false)  // true when just created — AI should guide user
 
 // AI chat ref (for sending test messages)
 const aiChatRef = ref<InstanceType<typeof AiChat> | null>(null)
@@ -297,21 +257,25 @@ ${promptContent.value || '（空）'}
 - 给出技能设计建议`
 })
 
-const chatWelcome = computed(() =>
-  selected.value
-    ? `当前编辑「${selected.value.name}」。你可以让我优化 SKILL.md、测试效果，或者直接对话体验当前技能。`
-    : '选择一个技能后，我可以帮你优化配置、写 SKILL.md、测试效果。'
-)
+const chatWelcome = computed(() => {
+  if (!selected.value) return '选择一个技能后，我可以帮你优化配置、写 SKILL.md、测试效果。'
+  if (isNewSkill.value) return `新技能已创建（ID: ${selected.value.id}）。告诉我你想要什么功能，我来帮你生成完整的 SKILL.md 内容，生成后直接点保存即可。`
+  return `当前编辑「${selected.value.name}」。你可以让我优化 SKILL.md、测试效果，或者直接对话体验当前技能。`
+})
 
-const chatExamples = computed(() =>
-  selected.value
-    ? [
-        `帮我优化「${selected.value.name}」的 SKILL.md`,
-        '这个技能怎么写效果更好？',
-        '用中文回答一道历史题，测试当前技能效果',
-      ]
-    : ['帮我设计一个代码审查技能', '帮我写一个翻译助手的 SKILL.md']
-)
+const chatExamples = computed(() => {
+  if (!selected.value) return ['帮我设计一个代码审查技能', '帮我写一个翻译助手的 SKILL.md']
+  if (isNewSkill.value) return [
+    '我需要一个中英互译技能，风格自然流畅',
+    '帮我做一个 Go 代码审查专家，严格遵循最佳实践',
+    '创建一个数据分析助手，擅长 SQL 和 Python',
+  ]
+  return [
+    `帮我优化「${selected.value.name}」的 SKILL.md`,
+    '这个技能怎么写效果更好？',
+    '用中文回答一道历史题，测试当前技能效果',
+  ]
+})
 
 // ── Load ───────────────────────────────────────────────────────────────────
 async function loadList() {
@@ -344,6 +308,7 @@ async function selectSkill(sk: AgentSkillMeta) {
   activeFile.value = 'meta'
   promptDirty.value = false
   promptContent.value = ''
+  isNewSkill.value = false
 }
 
 async function switchToPrompt() {
@@ -398,32 +363,29 @@ async function deleteSkill() {
 }
 
 // ── Create ─────────────────────────────────────────────────────────────────
-function openNew() {
-  newForm.value = { id: '', name: '', icon: '', category: '', description: '', promptContent: '' }
-  showNew.value = true
-}
-
-async function createSkill() {
-  if (!newForm.value.id || !newForm.value.name) {
-    ElMessage.warning('ID 和名称必填')
-    return
-  }
+// 直接在左侧新增空白技能，无弹窗
+async function openNew() {
+  if (creating.value) return
   creating.value = true
+  // 生成唯一 ID：skill_ + base36 timestamp
+  const id = 'skill_' + Date.now().toString(36)
   try {
     await skillsApi.create(props.agentId, {
       meta: {
-        id: newForm.value.id, name: newForm.value.name, icon: newForm.value.icon,
-        category: newForm.value.category, description: newForm.value.description,
-        version: '1.0.0', enabled: true, source: 'local', installedAt: '',
+        id, name: '新技能', icon: '', category: '', description: '',
+        version: '1.0.0', enabled: false, source: 'local', installedAt: '',
       },
-      promptContent: newForm.value.promptContent,
+      promptContent: '',
     })
-    ElMessage.success('创建成功')
-    showNew.value = false
     await loadList()
-    // Auto-select the new skill
-    const sk = skills.value.find(s => s.id === newForm.value.id)
-    if (sk) await selectSkill(sk)
+    const sk = skills.value.find(s => s.id === id)
+    if (sk) {
+      await selectSkill(sk)
+      // 直接跳到 SKILL.md 编辑器，引导用户用 AI 生成内容
+      activeFile.value = 'prompt'
+      promptContent.value = ''
+      isNewSkill.value = true
+    }
   } catch (e: any) {
     ElMessage.error(e.response?.data?.error || '创建失败')
   } finally { creating.value = false }
@@ -432,6 +394,7 @@ async function createSkill() {
 // ── AI response hook ──────────────────────────────────────────────────────
 async function onAiResponse(_text: string) {
   if (!selected.value) return
+  isNewSkill.value = false
   // Reload skill metadata (in case AI modified it)
   await loadList()
   // Reload SKILL.md if currently viewing it
