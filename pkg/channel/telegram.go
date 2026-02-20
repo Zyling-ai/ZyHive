@@ -176,6 +176,9 @@ type TelegramBot struct {
 	botUsername string
 	mu          sync.Mutex
 
+	// Callback fired once after a successful getMe — used to update channel status in manager.
+	onConnected func(botUsername string)
+
 	// media group buffering
 	mediaGroups   map[string]*mediaGroupEntry
 	mediaGroupsMu sync.Mutex
@@ -217,6 +220,12 @@ func NewTelegramBot(token, agentID, agentDir string, allowFrom []int64, runner R
 		pendingStore: pending,
 		mediaGroups:  make(map[string]*mediaGroupEntry),
 	}
+}
+
+// SetOnConnected sets a callback that fires once after a successful getMe.
+// Used by callers (e.g. main.go) to update channel status in the manager.
+func (b *TelegramBot) SetOnConnected(fn func(botUsername string)) {
+	b.onConnected = fn
 }
 
 // NewTelegramBotWithStream creates a bot that uses a real StreamFunc.
@@ -299,6 +308,10 @@ func (b *TelegramBot) Start(ctx context.Context) {
 		log.Printf("[telegram] getMe failed: %v", err)
 	} else {
 		log.Printf("[telegram] Bot started: @%s (id=%d, agent=%s)", b.botUsername, b.botID, b.agentID)
+		// Notify caller (e.g. to update channel status → "ok" in the manager)
+		if b.onConnected != nil {
+			b.onConnected(b.botUsername)
+		}
 	}
 	b.pollLoop(ctx)
 }

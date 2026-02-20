@@ -85,27 +85,34 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// BotPool manages running Telegram bot goroutines — supports hot-add/remove.
+	botPool := channel.NewBotPool(ctx)
+
+	// startBotForChannel creates and starts a TelegramBot via the pool.
+	// Safe to call at any time (API handler uses it when channels are updated).
+	startBotForChannel := func(agentID, chID, token string) {
+		aID := agentID
+		cID := chID
+		pdDir := filepath.Join(agentsDir, aID, "channels-pending")
+		pending := channel.NewPendingStore(pdDir, cID)
+		sf := func(ctx2 context.Context, aid, msg string, media []channel.MediaInput) (<-chan channel.StreamEvent, error) {
+			return pool.RunStreamEvents(ctx2, aid, msg, media)
+		}
+		getAllowFrom := func() []int64 { return mgr.GetAllowFrom(aID, cID) }
+		agentDir := filepath.Join(agentsDir, aID)
+		bot := channel.NewTelegramBotWithStream(token, aID, agentDir, cID, getAllowFrom, sf, pending)
+		// On successful getMe, mark channel status "ok" and save botName
+		bot.SetOnConnected(func(botUsername string) {
+			mgr.UpdateChannelStatus(aID, cID, "ok", botUsername)
+		})
+		botPool.StartBot(aID, cID, bot)
+	}
+
 	// Start Telegram bots — one per AI member (per-agent channel config)
 	for _, ag := range mgr.List() {
-		pendingDir := filepath.Join(agentsDir, ag.ID, "channels-pending")
 		for _, ch := range ag.Channels {
 			if ch.Type == "telegram" && ch.Enabled && ch.Config["botToken"] != "" {
-				agentID := ag.ID
-				chID := ch.ID
-				pending := channel.NewPendingStore(pendingDir, chID)
-				// Use streaming runner for better UX (send+edit draft pattern)
-				streamFunc := func(ctx context.Context, aid, msg string, media []channel.MediaInput) (<-chan channel.StreamEvent, error) {
-					return pool.RunStreamEvents(ctx, aid, msg, media)
-				}
-				// Dynamic allowFrom getter — re-reads config on every message so
-				// admin approvals in the Web UI take effect without a bot restart.
-				getAllowFrom := func() []int64 {
-					return mgr.GetAllowFrom(agentID, chID)
-				}
-				agentDir := filepath.Join(agentsDir, agentID)
-				bot := channel.NewTelegramBotWithStream(ch.Config["botToken"], agentID, agentDir, chID, getAllowFrom, streamFunc, pending)
-				go bot.Start(ctx)
-				log.Printf("Telegram bot started: agent=%s channel=%s", agentID, ch.Name)
+				startBotForChannel(ag.ID, ch.ID, ch.Config["botToken"])
 			}
 		}
 	}
@@ -121,7 +128,11 @@ func main() {
 
 	// Setup router
 	r := gin.Default()
-	api.RegisterRoutes(r, cfg, mgr, pool, cronEngine, uiFS, runnerFunc)
+	botCtrl := api.BotControl{
+		Start: startBotForChannel,
+		Stop:  botPool.StopBot,
+	}
+	api.RegisterRoutes(r, cfg, mgr, pool, cronEngine, uiFS, runnerFunc, botCtrl)
 
 	// Print access URLs
 	port := cfg.Gateway.Port
