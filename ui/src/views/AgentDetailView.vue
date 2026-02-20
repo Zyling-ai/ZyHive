@@ -486,6 +486,7 @@
           <div style="padding: 16px;">
             <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
               <span style="font-size: 16px; font-weight: 600;">已安装技能</span>
+              <el-button size="small" @click="loadAgentSkills" :loading="skillsLoading"><el-icon><Refresh /></el-icon> 刷新</el-button>
               <el-button type="primary" size="small" @click="openInstallSkillDialog">安装技能</el-button>
             </div>
 
@@ -1788,6 +1789,7 @@ async function deleteCron(job: any) {
 const agentSkillList = ref<AgentSkillMeta[]>([])
 const showInstallSkillDialog = ref(false)
 const skillInstalling = ref(false)
+const skillsLoading = ref(false)
 const skillForm = ref({
   id: '',
   name: '',
@@ -1798,12 +1800,14 @@ const skillForm = ref({
 })
 
 async function loadAgentSkills() {
+  skillsLoading.value = true
   try {
     const res = await agentSkillsApi.list(agentId)
     agentSkillList.value = res.data || []
   } catch {
-    // silently ignore if skills dir doesn't exist yet
     agentSkillList.value = []
+  } finally {
+    skillsLoading.value = false
   }
 }
 
@@ -1933,6 +1937,10 @@ async function loadMoreConvMsgs() {
 watch(activeTab, (tab) => {
   if (tab === 'convlogs' && convChannels.value.length === 0) {
     loadConvChannels()
+  }
+  // Always refresh skills list when entering Skills tab (AI may have installed skills via chat)
+  if (tab === 'skills') {
+    loadAgentSkills()
   }
 })
 </script>

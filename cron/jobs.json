@@ -43,5 +43,28 @@
     "state": {
       "nextRunAtMs": 1771610400000
     }
+  },
+  {
+    "id": "job-f024f502",
+    "name": "自动记忆整理 · 架构师 Arch",
+    "remark": "由「架构师 Arch」的记忆模块自动管理，请勿手动删除",
+    "enabled": true,
+    "schedule": {
+      "kind": "cron",
+      "expr": "0 0 2 * * *",
+      "tz": "Asia/Shanghai"
+    },
+    "payload": {
+      "kind": "agentTurn",
+      "message": "__MEMORY_CONSOLIDATE__"
+    },
+    "delivery": {
+      "mode": "none"
+    },
+    "agentId": "arch",
+    "createdAtMs": 1771596383761,
+    "state": {
+      "nextRunAtMs": 1771610400000
+    }
   }
 ]
