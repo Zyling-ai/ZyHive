@@ -146,6 +146,9 @@ func (h *agentChannelHandler) TestChannel(c *gin.Context) {
 			return
 		}
 		ch.Status = "ok"
+		if botName != "" {
+			ch.Config["botName"] = botName
+		}
 		_ = h.manager.UpdateChannels(agentID, ag.Channels)
 		c.JSON(http.StatusOK, gin.H{"valid": true, "botName": botName})
 
