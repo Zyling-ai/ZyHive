@@ -410,4 +410,33 @@ export const memoryConfigApi = {
     api.get<MemRunLog[]>(`/agents/${agentId}/memory/run-log`),
 }
 
+// ── Conversation Log API ──────────────────────────────────────────────────
+
+export interface ConvEntry {
+  ts: string
+  role: 'user' | 'assistant'
+  content: string
+  channelId: string
+  channelType: string
+  sender?: string
+}
+
+export interface ChannelSummary {
+  channelId: string
+  channelType: string
+  messageCount: number
+  lastAt: string
+  firstAt: string
+}
+
+export const agentConversations = {
+  list: (agentId: string) =>
+    api.get<ChannelSummary[]>(`/agents/${agentId}/conversations`),
+  messages: (agentId: string, channelId: string, params?: { limit?: number; offset?: number }) =>
+    api.get<{ total: number; messages: ConvEntry[] }>(
+      `/agents/${agentId}/conversations/${channelId}`,
+      { params }
+    ),
+}
+
 export default api

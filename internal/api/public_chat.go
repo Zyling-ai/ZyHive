@@ -10,10 +10,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/agent"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/config"
+	"github.com/sunhuihui6688-star/ai-panel/pkg/convlog"
 )
 
 type publicChatHandler struct {
@@ -97,6 +101,21 @@ func (h *publicChatHandler) Stream(c *gin.Context) {
 
 	ctx := c.Request.Context()
 
+	// Build conversation log for this web channel
+	channelID := "web-" + agentID
+	agentDir := filepath.Dir(ag.WorkspaceDir) // workspace is at {agentDir}/workspace
+	cl := convlog.New(agentDir, channelID)
+
+	// Log inbound user message
+	_ = cl.Append(convlog.Entry{
+		Timestamp:   time.Now().UTC().Format(time.RFC3339),
+		Role:        "user",
+		Content:     req.Message,
+		ChannelID:   channelID,
+		ChannelType: "web",
+		Sender:      "visitor",
+	})
+
 	events, err := h.pool.RunStream(ctx, agentID, req.Message)
 	if err != nil {
 		data, _ := json.Marshal(gin.H{"type": "error", "text": err.Error()})
@@ -105,9 +124,11 @@ func (h *publicChatHandler) Stream(c *gin.Context) {
 		return
 	}
 
+	var fullResponse strings.Builder
 	for ev := range events {
 		switch ev.Type {
 		case "text_delta":
+			fullResponse.WriteString(ev.Text)
 			data, _ := json.Marshal(gin.H{"type": "text_delta", "text": ev.Text})
 			fmt.Fprintf(c.Writer, "data: %s\n\n", data)
 			flusher.Flush()
@@ -118,6 +139,17 @@ func (h *publicChatHandler) Stream(c *gin.Context) {
 				flusher.Flush()
 			}
 		}
+	}
+
+	// Log assistant response
+	if resp := fullResponse.String(); resp != "" {
+		_ = cl.Append(convlog.Entry{
+			Timestamp:   time.Now().UTC().Format(time.RFC3339),
+			Role:        "assistant",
+			Content:     resp,
+			ChannelID:   channelID,
+			ChannelType: "web",
+		})
 	}
 
 	// Done

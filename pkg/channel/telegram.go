@@ -22,6 +22,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/sunhuihui6688-star/ai-panel/pkg/convlog"
 )
 
 // ── Event types ───────────────────────────────────────────────────────────
@@ -161,6 +163,7 @@ type mediaGroupEntry struct {
 type TelegramBot struct {
 	token        string
 	agentID      string
+	agentDir     string // root dir for this agent (agents/{id}), used for conv logging
 	allowFrom    []int64
 	streamFunc   StreamFunc
 	client       *http.Client
@@ -177,7 +180,7 @@ type TelegramBot struct {
 }
 
 // NewTelegramBot creates a Telegram bot that supports streaming and group chats.
-func NewTelegramBot(token, agentID string, allowFrom []int64, runner RunnerFunc, pending *PendingStore) *TelegramBot {
+func NewTelegramBot(token, agentID, agentDir string, allowFrom []int64, runner RunnerFunc, pending *PendingStore) *TelegramBot {
 	// Wrap the sync runner in a StreamFunc for backward compat when no stream func is set
 	sf := func(ctx context.Context, agentID, message string, media []MediaInput) (<-chan StreamEvent, error) {
 		ch := make(chan StreamEvent, 1)
@@ -204,6 +207,7 @@ func NewTelegramBot(token, agentID string, allowFrom []int64, runner RunnerFunc,
 	return &TelegramBot{
 		token:        token,
 		agentID:      agentID,
+		agentDir:     agentDir,
 		allowFrom:    allowFrom,
 		streamFunc:   sf,
 		client:       &http.Client{Timeout: 90 * time.Second},
@@ -213,16 +217,25 @@ func NewTelegramBot(token, agentID string, allowFrom []int64, runner RunnerFunc,
 }
 
 // NewTelegramBotWithStream creates a bot that uses a real StreamFunc.
-func NewTelegramBotWithStream(token, agentID string, allowFrom []int64, sf StreamFunc, pending *PendingStore) *TelegramBot {
+func NewTelegramBotWithStream(token, agentID, agentDir string, allowFrom []int64, sf StreamFunc, pending *PendingStore) *TelegramBot {
 	return &TelegramBot{
 		token:        token,
 		agentID:      agentID,
+		agentDir:     agentDir,
 		allowFrom:    allowFrom,
 		streamFunc:   sf,
 		client:       &http.Client{Timeout: 90 * time.Second},
 		pendingStore: pending,
 		mediaGroups:  make(map[string]*mediaGroupEntry),
 	}
+}
+
+// getConvLog returns a ConvLog for a given chatID, or nil if agentDir is unset.
+func (b *TelegramBot) getConvLog(chatID int64) *convlog.ConvLog {
+	if b.agentDir == "" {
+		return nil
+	}
+	return convlog.New(b.agentDir, fmt.Sprintf("telegram-%d", chatID))
 }
 
 // Start runs the long-poll loop. Fetches bot info first, then polls.
@@ -436,6 +449,18 @@ func (b *TelegramBot) handleUpdate(ctx context.Context, update TelegramUpdate) {
 	}
 
 	log.Printf("[telegram] Processing: chat=%d user=%s text=%q", msg.Chat.ID, msg.From.Username, truncate(text, 60))
+
+	// Log inbound user message to permanent conversation log (admin-only, agent-blind)
+	if cl := b.getConvLog(msg.Chat.ID); cl != nil && text != "" {
+		_ = cl.Append(convlog.Entry{
+			Timestamp:   time.Now().UTC().Format(time.RFC3339),
+			Role:        "user",
+			Content:     text,
+			ChannelID:   fmt.Sprintf("telegram-%d", msg.Chat.ID),
+			ChannelType: "telegram",
+			Sender:      fmt.Sprintf("%s (%d)", msg.From.FirstName, msg.From.ID),
+		})
+	}
 
 	go b.generateAndSendWithMedia(ctx, msg, text, replyToMsgID)
 }
@@ -674,7 +699,19 @@ func (b *TelegramBot) generateAndSend(ctx context.Context, msg *TelegramMessage,
 
 done:
 	stopTyping()
-	sendOrEdit(accumulated.String(), true)
+	finalText := accumulated.String()
+	sendOrEdit(finalText, true)
+
+	// Log assistant response to permanent conversation log
+	if cl := b.getConvLog(chatID); cl != nil && finalText != "" {
+		_ = cl.Append(convlog.Entry{
+			Timestamp:   time.Now().UTC().Format(time.RFC3339),
+			Role:        "assistant",
+			Content:     finalText,
+			ChannelID:   fmt.Sprintf("telegram-%d", chatID),
+			ChannelType: "telegram",
+		})
+	}
 
 	// If nothing was sent at all (edge case), send a fallback
 	if sentMsgID == 0 && accumulated.Len() == 0 {

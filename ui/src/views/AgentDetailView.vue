@@ -563,6 +563,67 @@
           </el-dialog>
         </el-tab-pane>
 
+        <!-- Tab: 历史对话 -->
+        <el-tab-pane label="历史对话" name="convlogs">
+          <div style="margin-bottom: 16px; display: flex; align-items: center; gap: 8px;">
+            <span style="font-weight: 600; font-size: 15px;">渠道对话记录</span>
+            <el-button size="small" :icon="Refresh" circle @click="loadConvChannels" :loading="convLoading" />
+          </div>
+
+          <el-table :data="convChannels" stripe v-loading="convLoading" empty-text="暂无对话记录">
+            <el-table-column label="渠道" min-width="200">
+              <template #default="{ row }">
+                <span>{{ row.channelType === 'telegram' ? '📱' : '🌐' }} {{ row.channelId }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="消息数" width="100">
+              <template #default="{ row }">{{ row.messageCount }} 条</template>
+            </el-table-column>
+            <el-table-column label="最后活跃" width="180">
+              <template #default="{ row }">{{ row.lastAt ? new Date(row.lastAt).toLocaleString('zh-CN') : '-' }}</template>
+            </el-table-column>
+            <el-table-column label="操作" width="100">
+              <template #default="{ row }">
+                <el-button size="small" type="primary" plain @click="openConvDrawer(row)">查看</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+
+          <!-- Conversation Drawer -->
+          <el-drawer
+            v-model="convDrawerVisible"
+            :title="convDrawerChannelId + ' 对话记录'"
+            direction="rtl"
+            size="520px"
+            :destroy-on-close="false"
+          >
+            <div class="conv-drawer-body">
+              <!-- Load more button at top -->
+              <div v-if="convHasMore" style="text-align: center; margin-bottom: 12px;">
+                <el-button size="small" plain :loading="convMsgLoading" @click="loadMoreConvMsgs">加载更多</el-button>
+              </div>
+
+              <div v-loading="convMsgLoading && convMessages.length === 0" class="conv-msg-list">
+                <div
+                  v-for="(msg, idx) in convMessages"
+                  :key="idx"
+                  :class="['conv-msg-item', msg.role === 'user' ? 'conv-msg-user' : 'conv-msg-assistant']"
+                >
+                  <div class="conv-msg-meta">
+                    <span class="conv-msg-role">{{ msg.role === 'user' ? '👤 用户' : '🤖 助手' }}</span>
+                    <span v-if="msg.sender" class="conv-msg-sender">{{ msg.sender }}</span>
+                    <span class="conv-msg-time">{{ msg.ts ? new Date(msg.ts).toLocaleString('zh-CN') : '' }}</span>
+                  </div>
+                  <div class="conv-msg-content">{{ msg.content }}</div>
+                </div>
+                <div v-if="!convMsgLoading && convMessages.length === 0" class="conv-msg-empty">
+                  暂无消息记录
+                </div>
+              </div>
+            </div>
+          </el-drawer>
+        </el-tab-pane>
+
         <!-- Tab 4: Workspace -->
         <el-tab-pane label="工作区" name="workspace">
           <el-row :gutter="20">
@@ -843,11 +904,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ArrowLeft, Plus, EditPen, Refresh, FolderOpened, Document, ArrowDown } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
-import { agents as agentsApi, files as filesApi, memoryApi, cron as cronApi, sessions as sessionsApi, relationsApi, memoryConfigApi, agentChannels as agentChannelsApi, agentSkills as agentSkillsApi, type AgentInfo, type FileEntry, type CronJob, type SessionSummary, type RelationRow, type MemConfig, type MemRunLog, type ChannelEntry, type PendingUser, type AgentSkillMeta } from '../api'
+import { agents as agentsApi, files as filesApi, memoryApi, cron as cronApi, sessions as sessionsApi, relationsApi, memoryConfigApi, agentChannels as agentChannelsApi, agentSkills as agentSkillsApi, agentConversations, type AgentInfo, type FileEntry, type CronJob, type SessionSummary, type RelationRow, type MemConfig, type MemRunLog, type ChannelEntry, type PendingUser, type AgentSkillMeta, type ConvEntry, type ChannelSummary } from '../api'
 import AiChat, { type ChatMsg } from '../components/AiChat.vue'
 
 const route = useRoute()
@@ -1640,6 +1701,80 @@ async function uninstallSkill(skillId: string) {
     ElMessage.error('卸载失败')
   }
 }
+
+// ── Conversation Log ──────────────────────────────────────────────────────
+
+const convChannels = ref<ChannelSummary[]>([])
+const convLoading = ref(false)
+
+// Drawer state
+const convDrawerVisible = ref(false)
+const convDrawerChannelId = ref('')
+const convMessages = ref<ConvEntry[]>([])
+const convMsgLoading = ref(false)
+const convTotal = ref(0)
+const convOffset = ref(0)
+const convPageSize = 50
+
+const convHasMore = computed(() => convMessages.value.length < convTotal.value)
+
+async function loadConvChannels() {
+  convLoading.value = true
+  try {
+    const res = await agentConversations.list(agentId)
+    convChannels.value = res.data
+  } catch {
+    ElMessage.error('加载对话渠道失败')
+  } finally {
+    convLoading.value = false
+  }
+}
+
+async function openConvDrawer(ch: ChannelSummary) {
+  convDrawerChannelId.value = ch.channelId
+  convMessages.value = []
+  convTotal.value = 0
+  convOffset.value = 0
+  convDrawerVisible.value = true
+  await fetchConvMessages()
+}
+
+async function fetchConvMessages() {
+  convMsgLoading.value = true
+  try {
+    const res = await agentConversations.messages(agentId, convDrawerChannelId.value, {
+      limit: convPageSize,
+      offset: convOffset.value,
+    })
+    const data = res.data
+    convTotal.value = data.total
+    // Append to existing list (newer messages already shown, these are older)
+    if (convOffset.value === 0) {
+      convMessages.value = data.messages
+    } else {
+      convMessages.value = [...data.messages, ...convMessages.value]
+    }
+    convOffset.value += data.messages.length
+  } catch {
+    ElMessage.error('加载消息失败')
+  } finally {
+    convMsgLoading.value = false
+  }
+}
+
+async function loadMoreConvMsgs() {
+  // Load older messages: offset is current count, go backwards
+  // Since JSONL is oldest-first and we display oldest-first, we need to load from the beginning
+  // with a different offset strategy. We load page by page from offset 0 incrementally.
+  await fetchConvMessages()
+}
+
+// Load conv channels when tab is activated
+watch(activeTab, (tab) => {
+  if (tab === 'convlogs' && convChannels.value.length === 0) {
+    loadConvChannels()
+  }
+})
 </script>
 
 <style scoped>
@@ -2033,5 +2168,70 @@ async function uninstallSkill(skillId: string) {
   text-align: center;
   font-size: 12px;
   color: #c0c4cc;
+}
+
+/* ── Conversation Log Drawer ─────────────────────────────────────────── */
+.conv-drawer-body {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 0 4px;
+}
+.conv-msg-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.conv-msg-item {
+  display: flex;
+  flex-direction: column;
+  max-width: 90%;
+}
+.conv-msg-user {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+.conv-msg-assistant {
+  align-self: flex-start;
+  align-items: flex-start;
+}
+.conv-msg-meta {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 4px;
+  font-size: 11px;
+  color: #909399;
+}
+.conv-msg-role {
+  font-weight: 600;
+}
+.conv-msg-sender {
+  color: #409eff;
+}
+.conv-msg-time {
+  color: #c0c4cc;
+}
+.conv-msg-content {
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.conv-msg-user .conv-msg-content {
+  background: #409eff;
+  color: #fff;
+}
+.conv-msg-assistant .conv-msg-content {
+  background: #f4f4f5;
+  color: #303133;
+}
+.conv-msg-empty {
+  text-align: center;
+  color: #c0c4cc;
+  padding: 32px 0;
+  font-size: 13px;
 }
 </style>
