@@ -738,6 +738,7 @@ func (b *TelegramBot) enrichWithContext(msg *TelegramMessage, text string) strin
 		if fwdBody == "" {
 			fwdBody = "(无文字内容)"
 		}
+		// Note: forwarded images are already in msg.Photo[], handled by resolveMedia
 		parts = append(parts, fmt.Sprintf("[转发自: %s]\n%s", forwardSender, fwdBody))
 	} else if text != "" {
 		parts = append(parts, text)
@@ -754,8 +755,21 @@ func (b *TelegramBot) enrichWithContext(msg *TelegramMessage, text string) strin
 		if replyBody == "" {
 			replyBody = replyMsg.Caption
 		}
+		// If the replied-to message has an image, note it (the image is downloaded separately)
 		if replyBody == "" {
-			replyBody = "(非文字消息)"
+			if len(replyMsg.Photo) > 0 {
+				replyBody = "[图片]"
+			} else if replyMsg.Sticker != nil {
+				replyBody = "[贴纸: " + replyMsg.Sticker.Emoji + "]"
+			} else if replyMsg.Video != nil {
+				replyBody = "[视频]"
+			} else if replyMsg.Voice != nil {
+				replyBody = "[语音]"
+			} else if replyMsg.Document != nil {
+				replyBody = "[文件: " + replyMsg.Document.FileName + "]"
+			} else {
+				replyBody = "(非文字消息)"
+			}
 		}
 		parts = append(parts, fmt.Sprintf("\n[回复 %s (id:%d)]\n%s\n[/回复]",
 			replySender, replyMsg.MessageID, replyBody))
@@ -820,15 +834,32 @@ func (b *TelegramBot) resolveMedia(ctx context.Context, msg *TelegramMessage) ([
 	var media []MediaInput
 	var extras []string
 
-	// Photo: download highest resolution
+	// Photo: download highest resolution (current message)
 	if len(msg.Photo) > 0 {
 		best := msg.Photo[len(msg.Photo)-1]
+		log.Printf("[telegram] downloading photo fileID=%s size=%d", best.FileID, best.FileSize)
 		data, ct, err := b.downloadFileByID(ctx, best.FileID)
 		if err != nil {
 			log.Printf("[telegram] photo download error: %v", err)
 			extras = append(extras, "[📷 图片]")
 		} else {
+			log.Printf("[telegram] photo downloaded: %d bytes, contentType=%q", len(data), ct)
 			media = append(media, MediaInput{Data: data, ContentType: ct, FileName: "photo.jpg"})
+		}
+	}
+
+	// Reply-to photo: if the user replied to a photo message, also download that image.
+	// This allows the bot to see images when the user replies to a photo with a question.
+	if msg.ReplyToMessage != nil && len(msg.ReplyToMessage.Photo) > 0 && len(msg.Photo) == 0 {
+		replyPhotos := msg.ReplyToMessage.Photo
+		best := replyPhotos[len(replyPhotos)-1]
+		log.Printf("[telegram] downloading reply-to photo fileID=%s", best.FileID)
+		data, ct, err := b.downloadFileByID(ctx, best.FileID)
+		if err != nil {
+			log.Printf("[telegram] reply-to photo download error: %v", err)
+		} else {
+			log.Printf("[telegram] reply-to photo downloaded: %d bytes, contentType=%q", len(data), ct)
+			media = append(media, MediaInput{Data: data, ContentType: ct, FileName: "replied_photo.jpg"})
 		}
 	}
 
