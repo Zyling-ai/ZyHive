@@ -197,3 +197,37 @@ func (p *Pool) Run(ctx context.Context, agentID, message string) (string, error)
 
 	return fullText.String(), nil
 }
+
+// RunStream executes a message against the specified agent and returns a live event channel.
+// The caller must drain the channel. Used for SSE streaming (e.g. web channel).
+func (p *Pool) RunStream(ctx context.Context, agentID, message string) (<-chan runner.RunEvent, error) {
+	ag, ok := p.manager.Get(agentID)
+	if !ok {
+		return nil, fmt.Errorf("agent %q not found", agentID)
+	}
+	modelEntry, err := p.resolveModel(ag)
+	if err != nil {
+		return nil, err
+	}
+	model := modelEntry.ProviderModel()
+	apiKey := modelEntry.APIKey
+	if apiKey == "" {
+		return nil, fmt.Errorf("no API key configured for model: %s", model)
+	}
+
+	llmClient := llm.NewAnthropicClient()
+	toolRegistry := tools.New(ag.WorkspaceDir)
+	store := session.NewStore(ag.SessionDir)
+
+	r := runner.New(runner.Config{
+		AgentID:      ag.ID,
+		WorkspaceDir: ag.WorkspaceDir,
+		Model:        model,
+		APIKey:       apiKey,
+		LLM:          llmClient,
+		Tools:        toolRegistry,
+		Session:      store,
+	})
+
+	return r.Run(ctx, message), nil
+}

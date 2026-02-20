@@ -1,5 +1,5 @@
 <template>
-  <div v-if="isLoginPage">
+  <div v-if="isLoginPage || isPublicPage">
     <router-view />
   </div>
   <el-container v-else class="app-layout">
@@ -108,6 +108,7 @@ const route = useRoute()
 const collapsed = ref(false)
 
 const isLoginPage = computed(() => route.path === '/login')
+const isPublicPage = computed(() => !!route.meta.public)
 
 const activeMenu = computed(() => {
   const path = route.path
