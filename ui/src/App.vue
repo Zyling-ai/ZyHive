@@ -94,6 +94,12 @@
           <template #title>设置</template>
         </el-menu-item>
       </el-menu>
+
+      <!-- Sidebar footer -->
+      <div class="sidebar-footer">
+        <span v-if="!collapsed" class="sidebar-copyright">© 2025 引巢 · ZyHive</span>
+        <span v-else class="sidebar-copyright-mini">© 25</span>
+      </div>
     </el-aside>
 
     <!-- Main content -->
@@ -139,6 +145,8 @@ body {
   background: #1d1e2c;
   transition: width 0.2s;
   overflow: hidden;
+  display: flex !important;
+  flex-direction: column;
 }
 .sidebar-logo {
   height: 60px;
@@ -166,6 +174,8 @@ body {
 .sidebar-menu {
   border-right: none !important;
   background: transparent !important;
+  flex: 1;
+  overflow-y: auto;
 }
 .sidebar-menu .el-menu-item,
 .sidebar-menu .el-sub-menu__title {
@@ -191,6 +201,24 @@ body {
 }
 .sidebar-menu .el-divider {
   border-color: rgba(255,255,255,0.08);
+}
+.sidebar-footer {
+  padding: 12px 16px;
+  border-top: 1px solid rgba(255,255,255,0.08);
+  margin-top: auto;
+}
+.sidebar-copyright {
+  font-size: 11px;
+  color: rgba(255,255,255,0.3);
+  white-space: nowrap;
+  display: block;
+  text-align: center;
+}
+.sidebar-copyright-mini {
+  font-size: 10px;
+  color: rgba(255,255,255,0.25);
+  display: block;
+  text-align: center;
 }
 .app-main {
   background: #f5f7fa;
