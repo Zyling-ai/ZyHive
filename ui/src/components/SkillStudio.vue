@@ -194,6 +194,7 @@
       </div>
       <div class="chat-wrap">
         <AiChat
+          :key="selected?.id ?? '__none__'"
           ref="aiChatRef"
           :agent-id="agentId"
           :context="chatContext"
