@@ -223,7 +223,8 @@ export const memoryApi = {
 }
 
 export const cron = {
-  list: () => api.get<CronJob[]>('/cron'),
+  /** List all jobs. Pass agentId to filter by owner; '__global__' for jobs with no owner. */
+  list: (agentId?: string) => api.get<CronJob[]>('/cron', { params: agentId ? { agentId } : undefined }),
   create: (job: Partial<CronJob>) => api.post<CronJob>('/cron', job),
   update: (jobId: string, job: Partial<CronJob>) => api.patch<CronJob>(`/cron/${jobId}`, job),
   delete: (jobId: string) => api.delete(`/cron/${jobId}`),

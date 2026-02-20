@@ -234,6 +234,22 @@ func (e *Engine) ListJobs() []*Job {
 	return result
 }
 
+// ListJobsByAgent returns jobs whose AgentID matches the given ID.
+// Pass "" to list jobs with no owner (global jobs).
+// Pass "*" to list all jobs regardless of owner.
+func (e *Engine) ListJobsByAgent(agentID string) []*Job {
+	e.jobMu.RLock()
+	defer e.jobMu.RUnlock()
+
+	result := make([]*Job, 0)
+	for _, j := range e.jobs {
+		if agentID == "*" || j.AgentID == agentID {
+			result = append(result, j)
+		}
+	}
+	return result
+}
+
 // ListRuns returns run records for a job.
 func (e *Engine) ListRuns(jobID string) ([]RunRecord, error) {
 	path := filepath.Join(e.dataDir, "runs", jobID+".jsonl")

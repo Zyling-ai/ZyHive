@@ -14,12 +14,24 @@ type cronHandler struct {
 }
 
 // List GET /api/cron
+// Optional query param ?agentId=xxx filters by owner agent.
+// Use ?agentId=__global__ to get only jobs with no owner.
 func (h *cronHandler) List(c *gin.Context) {
 	if h.engine == nil {
 		c.JSON(http.StatusOK, []any{})
 		return
 	}
-	jobs := h.engine.ListJobs()
+	var jobs []*cron.Job
+	if agentID := c.Query("agentId"); agentID != "" {
+		if agentID == "__global__" {
+			// Jobs with no owner
+			jobs = h.engine.ListJobsByAgent("")
+		} else {
+			jobs = h.engine.ListJobsByAgent(agentID)
+		}
+	} else {
+		jobs = h.engine.ListJobs()
+	}
 	if jobs == nil {
 		jobs = []*cron.Job{}
 	}

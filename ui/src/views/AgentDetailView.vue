@@ -1699,7 +1699,8 @@ async function saveCurrentFile() {
 // Cron
 async function loadCron() {
   try {
-    const res = await cronApi.list()
+    // Only load this agent's own cron jobs
+    const res = await cronApi.list(agentId)
     cronJobs.value = res.data || []
   } catch {}
 }
@@ -1709,6 +1710,7 @@ async function createCron() {
     await cronApi.create({
       name: cronForm.value.name,
       enabled: cronForm.value.enabled,
+      agentId: agentId,  // bind to this agent
       schedule: { kind: 'cron', expr: cronForm.value.expr, tz: cronForm.value.tz },
       payload: { kind: 'agentTurn', message: cronForm.value.message },
       delivery: { mode: 'announce' },
