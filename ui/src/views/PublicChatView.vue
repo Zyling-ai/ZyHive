@@ -63,7 +63,7 @@
         </div>
       </div>
 
-      <!-- Input -->
+      <!-- Input + footer -->
       <div class="input-area">
         <textarea
           v-model="inputText"
@@ -80,6 +80,7 @@
           </svg>
         </button>
       </div>
+      <div class="chat-footer">Powered by <a href="https://github.com/sunhuihui6688-star/ai-panel" target="_blank" class="chat-footer-link">引巢 · ZyHive</a> · © 2025 zyling</div>
     </div>
 
     <!-- Loading -->
@@ -510,6 +511,22 @@ onMounted(loadInfo)
 }
 .send-btn:hover:not(:disabled) { background: #337ecc; transform: scale(1.05); }
 .send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* Footer */
+.chat-footer {
+  text-align: center;
+  font-size: 11px;
+  color: #c0c4cc;
+  padding: 6px 0 8px;
+  background: #fff;
+  border-top: 1px solid #f0f0f0;
+  flex-shrink: 0;
+}
+.chat-footer-link {
+  color: #c0c4cc;
+  text-decoration: none;
+}
+.chat-footer-link:hover { color: #409eff; }
 
 /* Loading */
 .loading-page {

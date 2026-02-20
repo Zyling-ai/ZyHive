@@ -30,6 +30,7 @@
         </el-form-item>
       </el-form>
     </el-card>
+    <p class="login-copyright">© 2025 引巢 · ZyHive · zyling</p>
   </div>
 </template>
 
@@ -67,10 +68,18 @@ function skipLogin() {
 <style scoped>
 .login-wrapper {
   display: flex;
+  flex-direction: column;
   justify-content: center;
   align-items: center;
   min-height: 100vh;
+  gap: 16px;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+.login-copyright {
+  font-size: 12px;
+  color: rgba(255,255,255,0.45);
+  margin: 0;
+  letter-spacing: 0.3px;
 }
 .login-card {
   width: 420px;
