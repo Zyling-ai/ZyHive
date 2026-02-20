@@ -1358,7 +1358,8 @@ async function loadAgentChannels() {
 
 function openAddChannel() {
   channelEditingId.value = ''
-  channelForm.value = { type: 'telegram', name: '', enabled: true, botToken: '', allowedFrom: '', webPassword: '', webWelcome: '', webTitle: '' }
+  const defaultName = agent.value?.name || ''
+  channelForm.value = { type: 'telegram', name: defaultName, enabled: true, botToken: '', allowedFrom: '', webPassword: '', webWelcome: '', webTitle: '' }
   tokenCheckState.value = { loading: false, status: '' }
   channelDialogVisible.value = true
 }
