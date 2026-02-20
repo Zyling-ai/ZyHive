@@ -158,6 +158,14 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager, pool 
 	v1.PATCH("/config", cfgH.Patch)
 	v1.POST("/config/test-key", cfgH.TestKey)
 
+	// ── Public routes (no auth — web channel) ─────────────────────────────
+	pubH := &publicChatHandler{manager: mgr, pool: pool}
+	pub := r.Group("/pub")
+	{
+		pub.GET("/chat/:agentId/info", pubH.Info)
+		pub.POST("/chat/:agentId/stream", pubH.Stream)
+	}
+
 	// Health & Stats
 	v1.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "healthy"})

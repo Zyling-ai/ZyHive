@@ -616,6 +616,27 @@
               </div>
             </div>
 
+            <!-- Web channel: show public URL -->
+            <div v-if="ch.type === 'web'" class="channel-card-body">
+              <div class="channel-info-row">
+                <span class="channel-info-label">公开地址</span>
+                <span class="channel-info-value">
+                  <el-link :href="webChatUrl(agentId)" target="_blank" type="primary" style="font-size:13px">
+                    {{ webChatUrl(agentId) }}
+                  </el-link>
+                  <el-button size="small" link style="margin-left:8px" @click="copyUrl(webChatUrl(agentId))">复制</el-button>
+                </span>
+              </div>
+              <div class="channel-info-row">
+                <span class="channel-info-label">访问密码</span>
+                <span class="channel-info-value">
+                  <el-tag size="small" :type="ch.config?.password ? 'warning' : 'info'" effect="plain">
+                    {{ ch.config?.password ? '已设置' : '无密码' }}
+                  </el-tag>
+                </span>
+              </div>
+            </div>
+
             <!-- Telegram whitelist info -->
             <div v-if="ch.type === 'telegram'" class="channel-card-body">
               <div class="channel-info-row">
@@ -685,6 +706,7 @@
               <el-form-item label="类型" required>
                 <el-select v-model="channelForm.type" style="width: 100%">
                   <el-option label="Telegram" value="telegram" />
+                  <el-option label="Web 聊天页" value="web" />
                   <el-option label="iMessage" value="imessage" />
                   <el-option label="WhatsApp" value="whatsapp" />
                 </el-select>
@@ -706,6 +728,19 @@
                   <el-text type="info" size="small" style="display:block;margin-top:4px">
                     💡 留空时 Bot 进入配对模式——向用户返回其 ID，引导联系管理员添加白名单
                   </el-text>
+                </el-form-item>
+              </template>
+
+              <!-- Web channel -->
+              <template v-if="channelForm.type === 'web'">
+                <el-form-item label="访问密码">
+                  <el-input v-model="channelForm.webPassword" type="password" show-password placeholder="留空则无需密码" />
+                </el-form-item>
+                <el-form-item label="欢迎语">
+                  <el-input v-model="channelForm.webWelcome" placeholder="你好！有什么可以帮你的？" />
+                </el-form-item>
+                <el-form-item label="页面标题">
+                  <el-input v-model="channelForm.webTitle" placeholder="AI 助手" />
                 </el-form-item>
               </template>
 
@@ -1053,7 +1088,18 @@ const channelForm = ref({
   enabled: true,
   botToken: '',
   allowedFrom: '',
+  webPassword: '',
+  webWelcome: '',
+  webTitle: '',
 })
+
+function webChatUrl(aid: string): string {
+  return `${window.location.origin}/chat/${aid}`
+}
+
+function copyUrl(url: string) {
+  navigator.clipboard.writeText(url).then(() => ElMessage.success('链接已复制'))
+}
 
 async function loadAgentChannels() {
   channelsLoading.value = true
@@ -1069,7 +1115,7 @@ async function loadAgentChannels() {
 
 function openAddChannel() {
   channelEditingId.value = ''
-  channelForm.value = { type: 'telegram', name: '', enabled: true, botToken: '', allowedFrom: '' }
+  channelForm.value = { type: 'telegram', name: '', enabled: true, botToken: '', allowedFrom: '', webPassword: '', webWelcome: '', webTitle: '' }
   channelDialogVisible.value = true
 }
 
@@ -1081,6 +1127,9 @@ function openEditChannel(row: ChannelEntry) {
     enabled: row.enabled,
     botToken: row.config?.botToken || '',
     allowedFrom: row.config?.allowedFrom || '',
+    webPassword: '',  // password always cleared on edit for security
+    webWelcome: row.config?.welcomeMsg || '',
+    webTitle: row.config?.title || '',
   }
   channelDialogVisible.value = true
 }
@@ -1096,6 +1145,10 @@ async function saveChannelDialog() {
     if (channelForm.value.type === 'telegram') {
       if (channelForm.value.botToken) newConfig.botToken = channelForm.value.botToken
       if (channelForm.value.allowedFrom) newConfig.allowedFrom = channelForm.value.allowedFrom
+    } else if (channelForm.value.type === 'web') {
+      if (channelForm.value.webPassword) newConfig.password = channelForm.value.webPassword
+      if (channelForm.value.webWelcome) newConfig.welcomeMsg = channelForm.value.webWelcome
+      if (channelForm.value.webTitle) newConfig.title = channelForm.value.webTitle
     }
 
     if (channelEditingId.value) {
@@ -1117,7 +1170,7 @@ async function saveChannelDialog() {
       }
       await agentChannelsApi.set(agentId, [...agentChannelList.value, newEntry])
     }
-    ElMessage.success('保存成功，重启后新渠道生效')
+    ElMessage.success(channelForm.value.type === 'web' ? '保存成功，Web 聊天页立即生效' : '保存成功，重启后新渠道生效')
     channelDialogVisible.value = false
     await loadAgentChannels()
   } catch (e: any) {

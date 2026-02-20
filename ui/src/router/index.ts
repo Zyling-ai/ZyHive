@@ -86,6 +86,13 @@ const router = createRouter({
       component: () => import('../views/TeamView.vue'),
       meta: { requiresAuth: true }
     },
+    // Public chat page (web channel — no auth required)
+    {
+      path: '/chat/:agentId',
+      name: 'public-chat',
+      component: () => import('../views/PublicChatView.vue'),
+      meta: { public: true }
+    },
     // Legacy redirect
     {
       path: '/config',
