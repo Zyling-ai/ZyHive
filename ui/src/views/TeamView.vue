@@ -8,54 +8,36 @@
     </div>
 
     <el-card v-loading="loading" class="graph-card">
-      <!-- Empty state -->
+      <!-- Empty: no members -->
       <div v-if="!loading && !graph.nodes.length" class="empty-state">
-        <el-icon style="font-size: 64px; color: #c0c4cc; display: block; margin: 0 auto 16px"><Share /></el-icon>
-        <p style="color: #909399; text-align: center; margin: 0;">
-          暂无成员数据
-        </p>
+        <el-icon style="font-size:64px;color:#c0c4cc;display:block;margin:0 auto 16px"><Share /></el-icon>
+        <p style="color:#909399;text-align:center;margin:0">暂无成员数据</p>
       </div>
 
+      <!-- Empty: members but no relations -->
       <div v-else-if="!loading && graph.nodes.length && !graph.edges.length" class="empty-state">
-        <el-icon style="font-size: 64px; color: #c0c4cc; display: block; margin: 0 auto 16px"><Connection /></el-icon>
-        <p style="color: #909399; text-align: center; margin: 0;">
-          为成员配置 RELATIONS.md 即可自动生成关系图谱
-        </p>
-        <p style="color: #c0c4cc; text-align: center; font-size: 13px; margin: 6px 0 0;">
-          前往成员详情页 → 「关系」Tab 编辑 RELATIONS.md
+        <el-icon style="font-size:64px;color:#c0c4cc;display:block;margin:0 auto 16px"><Connection /></el-icon>
+        <p style="color:#909399;text-align:center;margin:0">为成员配置 RELATIONS.md 即可自动生成关系图谱</p>
+        <p style="color:#c0c4cc;text-align:center;font-size:13px;margin:6px 0 0">
+          前往成员详情页 → 「关系」Tab 编辑
         </p>
       </div>
 
-      <!-- SVG Graph -->
+      <!-- Hierarchical SVG Graph -->
       <div v-else class="graph-container" ref="containerRef">
         <svg :width="svgWidth" :height="svgHeight" class="graph-svg">
-          <!-- Arrowhead marker definitions -->
-          <defs>
-            <marker
-              v-for="(color, type) in typeColors"
-              :key="type"
-              :id="`arrow-${encodeType(type)}`"
-              markerWidth="8"
-              markerHeight="8"
-              refX="6"
-              refY="3"
-              orient="auto"
-            >
-              <path d="M0,0 L0,6 L8,3 z" :fill="color" />
-            </marker>
-          </defs>
 
-          <!-- Edges -->
+          <!-- Edges: simple lines, no arrows, neutral color -->
           <g v-for="edge in graph.edges" :key="`${edge.from}-${edge.to}`">
             <line
-              :x1="edgeStart(edge).x"
-              :y1="edgeStart(edge).y"
-              :x2="edgeEnd(edge).x"
-              :y2="edgeEnd(edge).y"
-              :stroke="edgeColor(edge.type)"
+              :x1="edgePt(edge.from, edge.to, 'start').x"
+              :y1="edgePt(edge.from, edge.to, 'start').y"
+              :x2="edgePt(edge.from, edge.to, 'end').x"
+              :y2="edgePt(edge.from, edge.to, 'end').y"
+              stroke="#94a3b8"
               :stroke-width="edgeWidth(edge.strength)"
-              stroke-opacity="0.85"
-              :marker-end="`url(#arrow-${encodeType(edge.type)})`"
+              stroke-opacity="0.6"
+              stroke-linecap="round"
               class="graph-edge"
               @mouseenter="(e: MouseEvent) => showEdgeTooltip(e, edge)"
               @mouseleave="hideTooltip"
@@ -71,15 +53,10 @@
             @click="goToAgent(node.id)"
           >
             <!-- Shadow -->
-            <circle r="30" fill="rgba(0,0,0,0.08)" transform="translate(2,3)" />
+            <circle r="30" fill="rgba(0,0,0,0.07)" transform="translate(2,3)" />
             <!-- Main circle -->
-            <circle
-              r="28"
-              :fill="nodeColor(node.id)"
-              stroke="#fff"
-              stroke-width="2.5"
-            />
-            <!-- Initial letter -->
+            <circle r="28" :fill="nodeColor(node.id)" stroke="#fff" stroke-width="2.5" />
+            <!-- Initials -->
             <text
               text-anchor="middle"
               dominant-baseline="central"
@@ -90,14 +67,12 @@
             >{{ nodeInitial(node.id) }}</text>
             <!-- Status dot -->
             <circle
-              cx="20"
-              cy="-20"
-              r="6"
+              cx="20" cy="-20" r="6"
               :fill="node.status === 'running' ? '#67C23A' : '#c0c4cc'"
               stroke="#fff"
               stroke-width="1.5"
             />
-            <!-- Name label -->
+            <!-- Name -->
             <text
               text-anchor="middle"
               y="46"
@@ -125,13 +100,13 @@
           :style="{ left: tooltip.x + 'px', top: tooltip.y + 'px' }"
         >
           <div class="tooltip-members">
-            <span class="tooltip-from">{{ nodeName(tooltip.from) }}</span>
-            <span class="tooltip-arrow">→</span>
-            <span class="tooltip-to">{{ nodeName(tooltip.to) }}</span>
+            <span class="tooltip-name">{{ nodeName(tooltip.from) }}</span>
+            <span class="tooltip-sep">↔</span>
+            <span class="tooltip-name">{{ nodeName(tooltip.to) }}</span>
           </div>
           <div class="tooltip-tags">
-            <el-tag :type="typeTagColor(tooltip.type)" size="small">{{ tooltip.type }}</el-tag>
-            <el-tag :type="strengthTagColor(tooltip.strength)" size="small" effect="plain">{{ tooltip.strength }}</el-tag>
+            <el-tag size="small" type="info" effect="plain">{{ tooltip.type }}</el-tag>
+            <el-tag size="small" effect="plain">{{ tooltip.strength }}</el-tag>
           </div>
           <div v-if="tooltip.label" class="tooltip-label">{{ tooltip.label }}</div>
         </div>
@@ -141,16 +116,15 @@
     <!-- Legend -->
     <el-card v-if="graph.nodes.length" class="legend-card">
       <div class="legend">
-        <span class="legend-title">关系类型：</span>
-        <span v-for="(color, type) in typeColors" :key="type" class="legend-item">
-          <svg width="28" height="6"><line x1="0" y1="3" x2="28" y2="3" :stroke="color" stroke-width="3" /></svg>
-          {{ type }}
-        </span>
+        <span class="legend-title">布局规则：</span>
+        <span class="legend-item">🔼 上方 = 上级</span>
+        <span class="legend-item">➖ 同层 = 平级协作</span>
+        <span class="legend-item">🔽 下方 = 下级</span>
         <span class="legend-divider"> | </span>
-        <span class="legend-title">关系程度（线粗）：</span>
-        <span v-for="(width, strength) in strengthWidths" :key="strength" class="legend-item">
-          <svg width="28" height="8"><line x1="0" y1="4" x2="28" y2="4" stroke="#606266" :stroke-width="width" /></svg>
-          {{ strength }}
+        <span class="legend-title">线粗：</span>
+        <span v-for="(w, s) in strengthWidths" :key="s" class="legend-item">
+          <svg width="28" height="8"><line x1="0" y1="4" x2="28" y2="4" stroke="#64748b" :stroke-width="w" stroke-linecap="round" /></svg>
+          {{ s }}
         </span>
         <span class="legend-divider"> | </span>
         <span class="legend-item">
@@ -159,7 +133,7 @@
         </span>
         <span class="legend-item">
           <svg width="12" height="12"><circle cx="6" cy="6" r="5" fill="#c0c4cc" /></svg>
-          空闲/停止
+          空闲
         </span>
       </div>
     </el-card>
@@ -167,80 +141,128 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { relationsApi, type TeamGraph, type TeamGraphEdge } from '../api'
+import { relationsApi, type TeamGraph, type TeamGraphEdge, type TeamGraphNode } from '../api'
 
 const router = useRouter()
 const containerRef = ref<HTMLElement>()
-
 const loading = ref(false)
 const graph = ref<TeamGraph>({ nodes: [], edges: [] })
 
+// ── Layout constants ───────────────────────────────────────────────────────
 const svgWidth = 820
-const svgHeight = 580
-const cx = svgWidth / 2
-const cy = svgHeight / 2 - 10
-const nodeRadius = 28
+const NODE_R = 28
+const LEVEL_H = 150  // vertical gap between levels
+const PAD_TOP = 80   // top padding
+const PAD_X = 80     // horizontal padding per side
 
-// Compute radius based on node count for better spacing
-function layoutRadius(n: number): number {
-  if (n <= 1) return 0
-  if (n <= 4) return 160
-  if (n <= 7) return 200
-  return Math.min(240, 60 * n / (2 * Math.PI) + 40)
+const strengthWidths: Record<string, number> = {
+  '核心': 4,
+  '常用': 2.5,
+  '偶尔': 1.5,
 }
 
-// Map from node id → {x, y}
+// ── Hierarchy level computation ────────────────────────────────────────────
+// edge.type === '上级': edge.to is edge.from's boss → edge.to should be above (lower level number)
+// edge.type === '下级': edge.to is edge.from's subordinate → edge.to should be below (higher level number)
+// 平级协作 / 支持: no vertical shift
+
+function computeLevels(nodes: TeamGraphNode[], edges: TeamGraphEdge[]): Record<string, number> {
+  const levels: Record<string, number> = {}
+  nodes.forEach(n => { levels[n.id] = 0 })
+
+  // Iterative relaxation (converges in at most N passes for a DAG)
+  const maxIter = nodes.length + 2
+  for (let iter = 0; iter < maxIter; iter++) {
+    let changed = false
+    for (const edge of edges) {
+      const lf = levels[edge.from] ?? 0
+      const lt = levels[edge.to] ?? 0
+      if (edge.type === '上级') {
+        // to is boss of from → to should be above from → to.level < from.level
+        const want = lf - 1
+        if (lt > want) { levels[edge.to] = want; changed = true }
+      } else if (edge.type === '下级') {
+        // to is subordinate of from → to should be below from → to.level > from.level
+        const want = lf + 1
+        if (lt < want) { levels[edge.to] = want; changed = true }
+      }
+    }
+    if (!changed) break
+  }
+
+  // Normalize so minimum level = 0 (top row)
+  const vals = Object.values(levels)
+  const minL = vals.length ? Math.min(...vals) : 0
+  nodes.forEach(n => { levels[n.id] = (levels[n.id] ?? 0) - minL })
+  return levels
+}
+
+// ── Position map ───────────────────────────────────────────────────────────
+const levelMap = computed(() => computeLevels(graph.value.nodes, graph.value.edges))
+
+const svgHeight = computed(() => {
+  const maxLevel = Object.values(levelMap.value).reduce((m, v) => Math.max(m, v), 0)
+  return Math.max(400, PAD_TOP + maxLevel * LEVEL_H + 140)
+})
+
 const posMap = computed<Record<string, { x: number; y: number }>>(() => {
   const nodes = graph.value.nodes
-  const map: Record<string, { x: number; y: number }> = {}
-  if (nodes.length === 1 && nodes[0]) {
-    map[nodes[0].id] = { x: cx, y: cy }
-    return map
-  }
-  const r = layoutRadius(nodes.length)
-  nodes.forEach((n, i) => {
-    const angle = (2 * Math.PI * i / nodes.length) - Math.PI / 2
-    map[n.id] = {
-      x: Math.round(cx + r * Math.cos(angle)),
-      y: Math.round(cy + r * Math.sin(angle)),
-    }
+  const levels = levelMap.value
+
+  // Group node ids by level
+  const byLevel: Record<number, string[]> = {}
+  nodes.forEach(n => {
+    const lv = levels[n.id] ?? 0
+    if (!byLevel[lv]) byLevel[lv] = []
+    byLevel[lv].push(n.id)
   })
+
+  const map: Record<string, { x: number; y: number }> = {}
+  for (const [lvStr, ids] of Object.entries(byLevel)) {
+    const lv = Number(lvStr)
+    const y = PAD_TOP + lv * LEVEL_H
+    const usableW = svgWidth - PAD_X * 2
+    const gap = ids.length > 1 ? usableW / (ids.length - 1) : 0
+    ids.forEach((id, i) => {
+      const x = ids.length === 1
+        ? svgWidth / 2
+        : PAD_X + i * gap
+      map[id] = { x: Math.round(x), y: Math.round(y) }
+    })
+  }
   return map
 })
 
 function nodePos(id: string): { x: number; y: number } {
-  return posMap.value[id] ?? { x: cx, y: cy }
+  return posMap.value[id] ?? { x: svgWidth / 2, y: PAD_TOP }
 }
 
-// Shrink edge endpoints to node boundary so lines don't overlap circles.
-// Direction: source (edge.from) → destination (edge.to)
-function edgeStart(edge: TeamGraphEdge): { x: number; y: number } {
-  const a = nodePos(edge.from)
-  const b = nodePos(edge.to)
-  const dx = b.x - a.x, dy = b.y - a.y
+// Shrink edge endpoint to node boundary
+function edgePt(fromId: string, toId: string, end: 'start' | 'end'): { x: number; y: number } {
+  const a = nodePos(fromId)
+  const b = nodePos(toId)
+  const dx = b.x - a.x
+  const dy = b.y - a.y
   const len = Math.sqrt(dx * dx + dy * dy) || 1
-  const r = nodeRadius + 2
-  return { x: a.x + (dx / len) * r, y: a.y + (dy / len) * r }
-}
-
-function edgeEnd(edge: TeamGraphEdge): { x: number; y: number } {
-  const a = nodePos(edge.from)
-  const b = nodePos(edge.to)
-  const dx = b.x - a.x, dy = b.y - a.y
-  const len = Math.sqrt(dx * dx + dy * dy) || 1
-  const r = nodeRadius + 12 // extra space for arrowhead
+  const r = NODE_R + 3
+  if (end === 'start') return { x: a.x + (dx / len) * r, y: a.y + (dy / len) * r }
   return { x: b.x - (dx / len) * r, y: b.y - (dy / len) * r }
 }
 
-const nodeColorPalette = ['#409EFF', '#67C23A', '#E6A23C', '#F56C6C', '#7C3AED', '#0891B2', '#B45309', '#64748B']
+function edgeWidth(strength: string): number {
+  return strengthWidths[strength] ?? 1.5
+}
+
+// ── Node helpers ───────────────────────────────────────────────────────────
+const palette = ['#409EFF', '#67C23A', '#E6A23C', '#F56C6C', '#7C3AED', '#0891B2', '#B45309', '#64748B']
 
 function nodeColor(id: string): string {
-  let hash = 0
-  for (let i = 0; i < id.length; i++) hash = id.charCodeAt(i) + ((hash << 5) - hash)
-  return nodeColorPalette[Math.abs(hash) % nodeColorPalette.length] ?? '#409EFF'
+  let h = 0
+  for (let i = 0; i < id.length; i++) h = id.charCodeAt(i) + ((h << 5) - h)
+  return palette[Math.abs(h) % palette.length] ?? '#409EFF'
 }
 
 function nodeInitial(id: string): string {
@@ -251,55 +273,17 @@ function nodeName(id: string): string {
   return graph.value.nodes.find(n => n.id === id)?.name ?? id
 }
 
-const typeColors: Record<string, string> = {
-  '上级': '#F56C6C',
-  '下级': '#409EFF',
-  '平级协作': '#67C23A',
-  '支持': '#909399',
-}
-
-const strengthWidths: Record<string, number> = {
-  '核心': 4,
-  '常用': 2.5,
-  '偶尔': 1.5,
-}
-
-function edgeColor(type: string): string {
-  return typeColors[type] ?? '#909399'
-}
-
-function edgeWidth(strength: string): number {
-  return strengthWidths[strength] ?? 1.5
-}
-
-function encodeType(type: string): string {
-  return encodeURIComponent(type).replace(/%/g, '_')
-}
-
 function goToAgent(id: string) {
   router.push(`/agents/${id}`)
 }
 
-// Tooltip
-interface TooltipState {
-  visible: boolean
-  x: number
-  y: number
-  type: string
-  strength: string
-  label: string
-  from: string
-  to: string
-}
-
-const tooltip = ref<TooltipState>({
-  visible: false, x: 0, y: 0, type: '', strength: '', label: '', from: '', to: '',
-})
+// ── Tooltip ────────────────────────────────────────────────────────────────
+interface Tooltip { visible: boolean; x: number; y: number; type: string; strength: string; label: string; from: string; to: string }
+const tooltip = ref<Tooltip>({ visible: false, x: 0, y: 0, type: '', strength: '', label: '', from: '', to: '' })
 
 function showEdgeTooltip(e: MouseEvent, edge: TeamGraphEdge) {
-  const container = containerRef.value
-  if (!container) return
-  const rect = container.getBoundingClientRect()
+  const rect = containerRef.value?.getBoundingClientRect()
+  if (!rect) return
   tooltip.value = {
     visible: true,
     x: e.clientX - rect.left + 14,
@@ -311,24 +295,9 @@ function showEdgeTooltip(e: MouseEvent, edge: TeamGraphEdge) {
     to: edge.to,
   }
 }
+function hideTooltip() { tooltip.value.visible = false }
 
-function hideTooltip() {
-  tooltip.value.visible = false
-}
-
-function typeTagColor(type: string): '' | 'success' | 'warning' | 'info' | 'danger' {
-  if (type === '上级') return 'danger'
-  if (type === '下级') return ''
-  if (type === '平级协作') return 'success'
-  return 'info'
-}
-
-function strengthTagColor(s: string): '' | 'success' | 'warning' | 'info' | 'danger' {
-  if (s === '核心') return 'danger'
-  if (s === '常用') return 'warning'
-  return 'info'
-}
-
+// ── Load ───────────────────────────────────────────────────────────────────
 async function loadGraph() {
   loading.value = true
   try {
@@ -345,9 +314,7 @@ onMounted(loadGraph)
 </script>
 
 <style scoped>
-.team-view {
-  padding: 0;
-}
+.team-view { padding: 0; }
 .page-header {
   display: flex;
   align-items: center;
@@ -360,12 +327,8 @@ onMounted(loadGraph)
   font-weight: 700;
   color: #303133;
 }
-.graph-card {
-  margin-bottom: 16px;
-}
-.empty-state {
-  padding: 60px 0;
-}
+.graph-card { margin-bottom: 16px; }
+.empty-state { padding: 60px 0; }
 .graph-container {
   position: relative;
   display: flex;
@@ -378,25 +341,21 @@ onMounted(loadGraph)
 }
 .graph-edge {
   cursor: pointer;
-  transition: stroke-opacity 0.15s, stroke-width 0.15s;
+  transition: stroke-opacity 0.15s;
 }
-.graph-edge:hover {
-  stroke-opacity: 1 !important;
-}
+.graph-edge:hover { stroke-opacity: 1 !important; }
 .graph-node {
   cursor: pointer;
   transition: opacity 0.15s;
 }
-.graph-node:hover {
-  opacity: 0.85;
-}
+.graph-node:hover { opacity: 0.85; }
 .edge-tooltip {
   position: absolute;
   background: #fff;
   border: 1px solid #e4e7ed;
   border-radius: 8px;
   padding: 10px 14px;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.12);
   pointer-events: none;
   z-index: 200;
   min-width: 140px;
@@ -405,32 +364,15 @@ onMounted(loadGraph)
 .tooltip-members {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   font-size: 12px;
-  color: #606266;
   margin-bottom: 6px;
 }
-.tooltip-from, .tooltip-to {
-  font-weight: 600;
-  color: #303133;
-}
-.tooltip-arrow {
-  color: #909399;
-}
-.tooltip-tags {
-  display: flex;
-  gap: 6px;
-  margin-bottom: 4px;
-}
-.tooltip-label {
-  font-size: 12px;
-  color: #606266;
-  line-height: 1.5;
-  word-break: break-all;
-}
-.legend-card {
-  padding: 0;
-}
+.tooltip-name { font-weight: 600; color: #303133; }
+.tooltip-sep { color: #909399; }
+.tooltip-tags { display: flex; gap: 6px; margin-bottom: 4px; }
+.tooltip-label { font-size: 12px; color: #606266; line-height: 1.5; word-break: break-all; }
+.legend-card { padding: 0; }
 .legend {
   display: flex;
   align-items: center;
@@ -439,17 +381,7 @@ onMounted(loadGraph)
   font-size: 13px;
   color: #606266;
 }
-.legend-title {
-  font-weight: 600;
-  color: #303133;
-}
-.legend-item {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-.legend-divider {
-  color: #dcdfe6;
-  user-select: none;
-}
+.legend-title { font-weight: 600; color: #303133; }
+.legend-item { display: flex; align-items: center; gap: 5px; }
+.legend-divider { color: #dcdfe6; user-select: none; }
 </style>

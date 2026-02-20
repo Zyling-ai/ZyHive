@@ -20,5 +20,28 @@
     "state": {
       "nextRunAtMs": 1771610400000
     }
+  },
+  {
+    "id": "job-e3f6f86a",
+    "name": "自动记忆整理 · 主助手",
+    "remark": "由「主助手」的记忆模块自动管理，请勿手动删除",
+    "enabled": true,
+    "schedule": {
+      "kind": "cron",
+      "expr": "0 0 2 * * *",
+      "tz": "Asia/Shanghai"
+    },
+    "payload": {
+      "kind": "agentTurn",
+      "message": "__MEMORY_CONSOLIDATE__"
+    },
+    "delivery": {
+      "mode": "none"
+    },
+    "agentId": "main",
+    "createdAtMs": 1771548403812,
+    "state": {
+      "nextRunAtMs": 1771610400000
+    }
   }
 ]
