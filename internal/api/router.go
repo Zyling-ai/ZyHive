@@ -49,6 +49,7 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager, pool 
 	agChH := &agentChannelHandler{manager: mgr, runnerFunc: rf}
 	agents.GET("/:id/channels", agChH.GetChannels)
 	agents.PUT("/:id/channels", agChH.SetChannels)
+	agents.POST("/:id/channels/check-token", agChH.CheckToken)
 	agents.POST("/:id/channels/:chId/test", agChH.TestChannel)
 	// Pending users (users who messaged the bot but aren't in allowlist yet)
 	agents.GET("/:id/channels/:chId/pending", agChH.ListPending)

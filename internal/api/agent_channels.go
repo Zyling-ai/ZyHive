@@ -234,6 +234,44 @@ func (h *agentChannelHandler) TestChannel(c *gin.Context) {
 	}
 }
 
+// CheckToken POST /api/agents/:id/channels/check-token
+// Validates a bot token (Telegram getMe) AND checks for duplicates across all agents.
+// Used for real-time inline feedback in the dialog before saving.
+// Body: { "token": "..." }
+func (h *agentChannelHandler) CheckToken(c *gin.Context) {
+	agentID := c.Param("id")
+
+	var body struct {
+		Token string `json:"token"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil || body.Token == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "token required"})
+		return
+	}
+
+	// 1. Duplicate check (exclude self)
+	if owner, ownerCh := h.manager.FindAgentByBotToken(body.Token, agentID); owner != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"valid":     false,
+			"duplicate": true,
+			"usedBy":    owner.Name,
+			"usedByCh":  ownerCh,
+			"error":     fmt.Sprintf("已被成员「%s」的渠道「%s」使用", owner.Name, ownerCh),
+		})
+		return
+	}
+
+	// 2. Validate with Telegram
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
+	defer cancel()
+	botName, err := channel.TestTelegramBot(ctx, body.Token)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"valid": false, "error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"valid": true, "botName": botName})
+}
+
 func timeStampShort() string {
 	return strings.ToLower(strings.ReplaceAll(
 		time.Now().Format("0102150405"),
