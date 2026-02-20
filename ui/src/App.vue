@@ -46,10 +46,6 @@
             <el-icon><Cpu /></el-icon>
             <template #title>模型</template>
           </el-menu-item>
-          <el-menu-item index="/config/channels">
-            <el-icon><ChatDotRound /></el-icon>
-            <template #title>消息通道</template>
-          </el-menu-item>
           <el-menu-item index="/config/tools">
             <el-icon><SetUp /></el-icon>
             <template #title>能力</template>
@@ -60,15 +56,11 @@
           </el-menu-item>
         </el-sub-menu>
 
-        <!-- Collapsed: show config sub-items flat (/, /agents, /chats already shown above) -->
+        <!-- Collapsed: show config sub-items flat -->
         <template v-if="collapsed">
           <el-menu-item index="/config/models">
             <el-icon><Cpu /></el-icon>
             <template #title>模型</template>
-          </el-menu-item>
-          <el-menu-item index="/config/channels">
-            <el-icon><ChatDotRound /></el-icon>
-            <template #title>消息通道</template>
           </el-menu-item>
           <el-menu-item index="/config/tools">
             <el-icon><SetUp /></el-icon>

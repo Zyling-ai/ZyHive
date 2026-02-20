@@ -14,6 +14,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/agent"
+	"github.com/sunhuihui6688-star/ai-panel/pkg/channel"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/config"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/cron"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/session"
@@ -22,7 +23,8 @@ import (
 const configFilePath = "aipanel.json"
 
 // RegisterRoutes mounts all API handlers onto the Gin engine.
-func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager, pool *agent.Pool, cronEngine *cron.Engine, uiFS fs.FS) {
+func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager, pool *agent.Pool, cronEngine *cron.Engine, uiFS fs.FS, runnerFunc channel.RunnerFunc) {
+	rf := runnerFunc
 	r.Use(corsMiddleware())
 	r.Use(requestLogger())
 
@@ -42,6 +44,12 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager, pool 
 		agents.POST("/:id/stop", agentH.Stop)
 		agents.POST("/:id/message", agentH.Message) // Agent 间通信
 	}
+
+	// Per-agent channels (each member has its own bot tokens)
+	agChH := &agentChannelHandler{manager: mgr, runnerFunc: rf}
+	agents.GET("/:id/channels", agChH.GetChannels)
+	agents.PUT("/:id/channels", agChH.SetChannels)
+	agents.POST("/:id/channels/:chId/test", agChH.TestChannel)
 
 	// Chat (streaming SSE)
 	chatH := &chatHandler{cfg: cfg, manager: mgr}

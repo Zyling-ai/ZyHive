@@ -13,6 +13,8 @@ import (
 	"time"
 )
 
+// Ensure RunnerFunc is exported so other packages can reference it cleanly.
+
 // RunnerFunc executes an agent turn and returns the full text response.
 type RunnerFunc func(ctx context.Context, agentID, message string) (string, error)
 
@@ -212,4 +214,39 @@ func truncate(s string, max int) string {
 		return s
 	}
 	return s[:max] + "..."
+}
+
+// TestTelegramBot calls getMe to verify a bot token. Returns the bot username on success.
+func TestTelegramBot(ctx context.Context, token string) (string, error) {
+	url := fmt.Sprintf("https://api.telegram.org/bot%s/getMe", token)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return "", err
+	}
+	client := &http.Client{Timeout: 8 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	var result struct {
+		OK     bool   `json:"ok"`
+		Desc   string `json:"description"`
+		Result struct {
+			Username string `json:"username"`
+			FirstName string `json:"first_name"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return "", fmt.Errorf("parse response: %w", err)
+	}
+	if !result.OK {
+		return "", fmt.Errorf("telegram api: %s", result.Desc)
+	}
+	name := result.Result.Username
+	if name == "" {
+		name = result.Result.FirstName
+	}
+	return name, nil
 }

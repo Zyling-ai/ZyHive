@@ -128,12 +128,20 @@ export const models = {
     api.get<{ envKeys: { provider: string; envVar: string; masked: string; baseUrl: string }[] }>('/models/env-keys'),
 }
 
+// Global channel registry (deprecated — kept for backward compat)
 export const channels = {
   list: () => api.get<ChannelEntry[]>('/channels'),
   create: (data: Partial<ChannelEntry>) => api.post<ChannelEntry>('/channels', data),
   update: (id: string, data: Partial<ChannelEntry>) => api.patch<ChannelEntry>(`/channels/${id}`, data),
   delete: (id: string) => api.delete(`/channels/${id}`),
   test: (id: string) => api.post<{ valid: boolean }>(`/channels/${id}/test`),
+}
+
+// Per-agent channel config — each member manages its own bot tokens
+export const agentChannels = {
+  list: (agentId: string) => api.get<ChannelEntry[]>(`/agents/${agentId}/channels`),
+  set: (agentId: string, channels: ChannelEntry[]) => api.put(`/agents/${agentId}/channels`, channels),
+  test: (agentId: string, chId: string) => api.post<{ valid: boolean; botName?: string; error?: string }>(`/agents/${agentId}/channels/${chId}/test`),
 }
 
 export const tools = {

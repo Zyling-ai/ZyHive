@@ -586,6 +586,96 @@
             </template>
           </el-dialog>
         </el-tab-pane>
+
+        <!-- Tab 7: 渠道 (per-agent channel config) -->
+        <el-tab-pane label="渠道" name="channels">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px">
+            <el-text type="info" size="small">每个 AI 成员独立配置自己的消息通道（如 Telegram Bot Token）</el-text>
+            <el-button type="primary" size="small" @click="openAddChannel">
+              <el-icon><Plus /></el-icon> 添加渠道
+            </el-button>
+          </div>
+
+          <el-table :data="agentChannelList" stripe v-loading="channelsLoading">
+            <el-table-column label="类型" width="110">
+              <template #default="{ row }">
+                <el-tag size="small">{{ row.type }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="name" label="名称" min-width="140" />
+            <el-table-column label="配置" min-width="200">
+              <template #default="{ row }">
+                <el-text type="info" size="small">
+                  <span v-for="(v, k) in row.config" :key="k" style="margin-right: 8px">
+                    <template v-if="!String(k).toLowerCase().includes('token') && !String(k).toLowerCase().includes('key')">
+                      {{ k }}: {{ v }}
+                    </template>
+                    <template v-else>
+                      {{ k }}: ••••••
+                    </template>
+                  </span>
+                </el-text>
+              </template>
+            </el-table-column>
+            <el-table-column label="启用" width="80">
+              <template #default="{ row }">
+                <el-switch v-model="row.enabled" size="small" @change="saveChannels" />
+              </template>
+            </el-table-column>
+            <el-table-column label="状态" width="90">
+              <template #default="{ row }">
+                <el-tag :type="row.status === 'ok' ? 'success' : row.status === 'error' ? 'danger' : 'info'" size="small">
+                  {{ row.status === 'ok' ? '✓ 正常' : row.status === 'error' ? '✗ 错误' : '? 未测试' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="190">
+              <template #default="{ row }">
+                <el-button size="small" @click="testAgentChannel(row)" :loading="testingChannelId === row.id">测试</el-button>
+                <el-button size="small" @click="openEditChannel(row)">编辑</el-button>
+                <el-button size="small" type="danger" @click="deleteAgentChannel(row)">删除</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+
+          <el-empty v-if="!channelsLoading && !agentChannelList.length" description="暂无渠道，点击「添加渠道」开始配置" :image-size="80" style="margin-top: 40px" />
+
+          <!-- Add/Edit Dialog -->
+          <el-dialog v-model="channelDialogVisible" :title="channelEditingId ? '编辑渠道' : '添加渠道'" width="520px">
+            <el-form :model="channelForm" label-width="120px">
+              <el-form-item label="类型" required>
+                <el-select v-model="channelForm.type" style="width: 100%">
+                  <el-option label="Telegram" value="telegram" />
+                  <el-option label="iMessage" value="imessage" />
+                  <el-option label="WhatsApp" value="whatsapp" />
+                </el-select>
+              </el-form-item>
+              <el-form-item label="名称" required>
+                <el-input v-model="channelForm.name" placeholder="如 我的 Telegram Bot" />
+              </el-form-item>
+
+              <!-- Telegram-specific -->
+              <template v-if="channelForm.type === 'telegram'">
+                <el-form-item label="Bot Token" required>
+                  <el-input v-model="channelForm.botToken" type="password" show-password placeholder="从 @BotFather 获取" />
+                </el-form-item>
+                <el-form-item label="允许的用户">
+                  <el-input v-model="channelForm.allowedFrom" placeholder="逗号分隔的 Telegram 用户 ID（留空=全部）" />
+                  <el-text type="info" size="small">留空则接受任何人发送的消息</el-text>
+                </el-form-item>
+              </template>
+
+              <el-form-item label="启用">
+                <el-switch v-model="channelForm.enabled" />
+              </el-form-item>
+            </el-form>
+            <template #footer>
+              <el-button @click="channelDialogVisible = false">取消</el-button>
+              <el-button type="primary" @click="saveChannelDialog" :loading="channelSaving">保存</el-button>
+            </template>
+          </el-dialog>
+        </el-tab-pane>
+
       </el-tabs>
     </el-main>
   </el-container>
@@ -596,7 +686,7 @@ import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ArrowLeft, Plus, EditPen, Refresh, FolderOpened, Document } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
-import { agents as agentsApi, files as filesApi, memoryApi, cron as cronApi, sessions as sessionsApi, relationsApi, memoryConfigApi, type AgentInfo, type FileEntry, type CronJob, type SessionSummary, type RelationRow, type MemConfig, type MemRunLog } from '../api'
+import { agents as agentsApi, files as filesApi, memoryApi, cron as cronApi, sessions as sessionsApi, relationsApi, memoryConfigApi, agentChannels as agentChannelsApi, type AgentInfo, type FileEntry, type CronJob, type SessionSummary, type RelationRow, type MemConfig, type MemRunLog, type ChannelEntry } from '../api'
 import AiChat, { type ChatMsg } from '../components/AiChat.vue'
 
 const route = useRoute()
@@ -906,6 +996,129 @@ function formatTimestamp(ms: number) {
 }
 
 // Load agent
+// ── Per-agent Channel management ──────────────────────────────────────────
+const agentChannelList = ref<ChannelEntry[]>([])
+const channelsLoading = ref(false)
+const channelDialogVisible = ref(false)
+const channelEditingId = ref('')
+const channelSaving = ref(false)
+const testingChannelId = ref('')
+const channelForm = ref({
+  type: 'telegram',
+  name: '',
+  enabled: true,
+  botToken: '',
+  allowedFrom: '',
+})
+
+async function loadAgentChannels() {
+  channelsLoading.value = true
+  try {
+    const res = await agentChannelsApi.list(agentId)
+    agentChannelList.value = res.data || []
+  } catch {
+    agentChannelList.value = []
+  } finally {
+    channelsLoading.value = false
+  }
+}
+
+function openAddChannel() {
+  channelEditingId.value = ''
+  channelForm.value = { type: 'telegram', name: '', enabled: true, botToken: '', allowedFrom: '' }
+  channelDialogVisible.value = true
+}
+
+function openEditChannel(row: ChannelEntry) {
+  channelEditingId.value = row.id
+  channelForm.value = {
+    type: row.type,
+    name: row.name,
+    enabled: row.enabled,
+    botToken: row.config?.botToken || '',
+    allowedFrom: row.config?.allowedFrom || '',
+  }
+  channelDialogVisible.value = true
+}
+
+async function saveChannelDialog() {
+  if (!channelForm.value.name || !channelForm.value.type) {
+    ElMessage.warning('请填写名称和类型')
+    return
+  }
+  channelSaving.value = true
+  try {
+    const newConfig: Record<string, string> = {}
+    if (channelForm.value.type === 'telegram') {
+      if (channelForm.value.botToken) newConfig.botToken = channelForm.value.botToken
+      if (channelForm.value.allowedFrom) newConfig.allowedFrom = channelForm.value.allowedFrom
+    }
+
+    if (channelEditingId.value) {
+      // Update existing
+      const list = agentChannelList.value.map(ch => {
+        if (ch.id !== channelEditingId.value) return ch
+        return { ...ch, name: channelForm.value.name, type: channelForm.value.type, enabled: channelForm.value.enabled, config: { ...ch.config, ...newConfig } }
+      })
+      await agentChannelsApi.set(agentId, list)
+    } else {
+      // Add new
+      const newEntry: ChannelEntry = {
+        id: channelForm.value.type + '-' + Date.now().toString(36),
+        name: channelForm.value.name,
+        type: channelForm.value.type,
+        enabled: channelForm.value.enabled,
+        config: newConfig,
+        status: 'untested',
+      }
+      await agentChannelsApi.set(agentId, [...agentChannelList.value, newEntry])
+    }
+    ElMessage.success('保存成功，重启后新渠道生效')
+    channelDialogVisible.value = false
+    await loadAgentChannels()
+  } catch (e: any) {
+    ElMessage.error(e.response?.data?.error || '保存失败')
+  } finally {
+    channelSaving.value = false
+  }
+}
+
+async function saveChannels() {
+  try {
+    await agentChannelsApi.set(agentId, agentChannelList.value)
+  } catch {
+    ElMessage.error('保存失败')
+  }
+}
+
+async function deleteAgentChannel(row: ChannelEntry) {
+  const updated = agentChannelList.value.filter(ch => ch.id !== row.id)
+  try {
+    await agentChannelsApi.set(agentId, updated)
+    agentChannelList.value = updated
+    ElMessage.success('已删除')
+  } catch {
+    ElMessage.error('删除失败')
+  }
+}
+
+async function testAgentChannel(row: ChannelEntry) {
+  testingChannelId.value = row.id
+  try {
+    const res = await agentChannelsApi.test(agentId, row.id)
+    if (res.data.valid) {
+      ElMessage.success(res.data.botName ? `测试成功 (@${res.data.botName})` : '测试成功')
+    } else {
+      ElMessage.error(res.data.error || '测试失败')
+    }
+    await loadAgentChannels()
+  } catch {
+    ElMessage.error('测试请求失败')
+  } finally {
+    testingChannelId.value = ''
+  }
+}
+
 onMounted(async () => {
   try {
     const res = await agentsApi.get(agentId)
@@ -919,6 +1132,7 @@ onMounted(async () => {
   loadMemConfig()
   loadWorkspace()
   loadCron()
+  loadAgentChannels()
   await loadAgentSessions()
 
   // Handle ?tab=<name> query param (e.g. from CronView "查看" button)

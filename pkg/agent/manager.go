@@ -15,36 +15,37 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/sunhuihui6688-star/ai-panel/pkg/config"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/memory"
 )
 
 // Agent represents a single AI agent (employee) managed by the panel.
 type Agent struct {
-	ID           string   `json:"id"`
-	Name         string   `json:"name"`
-	Description  string   `json:"description,omitempty"`
-	Model        string   `json:"model"`          // legacy: "provider/model"
-	ModelID      string   `json:"modelId"`         // references Config.Models[].ID
-	ChannelIDs   []string `json:"channelIds,omitempty"`
-	ToolIDs      []string `json:"toolIds,omitempty"`
-	SkillIDs     []string `json:"skillIds,omitempty"`
-	AvatarColor  string   `json:"avatarColor,omitempty"`
-	WorkspaceDir string   `json:"workspaceDir"`
-	SessionDir   string   `json:"sessionDir"`
-	Status       string   `json:"status"` // "running" | "stopped" | "idle"
+	ID           string                `json:"id"`
+	Name         string                `json:"name"`
+	Description  string                `json:"description,omitempty"`
+	Model        string                `json:"model"`          // legacy: "provider/model"
+	ModelID      string                `json:"modelId"`         // references Config.Models[].ID
+	Channels     []config.ChannelEntry `json:"channels,omitempty"`   // per-agent channels (own bots)
+	ToolIDs      []string              `json:"toolIds,omitempty"`
+	SkillIDs     []string              `json:"skillIds,omitempty"`
+	AvatarColor  string                `json:"avatarColor,omitempty"`
+	WorkspaceDir string                `json:"workspaceDir"`
+	SessionDir   string                `json:"sessionDir"`
+	Status       string                `json:"status"` // "running" | "stopped" | "idle"
 }
 
 // agentConfig is the on-disk config.json format for each agent.
 type agentConfig struct {
-	ID          string   `json:"id"`
-	Name        string   `json:"name"`
-	Description string   `json:"description,omitempty"`
-	Model       string   `json:"model,omitempty"`   // legacy compat
-	ModelID     string   `json:"modelId,omitempty"`
-	ChannelIDs  []string `json:"channelIds,omitempty"`
-	ToolIDs     []string `json:"toolIds,omitempty"`
-	SkillIDs    []string `json:"skillIds,omitempty"`
-	AvatarColor string   `json:"avatarColor,omitempty"`
+	ID          string                `json:"id"`
+	Name        string                `json:"name"`
+	Description string                `json:"description,omitempty"`
+	Model       string                `json:"model,omitempty"`   // legacy compat
+	ModelID     string                `json:"modelId,omitempty"`
+	Channels    []config.ChannelEntry `json:"channels,omitempty"`   // per-agent channels
+	ToolIDs     []string              `json:"toolIds,omitempty"`
+	SkillIDs    []string              `json:"skillIds,omitempty"`
+	AvatarColor string                `json:"avatarColor,omitempty"`
 }
 
 // Manager manages all agents under a root directory.
@@ -108,7 +109,7 @@ func (m *Manager) LoadAll() error {
 			Description:  cfg.Description,
 			Model:        cfg.Model,
 			ModelID:      cfg.ModelID,
-			ChannelIDs:   cfg.ChannelIDs,
+			Channels:     cfg.Channels,
 			ToolIDs:      cfg.ToolIDs,
 			SkillIDs:     cfg.SkillIDs,
 			AvatarColor:  cfg.AvatarColor,
@@ -155,15 +156,15 @@ func (m *Manager) List() []*Agent {
 //	{rootDir}/{id}/sessions/
 // CreateOpts holds the options for creating a new agent.
 type CreateOpts struct {
-	ID          string   `json:"id"`
-	Name        string   `json:"name"`
-	Description string   `json:"description,omitempty"`
-	Model       string   `json:"model,omitempty"`   // legacy: "provider/model"
-	ModelID     string   `json:"modelId,omitempty"`
-	ChannelIDs  []string `json:"channelIds,omitempty"`
-	ToolIDs     []string `json:"toolIds,omitempty"`
-	SkillIDs    []string `json:"skillIds,omitempty"`
-	AvatarColor string   `json:"avatarColor,omitempty"`
+	ID          string                `json:"id"`
+	Name        string                `json:"name"`
+	Description string                `json:"description,omitempty"`
+	Model       string                `json:"model,omitempty"`   // legacy: "provider/model"
+	ModelID     string                `json:"modelId,omitempty"`
+	Channels    []config.ChannelEntry `json:"channels,omitempty"`   // per-agent channels
+	ToolIDs     []string              `json:"toolIds,omitempty"`
+	SkillIDs    []string              `json:"skillIds,omitempty"`
+	AvatarColor string                `json:"avatarColor,omitempty"`
 }
 
 func (m *Manager) Create(id, name, model string) (*Agent, error) {
@@ -196,7 +197,7 @@ func (m *Manager) CreateWithOpts(opts CreateOpts) (*Agent, error) {
 		Description: opts.Description,
 		Model:       opts.Model,
 		ModelID:     opts.ModelID,
-		ChannelIDs:  opts.ChannelIDs,
+		Channels:    opts.Channels,
 		ToolIDs:     opts.ToolIDs,
 		SkillIDs:    opts.SkillIDs,
 		AvatarColor: opts.AvatarColor,
@@ -221,7 +222,7 @@ func (m *Manager) CreateWithOpts(opts CreateOpts) (*Agent, error) {
 		Description:  opts.Description,
 		Model:        opts.Model,
 		ModelID:      opts.ModelID,
-		ChannelIDs:   opts.ChannelIDs,
+		Channels:     opts.Channels,
 		ToolIDs:      opts.ToolIDs,
 		SkillIDs:     opts.SkillIDs,
 		AvatarColor:  opts.AvatarColor,
@@ -232,4 +233,36 @@ func (m *Manager) CreateWithOpts(opts CreateOpts) (*Agent, error) {
 	m.agents[opts.ID] = a
 
 	return a, nil
+}
+
+// UpdateChannels replaces the channel config for an agent and persists it to disk.
+func (m *Manager) UpdateChannels(agentID string, channels []config.ChannelEntry) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	ag, ok := m.agents[agentID]
+	if !ok {
+		return fmt.Errorf("agent %q not found", agentID)
+	}
+
+	ag.Channels = channels
+
+	// Read existing config.json, update channels, write back
+	agentDir := filepath.Join(m.rootDir, agentID)
+	cfgPath := filepath.Join(agentDir, "config.json")
+
+	data, err := os.ReadFile(cfgPath)
+	if err != nil {
+		return fmt.Errorf("read config.json: %w", err)
+	}
+	var cfg agentConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return fmt.Errorf("parse config.json: %w", err)
+	}
+	cfg.Channels = channels
+	out, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(cfgPath, out, 0644)
 }
