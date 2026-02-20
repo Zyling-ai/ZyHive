@@ -158,9 +158,12 @@
             <div class="file-editor-head">
               <el-icon><Document /></el-icon> SKILL.md
               <span class="file-hint">注入到 AI System Prompt 的指令内容</span>
-              <div style="margin-left:auto;display:flex;gap:8px">
+              <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
                 <el-tag v-if="promptDirty" type="warning" size="small">未保存</el-tag>
                 <span style="font-size:11px;color:#c0c4cc">{{ promptContent.length }} 字符</span>
+                <el-button size="small" circle :loading="promptLoading" @click="reloadPrompt" title="重新加载">
+                  <el-icon><Refresh /></el-icon>
+                </el-button>
               </div>
             </div>
             <textarea
@@ -198,6 +201,7 @@
           :welcome-message="chatWelcome"
           :examples="chatExamples"
           compact
+          @response="onAiResponse"
         />
       </div>
     </div>
@@ -251,6 +255,7 @@ import { agentSkills as skillsApi, files as filesApi, type AgentSkillMeta } from
 import AiChat from './AiChat.vue'
 
 const props = defineProps<{ agentId: string }>()
+const agentId = props.agentId
 
 // ── State ──────────────────────────────────────────────────────────────────
 const skills = ref<AgentSkillMeta[]>([])
@@ -312,12 +317,15 @@ const chatExamples = computed(() =>
 async function loadList() {
   listLoading.value = true
   try {
-    const res = await skillsApi.list(props.agentId)
+    const res = await skillsApi.list(agentId)
     skills.value = res.data || []
-    // If current selected still exists, refresh its data
+    // Keep selected in sync
     if (selected.value) {
       const updated = skills.value.find(s => s.id === selected.value!.id)
-      if (updated) { selected.value = updated; syncMetaForm(updated) }
+      if (updated) {
+        selected.value = updated
+        syncMetaForm(updated)
+      }
     }
   } catch { /* silent */ }
   finally { listLoading.value = false }
@@ -342,15 +350,7 @@ async function switchToPrompt() {
   if (!selected.value) return
   if (activeFile.value === 'prompt') return
   activeFile.value = 'prompt'
-  if (!promptContent.value) {
-    promptLoading.value = true
-    try {
-      const res = await filesApi.read(props.agentId, `skills/${selected.value.id}/SKILL.md`)
-      promptContent.value = res.data?.content || ''
-    } catch { promptContent.value = '' }
-    finally { promptLoading.value = false }
-    promptDirty.value = false
-  }
+  if (!promptContent.value) await reloadPrompt()
 }
 
 // ── Save ───────────────────────────────────────────────────────────────────
@@ -368,7 +368,7 @@ async function saveSkill() {
     })
     // Save SKILL.md if in prompt mode or if content was loaded
     if (activeFile.value === 'prompt' || promptContent.value) {
-      await filesApi.write(props.agentId, `skills/${selected.value.id}/SKILL.md`, promptContent.value)
+      await filesApi.write(agentId, `skills/${selected.value.id}/SKILL.md`, promptContent.value)
       promptDirty.value = false
     }
     ElMessage.success('保存成功')
@@ -427,6 +427,28 @@ async function createSkill() {
   } catch (e: any) {
     ElMessage.error(e.response?.data?.error || '创建失败')
   } finally { creating.value = false }
+}
+
+// ── AI response hook ──────────────────────────────────────────────────────
+async function onAiResponse(_text: string) {
+  if (!selected.value) return
+  // Reload skill metadata (in case AI modified it)
+  await loadList()
+  // Reload SKILL.md if currently viewing it
+  if (activeFile.value === 'prompt') {
+    await reloadPrompt()
+  }
+}
+
+async function reloadPrompt() {
+  if (!selected.value) return
+  promptLoading.value = true
+  try {
+    const res = await filesApi.read(agentId, `skills/${selected.value.id}/SKILL.md`)
+    promptContent.value = res.data?.content || ''
+    promptDirty.value = false
+  } catch { promptContent.value = '' }
+  finally { promptLoading.value = false }
 }
 
 // ── Test ───────────────────────────────────────────────────────────────────
