@@ -929,6 +929,23 @@
 
               <!-- Web channel -->
               <template v-if="channelForm.type === 'web'">
+                <el-form-item v-if="channelEditingId" label="访问链接">
+                  <div class="channel-url-preview">
+                    <el-icon style="flex-shrink:0;color:#909399"><Link /></el-icon>
+                    <span class="channel-url-text">{{ webChatUrl(agentId, channelEditingId) }}</span>
+                    <el-button size="small" link @click="copyUrl(webChatUrl(agentId, channelEditingId))">复制</el-button>
+                  </div>
+                </el-form-item>
+                <el-form-item v-if="!channelEditingId" label="访问链接">
+                  <div class="channel-url-preview">
+                    <el-icon style="flex-shrink:0;color:#909399"><Link /></el-icon>
+                    <span class="channel-url-text">{{ webChatUrl(agentId, pendingChannelId) }}</span>
+                    <el-tag size="small" type="info" effect="plain">保存后生效</el-tag>
+                  </div>
+                  <el-text type="info" size="small" style="display:block;margin-top:4px">
+                    每个 Web 渠道有独立链接，可同时开放多个入口
+                  </el-text>
+                </el-form-item>
                 <el-form-item label="访问密码">
                   <el-input v-model="channelForm.webPassword" type="password" show-password placeholder="留空则无需密码" />
                 </el-form-item>
@@ -1276,6 +1293,7 @@ const agentChannelList = ref<ChannelEntry[]>([])
 const channelsLoading = ref(false)
 const channelDialogVisible = ref(false)
 const channelEditingId = ref('')
+const pendingChannelId = ref('')  // pre-generated id for new web channel
 const channelSaving = ref(false)
 const testingChannelId = ref('')
 const channelForm = ref({
@@ -1327,6 +1345,12 @@ async function doCheckToken() {
 }
 
 // Auto-check when token input stabilises (800ms debounce, min length ~20)
+watch(() => channelForm.value.type, (val) => {
+  if (!channelEditingId.value) {
+    pendingChannelId.value = genChannelId(val)
+  }
+})
+
 watch(() => channelForm.value.botToken, (val) => {
   // Reset state on change
   tokenCheckState.value = { loading: false, status: '' }
@@ -1358,9 +1382,14 @@ async function loadAgentChannels() {
   }
 }
 
+function genChannelId(type: string) {
+  return type + '-' + Date.now().toString(36)
+}
+
 function openAddChannel() {
   channelEditingId.value = ''
   const defaultName = agent.value?.name || ''
+  pendingChannelId.value = genChannelId('telegram') // default, updated on type change
   channelForm.value = { type: 'telegram', name: defaultName, enabled: true, botToken: '', allowedFrom: '', webPassword: '', webWelcome: '', webTitle: '' }
   tokenCheckState.value = { loading: false, status: '' }
   channelDialogVisible.value = true
@@ -1413,7 +1442,7 @@ async function saveChannelDialog() {
     } else {
       // Add new
       const newEntry: ChannelEntry = {
-        id: channelForm.value.type + '-' + Date.now().toString(36),
+        id: pendingChannelId.value || genChannelId(channelForm.value.type),
         name: channelForm.value.name,
         type: channelForm.value.type,
         enabled: channelForm.value.enabled,
@@ -2236,6 +2265,23 @@ watch(activeTab, (tab) => {
 }
 .channel-info-value {
   flex: 1;
+}
+.channel-url-preview {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #f5f7fa;
+  border: 1px solid #e4e7ed;
+  border-radius: 6px;
+  padding: 7px 10px;
+  width: 100%;
+}
+.channel-url-text {
+  flex: 1;
+  font-size: 12px;
+  color: #409eff;
+  word-break: break-all;
+  font-family: monospace;
 }
 .pending-section {
   border: 1px solid #e4e7ed;
