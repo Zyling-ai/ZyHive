@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -273,11 +274,19 @@ func (h *relationsHandler) Graph(c *gin.Context) {
 	for _, n := range nodeMap {
 		nodes = append(nodes, n)
 	}
+	// Sort nodes by ID for stable, deterministic layout on every refresh.
+	sort.Slice(nodes, func(i, j int) bool { return nodes[i].ID < nodes[j].ID })
 
 	edges := make([]GraphEdge, 0, len(edgeMap))
 	for _, e := range edgeMap {
 		edges = append(edges, e)
 	}
+	// Sort edges for stable render order.
+	sort.Slice(edges, func(i, j int) bool {
+		ki := edges[i].From + "→" + edges[i].To
+		kj := edges[j].From + "→" + edges[j].To
+		return ki < kj
+	})
 
 	if nodes == nil {
 		nodes = []GraphNode{}
