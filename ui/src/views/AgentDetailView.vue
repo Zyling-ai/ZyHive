@@ -883,10 +883,41 @@
               <!-- Telegram-specific -->
               <template v-if="channelForm.type === 'telegram'">
                 <el-form-item label="Bot Token" required>
-                  <el-input v-model="channelForm.botToken" type="password" show-password placeholder="从 @BotFather 获取" />
-                  <el-text type="info" size="small" style="display:block;margin-top:4px">
-                    💡 保存后点击「测试连接」验证 Token 是否有效
-                  </el-text>
+                  <div style="width:100%">
+                    <div style="display:flex;gap:6px;align-items:center">
+                      <el-input
+                        v-model="channelForm.botToken"
+                        type="password"
+                        show-password
+                        placeholder="从 @BotFather 获取"
+                        style="flex:1"
+                        :status="tokenCheckState.status === 'error' ? 'error' : tokenCheckState.status === 'ok' ? 'success' : ''"
+                      />
+                      <el-button
+                        size="default"
+                        :loading="tokenCheckState.loading"
+                        :type="tokenCheckState.status === 'ok' ? 'success' : tokenCheckState.status === 'error' ? 'danger' : 'default'"
+                        @click="doCheckToken"
+                        :disabled="!channelForm.botToken || ismaskedToken(channelForm.botToken)"
+                      >验证</el-button>
+                    </div>
+                    <!-- Inline feedback -->
+                    <div v-if="tokenCheckState.loading" style="margin-top:6px;display:flex;align-items:center;gap:6px;color:#909399;font-size:13px">
+                      <el-icon class="is-loading"><Refresh /></el-icon> 正在验证 Token…
+                    </div>
+                    <div v-else-if="tokenCheckState.status === 'ok'" style="margin-top:6px;color:#67c23a;font-size:13px">
+                      ✅ Token 有效，Bot 名称：<b>@{{ tokenCheckState.botName }}</b>
+                    </div>
+                    <div v-else-if="tokenCheckState.status === 'duplicate'" style="margin-top:6px;color:#e6a23c;font-size:13px">
+                      ⚠️ 此 Token 已被成员「<b>{{ tokenCheckState.usedBy }}</b>」的渠道「{{ tokenCheckState.usedByCh }}」使用
+                    </div>
+                    <div v-else-if="tokenCheckState.status === 'error'" style="margin-top:6px;color:#f56c6c;font-size:13px">
+                      ❌ {{ tokenCheckState.error }}
+                    </div>
+                    <div v-else style="margin-top:4px">
+                      <el-text type="info" size="small">💡 输入完成后自动验证，也可点右侧「验证」按钮手动触发</el-text>
+                    </div>
+                  </div>
                 </el-form-item>
                 <el-form-item label="白名单用户">
                   <el-input v-model="channelForm.allowedFrom" placeholder="填入 Telegram 用户 ID，多个用逗号分隔" />
@@ -1258,6 +1289,53 @@ const channelForm = ref({
   webTitle: '',
 })
 
+// ── Token inline validation ────────────────────────────────────────────────
+const tokenCheckState = ref<{
+  loading: boolean
+  status: '' | 'ok' | 'error' | 'duplicate'
+  botName?: string
+  usedBy?: string
+  usedByCh?: string
+  error?: string
+}>({ loading: false, status: '' })
+
+let tokenDebounceTimer: ReturnType<typeof setTimeout> | null = null
+
+function ismaskedToken(v: string) {
+  return /^\*+$/.test(v)
+}
+
+async function doCheckToken() {
+  const token = channelForm.value.botToken
+  if (!token || ismaskedToken(token)) return
+  tokenCheckState.value = { loading: true, status: '' }
+  try {
+    const res = await agentChannelsApi.checkToken(agentId, token)
+    const d = res.data
+    if (d.duplicate) {
+      tokenCheckState.value = { loading: false, status: 'duplicate', usedBy: d.usedBy, usedByCh: d.usedByCh }
+    } else if (d.valid) {
+      tokenCheckState.value = { loading: false, status: 'ok', botName: d.botName }
+      // Auto-fill name if empty
+      if (!channelForm.value.name && d.botName) channelForm.value.name = d.botName
+    } else {
+      tokenCheckState.value = { loading: false, status: 'error', error: d.error || 'Token 无效' }
+    }
+  } catch {
+    tokenCheckState.value = { loading: false, status: 'error', error: '网络错误，请重试' }
+  }
+}
+
+// Auto-check when token input stabilises (800ms debounce, min length ~20)
+watch(() => channelForm.value.botToken, (val) => {
+  // Reset state on change
+  tokenCheckState.value = { loading: false, status: '' }
+  if (tokenDebounceTimer) clearTimeout(tokenDebounceTimer)
+  // Telegram tokens are "botId:hash" — typically 40+ chars; skip short/masked values
+  if (!val || ismaskedToken(val) || val.length < 20 || !val.includes(':')) return
+  tokenDebounceTimer = setTimeout(doCheckToken, 800)
+})
+
 function webChatUrl(aid: string): string {
   return `${window.location.origin}/chat/${aid}`
 }
@@ -1281,6 +1359,7 @@ async function loadAgentChannels() {
 function openAddChannel() {
   channelEditingId.value = ''
   channelForm.value = { type: 'telegram', name: '', enabled: true, botToken: '', allowedFrom: '', webPassword: '', webWelcome: '', webTitle: '' }
+  tokenCheckState.value = { loading: false, status: '' }
   channelDialogVisible.value = true
 }
 
@@ -1296,12 +1375,17 @@ function openEditChannel(row: ChannelEntry) {
     webWelcome: row.config?.welcomeMsg || '',
     webTitle: row.config?.title || '',
   }
+  tokenCheckState.value = { loading: false, status: '' }
   channelDialogVisible.value = true
 }
 
 async function saveChannelDialog() {
   if (!channelForm.value.name || !channelForm.value.type) {
     ElMessage.warning('请填写名称和类型')
+    return
+  }
+  if (tokenCheckState.value.status === 'duplicate') {
+    ElMessage.error(`Bot Token 已被成员「${tokenCheckState.value.usedBy}」使用，请更换`)
     return
   }
   channelSaving.value = true
