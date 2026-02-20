@@ -602,6 +602,7 @@
               <div class="channel-card-left">
                 <el-tag size="small" style="margin-right: 8px">{{ ch.type }}</el-tag>
                 <span class="channel-card-name">{{ ch.name }}</span>
+                <span v-if="ch.config?.botName" class="channel-bot-username">@{{ ch.config.botName }}</span>
                 <el-tag
                   :type="ch.status === 'ok' ? 'success' : ch.status === 'error' ? 'danger' : 'info'"
                   size="small" effect="plain" style="margin-left: 8px"
@@ -1725,6 +1726,11 @@ async function deleteCron(job: any) {
   font-weight: 600;
   font-size: 14px;
   color: #303133;
+}
+.channel-bot-username {
+  font-size: 12px;
+  color: #409eff;
+  margin-left: 6px;
 }
 .channel-card-actions {
   display: flex;
