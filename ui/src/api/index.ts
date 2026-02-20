@@ -406,6 +406,10 @@ export const relationsApi = {
     api.put(`/agents/${agentId}/relations`, content, { headers: { 'Content-Type': 'text/plain' } }),
   graph: () => api.get<TeamGraph>('/team/graph'),
   clearAll: () => api.delete('/team/relations'),
+  putEdge: (from: string, to: string, type: string, strength: string, desc: string) =>
+    api.put('/team/relations/edge', { from, to, type, strength, desc }),
+  deleteEdge: (from: string, to: string) =>
+    api.delete(`/team/relations/edge?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
 }
 
 export interface MemConfig {
