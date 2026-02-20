@@ -95,9 +95,29 @@ import { useRoute } from 'vue-router'
 
 const route = useRoute()
 const agentId = route.params.agentId as string
+const channelId = route.params.channelId as string | undefined // undefined on legacy route
+
+// Build API path prefix: /pub/chat/:agentId/:channelId  OR  /pub/chat/:agentId (legacy)
+const apiBase = channelId
+  ? `/pub/chat/${agentId}/${channelId}`
+  : `/pub/chat/${agentId}`
+
+// Per-channel session token stored in localStorage — identifies this browser/visitor.
+// Enables server-side conversation history + memory compaction per visitor.
+function getOrCreateSessionToken(): string {
+  const key = `chat-session-${agentId}-${channelId || 'default'}`
+  let token = localStorage.getItem(key)
+  if (!token) {
+    token = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10)
+    localStorage.setItem(key, token)
+  }
+  return token
+}
+const sessionToken = getOrCreateSessionToken()
 
 interface ChatInfo {
   agentId: string
+  channelId?: string
   name: string
   avatarColor: string
   hasPassword: boolean
@@ -124,9 +144,12 @@ const inputRef = ref<HTMLTextAreaElement>()
 
 const initial = computed(() => (info.value?.name || '?').charAt(0).toUpperCase())
 
+// Password storage key scoped to channel
+const pwStorageKey = `chat-pw-${agentId}-${channelId || 'default'}`
+
 async function loadInfo() {
   try {
-    const res = await fetch(`/pub/chat/${agentId}/info`)
+    const res = await fetch(`${apiBase}/info`)
     if (!res.ok) { infoLoaded.value = true; return }
     const data: ChatInfo = await res.json()
     info.value = data
@@ -135,8 +158,7 @@ async function loadInfo() {
     if (!data.hasPassword) {
       authed.value = true
     } else {
-      // Restore saved password from sessionStorage
-      const saved = sessionStorage.getItem(`chat-pw-${agentId}`)
+      const saved = sessionStorage.getItem(pwStorageKey)
       if (saved) {
         password.value = saved
         authed.value = true
@@ -153,9 +175,8 @@ async function loadInfo() {
 async function submitPassword() {
   if (!passwordInput.value) return
   const pw = passwordInput.value
-  // Validate password via info endpoint (no LLM call triggered)
   try {
-    const res = await fetch(`/pub/chat/${agentId}/info`, {
+    const res = await fetch(`${apiBase}/info`, {
       headers: { 'X-Chat-Password': pw },
     })
     if (res.status === 401) {
@@ -166,7 +187,7 @@ async function submitPassword() {
     // Network error — proceed optimistically
   }
   password.value = pw
-  sessionStorage.setItem(`chat-pw-${agentId}`, pw)
+  sessionStorage.setItem(pwStorageKey, pw)
   authed.value = true
   passwordError.value = false
 }
@@ -189,21 +210,20 @@ async function streamResponse(message: string) {
   if (password.value) headers['X-Chat-Password'] = password.value
 
   try {
-    const res = await fetch(`/pub/chat/${agentId}/stream`, {
+    const res = await fetch(`${apiBase}/stream`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ message }),
+      body: JSON.stringify({ message, sessionToken }),
     })
 
     if (res.status === 401) {
-      // Wrong password — clear saved password and go back to gate
       password.value = ''
-      sessionStorage.removeItem(`chat-pw-${agentId}`)
+      sessionStorage.removeItem(pwStorageKey)
       authed.value = false
       passwordError.value = true
       streaming.value = false
       streamingText.value = ''
-      messages.value.pop() // remove user message
+      messages.value.pop()
       return
     }
 
@@ -235,7 +255,7 @@ async function streamResponse(message: string) {
         } catch {}
       }
     }
-  } catch (e) {
+  } catch {
     streamingText.value += '\n[连接错误，请重试]'
   } finally {
     if (streamingText.value) {
@@ -261,7 +281,6 @@ function autoResize() {
 }
 
 function renderText(text: string): string {
-  // Basic markdown-lite: bold, code, newlines
   return text
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')

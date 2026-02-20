@@ -764,10 +764,10 @@
               <div class="channel-info-row">
                 <span class="channel-info-label">公开地址</span>
                 <span class="channel-info-value">
-                  <el-link :href="webChatUrl(agentId)" target="_blank" type="primary" style="font-size:13px">
-                    {{ webChatUrl(agentId) }}
+                  <el-link :href="webChatUrl(agentId, ch.id)" target="_blank" type="primary" style="font-size:13px">
+                    {{ webChatUrl(agentId, ch.id) }}
                   </el-link>
-                  <el-button size="small" link style="margin-left:8px" @click="copyUrl(webChatUrl(agentId))">复制</el-button>
+                  <el-button size="small" link style="margin-left:8px" @click="copyUrl(webChatUrl(agentId, ch.id))">复制</el-button>
                 </span>
               </div>
               <div class="channel-info-row">
@@ -1336,8 +1336,10 @@ watch(() => channelForm.value.botToken, (val) => {
   tokenDebounceTimer = setTimeout(doCheckToken, 800)
 })
 
-function webChatUrl(aid: string): string {
-  return `${window.location.origin}/chat/${aid}`
+function webChatUrl(aid: string, chId?: string): string {
+  return chId
+    ? `${window.location.origin}/chat/${aid}/${chId}`
+    : `${window.location.origin}/chat/${aid}`
 }
 
 function copyUrl(url: string) {

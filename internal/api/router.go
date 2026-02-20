@@ -185,8 +185,12 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager, pool 
 	pubH := &publicChatHandler{manager: mgr, pool: pool}
 	pub := r.Group("/pub")
 	{
-		pub.GET("/chat/:agentId/info", pubH.Info)
-		pub.POST("/chat/:agentId/stream", pubH.Stream)
+		// Per-channel routes (primary)
+		pub.GET("/chat/:agentId/:channelId/info", pubH.Info)
+		pub.POST("/chat/:agentId/:channelId/stream", pubH.Stream)
+		// Legacy compat (first enabled web channel)
+		pub.GET("/chat/:agentId/info", pubH.InfoLegacy)
+		pub.POST("/chat/:agentId/stream", pubH.StreamLegacy)
 	}
 
 	// Health & Stats

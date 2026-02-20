@@ -272,7 +272,8 @@ func (p *Pool) RunStreamEvents(ctx context.Context, agentID, message string, med
 
 // RunStream executes a message against the specified agent and returns a live event channel.
 // The caller must drain the channel. Used for SSE streaming (e.g. web channel).
-func (p *Pool) RunStream(ctx context.Context, agentID, message string) (<-chan runner.RunEvent, error) {
+// sessionID — if non-empty, history is loaded/saved under this key (enables per-visitor memory + compaction).
+func (p *Pool) RunStream(ctx context.Context, agentID, message, sessionID string) (<-chan runner.RunEvent, error) {
 	ag, ok := p.manager.Get(agentID)
 	if !ok {
 		return nil, fmt.Errorf("agent %q not found", agentID)
@@ -299,6 +300,7 @@ func (p *Pool) RunStream(ctx context.Context, agentID, message string) (<-chan r
 		LLM:          llmClient,
 		Tools:        toolRegistry,
 		Session:      store,
+		SessionID:    sessionID,
 	})
 
 	return r.Run(ctx, message), nil
