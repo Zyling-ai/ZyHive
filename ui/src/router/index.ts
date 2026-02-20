@@ -51,10 +51,15 @@ const router = createRouter({
       meta: { requiresAuth: true }
     },
     {
-      path: '/config/skills',
+      path: '/skills',
       name: 'skills',
       component: () => import('../views/SkillsView.vue'),
       meta: { requiresAuth: true }
+    },
+    // Legacy redirect
+    {
+      path: '/config/skills',
+      redirect: '/skills'
     },
     {
       path: '/chats',

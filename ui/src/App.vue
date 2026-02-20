@@ -42,6 +42,11 @@
           <template #title>对话管理</template>
         </el-menu-item>
 
+        <el-menu-item index="/skills">
+          <el-icon><MagicStick /></el-icon>
+          <template #title>技能</template>
+        </el-menu-item>
+
         <el-sub-menu index="config" v-if="!collapsed">
           <template #title>
             <el-icon><Setting /></el-icon>
@@ -55,10 +60,6 @@
             <el-icon><SetUp /></el-icon>
             <template #title>能力</template>
           </el-menu-item>
-          <el-menu-item index="/config/skills">
-            <el-icon><MagicStick /></el-icon>
-            <template #title>Skills</template>
-          </el-menu-item>
         </el-sub-menu>
 
         <!-- Collapsed: show config sub-items flat -->
@@ -70,10 +71,6 @@
           <el-menu-item index="/config/tools">
             <el-icon><SetUp /></el-icon>
             <template #title>能力</template>
-          </el-menu-item>
-          <el-menu-item index="/config/skills">
-            <el-icon><MagicStick /></el-icon>
-            <template #title>Skills</template>
           </el-menu-item>
         </template>
 
