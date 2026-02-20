@@ -661,9 +661,14 @@ async function resumeSession(sessionId: string) {
     }
     messages.value = loaded
     scrollBottom()
-  } catch (e) {
-    console.error('[AiChat] resumeSession failed', e)
-    messages.value = [{ role: 'system', text: '历史加载失败，继续对话仍可接续' }]
+  } catch (e: any) {
+    // 404 = 新 session，正常情况，直接留空
+    if (e?.response?.status === 404) {
+      messages.value = []
+    } else {
+      console.error('[AiChat] resumeSession failed', e)
+      messages.value = [{ role: 'system', text: '历史加载失败，继续对话仍可接续' }]
+    }
   } finally {
     historyLoading.value = false
   }
