@@ -25,6 +25,7 @@ func removeFile(path string) error { return os.Remove(path) }
 type agentChannelHandler struct {
 	manager    *agent.Manager
 	runnerFunc channel.RunnerFunc
+	botCtrl    BotControl // start/stop Telegram bots dynamically
 }
 
 // GetChannels GET /api/agents/:id/channels
@@ -173,6 +174,39 @@ func (h *agentChannelHandler) SetChannels(c *gin.Context) {
 	if err := h.manager.UpdateChannels(agentID, incoming); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
+	}
+
+	// ── Hot-sync bots: start new/changed channels, stop removed/disabled ones ──
+	if h.botCtrl.Start != nil {
+		incomingMap := make(map[string]config.ChannelEntry)
+		for _, ch := range incoming {
+			incomingMap[ch.ID] = ch
+		}
+		existingMap := make(map[string]config.ChannelEntry)
+		for _, ch := range existing {
+			existingMap[ch.ID] = ch
+		}
+		// Stop removed or disabled channels
+		for _, ex := range existing {
+			if ex.Type != "telegram" {
+				continue
+			}
+			inc, still := incomingMap[ex.ID]
+			if !still || !inc.Enabled {
+				h.botCtrl.Stop(agentID, ex.ID)
+			}
+		}
+		// Start new or token-changed channels
+		for _, ch := range incoming {
+			if ch.Type != "telegram" || !ch.Enabled || ch.Config["botToken"] == "" || ismasked(ch.Config["botToken"]) {
+				continue
+			}
+			ex, existed := existingMap[ch.ID]
+			tokenChanged := !existed || ex.Config["botToken"] != ch.Config["botToken"]
+			if !existed || tokenChanged {
+				h.botCtrl.Start(agentID, ch.ID, ch.Config["botToken"])
+			}
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{"ok": true, "count": len(incoming)})

@@ -22,8 +22,14 @@ import (
 
 const configFilePath = "aipanel.json"
 
+// BotControl groups the functions needed by the channel handler to manage running bots.
+type BotControl struct {
+	Start func(agentID, channelID, token string) // start or restart a bot
+	Stop  func(agentID, channelID string)         // stop a bot
+}
+
 // RegisterRoutes mounts all API handlers onto the Gin engine.
-func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager, pool *agent.Pool, cronEngine *cron.Engine, uiFS fs.FS, runnerFunc channel.RunnerFunc) {
+func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager, pool *agent.Pool, cronEngine *cron.Engine, uiFS fs.FS, runnerFunc channel.RunnerFunc, botCtrl BotControl) {
 	rf := runnerFunc
 	r.Use(corsMiddleware())
 	r.Use(requestLogger())
@@ -46,7 +52,7 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager, pool 
 	}
 
 	// Per-agent channels (each member has its own bot tokens)
-	agChH := &agentChannelHandler{manager: mgr, runnerFunc: rf}
+	agChH := &agentChannelHandler{manager: mgr, runnerFunc: rf, botCtrl: botCtrl}
 	agents.GET("/:id/channels", agChH.GetChannels)
 	agents.PUT("/:id/channels", agChH.SetChannels)
 	agents.POST("/:id/channels/check-token", agChH.CheckToken)

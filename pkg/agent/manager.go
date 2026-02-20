@@ -273,6 +273,49 @@ func (m *Manager) UpdateChannels(agentID string, channels []config.ChannelEntry)
 	return os.WriteFile(cfgPath, out, 0644)
 }
 
+// UpdateChannelStatus sets the status (and optionally botName) for a specific channel.
+// Called by the BotPool callback when a Telegram bot connects successfully.
+func (m *Manager) UpdateChannelStatus(agentID, channelID, status, botName string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	ag, ok := m.agents[agentID]
+	if !ok {
+		return
+	}
+	changed := false
+	for i := range ag.Channels {
+		if ag.Channels[i].ID == channelID {
+			ag.Channels[i].Status = status
+			if botName != "" {
+				if ag.Channels[i].Config == nil {
+					ag.Channels[i].Config = map[string]string{}
+				}
+				ag.Channels[i].Config["botName"] = botName
+			}
+			changed = true
+			break
+		}
+	}
+	if !changed {
+		return
+	}
+
+	// Persist to disk
+	cfgPath := filepath.Join(m.rootDir, agentID, "config.json")
+	data, err := os.ReadFile(cfgPath)
+	if err != nil {
+		return
+	}
+	var cfg agentConfig
+	if json.Unmarshal(data, &cfg) != nil {
+		return
+	}
+	cfg.Channels = ag.Channels
+	out, _ := json.MarshalIndent(cfg, "", "  ")
+	_ = os.WriteFile(cfgPath, out, 0644)
+}
+
 // FindAgentByBotToken returns the agent and channel that use the given bot token,
 // excluding excludeAgentID (so an agent can update its own token without false conflict).
 // Returns nil if no other agent uses this token.
