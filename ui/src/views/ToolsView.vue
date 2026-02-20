@@ -1,7 +1,7 @@
 <template>
   <div class="tools-page">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px">
-      <h2 style="margin: 0">🛠️ 能力配置</h2>
+      <h2 style="margin: 0"><el-icon style="vertical-align:-2px;margin-right:6px"><SetUp /></el-icon>能力配置</h2>
       <el-button type="primary" @click="openAdd">
         <el-icon><Plus /></el-icon> 添加能力
       </el-button>

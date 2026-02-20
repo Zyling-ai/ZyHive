@@ -6,7 +6,7 @@
     <el-row :gutter="16" style="margin-bottom: 24px">
       <el-col :span="6">
         <el-card shadow="hover" class="stat-card">
-          <div class="stat-icon" style="background: #ecf5ff; color: #409eff">👥</div>
+          <div class="stat-icon" style="background: #ecf5ff; color: #409eff"><el-icon><User /></el-icon></div>
           <div class="stat-info">
             <div class="stat-value">{{ stats?.agents.total ?? agentStore.list.length }}</div>
             <div class="stat-label">AI 成员</div>
@@ -15,7 +15,7 @@
       </el-col>
       <el-col :span="6">
         <el-card shadow="hover" class="stat-card">
-          <div class="stat-icon" style="background: #f0f9eb; color: #67c23a">💬</div>
+          <div class="stat-icon" style="background: #f0f9eb; color: #67c23a"><el-icon><ChatLineRound /></el-icon></div>
           <div class="stat-info">
             <div class="stat-value">{{ stats?.sessions.total ?? 0 }}</div>
             <div class="stat-label">对话总数</div>
@@ -24,7 +24,7 @@
       </el-col>
       <el-col :span="6">
         <el-card shadow="hover" class="stat-card">
-          <div class="stat-icon" style="background: #fdf6ec; color: #e6a23c">📨</div>
+          <div class="stat-icon" style="background: #fdf6ec; color: #e6a23c"><el-icon><Message /></el-icon></div>
           <div class="stat-info">
             <div class="stat-value">{{ stats?.sessions.totalMessages ?? 0 }}</div>
             <div class="stat-label">消息总数</div>
@@ -33,7 +33,7 @@
       </el-col>
       <el-col :span="6">
         <el-card shadow="hover" class="stat-card">
-          <div class="stat-icon" style="background: #fef0f0; color: #f56c6c">🔢</div>
+          <div class="stat-icon" style="background: #fef0f0; color: #f56c6c"><el-icon><Odometer /></el-icon></div>
           <div class="stat-info">
             <div class="stat-value">{{ formatTokens(stats?.sessions.totalTokens ?? 0) }}</div>
             <div class="stat-label">Token 用量</div>
@@ -45,7 +45,7 @@
     <!-- Top Agents card -->
     <el-card shadow="hover" style="margin-bottom: 24px" v-if="stats?.topAgents?.length">
       <template #header>
-        <span style="font-weight: 600">📊 成员用量排行</span>
+        <span style="font-weight: 600"><el-icon style="vertical-align:-2px;margin-right:4px"><DataAnalysis /></el-icon>成员用量排行</span>
       </template>
       <el-table :data="stats!.topAgents" stripe style="width: 100%">
         <el-table-column label="成员" min-width="140">

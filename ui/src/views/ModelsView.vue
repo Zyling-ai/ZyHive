@@ -1,7 +1,7 @@
 <template>
   <div class="models-page">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px">
-      <h2 style="margin: 0">🤖 模型配置</h2>
+      <h2 style="margin: 0">模型配置</h2>
       <el-button type="primary" @click="openAdd">
         <el-icon><Plus /></el-icon> 添加模型
       </el-button>
@@ -15,7 +15,7 @@
       style="margin-bottom: 16px"
     >
       <template #title>
-        <span style="font-weight: 600">🔑 检测到系统环境变量中的 API Key</span>
+        <span style="font-weight: 600"><el-icon style="vertical-align:-2px;margin-right:4px"><Key /></el-icon>检测到系统环境变量中的 API Key</span>
       </template>
       <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; align-items: center">
         <span v-for="ek in envKeys" :key="ek.envVar" style="display: flex; align-items: center; gap: 6px">
@@ -60,7 +60,7 @@
         <el-table-column label="API Key" width="160">
           <template #default="{ row }">
             <el-tag v-if="!row.apiKey" type="info" size="small" style="font-size: 11px">
-              🌐 使用环境变量
+              <el-icon style="vertical-align:-2px;margin-right:4px"><Connection /></el-icon>使用环境变量
             </el-tag>
             <code v-else style="font-size: 12px; color: #909399">{{ row.apiKey }}</code>
           </template>
@@ -124,7 +124,7 @@
             style="margin-bottom: 8px; padding: 6px 12px"
           >
             <span style="font-size: 13px">
-              ✅ 检测到 <code>{{ currentEnvKey.envVar }}</code>（{{ currentEnvKey.masked }}）
+              <el-icon style='vertical-align:-2px;margin-right:4px'><CircleCheck /></el-icon>检测到 <code>{{ currentEnvKey.envVar }}</code>（{{ currentEnvKey.masked }}）
               — <strong>不填 API Key 即可自动使用</strong>
             </span>
           </el-alert>
@@ -153,11 +153,11 @@
               plain
               style="flex-shrink: 0"
             >
-              🔍 获取可用模型
+              <el-icon style="vertical-align:-2px;margin-right:4px"><Search /></el-icon>获取可用模型
             </el-button>
             <span v-if="probeError" style="font-size: 12px; color: var(--el-color-danger)">{{ probeError }}</span>
             <span v-else-if="probedModels.length" style="font-size: 12px; color: var(--el-color-success)">
-              ✓ 获取到 {{ probedModels.length }} 个模型
+              获取到 {{ probedModels.length }} 个模型
             </span>
             <span v-else style="font-size: 12px; color: #909399">填写 Key 后点击获取，或直接手动填写模型 ID</span>
           </div>

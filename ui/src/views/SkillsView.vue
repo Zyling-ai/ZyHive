@@ -1,7 +1,7 @@
 <template>
   <div class="skills-page">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px">
-      <h2 style="margin: 0">🎯 Skills</h2>
+      <h2 style="margin: 0"><el-icon style="vertical-align:-2px;margin-right:6px"><Aim /></el-icon>Skills</h2>
       <el-button type="primary" @click="showInstall = true">
         <el-icon><Plus /></el-icon> 安装 Skill
       </el-button>

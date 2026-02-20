@@ -3,7 +3,7 @@
     <!-- Header -->
     <div class="logs-header">
       <div>
-        <h2 style="margin: 0">📋 系统日志</h2>
+        <h2 style="margin: 0"><el-icon style="vertical-align:-2px;margin-right:6px"><List /></el-icon>系统日志</h2>
         <div style="font-size: 13px; color: #909399; margin-top: 4px">
           共 {{ filteredLines.length }} 条 · 每 5 秒自动刷新
         </div>

@@ -39,7 +39,7 @@
             <!-- 思考过程 -->
             <details v-if="msg.thinking" class="thinking-block" :open="showThinking">
               <summary class="thinking-summary">
-                <span class="thinking-icon">💭</span> 思考过程
+                <el-icon class="thinking-icon"><ChatRound /></el-icon> 思考过程
                 <span class="thinking-len">{{ msg.thinking.length }} 字符</span>
               </summary>
               <pre class="thinking-content">{{ msg.thinking }}</pre>
@@ -51,7 +51,7 @@
               <div v-for="(tc, ti) in msg.toolCalls" :key="ti" class="tool-call-block">
                 <details class="tool-details">
                   <summary class="tool-summary">
-                    <span class="tool-icon">🔧</span>
+                    <el-icon class="tool-icon"><Tools /></el-icon>
                     <span class="tool-name">{{ tc.name }}</span>
                     <span v-if="tc.status === 'running'" class="tool-status running">运行中…</span>
                     <span v-else-if="tc.status === 'done'" class="tool-status done">完成</span>
@@ -89,7 +89,7 @@
               <!-- 操作栏 -->
               <div class="msg-actions">
                 <button class="act-btn" @click="copyMsg(msg.text)" :title="copied === i ? '已复制' : '复制'">
-                  {{ copied === i ? '✓' : '⎘' }}
+                  <el-icon v-if="copied === i"><Check /></el-icon><el-icon v-else><CopyDocument /></el-icon>
                 </button>
                 <button class="act-btn" @click="retryMsg(i)" title="重试">↺</button>
                 <!-- 手动触发：当自动解析失败时可手动点 -->
@@ -97,7 +97,7 @@
                   class="act-btn apply-manual-btn"
                   @click="manualApply(msg)"
                   title="检测到配置 JSON，点击应用">
-                  ⚙ 应用配置
+                  <el-icon><Setting /></el-icon> 应用配置
                 </button>
               </div>
 
@@ -127,7 +127,7 @@
           <!-- 流式思考 -->
           <details v-if="streamThinking && showThinking" class="thinking-block" open>
             <summary class="thinking-summary">
-              <span class="thinking-icon">💭</span> 思考中…
+              <el-icon class="thinking-icon"><ChatRound /></el-icon> 思考中…
             </summary>
             <pre class="thinking-content">{{ streamThinking }}<span class="blink">▊</span></pre>
           </details>
@@ -178,7 +178,7 @@
         <div class="input-actions">
           <!-- 图片上传 -->
           <label class="icon-btn" title="上传图片">
-            📎
+            <el-icon><Paperclip /></el-icon>
             <input type="file" accept="image/*" multiple hidden @change="handleFileSelect" />
           </label>
           <!-- 发送 -->
@@ -618,7 +618,7 @@ function runChat(text: string, imgs: string[]) {
         if (opts.length >= 2) cur.options = opts
 
         if (ev.type === 'error') {
-          cur.text = `❌ ${ev.error}`
+          cur.text = `[错误] ${ev.error}`
           const tc = cur.toolCalls?.find(t => t.status === 'running')
           if (tc) tc.status = 'error'
         }
@@ -650,7 +650,7 @@ async function resumeSession(sessionId: string) {
     // Insert a compaction marker if any compaction entry exists
     const hasCompaction = parsed.some(m => m.isCompact || m.role === 'compaction')
     if (hasCompaction) {
-      loaded.push({ role: 'system', text: '📦 更早的内容已压缩' })
+      loaded.push({ role: 'system', text: '更早的内容已压缩' })
     }
     for (const m of parsed) {
       if (m.role === 'compaction') continue  // skip raw compaction entries
@@ -663,7 +663,7 @@ async function resumeSession(sessionId: string) {
     scrollBottom()
   } catch (e) {
     console.error('[AiChat] resumeSession failed', e)
-    messages.value = [{ role: 'system', text: '⚠️ 历史加载失败，继续对话仍可接续' }]
+    messages.value = [{ role: 'system', text: '历史加载失败，继续对话仍可接续' }]
   } finally {
     historyLoading.value = false
   }
@@ -785,7 +785,7 @@ onMounted(() => {
   list-style: none;
 }
 .thinking-summary::-webkit-details-marker { display: none; }
-.thinking-icon { font-size: 14px; }
+.thinking-icon { font-size: 14px; vertical-align: -2px; }
 .thinking-len  { margin-left: auto; color: #c0c4cc; }
 .thinking-content {
   padding: 8px 12px;
@@ -811,7 +811,7 @@ onMounted(() => {
   list-style: none;
 }
 .tool-summary::-webkit-details-marker { display: none; }
-.tool-icon  { font-size: 13px; }
+.tool-icon  { font-size: 13px; vertical-align: -2px; }
 .tool-name  { font-weight: 500; color: #303133; flex: 1; }
 .tool-status.running { color: #e6a23c; }
 .tool-status.done    { color: #67c23a; }
@@ -896,6 +896,9 @@ onMounted(() => {
   font-size: 12px;
   color: #606266;
   transition: all .15s;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
 }
 .act-btn:hover { background: #f0f2f5; color: #303133; }
 .apply-manual-btn { color: #409eff !important; border-color: #b3d8ff !important; font-weight: 500; }

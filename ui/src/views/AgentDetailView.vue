@@ -500,7 +500,7 @@
               shadow="hover"
             >
               <div style="display: flex; align-items: flex-start; gap: 12px;">
-                <span style="font-size: 28px; line-height: 1;">{{ sk.icon || '🔧' }}</span>
+                <span style="font-size: 22px; line-height: 1; display:flex; align-items:center;"><span v-if="sk.icon">{{ sk.icon }}</span><el-icon v-else style="font-size:22px"><Tools /></el-icon></span>
                 <div style="flex: 1; min-width: 0;">
                   <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
                     <span style="font-weight: 600; font-size: 15px;">{{ sk.name }}</span>
@@ -539,7 +539,7 @@
                 <el-input v-model="skillForm.name" placeholder="如 翻译助手" />
               </el-form-item>
               <el-form-item label="图标">
-                <el-input v-model="skillForm.icon" placeholder="如 🌐" />
+                <el-input v-model="skillForm.icon" placeholder="可输入 emoji，如 🌐" />
               </el-form-item>
               <el-form-item label="分类">
                 <el-input v-model="skillForm.category" placeholder="如 语言" />
@@ -573,7 +573,7 @@
           <el-table :data="convChannels" stripe v-loading="convLoading" empty-text="暂无对话记录">
             <el-table-column label="渠道" min-width="200">
               <template #default="{ row }">
-                <span>{{ row.channelType === 'telegram' ? '📱' : '🌐' }} {{ row.channelId }}</span>
+                <span>{{ row.channelType === 'telegram' ? 'Telegram' : 'Web' }} {{ row.channelId }}</span>
               </template>
             </el-table-column>
             <el-table-column label="消息数" width="100">
@@ -610,7 +610,7 @@
                   :class="['conv-msg-item', msg.role === 'user' ? 'conv-msg-user' : 'conv-msg-assistant']"
                 >
                   <div class="conv-msg-meta">
-                    <span class="conv-msg-role">{{ msg.role === 'user' ? '👤 用户' : '🤖 助手' }}</span>
+                    <span class="conv-msg-role">{{ msg.role === 'user' ? '用户' : '助手' }}</span>
                     <span v-if="msg.sender" class="conv-msg-sender">{{ msg.sender }}</span>
                     <span class="conv-msg-time">{{ msg.ts ? new Date(msg.ts).toLocaleString('zh-CN') : '' }}</span>
                   </div>
@@ -906,23 +906,23 @@
                       <el-icon class="is-loading"><Refresh /></el-icon> 正在验证 Token…
                     </div>
                     <div v-else-if="tokenCheckState.status === 'ok'" style="margin-top:6px;color:#67c23a;font-size:13px">
-                      ✅ Token 有效，Bot 名称：<b>@{{ tokenCheckState.botName }}</b>
+                      <el-icon style="vertical-align:-2px;margin-right:4px"><CircleCheck /></el-icon>Token 有效，Bot 名称：<b>@{{ tokenCheckState.botName }}</b>
                     </div>
                     <div v-else-if="tokenCheckState.status === 'duplicate'" style="margin-top:6px;color:#e6a23c;font-size:13px">
-                      ⚠️ 此 Token 已被成员「<b>{{ tokenCheckState.usedBy }}</b>」的渠道「{{ tokenCheckState.usedByCh }}」使用
+                      <el-icon style="vertical-align:-2px;margin-right:4px"><Warning /></el-icon>此 Token 已被成员「<b>{{ tokenCheckState.usedBy }}</b>」的渠道「{{ tokenCheckState.usedByCh }}」使用
                     </div>
                     <div v-else-if="tokenCheckState.status === 'error'" style="margin-top:6px;color:#f56c6c;font-size:13px">
-                      ❌ {{ tokenCheckState.error }}
+                      <el-icon style="vertical-align:-2px;margin-right:4px"><CircleClose /></el-icon>{{ tokenCheckState.error }}
                     </div>
                     <div v-else style="margin-top:4px">
-                      <el-text type="info" size="small">💡 输入完成后自动验证，也可点右侧「验证」按钮手动触发</el-text>
+                      <el-text type="info" size="small"><el-icon style="vertical-align:-2px;margin-right:4px"><InfoFilled /></el-icon>输入完成后自动验证，也可点右侧「验证」按钮手动触发</el-text>
                     </div>
                   </div>
                 </el-form-item>
                 <el-form-item label="白名单用户">
                   <el-input v-model="channelForm.allowedFrom" placeholder="填入 Telegram 用户 ID，多个用逗号分隔" />
                   <el-text type="info" size="small" style="display:block;margin-top:4px">
-                    💡 留空时 Bot 进入配对模式——向用户返回其 ID，引导联系管理员添加白名单
+                    <el-icon style="vertical-align:-2px;margin-right:4px"><InfoFilled /></el-icon>留空时 Bot 进入配对模式——向用户返回其 ID，引导联系管理员添加白名单
                   </el-text>
                 </el-form-item>
               </template>
@@ -1074,7 +1074,7 @@ async function sendAtMessage() {
   } catch (e: any) {
     const errMsg: ChatMsg = {
       role: 'system',
-      text: `❌ 转发失败：${e.response?.data?.error ?? e.message ?? '网络错误'}`,
+      text: `[失败] 转发失败：${e.response?.data?.error ?? e.message ?? '网络错误'}`,
     }
     aiChatRef.value?.appendMessage(errMsg)
     ElMessage.error('转发失败')
