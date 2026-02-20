@@ -405,6 +405,7 @@ export const relationsApi = {
   put: (agentId: string, content: string) =>
     api.put(`/agents/${agentId}/relations`, content, { headers: { 'Content-Type': 'text/plain' } }),
   graph: () => api.get<TeamGraph>('/team/graph'),
+  clearAll: () => api.delete('/team/relations'),
 }
 
 export interface MemConfig {
