@@ -237,6 +237,7 @@ export interface ChatParams {
   sessionId?: string // resume existing session; if set, server loads history, no need to send history[]
   context?: string   // extra system context (scenario background, page state)
   scenario?: string  // label e.g. "agent-creation", "general"
+  skillId?: string   // skill-studio: restrict tools to this skill directory (sandbox)
   images?: string[]  // base64 data URIs
   history?: { role: 'user' | 'assistant'; content: string }[]  // prior turns for multi-turn context
 }

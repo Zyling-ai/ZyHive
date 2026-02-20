@@ -43,6 +43,7 @@ func (h *chatHandler) Chat(c *gin.Context) {
 		SessionID string   `json:"sessionId"` // resume existing session; empty = create new
 		Context   string   `json:"context"`   // extra system context (page scenario, background)
 		Scenario  string   `json:"scenario"`  // label e.g. "agent-creation", "general"
+		SkillID   string   `json:"skillId"`   // skill-studio: restrict tools to this skill's directory
 		Images    []string `json:"images"`    // base64 data URIs: "data:image/png;base64,..."
 		History   []struct {
 			Role    string `json:"role"`    // "user" | "assistant"
@@ -84,7 +85,13 @@ func (h *chatHandler) Chat(c *gin.Context) {
 
 	// Create runner dependencies
 	llmClient := llm.NewAnthropicClient()
-	toolRegistry := tools.New(ag.WorkspaceDir, filepath.Dir(ag.WorkspaceDir), ag.ID)
+	// Use sandboxed registry for skill-studio: restricts file ops to skills/{skillID}/
+	var toolRegistry *tools.Registry
+	if req.Scenario == "skill-studio" && req.SkillID != "" {
+		toolRegistry = tools.NewSkillStudio(ag.WorkspaceDir, filepath.Dir(ag.WorkspaceDir), ag.ID, req.SkillID)
+	} else {
+		toolRegistry = tools.New(ag.WorkspaceDir, filepath.Dir(ag.WorkspaceDir), ag.ID)
+	}
 	store := session.NewStore(ag.SessionDir)
 
 	// Resolve session: resume existing or create new

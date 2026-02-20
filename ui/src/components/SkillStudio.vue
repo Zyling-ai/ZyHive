@@ -232,6 +232,7 @@
           :agent-id="agentId"
           :context="chatContext"
           scenario="skill-studio"
+          :skill-id="selected?.id"
           :welcome-message="chatWelcome"
           :examples="chatExamples"
           compact
@@ -515,7 +516,7 @@ async function openNew() {
       // 自动触发 AI 生成推荐（不显示用户消息，直接出现 AI 回复）
       const existingNames = skills.value.filter(s => s.id !== id).map(s => s.name).join('、') || '暂无'
       ;(aiChatRef.value as any)?.sendSilent?.(
-        `现有技能：${existingNames}。请直接推荐3个实用的新技能方向，每条一句话，不要重复已有技能，不需要解释，直接列出3条即可。`
+        `【纯文字输出，不使用任何工具，不创建任何文件】当前已有技能：${existingNames}。请推荐3个全新的、与已有技能不重复的技能方向，每条一句话，直接列出即可。`
       )
     }
   } catch (e: any) {
