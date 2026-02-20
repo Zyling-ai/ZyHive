@@ -153,6 +153,7 @@ export const agentChannels = {
   listPending: (agentId: string, chId: string) => api.get<PendingUser[]>(`/agents/${agentId}/channels/${chId}/pending`),
   allowUser: (agentId: string, chId: string, userId: number) => api.post(`/agents/${agentId}/channels/${chId}/pending/${userId}/allow`),
   dismissUser: (agentId: string, chId: string, userId: number) => api.delete(`/agents/${agentId}/channels/${chId}/pending/${userId}`),
+  removeAllowed: (agentId: string, chId: string, userId: number) => api.delete(`/agents/${agentId}/channels/${chId}/allowed/${userId}`),
 }
 
 export interface PendingUser {
