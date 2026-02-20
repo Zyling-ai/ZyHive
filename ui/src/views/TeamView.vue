@@ -19,16 +19,7 @@
         <p style="color:#909399;text-align:center;margin:0">暂无成员数据</p>
       </div>
 
-      <!-- Empty: members but no relations -->
-      <div v-else-if="!loading && graph.nodes.length && !graph.edges.length" class="empty-state">
-        <el-icon style="font-size:64px;color:#c0c4cc;display:block;margin:0 auto 16px"><Connection /></el-icon>
-        <p style="color:#909399;text-align:center;margin:0">为成员配置 RELATIONS.md 即可自动生成关系图谱</p>
-        <p style="color:#c0c4cc;text-align:center;font-size:13px;margin:6px 0 0">
-          前往成员详情页 → 「关系」Tab 编辑
-        </p>
-      </div>
-
-      <!-- Hierarchical SVG Graph -->
+      <!-- Hierarchical SVG Graph (shows nodes even with no edges) -->
       <div v-else class="graph-container" ref="containerRef">
         <svg :width="svgWidth" :height="svgHeight" class="graph-svg">
 
@@ -97,6 +88,11 @@
             >{{ node.id }}</text>
           </g>
         </svg>
+
+        <!-- No-relation hint -->
+        <div v-if="!graph.edges.length" style="text-align:center;color:#c0c4cc;font-size:13px;padding:8px 0 16px;">
+          暂无关系连线 — 前往成员详情页 →「关系」Tab 添加
+        </div>
 
         <!-- Edge tooltip -->
         <div
