@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sunhuihui6688-star/ai-panel/pkg/channel"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/config"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/llm"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/memory"
@@ -196,6 +197,31 @@ func (p *Pool) Run(ctx context.Context, agentID, message string) (string, error)
 	}
 
 	return fullText.String(), nil
+}
+
+// RunStreamEvents wraps RunStream output as channel.StreamEvent for the Telegram/web channel layer.
+// This avoids the channel package importing the runner package directly.
+func (p *Pool) RunStreamEvents(ctx context.Context, agentID, message string) (<-chan channel.StreamEvent, error) {
+	raw, err := p.RunStream(ctx, agentID, message)
+	if err != nil {
+		return nil, err
+	}
+	out := make(chan channel.StreamEvent, 32)
+	go func() {
+		defer close(out)
+		for ev := range raw {
+			switch ev.Type {
+			case "text_delta":
+				out <- channel.StreamEvent{Type: "text_delta", Text: ev.Text}
+			case "error":
+				if ev.Error != nil {
+					out <- channel.StreamEvent{Type: "error", Err: ev.Error}
+				}
+			}
+		}
+		out <- channel.StreamEvent{Type: "done"}
+	}()
+	return out, nil
 }
 
 // RunStream executes a message against the specified agent and returns a live event channel.
