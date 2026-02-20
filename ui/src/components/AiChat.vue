@@ -197,7 +197,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, nextTick, onMounted } from 'vue'
+import { ref, computed, nextTick, onMounted, watch } from 'vue'
 import { chatSSE, sessions as sessionsApi, type ChatParams } from '../api'
 
 // ── Props ─────────────────────────────────────────────────────────────────
@@ -242,6 +242,7 @@ const emit = defineEmits<{
   (e: 'response', text: string): void
   (e: 'apply', data: Record<string, string>): void
   (e: 'session-change', sessionId: string): void  // fired when a new session is created
+  (e: 'streaming-change', streaming: boolean): void  // fired when streaming starts/stops
 }>()
 
 // ── Types ─────────────────────────────────────────────────────────────────
@@ -269,6 +270,7 @@ const messages = ref<ChatMsg[]>(props.initialMessages ? [...props.initialMessage
 const inputText = ref('')
 const pendingImages = ref<string[]>([])
 const streaming = ref(false)
+watch(streaming, (v) => emit('streaming-change', v))
 const streamText = ref('')
 const streamThinking = ref('')
 const copied = ref<number | null>(null)
