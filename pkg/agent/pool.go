@@ -3,6 +3,7 @@ package agent
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -201,11 +202,52 @@ func (p *Pool) Run(ctx context.Context, agentID, message string) (string, error)
 
 // RunStreamEvents wraps RunStream output as channel.StreamEvent for the Telegram/web channel layer.
 // This avoids the channel package importing the runner package directly.
-func (p *Pool) RunStreamEvents(ctx context.Context, agentID, message string) (<-chan channel.StreamEvent, error) {
-	raw, err := p.RunStream(ctx, agentID, message)
+// media is an optional list of downloaded files (images/PDFs) to pass to the LLM as base64 data URIs.
+func (p *Pool) RunStreamEvents(ctx context.Context, agentID, message string, media []channel.MediaInput) (<-chan channel.StreamEvent, error) {
+	ag, ok := p.manager.Get(agentID)
+	if !ok {
+		return nil, fmt.Errorf("agent %q not found", agentID)
+	}
+	modelEntry, err := p.resolveModel(ag)
 	if err != nil {
 		return nil, err
 	}
+	model := modelEntry.ProviderModel()
+	apiKey := modelEntry.APIKey
+	if apiKey == "" {
+		return nil, fmt.Errorf("no API key configured for model: %s", model)
+	}
+
+	llmClient := llm.NewAnthropicClient()
+	toolRegistry := tools.New(ag.WorkspaceDir)
+	store := session.NewStore(ag.SessionDir)
+
+	// Convert MediaInput to base64 data URI strings for the runner
+	var images []string
+	for _, m := range media {
+		if len(m.Data) == 0 {
+			continue
+		}
+		ct := m.ContentType
+		if ct == "" {
+			ct = "image/jpeg"
+		}
+		encoded := base64.StdEncoding.EncodeToString(m.Data)
+		images = append(images, "data:"+ct+";base64,"+encoded)
+	}
+
+	r := runner.New(runner.Config{
+		AgentID:      ag.ID,
+		WorkspaceDir: ag.WorkspaceDir,
+		Model:        model,
+		APIKey:       apiKey,
+		LLM:          llmClient,
+		Tools:        toolRegistry,
+		Session:      store,
+		Images:       images,
+	})
+
+	raw := r.Run(ctx, message)
 	out := make(chan channel.StreamEvent, 32)
 	go func() {
 		defer close(out)
