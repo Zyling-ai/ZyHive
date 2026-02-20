@@ -129,6 +129,11 @@ func (m *Manager) LoadAll() error {
 	return nil
 }
 
+// AgentsDir returns the root directory where all agent subdirectories live.
+func (m *Manager) AgentsDir() string {
+	return m.rootDir
+}
+
 // Get returns the agent with the given ID, or false if not found.
 func (m *Manager) Get(id string) (*Agent, bool) {
 	m.mu.RLock()

@@ -128,6 +128,11 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager, pool 
 	agents.PATCH("/:id/skills/:skillId", agentSkillH.Update)
 	agents.DELETE("/:id/skills/:skillId", agentSkillH.Delete)
 
+	// Conversation logs (permanent audit log — admin-only, agent-blind)
+	convH := newConvHandler(mgr, mgr.AgentsDir())
+	agents.GET("/:id/conversations", convH.List)
+	agents.GET("/:id/conversations/:channelId", convH.Messages)
+
 	// Skill registry
 	skillH := &skillHandler{cfg: cfg, configPath: configFilePath}
 	skillsGroup := v1.Group("/skills")
