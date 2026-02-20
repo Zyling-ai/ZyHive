@@ -30,7 +30,9 @@
             <div class="sk-id">{{ sk.id }}</div>
           </div>
           <div class="sk-right">
-            <el-tag v-if="sk.category" size="small" effect="plain" style="margin-right:6px;font-size:11px">{{ sk.category }}</el-tag>
+            <!-- 后台生成中指示器 -->
+            <span v-if="streamingSkills.has(sk.id)" class="sk-streaming-dot" title="AI 生成中…" />
+            <el-tag v-else-if="sk.category" size="small" effect="plain" style="margin-right:6px;font-size:11px">{{ sk.category }}</el-tag>
             <el-switch
               :model-value="sk.enabled"
               size="small"
@@ -224,19 +226,29 @@
       <div class="chat-panel-head">
         <el-icon><ChatLineRound /></el-icon>
         AI 协作配置
-        <span v-if="selected" style="margin-left:auto;font-size:11px;color:#c0c4cc">当前: {{ selected.name }}</span>
+        <span v-if="selected" style="margin-left:auto;font-size:11px;color:#c0c4cc">
+          当前: {{ selected.name }}
+          <span v-if="streamingSkills.size > 1" style="margin-left:6px;color:#e6a23c">
+            ({{ streamingSkills.size }} 个并行生成中)
+          </span>
+        </span>
       </div>
+      <!-- 每个 skill 一个独立 AiChat 实例，v-show 切换可见性，支持并发后台生成 -->
       <div class="chat-wrap">
         <AiChat
-          ref="aiChatRef"
+          v-for="sk in skills"
+          v-show="selected?.id === sk.id"
+          :key="sk.id"
+          :ref="(el) => setChatRef(sk.id, el)"
           :agent-id="agentId"
-          :context="chatContext"
+          :context="selected?.id === sk.id ? chatContext : ''"
           scenario="skill-studio"
-          :skill-id="selected?.id"
-          :welcome-message="chatWelcome"
-          :examples="chatExamples"
+          :skill-id="sk.id"
+          :welcome-message="selected?.id === sk.id ? chatWelcome : ''"
+          :examples="selected?.id === sk.id ? chatExamples : []"
           compact
-          @response="onAiResponse"
+          @response="(text: string) => onAiResponse(sk.id, text)"
+          @streaming-change="(v: boolean) => onStreamingChange(sk.id, v)"
         />
       </div>
     </div>
@@ -245,7 +257,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import { agentSkills as skillsApi, files as filesApi, type AgentSkillMeta } from '../api'
 import AiChat from './AiChat.vue'
@@ -274,7 +286,6 @@ const creating = ref(false)
 const isNewSkill = ref(false)  // true when just created — AI should guide user
 
 // 等待 AI 生成完成后再切换的目标 session ID
-const pendingChatSession = ref<string | null>(null)
 
 // Dynamic directory listing (recursive)
 interface DirEntry { name: string; path: string; isDir: boolean; depth: number }
@@ -287,8 +298,36 @@ const genericDirty = ref(false)
 const genericLoading = ref(false)
 
 
-// AI chat ref (for sending test messages)
-const aiChatRef = ref<InstanceType<typeof AiChat> | null>(null)
+// 每个 skill 独立的 AiChat 实例（支持并发后台生成）
+const chatRefsMap: Record<string, any> = {}
+function setChatRef(skillId: string, el: any) {
+  if (el) chatRefsMap[skillId] = el
+  else delete chatRefsMap[skillId]
+}
+function getChatRef(skillId?: string): any {
+  return skillId ? chatRefsMap[skillId] : null
+}
+
+// 正在流式生成的 skill 集合（用于 UI 指示器）
+const streamingSkills = ref<Set<string>>(new Set())
+function onStreamingChange(skillId: string, streaming: boolean) {
+  const next = new Set(streamingSkills.value)
+  if (streaming) next.add(skillId)
+  else next.delete(skillId)
+  streamingSkills.value = next
+}
+
+// 已初始化过 session 的 skill 集合
+const initializedSessions = ref<Set<string>>(new Set())
+
+// 当选中技能变化时，首次初始化其 chat session
+watch(selected, async (sk) => {
+  if (!sk) return
+  if (initializedSessions.value.has(sk.id)) return
+  initializedSessions.value.add(sk.id)
+  await nextTick()  // 等 DOM 渲染出对应的 AiChat 实例
+  await getChatRef(sk.id)?.resumeSession?.(`skill-studio-${sk.id}`)
+}, { flush: 'post' })
 
 // ── AI Chat context ────────────────────────────────────────────────────────
 const chatContext = computed(() => {
@@ -375,13 +414,10 @@ function syncMetaForm(sk: AgentSkillMeta) {
 }
 
 async function selectSkill(sk: AgentSkillMeta) {
-  const chat = aiChatRef.value as any
-  const sessionId = `skill-studio-${sk.id}`
-
-  // 已选中同一个技能：跳过，防止重复触发打断正在进行的流
+  // 已选中同一个技能：跳过
   if (selected.value?.id === sk.id) return
 
-  // 切换编辑器视图（立即生效）
+  // 切换编辑器视图（立即生效，不影响任何 AiChat 的流）
   selected.value = sk
   syncMetaForm(sk)
   activeFile.value = 'meta'
@@ -390,15 +426,7 @@ async function selectSkill(sk: AgentSkillMeta) {
   isNewSkill.value = false
   loadDirFiles()
   reloadPrompt()
-
-  // 如果 AI 正在生成，不立即切换 chat session（避免打断流）
-  // 等生成结束后在 onAiResponse 里完成切换
-  if (chat?.streaming?.value) {
-    pendingChatSession.value = sessionId
-  } else {
-    pendingChatSession.value = null
-    await chat?.resumeSession?.(sessionId)
-  }
+  // session 初始化由 watch(selected) 处理（首次选中时）
 }
 
 async function switchToPrompt() {
@@ -539,19 +567,20 @@ async function openNew() {
     const sk = skills.value.find(s => s.id === id)
     if (sk) {
       await selectSkill(sk)
-      // 如果 selectSkill 因为正在流而推迟了 session 切换，这里强制完成
-      if (pendingChatSession.value) {
-        const sid = pendingChatSession.value
-        pendingChatSession.value = null
-        await (aiChatRef.value as any)?.resumeSession?.(sid)
-      }
       // 直接跳到 SKILL.md 编辑器，引导用户用 AI 生成内容
       activeFile.value = 'prompt'
       promptContent.value = ''
       isNewSkill.value = true
-      // 自动触发 AI 生成推荐（不显示用户消息，直接出现 AI 回复）
+      // 等 watch(selected) 初始化 session 完成（resumeSession 404→空）
+      await nextTick()
+      // 确保 initializedSessions 已处理
+      if (!initializedSessions.value.has(id)) {
+        initializedSessions.value.add(id)
+        await getChatRef(id)?.resumeSession?.(`skill-studio-${id}`)
+      }
+      // 自动触发 AI 生成推荐（后台异步，不阻塞，不影响其他 skill 的流）
       const existingNames = skills.value.filter(s => s.id !== id).map(s => s.name).join('、') || '暂无'
-      ;(aiChatRef.value as any)?.sendSilent?.(
+      getChatRef(id)?.sendSilent?.(
         `【纯文字输出，不使用任何工具，不创建任何文件】当前已有技能：${existingNames}。请推荐3个全新的、与已有技能不重复的技能方向，每条一句话，直接列出即可。`
       )
     }
@@ -561,24 +590,20 @@ async function openNew() {
 }
 
 // ── AI response hook ──────────────────────────────────────────────────────
-async function onAiResponse(_text: string) {
-  // 如果有待切换的 chat session（生成期间用户切了技能），现在完成切换
-  if (pendingChatSession.value) {
-    const sid = pendingChatSession.value
-    pendingChatSession.value = null
-    await (aiChatRef.value as any)?.resumeSession?.(sid)
-    return  // 切换后不需要刷新旧技能的文件
-  }
+// skillId: 哪个 skill 的 AI 刚生成完（可能是后台 skill，不一定是当前选中的）
+async function onAiResponse(skillId: string, _text: string) {
+  // 清除新建状态
+  if (skillId === selected.value?.id) isNewSkill.value = false
 
-  if (!selected.value) return
-  isNewSkill.value = false
-  // Reload skill metadata + directory listing (AI may have created new files)
-  await Promise.all([loadList(), loadDirFiles()])
-  // 无条件刷新 SKILL.md（chatContext 需要最新内容）
-  await reloadPrompt()
-  // 如果当前正在看其他文件，也刷新
-  if (activeFile.value !== 'meta' && activeFile.value !== 'prompt') {
-    await reloadGenericFile()
+  // 刷新该 skill 的元数据 + 目录（AI 可能创建了新文件）
+  await loadList()
+
+  // 只有当前选中的 skill 响应时，才刷新编辑器
+  if (skillId === selected.value?.id) {
+    await Promise.all([loadDirFiles(), reloadPrompt()])
+    if (activeFile.value !== 'meta' && activeFile.value !== 'prompt') {
+      await reloadGenericFile()
+    }
   }
 }
 
@@ -599,7 +624,7 @@ async function sendTestToChat() {
   // Load SKILL.md if not yet loaded
   if (!promptContent.value) await switchToPrompt()
   const testMsg = `请用「${selected.value.name}」技能效果回复：你好，请介绍一下你的功能。`
-  aiChatRef.value?.fillInput?.(testMsg)
+  getChatRef(selected.value?.id)?.fillInput?.(testMsg)
   ElMessage.info('测试消息已填入右侧聊天框，点击发送即可测试')
 }
 
@@ -655,7 +680,19 @@ onMounted(loadList)
 .sk-info { flex: 1; min-width: 0; }
 .sk-name { font-size: 13px; font-weight: 500; color: #303133; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sk-id { font-size: 11px; color: #c0c4cc; font-family: monospace; }
-.sk-right { display: flex; align-items: center; flex-shrink: 0; }
+.sk-right { display: flex; align-items: center; flex-shrink: 0; gap: 6px; }
+.sk-streaming-dot {
+  display: inline-block;
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: #67c23a;
+  animation: pulse-dot 1.2s ease-in-out infinite;
+  flex-shrink: 0;
+}
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.7); }
+}
 
 /* ── Editor ── */
 .studio-editor {
