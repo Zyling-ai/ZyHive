@@ -34,8 +34,9 @@ type TelegramMessage struct {
 }
 
 type TelegramUser struct {
-	ID       int64  `json:"id"`
-	Username string `json:"username"`
+	ID        int64  `json:"id"`
+	Username  string `json:"username"`
+	FirstName string `json:"first_name"`
 }
 
 type TelegramChat struct {
@@ -46,22 +47,24 @@ type TelegramChat struct {
 // ── TelegramBot ───────────────────────────────────────────────────────────
 
 type TelegramBot struct {
-	token     string
-	agentID   string   // default agent to route messages to
-	allowFrom []int64  // allowed sender IDs (empty = allow all)
-	runner    RunnerFunc
-	client    *http.Client
-	offset    int64
+	token        string
+	agentID      string   // default agent to route messages to
+	allowFrom    []int64  // allowed sender IDs (empty = allow all)
+	runner       RunnerFunc
+	client       *http.Client
+	offset       int64
+	pendingStore *PendingStore // tracks users who messaged but aren't allowed yet
 }
 
 // NewTelegramBot creates a new Telegram bot with long polling.
-func NewTelegramBot(token, agentID string, allowFrom []int64, runner RunnerFunc) *TelegramBot {
+func NewTelegramBot(token, agentID string, allowFrom []int64, runner RunnerFunc, pending *PendingStore) *TelegramBot {
 	return &TelegramBot{
-		token:     token,
-		agentID:   agentID,
-		allowFrom: allowFrom,
-		runner:    runner,
-		client:    &http.Client{Timeout: 60 * time.Second},
+		token:        token,
+		agentID:      agentID,
+		allowFrom:    allowFrom,
+		runner:       runner,
+		client:       &http.Client{Timeout: 60 * time.Second},
+		pendingStore: pending,
 	}
 }
 
@@ -136,6 +139,7 @@ func (b *TelegramBot) handleUpdate(ctx context.Context, update TelegramUpdate) {
 
 	msg := update.Message
 	senderID := msg.From.ID
+	isStart := msg.Text == "/start"
 
 	// Check allow list
 	if len(b.allowFrom) > 0 {
@@ -147,9 +151,23 @@ func (b *TelegramBot) handleUpdate(ctx context.Context, update TelegramUpdate) {
 			}
 		}
 		if !allowed {
-			log.Printf("[telegram] Blocked message from unauthorized user %d (%s)", senderID, msg.From.Username)
+			log.Printf("[telegram] Pending user %d (%s): %s", senderID, msg.From.Username, truncate(msg.Text, 40))
+			// Log to pending store so admin can approve from UI
+			if b.pendingStore != nil {
+				b.pendingStore.Add(senderID, msg.From.Username, msg.From.FirstName)
+			}
+			// Send a friendly reply if it's /start or first contact
+			if isStart {
+				_ = b.SendMessage(msg.Chat.ID, "👋 你好！你的请求已收到，等待管理员审核后即可使用。\n\nYour request has been received. Please wait for admin approval.")
+			}
 			return
 		}
+	}
+
+	// For allowed users sending /start: record them too (so admin knows who's using the bot)
+	if isStart && b.pendingStore != nil {
+		// Remove from pending (they're already allowed) and just greet
+		b.pendingStore.Remove(senderID)
 	}
 
 	log.Printf("[telegram] Message from %s (%d): %s", msg.From.Username, senderID, truncate(msg.Text, 80))
