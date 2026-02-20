@@ -790,14 +790,25 @@
                       v-for="u in ch.allowedFromUsers"
                       :key="u.id"
                       size="small"
-                      style="margin-right: 4px"
+                      closable
+                      :disable-transitions="true"
+                      style="margin-right: 4px; margin-bottom: 4px"
+                      @close="removeAllowed(ch.id, u.id)"
                     >
                       {{ u.username ? '@' + u.username : u.firstName || String(u.id) }}
                       <span style="opacity:0.6;font-size:11px;margin-left:3px">({{ u.id }})</span>
                     </el-tag>
                   </template>
                   <template v-else-if="ch.config?.allowedFrom">
-                    <el-tag v-for="uid in ch.config.allowedFrom.split(',')" :key="uid" size="small" style="margin-right: 4px">{{ uid.trim() }}</el-tag>
+                    <el-tag
+                      v-for="uid in ch.config.allowedFrom.split(',')"
+                      :key="uid"
+                      size="small"
+                      closable
+                      :disable-transitions="true"
+                      style="margin-right: 4px; margin-bottom: 4px"
+                      @close="removeAllowed(ch.id, Number(uid.trim()))"
+                    >{{ uid.trim() }}</el-tag>
                   </template>
                   <el-text v-else type="warning" size="small">未设置（配对模式，向用户返回其 ID）</el-text>
                 </span>
@@ -918,7 +929,7 @@
 import { ref, onMounted, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ArrowLeft, Plus, EditPen, Refresh, FolderOpened, Document, ArrowDown } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { agents as agentsApi, files as filesApi, memoryApi, cron as cronApi, sessions as sessionsApi, relationsApi, memoryConfigApi, agentChannels as agentChannelsApi, agentSkills as agentSkillsApi, agentConversations, type AgentInfo, type FileEntry, type CronJob, type SessionSummary, type RelationRow, type MemConfig, type MemRunLog, type ChannelEntry, type PendingUser, type AgentSkillMeta, type ConvEntry, type ChannelSummary } from '../api'
 import AiChat, { type ChatMsg } from '../components/AiChat.vue'
 
@@ -1416,6 +1427,25 @@ async function dismissUser(chId: string, userId: number) {
     await agentChannelsApi.dismissUser(agentId, chId, userId)
     ElMessage.success('已忽略')
     await loadPendingUsers(chId)
+  } catch {
+    ElMessage.error('操作失败')
+  }
+}
+
+async function removeAllowed(chId: string, userId: number) {
+  try {
+    await ElMessageBox.confirm(
+      `确定将用户 ${userId} 从白名单中移除？移除后该用户将无法使用此 Bot。`,
+      '移除白名单',
+      { confirmButtonText: '确认移除', cancelButtonText: '取消', type: 'warning' }
+    )
+  } catch {
+    return // user cancelled
+  }
+  try {
+    await agentChannelsApi.removeAllowed(agentId, chId, userId)
+    ElMessage.success(`用户 ${userId} 已从白名单移除`)
+    await loadAgentChannels()
   } catch {
     ElMessage.error('操作失败')
   }

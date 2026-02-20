@@ -317,6 +317,69 @@ func (h *agentChannelHandler) AllowPending(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true, "allowedFrom": ch.Config["allowedFrom"]})
 }
 
+// RemoveAllowed DELETE /api/agents/:id/channels/:chId/allowed/:userId
+// Removes a user from the channel's allowedFrom whitelist.
+func (h *agentChannelHandler) RemoveAllowed(c *gin.Context) {
+	agentID := c.Param("id")
+	chID := c.Param("chId")
+	userIDStr := c.Param("userId")
+
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid userId"})
+		return
+	}
+
+	ag, ok := h.manager.Get(agentID)
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{"error": "agent not found"})
+		return
+	}
+
+	// Find the channel
+	chIdx := -1
+	for i, ch := range ag.Channels {
+		if ch.ID == chID {
+			chIdx = i
+			break
+		}
+	}
+	if chIdx < 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "channel not found"})
+		return
+	}
+
+	ch := &ag.Channels[chIdx]
+	if ch.Config == nil {
+		ch.Config = map[string]string{}
+	}
+
+	// Remove the user ID from allowedFrom
+	existing := ch.Config["allowedFrom"]
+	ids := parseIDList(existing)
+	target := fmt.Sprintf("%d", userID)
+	filtered := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if id != target {
+			filtered = append(filtered, id)
+		}
+	}
+	ch.Config["allowedFrom"] = strings.Join(filtered, ",")
+
+	// Save channels
+	if err := h.manager.UpdateChannels(agentID, ag.Channels); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Also remove from approved store (cleanup display info)
+	as := channel.NewApprovedStore(pendingDir(ag), chID)
+	as.Remove(userID)
+
+	log.Printf("[channels] removed user=%d from whitelist of agent=%s channel=%s", userID, agentID, chID)
+	c.JSON(http.StatusOK, gin.H{"ok": true, "allowedFrom": ch.Config["allowedFrom"]})
+}
+
 // DismissPending DELETE /api/agents/:id/channels/:chId/pending/:userId
 // Removes the user from the pending list without adding to allowlist.
 func (h *agentChannelHandler) DismissPending(c *gin.Context) {
