@@ -483,85 +483,7 @@
 
         <!-- Tab: 技能 -->
         <el-tab-pane label="技能" name="skills">
-          <div style="padding: 16px;">
-            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
-              <span style="font-size: 16px; font-weight: 600;">已安装技能</span>
-              <el-button size="small" @click="loadAgentSkills" :loading="skillsLoading"><el-icon><Refresh /></el-icon> 刷新</el-button>
-              <el-button type="primary" size="small" @click="openInstallSkillDialog">安装技能</el-button>
-            </div>
-
-            <div v-if="agentSkillList.length === 0" style="text-align: center; color: #999; padding: 40px 0;">
-              暂未安装任何技能，点击「安装技能」开始吧
-            </div>
-
-            <el-card
-              v-for="sk in agentSkillList"
-              :key="sk.id"
-              style="margin-bottom: 12px;"
-              shadow="hover"
-            >
-              <div style="display: flex; align-items: flex-start; gap: 12px;">
-                <span style="font-size: 22px; line-height: 1; display:flex; align-items:center;"><span v-if="sk.icon">{{ sk.icon }}</span><el-icon v-else style="font-size:22px"><Tools /></el-icon></span>
-                <div style="flex: 1; min-width: 0;">
-                  <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
-                    <span style="font-weight: 600; font-size: 15px;">{{ sk.name }}</span>
-                    <el-tag size="small" type="info" effect="plain">v{{ sk.version }}</el-tag>
-                    <el-tag v-if="sk.category" size="small" effect="plain">{{ sk.category }}</el-tag>
-                  </div>
-                  <div style="color: #666; font-size: 13px; margin-bottom: 6px;">{{ sk.description }}</div>
-                  <div style="color: #999; font-size: 12px;">
-                    来源: {{ sk.source }} · {{ sk.installedAt ? sk.installedAt.slice(0, 10) : '' }}
-                  </div>
-                </div>
-                <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
-                  <el-switch
-                    :model-value="sk.enabled"
-                    @change="(v: boolean) => toggleSkill(sk, v)"
-                    size="small"
-                  />
-                  <el-button
-                    size="small"
-                    type="danger"
-                    plain
-                    @click="uninstallSkill(sk.id)"
-                  >删除</el-button>
-                </div>
-              </div>
-            </el-card>
-          </div>
-
-          <!-- Install skill dialog -->
-          <el-dialog v-model="showInstallSkillDialog" title="安装技能" width="520px">
-            <el-form :model="skillForm" label-width="80px">
-              <el-form-item label="ID">
-                <el-input v-model="skillForm.id" placeholder="如 translate（英文小写）" />
-              </el-form-item>
-              <el-form-item label="名称">
-                <el-input v-model="skillForm.name" placeholder="如 翻译助手" />
-              </el-form-item>
-              <el-form-item label="图标">
-                <el-input v-model="skillForm.icon" placeholder="可输入 emoji，如 🌐" />
-              </el-form-item>
-              <el-form-item label="分类">
-                <el-input v-model="skillForm.category" placeholder="如 语言" />
-              </el-form-item>
-              <el-form-item label="描述">
-                <el-input v-model="skillForm.description" placeholder="简要描述该技能" />
-              </el-form-item>
-              <el-form-item label="系统指令">
-                <el-input
-                  v-model="skillForm.promptContent"
-                  type="textarea"
-                  :rows="5"
-                  placeholder="（可选）注入到系统提示的 SKILL.md 内容"
-                />
-              </el-form-item>
-            </el-form>
-            <template #footer>
-              <el-button @click="showInstallSkillDialog = false">取消</el-button>
-              <el-button type="primary" :loading="skillInstalling" @click="submitInstallSkill">安装</el-button>
-            </template>
-          </el-dialog>
+          <SkillStudio :agent-id="agentId" />
         </el-tab-pane>
 
         <!-- Tab: 历史对话 -->
@@ -979,7 +901,8 @@ import { ref, onMounted, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ArrowLeft, Plus, EditPen, Refresh, FolderOpened, Document, ArrowDown } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { agents as agentsApi, files as filesApi, memoryApi, cron as cronApi, sessions as sessionsApi, relationsApi, memoryConfigApi, agentChannels as agentChannelsApi, agentSkills as agentSkillsApi, agentConversations, type AgentInfo, type FileEntry, type CronJob, type SessionSummary, type RelationRow, type MemConfig, type MemRunLog, type ChannelEntry, type PendingUser, type AgentSkillMeta, type ConvEntry, type ChannelSummary } from '../api'
+import SkillStudio from '../components/SkillStudio.vue'
+import { agents as agentsApi, files as filesApi, memoryApi, cron as cronApi, sessions as sessionsApi, relationsApi, memoryConfigApi, agentChannels as agentChannelsApi, agentConversations, type AgentInfo, type FileEntry, type CronJob, type SessionSummary, type RelationRow, type MemConfig, type MemRunLog, type ChannelEntry, type PendingUser, type ConvEntry, type ChannelSummary } from '../api'
 import AiChat, { type ChatMsg } from '../components/AiChat.vue'
 
 const route = useRoute()
@@ -1583,7 +1506,6 @@ onMounted(async () => {
   loadWorkspace()
   loadCron()
   loadAgentChannels()
-  loadAgentSkills()
   await loadAgentSessions()
 
   // Handle ?tab=<name> query param (e.g. from CronView "查看" button)
@@ -1784,103 +1706,23 @@ async function deleteCron(job: any) {
   }
 }
 
-// ── Skill Management ─────────────────────────────────────────────────────────
-
-const agentSkillList = ref<AgentSkillMeta[]>([])
-const showInstallSkillDialog = ref(false)
-const skillInstalling = ref(false)
-const skillsLoading = ref(false)
-const skillForm = ref({
-  id: '',
-  name: '',
-  icon: '',
-  category: '',
-  description: '',
-  promptContent: '',
-})
-
-async function loadAgentSkills() {
-  skillsLoading.value = true
-  try {
-    const res = await agentSkillsApi.list(agentId)
-    agentSkillList.value = res.data || []
-  } catch {
-    agentSkillList.value = []
-  } finally {
-    skillsLoading.value = false
-  }
-}
-
-function openInstallSkillDialog() {
-  skillForm.value = { id: '', name: '', icon: '', category: '', description: '', promptContent: '' }
-  showInstallSkillDialog.value = true
-}
-
-async function submitInstallSkill() {
-  if (!skillForm.value.id || !skillForm.value.name) {
-    ElMessage.warning('ID 和名称为必填项')
-    return
-  }
-  skillInstalling.value = true
-  try {
-    await agentSkillsApi.create(agentId, {
-      meta: {
-        id: skillForm.value.id,
-        name: skillForm.value.name,
-        icon: skillForm.value.icon,
-        category: skillForm.value.category,
-        description: skillForm.value.description,
-        version: '1.0.0',
-        source: 'local',
-      },
-      promptContent: skillForm.value.promptContent || undefined,
-    })
-    ElMessage.success('技能已安装')
-    showInstallSkillDialog.value = false
-    loadAgentSkills()
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.error || '安装失败')
-  } finally {
-    skillInstalling.value = false
-  }
-}
-
-async function toggleSkill(sk: AgentSkillMeta, enabled: boolean) {
-  try {
-    await agentSkillsApi.update(agentId, sk.id, { enabled })
-    sk.enabled = enabled
-    ElMessage.success(enabled ? '已启用' : '已禁用')
-  } catch {
-    ElMessage.error('操作失败')
-    loadAgentSkills()
-  }
-}
-
-async function uninstallSkill(skillId: string) {
-  try {
-    await agentSkillsApi.remove(agentId, skillId)
-    ElMessage.success('技能已卸载')
-    loadAgentSkills()
-  } catch {
-    ElMessage.error('卸载失败')
-  }
-}
-
-// ── Conversation Log ──────────────────────────────────────────────────────
-
-const convChannels = ref<ChannelSummary[]>([])
+// ── Conv Log Management ──────────────────────────────────────────────────────
 const convLoading = ref(false)
-
-// Drawer state
+const convChannels = ref<ChannelSummary[]>([])
 const convDrawerVisible = ref(false)
 const convDrawerChannelId = ref('')
 const convMessages = ref<ConvEntry[]>([])
-const convMsgLoading = ref(false)
 const convTotal = ref(0)
 const convOffset = ref(0)
+const convHasMore = computed(() => convMessages.value.length < convTotal.value)
+const convMsgLoading = ref(false)
 const convPageSize = 50
 
-const convHasMore = computed(() => convMessages.value.length < convTotal.value)
+
+
+
+
+
 
 async function loadConvChannels() {
   convLoading.value = true
@@ -1937,10 +1779,6 @@ async function loadMoreConvMsgs() {
 watch(activeTab, (tab) => {
   if (tab === 'convlogs' && convChannels.value.length === 0) {
     loadConvChannels()
-  }
-  // Always refresh skills list when entering Skills tab (AI may have installed skills via chat)
-  if (tab === 'skills') {
-    loadAgentSkills()
   }
 })
 </script>
