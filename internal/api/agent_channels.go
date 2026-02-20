@@ -135,6 +135,26 @@ func (h *agentChannelHandler) SetChannels(c *gin.Context) {
 		}
 	}
 
+	// ── Uniqueness check: a Telegram bot token can only belong to one agent ──
+	for _, ch := range incoming {
+		if ch.Type != "telegram" {
+			continue
+		}
+		token := ch.Config["botToken"]
+		if token == "" || ismasked(token) {
+			continue
+		}
+		if owner, ownerCh := h.manager.FindAgentByBotToken(token, agentID); owner != nil {
+			c.JSON(http.StatusConflict, gin.H{
+				"error": fmt.Sprintf(
+					"Bot Token 已被成员「%s」的渠道「%s」使用，每个 Bot 只能绑定一个 AI 成员",
+					owner.Name, ownerCh,
+				),
+			})
+			return
+		}
+	}
+
 	// Find channels that were removed and clean up their pending stores
 	incomingIDs := make(map[string]bool)
 	for _, ch := range incoming {
