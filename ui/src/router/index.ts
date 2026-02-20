@@ -88,8 +88,15 @@ const router = createRouter({
     },
     // Public chat page (web channel — no auth required)
     {
-      path: '/chat/:agentId',
+      path: '/chat/:agentId/:channelId',
       name: 'public-chat',
+      component: () => import('../views/PublicChatView.vue'),
+      meta: { public: true }
+    },
+    // Legacy: no channelId — redirects to same page; PublicChatView auto-resolves first channel
+    {
+      path: '/chat/:agentId',
+      name: 'public-chat-legacy',
       component: () => import('../views/PublicChatView.vue'),
       meta: { public: true }
     },
