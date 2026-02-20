@@ -290,30 +290,44 @@ const aiChatRef = ref<InstanceType<typeof AiChat> | null>(null)
 // ── AI Chat context ────────────────────────────────────────────────────────
 const chatContext = computed(() => {
   if (!selected.value) return '你是一个技能配置助手，帮助用户设计和优化 AI 技能的系统提示词。'
-  return `你是一个技能配置助手，正在帮助用户配置技能「${selected.value.name}」（ID: ${selected.value.id}）。
+  const skillJsonTemplate = JSON.stringify({
+    id: selected.value.id,
+    name: selected.value.name,
+    icon: selected.value.icon || '',
+    category: selected.value.category || '',
+    description: selected.value.description || '',
+    version: selected.value.version || '1.0.0',
+    enabled: selected.value.enabled,
+    source: 'local',
+    installedAt: ''
+  }, null, 2)
+  return `你是一个技能配置助手，正在帮助用户配置技能（ID: ${selected.value.id}）。
 
 ## ⚠️ 文件路径规则（必须遵守）
-本技能的所有文件必须存放在：
-  skills/${selected.value.id}/
+所有文件必须在 skills/${selected.value.id}/ 目录下：
+- ✅ skills/${selected.value.id}/SKILL.md
+- ✅ skills/${selected.value.id}/skill.json
+- ✅ skills/${selected.value.id}/tools/helper.py
+- ❌ 任何其他路径
 
-- ✅ 正确：skills/${selected.value.id}/tools.py
-- ✅ 正确：skills/${selected.value.id}/utils/helper.py
-- ❌ 错误：workspace/anything/
-- ❌ 错误：data_tools/
-- ❌ 错误：任何不以 skills/${selected.value.id}/ 开头的路径
+## ⚠️ 创建或更新技能时，必须同时写两个文件
 
-使用 write_file 工具时，路径必须以 skills/${selected.value.id}/ 开头。
+### 1. skills/${selected.value.id}/skill.json（技能元数据）
+格式如下，修改 name/icon/category/description 字段：
+\`\`\`json
+${skillJsonTemplate}
+\`\`\`
 
-## 当前 SKILL.md 内容
+### 2. skills/${selected.value.id}/SKILL.md（系统提示词）
+当前内容：
 \`\`\`markdown
 ${promptContent.value || '（空）'}
 \`\`\`
 
-你可以帮助：
-- 优化或重写 SKILL.md 系统提示词
-- 在 skills/${selected.value.id}/ 下创建辅助工具文件（Python、配置等）
-- 测试技能效果（用户发消息即可测试）
-- 给出技能设计建议`
+## 你可以帮助：
+- 创建/优化技能：同时写 skill.json（名称、分类、描述）和 SKILL.md（提示词）
+- 在技能目录下创建工具文件（Python 等）
+- 测试技能效果（直接对话即可测试）`
 })
 
 const chatWelcome = computed(() => {
@@ -530,10 +544,10 @@ async function onAiResponse(_text: string) {
   isNewSkill.value = false
   // Reload skill metadata + directory listing (AI may have created new files)
   await Promise.all([loadList(), loadDirFiles()])
-  // Reload active file content if it may have changed
-  if (activeFile.value === 'prompt') {
-    await reloadPrompt()
-  } else if (activeFile.value !== 'meta') {
+  // 无条件刷新 SKILL.md（chatContext 需要最新内容）
+  await reloadPrompt()
+  // 如果当前正在看其他文件，也刷新
+  if (activeFile.value !== 'meta' && activeFile.value !== 'prompt') {
     await reloadGenericFile()
   }
 }
