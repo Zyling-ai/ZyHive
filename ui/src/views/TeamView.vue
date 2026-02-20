@@ -117,9 +117,9 @@
     <el-card v-if="graph.nodes.length" class="legend-card">
       <div class="legend">
         <span class="legend-title">布局规则：</span>
-        <span class="legend-item">🔼 上方 = 上级</span>
-        <span class="legend-item">➖ 同层 = 平级协作</span>
-        <span class="legend-item">🔽 下方 = 下级</span>
+        <span class="legend-item"><el-icon><ArrowUp /></el-icon> 上方 = 上级</span>
+        <span class="legend-item">— 同层 = 平级协作</span>
+        <span class="legend-item"><el-icon><ArrowDown /></el-icon> 下方 = 下级</span>
         <span class="legend-divider"> | </span>
         <span class="legend-title">线粗：</span>
         <span v-for="(w, s) in strengthWidths" :key="s" class="legend-item">

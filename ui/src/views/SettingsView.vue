@@ -1,6 +1,6 @@
 <template>
   <div class="settings-page">
-    <h2 style="margin: 0 0 20px">⚙️ 设置</h2>
+    <h2 style="margin: 0 0 20px"><el-icon style="vertical-align:-2px;margin-right:6px"><Setting /></el-icon>设置</h2>
 
     <el-card shadow="hover" style="max-width: 600px">
       <el-form label-width="120px">

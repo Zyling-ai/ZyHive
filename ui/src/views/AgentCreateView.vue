@@ -128,7 +128,7 @@
         <div class="agent-tabs-scroll">
           <div class="agent-tab" :class="{ active: activeAgentTab === '__assist__' }"
             @click="switchTab('__assist__')">
-            <span class="tab-icon">🤖</span> 配置助手
+            <el-icon class="tab-icon"><User /></el-icon> 配置助手
           </div>
           <div v-for="ag in agentList" :key="ag.id"
             class="agent-tab" :class="{ active: activeAgentTab === ag.id }"

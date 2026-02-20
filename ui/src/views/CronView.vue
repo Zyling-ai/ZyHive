@@ -1,7 +1,7 @@
 <template>
   <div class="cron-page">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px">
-      <h2 style="margin: 0">⏰ 定时任务</h2>
+      <h2 style="margin: 0"><el-icon style="vertical-align:-2px;margin-right:6px"><Timer /></el-icon>定时任务</h2>
       <el-button type="primary" @click="openCreate">
         <el-icon><Plus /></el-icon> 新建任务
       </el-button>
@@ -87,7 +87,7 @@
             <el-option v-for="ag in agentList" :key="ag.id" :label="ag.name" :value="ag.id" />
           </el-select>
           <el-text type="info" size="small" style="display:block;margin-top:4px">
-            💡 不选则为全局任务；选择成员后该任务只在成员的「定时任务」Tab 显示
+            <el-icon style="vertical-align:-2px;margin-right:4px"><InfoFilled /></el-icon>不选则为全局任务；选择成员后该任务只在成员的「定时任务」Tab 显示
           </el-text>
         </el-form-item>
         <el-form-item label="名称">

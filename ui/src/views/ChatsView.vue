@@ -3,7 +3,7 @@
     <!-- Header -->
     <div class="page-header">
       <div>
-        <h2 style="margin: 0">💬 对话管理</h2>
+        <h2 style="margin: 0"><el-icon style="vertical-align:-2px;margin-right:6px"><ChatLineRound /></el-icon>对话管理</h2>
         <div style="font-size: 13px; color: #909399; margin-top: 4px">
           跨所有 AI 成员的对话记录
         </div>
@@ -45,7 +45,7 @@
             <el-table-column label="渠道类型" width="110">
               <template #default="{ row }">
                 <el-tag :type="row.channelType === 'telegram' ? 'success' : 'warning'" size="small">
-                  {{ row.channelType === 'telegram' ? '✈ Telegram' : row.channelType === 'web' ? '🌐 Web' : row.channelType }}
+                  {{ row.channelType === 'telegram' ? 'Telegram' : row.channelType === 'web' ? 'Web' : row.channelType }}
                 </el-tag>
               </template>
             </el-table-column>
@@ -339,7 +339,7 @@ const channelLimit = 50
 
 async function openChannelDetail(row: GlobalConvRow) {
   drawerChannelRow.value = row
-  channelDrawerTitle.value = `${row.channelType === 'telegram' ? '✈ Telegram' : '🌐 Web'} · ${row.channelId}`
+  channelDrawerTitle.value = `${row.channelType === 'telegram' ? 'Telegram' : 'Web'} · ${row.channelId}`
   channelDrawer.value = true
   channelPage.value = 1
   await fetchChannelMessages(row, 1)

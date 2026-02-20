@@ -6,7 +6,12 @@
     <!-- Sidebar -->
     <el-aside :width="collapsed ? '64px' : '200px'" class="app-sidebar">
       <div class="sidebar-logo" @click="collapsed = !collapsed">
-        <span class="logo-icon">🤖</span>
+        <span class="logo-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 2L21.5 7.5V16.5L12 22L2.5 16.5V7.5L12 2Z" fill="#409EFF"/>
+            <text x="12" y="16" text-anchor="middle" fill="white" font-size="10" font-weight="800" font-family="sans-serif">Z</text>
+          </svg>
+        </span>
         <span v-if="!collapsed" class="logo-text">ZyHive</span>
       </div>
 
@@ -145,7 +150,12 @@ body {
   border-bottom: 1px solid rgba(255,255,255,0.08);
 }
 .logo-icon {
-  font-size: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
 }
 .logo-text {
   font-size: 18px;

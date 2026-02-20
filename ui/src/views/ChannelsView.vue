@@ -1,7 +1,7 @@
 <template>
   <div class="channels-page">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px">
-      <h2 style="margin: 0">📡 消息通道</h2>
+      <h2 style="margin: 0"><el-icon style="vertical-align:-2px;margin-right:6px"><Connection /></el-icon>消息通道</h2>
       <el-button type="primary" @click="openAdd">
         <el-icon><Plus /></el-icon> 添加通道
       </el-button>
