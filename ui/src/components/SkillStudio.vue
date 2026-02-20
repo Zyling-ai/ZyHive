@@ -273,6 +273,9 @@ const saving = ref(false)
 const creating = ref(false)
 const isNewSkill = ref(false)  // true when just created — AI should guide user
 
+// 等待 AI 生成完成后再切换的目标 session ID
+const pendingChatSession = ref<string | null>(null)
+
 // Dynamic directory listing (recursive)
 interface DirEntry { name: string; path: string; isDir: boolean; depth: number }
 const dirFiles = ref<DirEntry[]>([])
@@ -372,17 +375,30 @@ function syncMetaForm(sk: AgentSkillMeta) {
 }
 
 async function selectSkill(sk: AgentSkillMeta) {
+  const chat = aiChatRef.value as any
+  const sessionId = `skill-studio-${sk.id}`
+
+  // 已选中同一个技能：跳过，防止重复触发打断正在进行的流
+  if (selected.value?.id === sk.id) return
+
+  // 切换编辑器视图（立即生效）
   selected.value = sk
   syncMetaForm(sk)
   activeFile.value = 'meta'
   promptDirty.value = false
   promptContent.value = ''
   isNewSkill.value = false
-  // 预加载目录文件列表 + SKILL.md（确保 AI 上下文正确）
   loadDirFiles()
   reloadPrompt()
-  // 从后端加载该技能的对话历史（session ID: skill-studio-{skillId}）
-  await (aiChatRef.value as any)?.resumeSession?.(`skill-studio-${sk.id}`)
+
+  // 如果 AI 正在生成，不立即切换 chat session（避免打断流）
+  // 等生成结束后在 onAiResponse 里完成切换
+  if (chat?.streaming?.value) {
+    pendingChatSession.value = sessionId
+  } else {
+    pendingChatSession.value = null
+    await chat?.resumeSession?.(sessionId)
+  }
 }
 
 async function switchToPrompt() {
@@ -523,6 +539,12 @@ async function openNew() {
     const sk = skills.value.find(s => s.id === id)
     if (sk) {
       await selectSkill(sk)
+      // 如果 selectSkill 因为正在流而推迟了 session 切换，这里强制完成
+      if (pendingChatSession.value) {
+        const sid = pendingChatSession.value
+        pendingChatSession.value = null
+        await (aiChatRef.value as any)?.resumeSession?.(sid)
+      }
       // 直接跳到 SKILL.md 编辑器，引导用户用 AI 生成内容
       activeFile.value = 'prompt'
       promptContent.value = ''
@@ -540,6 +562,14 @@ async function openNew() {
 
 // ── AI response hook ──────────────────────────────────────────────────────
 async function onAiResponse(_text: string) {
+  // 如果有待切换的 chat session（生成期间用户切了技能），现在完成切换
+  if (pendingChatSession.value) {
+    const sid = pendingChatSession.value
+    pendingChatSession.value = null
+    await (aiChatRef.value as any)?.resumeSession?.(sid)
+    return  // 切换后不需要刷新旧技能的文件
+  }
+
   if (!selected.value) return
   isNewSkill.value = false
   // Reload skill metadata + directory listing (AI may have created new files)

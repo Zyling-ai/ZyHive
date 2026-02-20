@@ -690,7 +690,7 @@ function sendText(text: string) { fillInput(text); nextTick(send) }
 /** 静默发送：只显示 AI 回复，不在聊天中添加用户消息（用于自动触发场景） */
 function sendSilent(text: string) { runChat(text, [], true) }
 
-defineExpose({ clearMessages, appendMessage, sendText, sendSilent, fillInput, messages, currentSessionId, resumeSession, startNewSession })
+defineExpose({ clearMessages, appendMessage, sendText, sendSilent, fillInput, messages, streaming, currentSessionId, resumeSession, startNewSession })
 
 // ── Init ─────────────────────────────────────────────────────────────────
 onMounted(() => {
