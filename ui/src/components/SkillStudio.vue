@@ -93,15 +93,17 @@
               <el-icon><Document /></el-icon>
               <span>skill.json</span>
             </div>
-            <!-- 动态文件列表（排除 skill.json，已在上方固定显示） -->
+            <!-- 动态文件列表（递归，排除 skill.json） -->
             <div
-              v-for="f in dirFiles" :key="f.name"
-              :class="['tree-item', { 'tree-active': activeFile === (f.name === 'SKILL.md' ? 'prompt' : f.name) }]"
-              @click="openFile(f.name)"
+              v-for="f in dirFiles" :key="f.path"
+              :class="['tree-item', { 'tree-active': activeFile === (f.path === 'SKILL.md' ? 'prompt' : f.path), 'tree-dir-row': f.isDir }]"
+              :style="{ paddingLeft: `${12 + f.depth * 12}px` }"
+              @click="openFile(f.path, f.isDir)"
             >
-              <el-icon><Document /></el-icon>
+              <el-icon v-if="f.isDir" style="color:#e6a23c"><Folder /></el-icon>
+              <el-icon v-else><Document /></el-icon>
               <span>{{ f.name }}</span>
-              <el-tag v-if="f.name === 'SKILL.md' && selected.enabled" size="small" type="success" effect="plain" style="margin-left:4px;font-size:10px">注入中</el-tag>
+              <el-tag v-if="f.path === 'SKILL.md' && selected.enabled" size="small" type="success" effect="plain" style="margin-left:4px;font-size:10px">注入中</el-tag>
             </div>
             <div v-if="!dirLoading && dirFiles.length === 0" class="tree-empty">空目录</div>
           </div>
@@ -270,8 +272,9 @@ const saving = ref(false)
 const creating = ref(false)
 const isNewSkill = ref(false)  // true when just created — AI should guide user
 
-// Dynamic directory listing
-const dirFiles = ref<{ name: string; isDir: boolean }[]>([])
+// Dynamic directory listing (recursive)
+interface DirEntry { name: string; path: string; isDir: boolean; depth: number }
+const dirFiles = ref<DirEntry[]>([])
 const dirLoading = ref(false)
 
 // Generic file editor (for non-skill.json / non-SKILL.md files)
@@ -378,24 +381,43 @@ async function switchToPrompt() {
   if (!promptContent.value) await reloadPrompt()
 }
 
+// 递归读取目录，返回扁平列表（含深度和相对 path）
+async function readDirRecursive(apiPath: string, relPrefix: string, depth: number): Promise<DirEntry[]> {
+  const res = await filesApi.read(agentId, apiPath)
+  const entries: any[] = Array.isArray(res.data) ? res.data : []
+  const result: DirEntry[] = []
+  for (const f of entries) {
+    if (depth === 0 && f.name === 'skill.json') continue  // skill.json 固定显示，跳过
+    const relPath = relPrefix ? `${relPrefix}/${f.name}` : f.name
+    result.push({ name: f.name, path: relPath, isDir: f.isDir, depth })
+    if (f.isDir) {
+      const children = await readDirRecursive(
+        `skills/${selected.value!.id}/${relPath}`,
+        relPath, depth + 1
+      )
+      result.push(...children)
+    }
+  }
+  return result
+}
+
 async function loadDirFiles() {
   if (!selected.value) return
   dirLoading.value = true
   try {
-    const res = await filesApi.read(agentId, `skills/${selected.value.id}/`)
-    dirFiles.value = (Array.isArray(res.data) ? res.data : [])
-      .filter((f: any) => !f.isDir && f.name !== 'skill.json')
+    dirFiles.value = await readDirRecursive(`skills/${selected.value.id}/`, '', 0)
   } catch {
-    // 目录不存在时回退到仅显示 SKILL.md
-    dirFiles.value = [{ name: 'SKILL.md', isDir: false }]
+    dirFiles.value = [{ name: 'SKILL.md', path: 'SKILL.md', isDir: false, depth: 0 }]
   } finally {
     dirLoading.value = false
   }
 }
 
-async function openFile(filename: string) {
-  if (filename === 'SKILL.md') { await switchToPrompt(); return }
-  activeFile.value = filename
+// path = 相对于 skills/{skillId}/ 的路径，如 "SKILL.md" 或 "tools/eda.py"
+async function openFile(path: string, isDir: boolean) {
+  if (isDir) return  // 目录不可打开
+  if (path === 'SKILL.md') { await switchToPrompt(); return }
+  activeFile.value = path
   genericDirty.value = false
   await reloadGenericFile()
 }
@@ -411,11 +433,11 @@ async function reloadGenericFile() {
   finally { genericLoading.value = false }
 }
 
-async function deleteFile(filename: string) {
+async function deleteFile(path: string) {
   if (!selected.value) return
   try {
-    await filesApi.delete(agentId, `skills/${selected.value.id}/${filename}`)
-    if (activeFile.value === filename) activeFile.value = 'prompt'
+    await filesApi.delete(agentId, `skills/${selected.value.id}/${path}`)
+    if (activeFile.value === path) activeFile.value = 'prompt'
     await loadDirFiles()
     ElMessage.success('已删除')
   } catch { ElMessage.error('删除失败') }
