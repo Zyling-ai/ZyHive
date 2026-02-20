@@ -2,9 +2,14 @@
   <div class="team-view">
     <div class="page-header">
       <h2>团队关系图谱</h2>
-      <el-button size="small" @click="loadGraph">
-        <el-icon><Refresh /></el-icon> 刷新
-      </el-button>
+      <div style="display:flex;gap:8px;">
+        <el-button size="small" @click="loadGraph">
+          <el-icon><Refresh /></el-icon> 刷新
+        </el-button>
+        <el-button size="small" type="danger" plain @click="clearAllRelations">
+          <el-icon><Delete /></el-icon> 清空所有关系
+        </el-button>
+      </div>
     </div>
 
     <el-card v-loading="loading" class="graph-card">
@@ -143,7 +148,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { relationsApi, type TeamGraph, type TeamGraphEdge, type TeamGraphNode } from '../api'
 
 const router = useRouter()
@@ -307,6 +312,25 @@ async function loadGraph() {
     ElMessage.error('加载图谱失败')
   } finally {
     loading.value = false
+  }
+}
+
+async function clearAllRelations() {
+  try {
+    await ElMessageBox.confirm(
+      '将清空所有成员的 RELATIONS.md，此操作不可恢复。确认吗？',
+      '清空所有关系',
+      { confirmButtonText: '确认清空', cancelButtonText: '取消', type: 'warning' }
+    )
+  } catch {
+    return // user cancelled
+  }
+  try {
+    await relationsApi.clearAll()
+    ElMessage.success('已清空所有成员关系')
+    await loadGraph()
+  } catch {
+    ElMessage.error('清空失败')
   }
 }
 

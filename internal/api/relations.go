@@ -162,28 +162,43 @@ func (h *relationsHandler) addInverseRelation(targetAgentID string, row Relation
 	_ = writeRelationsFile(filePath, existing)
 }
 
-// removeInverseRelation removes the relation pointing to sourceAgentID from targetAgentID's RELATIONS.md.
-func (h *relationsHandler) removeInverseRelation(targetAgentID, sourceAgentID string) {
-	target, ok := h.manager.Get(targetAgentID)
+// removeRelationEntry removes the row pointing to removeID from agentID's RELATIONS.md.
+func (h *relationsHandler) removeRelationEntry(agentID, removeID string) {
+	ag, ok := h.manager.Get(agentID)
 	if !ok {
 		return
 	}
-
-	filePath := filepath.Join(target.WorkspaceDir, relationsFilename)
+	filePath := filepath.Join(ag.WorkspaceDir, relationsFilename)
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return
 	}
-
 	rows := parseRelationsMarkdown(string(data))
 	filtered := rows[:0]
 	for _, r := range rows {
-		if r.AgentID != sourceAgentID {
+		if r.AgentID != removeID {
 			filtered = append(filtered, r)
 		}
 	}
-
 	_ = writeRelationsFile(filePath, filtered)
+}
+
+// removeInverseRelation is kept for compatibility — now truly bidirectional:
+// removes references to each other in BOTH agents' RELATIONS.md files.
+func (h *relationsHandler) removeInverseRelation(targetAgentID, sourceAgentID string) {
+	h.removeRelationEntry(targetAgentID, sourceAgentID) // remove source from target's file
+	h.removeRelationEntry(sourceAgentID, targetAgentID) // remove target from source's file (safety)
+}
+
+// ClearAllRelations clears RELATIONS.md for every agent.
+// DELETE /api/team/relations
+func (h *relationsHandler) ClearAllRelations(c *gin.Context) {
+	agents := h.manager.List()
+	for _, ag := range agents {
+		filePath := filepath.Join(ag.WorkspaceDir, relationsFilename)
+		_ = os.WriteFile(filePath, []byte(""), 0644)
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "cleared": len(agents)})
 }
 
 // writeRelationsFile serializes RelationRows as a markdown table and writes to disk.
