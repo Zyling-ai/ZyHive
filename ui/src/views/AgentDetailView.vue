@@ -1348,8 +1348,9 @@ async function saveChannelDialog() {
 async function saveChannels() {
   try {
     await agentChannelsApi.set(agentId, agentChannelList.value)
-  } catch {
-    ElMessage.error('保存失败')
+  } catch (e: any) {
+    ElMessage.error(e.response?.data?.error || '保存失败')
+    await loadAgentChannels() // revert UI state on error
   }
 }
 

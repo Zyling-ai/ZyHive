@@ -273,6 +273,28 @@ func (m *Manager) UpdateChannels(agentID string, channels []config.ChannelEntry)
 	return os.WriteFile(cfgPath, out, 0644)
 }
 
+// FindAgentByBotToken returns the agent and channel that use the given bot token,
+// excluding excludeAgentID (so an agent can update its own token without false conflict).
+// Returns nil if no other agent uses this token.
+func (m *Manager) FindAgentByBotToken(token, excludeAgentID string) (*Agent, string) {
+	if token == "" {
+		return nil, ""
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, ag := range m.agents {
+		if ag.ID == excludeAgentID {
+			continue
+		}
+		for _, ch := range ag.Channels {
+			if ch.Type == "telegram" && ch.Config["botToken"] == token {
+				return ag, ch.Name
+			}
+		}
+	}
+	return nil, ""
+}
+
 // GetAllowFrom returns the live allowedFrom list for a specific channel of an agent.
 // This is called on every Telegram message by the bot, so admin approvals in the Web UI
 // take effect immediately without restarting the bot process.
