@@ -56,24 +56,47 @@ type TelegramUpdate struct {
 }
 
 type TelegramMessage struct {
-	MessageID      int64               `json:"message_id"`
-	From           TelegramUser        `json:"from"`
-	Chat           TelegramChat        `json:"chat"`
-	Text           string              `json:"text"`
-	Caption        string              `json:"caption,omitempty"`
-	MediaGroupID   string              `json:"media_group_id,omitempty"`
-	MessageThreadID int64              `json:"message_thread_id,omitempty"`
-	Date           int64               `json:"date"`
-	ReplyToMessage *TelegramMessage    `json:"reply_to_message,omitempty"`
-	Entities       []TelegramEntity    `json:"entities,omitempty"`
-	Photo          []TelegramPhotoSize `json:"photo,omitempty"`
-	Video          *TelegramFile       `json:"video,omitempty"`
-	Document       *TelegramFile       `json:"document,omitempty"`
-	Audio          *TelegramFile       `json:"audio,omitempty"`
-	Voice          *TelegramFile       `json:"voice,omitempty"`
-	VideoNote      *TelegramFile       `json:"video_note,omitempty"`
-	Sticker        *TelegramSticker    `json:"sticker,omitempty"`
-	Animation      *TelegramFile       `json:"animation,omitempty"`
+	MessageID       int64               `json:"message_id"`
+	From            TelegramUser        `json:"from"`
+	Chat            TelegramChat        `json:"chat"`
+	Text            string              `json:"text"`
+	Caption         string              `json:"caption,omitempty"`
+	MediaGroupID    string              `json:"media_group_id,omitempty"`
+	MessageThreadID int64               `json:"message_thread_id,omitempty"`
+	Date            int64               `json:"date"`
+	ReplyToMessage  *TelegramMessage    `json:"reply_to_message,omitempty"`
+	Entities        []TelegramEntity    `json:"entities,omitempty"`
+	Photo           []TelegramPhotoSize `json:"photo,omitempty"`
+	Video           *TelegramFile       `json:"video,omitempty"`
+	Document        *TelegramFile       `json:"document,omitempty"`
+	Audio           *TelegramFile       `json:"audio,omitempty"`
+	Voice           *TelegramFile       `json:"voice,omitempty"`
+	VideoNote       *TelegramFile       `json:"video_note,omitempty"`
+	Sticker         *TelegramSticker    `json:"sticker,omitempty"`
+	Animation       *TelegramFile       `json:"animation,omitempty"`
+	// Forward context (old API)
+	ForwardFrom     *TelegramUser       `json:"forward_from,omitempty"`
+	ForwardFromChat *TelegramForwardChat `json:"forward_from_chat,omitempty"`
+	ForwardDate     int64               `json:"forward_date,omitempty"`
+	// Forward origin (Bot API 7.0+)
+	ForwardOrigin   *TelegramForwardOrigin `json:"forward_origin,omitempty"`
+}
+
+// TelegramForwardChat represents the chat a message was forwarded from.
+type TelegramForwardChat struct {
+	ID       int64  `json:"id"`
+	Type     string `json:"type"`
+	Title    string `json:"title,omitempty"`
+	Username string `json:"username,omitempty"`
+}
+
+// TelegramForwardOrigin represents the new-style forward_origin (Bot API 7.0+).
+type TelegramForwardOrigin struct {
+	Type        string       `json:"type"` // "user" | "hidden_user" | "chat" | "channel"
+	SenderUser  *TelegramUser `json:"sender_user,omitempty"`
+	SenderUserName string    `json:"sender_user_name,omitempty"`
+	Chat        *TelegramForwardChat `json:"chat,omitempty"`
+	Date        int64        `json:"date,omitempty"`
 }
 
 type TelegramPhotoSize struct {
@@ -107,8 +130,9 @@ type TelegramUser struct {
 }
 
 type TelegramChat struct {
-	ID   int64  `json:"id"`
-	Type string `json:"type"` // "private" | "group" | "supergroup" | "channel"
+	ID    int64  `json:"id"`
+	Type  string `json:"type"` // "private" | "group" | "supergroup" | "channel"
+	Title string `json:"title,omitempty"`
 }
 
 type TelegramEntity struct {
@@ -296,11 +320,13 @@ func (b *TelegramBot) handleUpdate(ctx context.Context, update TelegramUpdate) {
 	// Handle channel posts (no access control)
 	if update.ChannelPost != nil {
 		msg := update.ChannelPost
-		text := msg.Text
-		if text == "" {
-			text = msg.Caption
+		rawText := msg.Text
+		if rawText == "" {
+			rawText = msg.Caption
 		}
-		if text == "" {
+		text := b.enrichWithContext(msg, rawText)
+		hasPostMedia := len(msg.Photo) > 0 || msg.Video != nil || msg.Document != nil
+		if text == "" && !hasPostMedia {
 			return
 		}
 		log.Printf("[telegram] Channel post: chat=%d text=%q", msg.Chat.ID, truncate(text, 60))
@@ -381,6 +407,9 @@ func (b *TelegramBot) handleUpdate(ctx context.Context, update TelegramUpdate) {
 	if text == "" && isStart {
 		text = "你好"
 	}
+
+	// Enrich with forward context (prepend as metadata)
+	text = b.enrichWithContext(msg, text)
 
 	// For pure media messages with no text, we still need to process them
 	hasMedia := len(msg.Photo) > 0 || msg.Video != nil || msg.Audio != nil ||
@@ -695,6 +724,91 @@ func (b *TelegramBot) cleanMessageText(text string) string {
 	mention := "@" + b.botUsername
 	cleaned := strings.ReplaceAll(text, mention, "")
 	return strings.TrimSpace(cleaned)
+}
+
+// enrichWithContext adds forward/reply context to the user's message text,
+// mirroring OpenClaw's forwardPrefix + replySuffix pattern.
+func (b *TelegramBot) enrichWithContext(msg *TelegramMessage, text string) string {
+	var parts []string
+
+	// ── Forward context ───────────────────────────────────────────────────
+	forwardSender := b.resolveForwardSender(msg)
+	if forwardSender != "" {
+		fwdBody := text
+		if fwdBody == "" {
+			fwdBody = "(无文字内容)"
+		}
+		parts = append(parts, fmt.Sprintf("[转发自: %s]\n%s", forwardSender, fwdBody))
+	} else if text != "" {
+		parts = append(parts, text)
+	}
+
+	// ── Reply context ─────────────────────────────────────────────────────
+	if msg.ReplyToMessage != nil {
+		replyMsg := msg.ReplyToMessage
+		replySender := replyMsg.From.FirstName
+		if replyMsg.From.Username != "" {
+			replySender += " (@" + replyMsg.From.Username + ")"
+		}
+		replyBody := replyMsg.Text
+		if replyBody == "" {
+			replyBody = replyMsg.Caption
+		}
+		if replyBody == "" {
+			replyBody = "(非文字消息)"
+		}
+		parts = append(parts, fmt.Sprintf("\n[回复 %s (id:%d)]\n%s\n[/回复]",
+			replySender, replyMsg.MessageID, replyBody))
+	}
+
+	return strings.TrimSpace(strings.Join(parts, "\n"))
+}
+
+// resolveForwardSender extracts the forward sender name from a message.
+// Returns empty string if the message is not a forward.
+func (b *TelegramBot) resolveForwardSender(msg *TelegramMessage) string {
+	// New-style forward_origin (Bot API 7.0+)
+	if msg.ForwardOrigin != nil {
+		switch msg.ForwardOrigin.Type {
+		case "user":
+			if msg.ForwardOrigin.SenderUser != nil {
+				name := strings.TrimSpace(msg.ForwardOrigin.SenderUser.FirstName)
+				if msg.ForwardOrigin.SenderUser.Username != "" {
+					name += " (@" + msg.ForwardOrigin.SenderUser.Username + ")"
+				}
+				return name
+			}
+		case "hidden_user":
+			if msg.ForwardOrigin.SenderUserName != "" {
+				return msg.ForwardOrigin.SenderUserName
+			}
+			return "匿名用户"
+		case "chat", "channel":
+			if msg.ForwardOrigin.Chat != nil {
+				name := msg.ForwardOrigin.Chat.Title
+				if msg.ForwardOrigin.Chat.Username != "" {
+					name += " (@" + msg.ForwardOrigin.Chat.Username + ")"
+				}
+				return name
+			}
+		}
+	}
+	// Old-style forward_from
+	if msg.ForwardFrom != nil {
+		name := strings.TrimSpace(msg.ForwardFrom.FirstName)
+		if msg.ForwardFrom.Username != "" {
+			name += " (@" + msg.ForwardFrom.Username + ")"
+		}
+		return name
+	}
+	if msg.ForwardFromChat != nil {
+		name := msg.ForwardFromChat.Title
+		if msg.ForwardFromChat.Username != "" {
+			name += " (@" + msg.ForwardFromChat.Username + ")"
+		}
+		return name
+	}
+	return ""
 }
 
 // ── Media resolution ──────────────────────────────────────────────────────
