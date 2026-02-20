@@ -105,8 +105,8 @@ func main() {
 				}
 				pending := channel.NewPendingStore(pendingDir, ch.ID)
 				// Use streaming runner for better UX (send+edit draft pattern)
-				streamFunc := func(ctx context.Context, aid, msg string) (<-chan channel.StreamEvent, error) {
-					return pool.RunStreamEvents(ctx, aid, msg)
+				streamFunc := func(ctx context.Context, aid, msg string, media []channel.MediaInput) (<-chan channel.StreamEvent, error) {
+					return pool.RunStreamEvents(ctx, aid, msg, media)
 				}
 				bot := channel.NewTelegramBotWithStream(ch.Config["botToken"], agentID, allowFrom, streamFunc, pending)
 				go bot.Start(ctx)
