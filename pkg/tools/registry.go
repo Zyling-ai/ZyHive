@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/sunhuihui6688-star/ai-panel/pkg/skill"
@@ -51,6 +52,59 @@ func New(workspaceDir, agentDir, agentID string) *Registry {
 	r.register(selfUninstallSkillDef, r.handleSelfUninstallSkill)
 	r.register(selfRenameDef, r.handleSelfRename)
 	r.register(selfUpdateSoulDef, r.handleSelfUpdateSoul)
+	return r
+}
+
+// NewSkillStudio creates a sandboxed Registry for the SkillStudio AI.
+// File operations are restricted to skills/{skillID}/ only.
+// Dangerous tools (self_install_skill, self_uninstall_skill, self_rename, self_update_soul, bash) are disabled.
+func NewSkillStudio(workspaceDir, agentDir, agentID, skillID string) *Registry {
+	r := &Registry{
+		handlers:     make(map[string]Handler),
+		workspaceDir: workspaceDir,
+		agentDir:     agentDir,
+		agentID:      agentID,
+	}
+	allowedPrefix := filepath.Join(workspaceDir, "skills", skillID)
+
+	// Sandboxed write: only allowed within skills/{skillID}/
+	r.register(writeToolDef, func(ctx context.Context, input json.RawMessage) (string, error) {
+		resolved := r.resolveFilePathInInput(input, "file_path")
+		var m map[string]json.RawMessage
+		if err := json.Unmarshal(resolved, &m); err == nil {
+			var path string
+			if err2 := json.Unmarshal(m["file_path"], &path); err2 == nil {
+				if !(strings.HasPrefix(path, allowedPrefix+string(filepath.Separator)) || path == allowedPrefix) {
+					return "", fmt.Errorf("🚫 沙箱限制：只允许写入 skills/%s/ 目录，拒绝路径: %s", skillID, path)
+				}
+			}
+		}
+		return handleWrite(ctx, resolved)
+	})
+
+	// Sandboxed edit: only allowed within skills/{skillID}/
+	r.register(editToolDef, func(ctx context.Context, input json.RawMessage) (string, error) {
+		resolved := r.resolveFilePathInInput(input, "file_path")
+		var m map[string]json.RawMessage
+		if err := json.Unmarshal(resolved, &m); err == nil {
+			var path string
+			if err2 := json.Unmarshal(m["file_path"], &path); err2 == nil {
+				if !(strings.HasPrefix(path, allowedPrefix+string(filepath.Separator)) || path == allowedPrefix) {
+					return "", fmt.Errorf("🚫 沙箱限制：只允许编辑 skills/%s/ 目录，拒绝路径: %s", skillID, path)
+				}
+			}
+		}
+		return handleEdit(ctx, resolved)
+	})
+
+	// Read and search: allowed everywhere (read-only is safe)
+	r.register(readToolDef, r.handleReadWS)
+	r.register(grepToolDef, r.handleGrepWS)
+	r.register(globToolDef, r.handleGlobWS)
+	r.register(webFetchToolDef, handleWebFetch)
+	// List skills is read-only, allow it
+	r.register(selfListSkillsDef, r.handleSelfListSkills)
+	// Bash, self_install_skill, self_uninstall_skill, self_rename, self_update_soul: NOT registered (disabled)
 	return r
 }
 

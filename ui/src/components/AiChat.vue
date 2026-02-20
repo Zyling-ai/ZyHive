@@ -209,6 +209,8 @@ interface Props {
   context?: string
   /** 场景标签，传给后端用于日志 */
   scenario?: string
+  /** skill-studio 专用：限制工具操作到该技能目录（沙箱） */
+  skillId?: string
   placeholder?: string
   welcomeMessage?: string
   /** 快捷示例 chips */
@@ -556,6 +558,7 @@ function runChat(text: string, imgs: string[], silent = false) {
     sessionId: currentSessionId.value,
     context: props.context,
     scenario: props.scenario,
+    skillId: props.skillId,
     images: imgs.length ? imgs : undefined,
     history: historyParam,
   }
