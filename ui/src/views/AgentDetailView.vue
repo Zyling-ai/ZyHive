@@ -549,25 +549,49 @@
 
         <!-- Tab 4: Workspace -->
         <el-tab-pane label="工作区" name="workspace">
-          <el-row :gutter="20">
-            <el-col :span="8">
-              <el-card header="文件列表">
-                <el-tree
-                  :data="fileTreeData"
-                  :props="{ label: 'name', children: 'children' }"
-                  @node-click="handleFileClick"
-                  highlight-current
-                  default-expand-all
-                />
+          <el-row :gutter="16">
+            <el-col :span="7">
+              <el-card shadow="never" style="height: calc(100vh - 200px); display: flex; flex-direction: column;">
+                <template #header>
+                  <div style="display: flex; align-items: center; justify-content: space-between;">
+                    <span>文件列表</span>
+                    <el-button text size="small" @click="loadWorkspace">
+                      <el-icon><Refresh /></el-icon>
+                    </el-button>
+                  </div>
+                </template>
+                <div style="flex: 1; overflow-y: auto;">
+                  <el-tree
+                    :data="fileTreeData"
+                    :props="{ label: 'name', children: 'children' }"
+                    @node-click="handleFileClick"
+                    highlight-current
+                    default-expand-all
+                    style="font-size: 13px;"
+                  >
+                    <template #default="{ data }">
+                      <span style="display: flex; align-items: center; gap: 5px; line-height: 1.8;">
+                        <el-icon v-if="data.isDir" style="color: #e6a23c; font-size: 14px;"><FolderOpened /></el-icon>
+                        <el-icon v-else style="color: #909399; font-size: 14px;"><Document /></el-icon>
+                        <span>{{ data.name }}</span>
+                        <el-text v-if="!data.isDir" type="info" size="small" style="margin-left: 4px;">
+                          {{ formatSize(data.size) }}
+                        </el-text>
+                      </span>
+                    </template>
+                  </el-tree>
+                </div>
               </el-card>
             </el-col>
-            <el-col :span="16">
-              <el-card :header="currentFile || '选择文件查看'">
+            <el-col :span="17">
+              <el-card shadow="never" :header="currentFile || '选择文件查看'" style="height: calc(100vh - 200px); display: flex; flex-direction: column;">
                 <template v-if="currentFile">
                   <el-input
                     v-model="currentFileContent"
                     type="textarea"
-                    :rows="20"
+                    :autosize="false"
+                    style="flex: 1; font-family: monospace; font-size: 13px;"
+                    :rows="22"
                   />
                   <div style="margin-top: 8px; display: flex; gap: 8px; align-items: center;">
                     <el-button type="primary" @click="saveCurrentFile">保存</el-button>
@@ -576,6 +600,7 @@
                     </el-text>
                   </div>
                 </template>
+                <el-empty v-else description="从左侧选择文件" :image-size="60" />
               </el-card>
             </el-col>
           </el-row>
@@ -902,7 +927,7 @@ import { useRoute } from 'vue-router'
 import { ArrowLeft, Plus, EditPen, Refresh, FolderOpened, Document, ArrowDown } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import SkillStudio from '../components/SkillStudio.vue'
-import { agents as agentsApi, files as filesApi, memoryApi, cron as cronApi, sessions as sessionsApi, relationsApi, memoryConfigApi, agentChannels as agentChannelsApi, agentConversations, type AgentInfo, type FileEntry, type CronJob, type SessionSummary, type RelationRow, type MemConfig, type MemRunLog, type ChannelEntry, type PendingUser, type ConvEntry, type ChannelSummary } from '../api'
+import { agents as agentsApi, files as filesApi, memoryApi, cron as cronApi, sessions as sessionsApi, relationsApi, memoryConfigApi, agentChannels as agentChannelsApi, agentConversations, type AgentInfo, type FileEntry, type FileNode, type CronJob, type SessionSummary, type RelationRow, type MemConfig, type MemRunLog, type ChannelEntry, type PendingUser, type ConvEntry, type ChannelSummary } from '../api'
 import AiChat, { type ChatMsg } from '../components/AiChat.vue'
 
 const route = useRoute()
@@ -1103,7 +1128,7 @@ const showDailyEntry = ref(false)
 const dailyEntryContent = ref('')
 
 // Workspace
-const fileTreeData = ref<any[]>([])
+const fileTreeData = ref<FileNode[]>([])
 const currentFile = ref('')
 const currentFileContent = ref('')
 const currentFileInfo = ref<FileEntry | null>(null)
@@ -1621,15 +1646,9 @@ async function submitDailyEntry() {
 // Workspace
 async function loadWorkspace() {
   try {
-    const res = await filesApi.read(agentId, '/')
+    const res = await filesApi.readTree(agentId)
     if (Array.isArray(res.data)) {
-      fileTreeData.value = res.data.map((f: FileEntry) => ({
-        name: f.name,
-        isDir: f.isDir,
-        size: f.size,
-        modTime: f.modTime,
-        path: f.name,
-      }))
+      fileTreeData.value = res.data as FileNode[]
     }
   } catch {}
 }

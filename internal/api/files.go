@@ -19,12 +19,62 @@ type fileHandler struct {
 	manager *agent.Manager
 }
 
-// FileEntry is one item in a directory listing.
+// FileEntry is one item in a flat directory listing.
 type FileEntry struct {
 	Name    string    `json:"name"`
 	IsDir   bool      `json:"isDir"`
 	Size    int64     `json:"size"`
 	ModTime time.Time `json:"modTime"`
+}
+
+// FileNode is one node in a recursive tree listing (?tree=true).
+type FileNode struct {
+	Name     string      `json:"name"`
+	Path     string      `json:"path"` // relative to workspace root
+	IsDir    bool        `json:"isDir"`
+	Size     int64       `json:"size"`
+	ModTime  time.Time   `json:"modTime"`
+	Children []*FileNode `json:"children,omitempty"`
+}
+
+// skipDirs are directory names to exclude from tree listing.
+var skipDirs = map[string]bool{
+	".git": true, "__pycache__": true, "node_modules": true,
+}
+
+// buildFileTree recursively builds the file tree for a directory.
+func buildFileTree(absDir, relBase string) []*FileNode {
+	entries, err := os.ReadDir(absDir)
+	if err != nil {
+		return nil
+	}
+	var nodes []*FileNode
+	for _, e := range entries {
+		fi, err := e.Info()
+		if err != nil {
+			continue
+		}
+		name := e.Name()
+		relPath := name
+		if relBase != "" {
+			relPath = relBase + "/" + name
+		}
+		node := &FileNode{
+			Name:    name,
+			Path:    relPath,
+			IsDir:   e.IsDir(),
+			Size:    fi.Size(),
+			ModTime: fi.ModTime(),
+		}
+		if e.IsDir() {
+			if skipDirs[name] {
+				continue
+			}
+			node.Children = buildFileTree(filepath.Join(absDir, name), relPath)
+		}
+		nodes = append(nodes, node)
+	}
+	return nodes
 }
 
 // resolveWorkspacePath validates the agent and returns absolute workspace path.
@@ -52,8 +102,9 @@ func (h *fileHandler) resolveWorkspacePath(c *gin.Context) (string, string, bool
 
 // Read GET /api/agents/:id/files/*path
 // If path is a directory, returns JSON listing. If a file, returns content.
+// Use ?tree=true for recursive directory listing.
 func (h *fileHandler) Read(c *gin.Context) {
-	_, absPath, ok := h.resolveWorkspacePath(c)
+	wsDir, absPath, ok := h.resolveWorkspacePath(c)
 	if !ok {
 		return
 	}
@@ -70,6 +121,18 @@ func (h *fileHandler) Read(c *gin.Context) {
 
 	// Directory listing
 	if info.IsDir() {
+		// ?tree=true → recursive tree structure
+		if c.Query("tree") == "true" {
+			// Compute relative base for sub-directory requests
+			var relBase string
+			if absPath != wsDir {
+				relBase, _ = filepath.Rel(wsDir, absPath)
+			}
+			nodes := buildFileTree(absPath, relBase)
+			c.JSON(http.StatusOK, nodes)
+			return
+		}
+		// flat listing (legacy)
 		entries, err := os.ReadDir(absPath)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
