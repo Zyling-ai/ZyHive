@@ -116,7 +116,15 @@
           </div>
         </el-tab-pane>
 
-        <!-- Tab 2: Identity & Soul -->
+        <!-- Tab 2: 工作区（紧跟对话）-->
+        <el-tab-pane label="工作区" name="workspace">
+          <WorkspaceChatLayout
+            :agent-id="agentId"
+            style="height: calc(100vh - 145px);"
+          />
+        </el-tab-pane>
+
+        <!-- Tab 3: Identity & Soul -->
         <el-tab-pane label="身份 & 灵魂" name="identity">
           <!-- 基本设置卡片 -->
           <el-card style="margin-bottom: 16px;">
@@ -584,17 +592,7 @@
           </el-drawer>
         </el-tab-pane>
 
-        <!-- Tab 4: Workspace -->
-        <!-- ── 工作区：三栏 Cursor 式布局 ── -->
-        <el-tab-pane label="工作区" name="workspace">
-          <WorkspaceChatLayout
-            :agent-id="agentId"
-            style="height: calc(100vh - 145px);"
-          />
-        </el-tab-pane>
-
-        <!-- Tab 5: Cron -->
-        <el-tab-pane label="定时任务" name="cron">
+                <el-tab-pane label="定时任务" name="cron">
           <el-button type="primary" @click="showCronCreate = true" style="margin-bottom: 16px">
             <el-icon><Plus /></el-icon> 新建任务
           </el-button>
