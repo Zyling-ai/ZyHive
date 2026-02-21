@@ -36,7 +36,7 @@
         <svg ref="svgRef" :width="svgW" :height="svgH" class="graph-svg"
           @mousemove="onSvgMouseMove"
           @click.self="onSvgBgClick"
-          style="display:block;">
+          style="display:block;width:100%;">
 
           <!-- Grid background -->
           <defs>
