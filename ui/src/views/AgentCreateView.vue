@@ -74,17 +74,84 @@
           </el-form-item>
         </div>
 
-        <!-- 消息通道 -->
+        <!-- 消息通道（每个成员独立配置） -->
         <div class="form-section">
-          <div class="section-title">消息通道</div>
-          <div v-if="channelList.length === 0" class="empty-hint">
-            暂无通道，先在<el-link @click="$router.push('/config/channels')" type="primary"> 全局配置 </el-link>添加
+          <div class="section-title" style="display:flex;align-items:center;justify-content:space-between;">
+            <span>消息通道</span>
+            <el-button size="small" type="primary" plain @click="openAddChannelInline">
+              <el-icon><Plus /></el-icon> 添加
+            </el-button>
           </div>
-          <el-checkbox-group v-else v-model="form.channelIds">
-            <el-checkbox v-for="ch in channelList" :key="ch.id" :label="ch.id" :value="ch.id">
-              {{ ch.name }} <el-tag size="small" style="margin-left:4px">{{ ch.type }}</el-tag>
-            </el-checkbox>
-          </el-checkbox-group>
+
+          <!-- 已添加的通道列表 -->
+          <div v-if="form.agentChannels.length" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px;">
+            <div
+              v-for="(ch, idx) in form.agentChannels"
+              :key="idx"
+              style="display:flex;align-items:center;justify-content:space-between;padding:6px 10px;background:#f5f7fa;border-radius:6px;font-size:13px;"
+            >
+              <div style="display:flex;align-items:center;gap:8px;">
+                <el-tag size="small">{{ ch.type === 'telegram' ? 'Telegram' : 'Web' }}</el-tag>
+                <span style="font-weight:500;">{{ ch.name || '未命名' }}</span>
+                <span v-if="ch.config?.botName" style="color:#909399;">@{{ ch.config.botName }}</span>
+              </div>
+              <el-button text size="small" type="danger" @click="removeChannel(idx)">
+                <el-icon><Close /></el-icon>
+              </el-button>
+            </div>
+          </div>
+          <div v-else class="empty-hint">暂未添加通道（可在创建后配置）</div>
+
+          <!-- 内联添加表单 -->
+          <div v-if="showAddChannel" class="add-channel-form">
+            <el-form :model="newChannelForm" label-width="90px" size="small">
+              <el-form-item label="类型">
+                <el-select v-model="newChannelForm.type" style="width:100%">
+                  <el-option label="Telegram" value="telegram" />
+                  <el-option label="Web 聊天页" value="web" />
+                </el-select>
+              </el-form-item>
+              <el-form-item label="名称">
+                <el-input v-model="newChannelForm.name" placeholder="如：客服 Bot" />
+              </el-form-item>
+              <template v-if="newChannelForm.type === 'telegram'">
+                <el-form-item label="Bot Token">
+                  <div style="display:flex;gap:6px;width:100%;">
+                    <el-input
+                      v-model="newChannelForm.botToken"
+                      type="password"
+                      show-password
+                      placeholder="从 @BotFather 获取"
+                      style="flex:1"
+                      :status="newTokenCheck.status === 'error' ? 'error' : newTokenCheck.status === 'ok' ? 'success' : ''"
+                    />
+                    <el-button size="small" :loading="newTokenCheck.loading" @click="checkNewToken">验证</el-button>
+                  </div>
+                  <div v-if="newTokenCheck.status === 'ok'" style="color:#67c23a;font-size:12px;margin-top:4px;">
+                    ✓ Token 有效，Bot：@{{ newTokenCheck.botName }}
+                  </div>
+                  <div v-else-if="newTokenCheck.status === 'error'" style="color:#f56c6c;font-size:12px;margin-top:4px;">
+                    ✗ {{ newTokenCheck.error }}
+                  </div>
+                </el-form-item>
+                <el-form-item label="白名单 ID">
+                  <el-input v-model="newChannelForm.allowedFrom" placeholder="Telegram 用户 ID，多个用逗号分隔（留空=配对模式）" />
+                </el-form-item>
+              </template>
+              <template v-if="newChannelForm.type === 'web'">
+                <el-form-item label="访问密码">
+                  <el-input v-model="newChannelForm.webPassword" type="password" show-password placeholder="留空则无需密码" />
+                </el-form-item>
+                <el-form-item label="欢迎语">
+                  <el-input v-model="newChannelForm.webWelcome" placeholder="你好！有什么可以帮你的？" />
+                </el-form-item>
+              </template>
+            </el-form>
+            <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px;">
+              <el-button size="small" @click="showAddChannel = false">取消</el-button>
+              <el-button size="small" type="primary" @click="confirmAddChannel">确认添加</el-button>
+            </div>
+          </div>
         </div>
 
         <!-- 能力 -->
@@ -200,7 +267,7 @@ import { ref, computed, onMounted, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { ArrowLeft, Plus, Close, InfoFilled } from '@element-plus/icons-vue'
-import { agents as agentsApi, files as filesApi, models, channels, tools, skills, memoryConfigApi, type AgentInfo, type ModelEntry, type ChannelEntry, type ToolEntry, type SkillEntry } from '../api'
+import { agents as agentsApi, files as filesApi, models, channels, tools, skills, memoryConfigApi, agentChannels as agentChannelsApi, type AgentInfo, type ModelEntry, type ChannelEntry, type ToolEntry, type SkillEntry } from '../api'
 import AiChat from '../components/AiChat.vue'
 
 const router = useRouter()
@@ -217,7 +284,73 @@ const form = reactive({
   channelIds: [] as string[],
   toolIds: [] as string[],
   skillIds: [] as string[],
+  agentChannels: [] as Array<{
+    id: string; type: string; name: string; enabled: boolean;
+    config: Record<string, string>;
+  }>,
 })
+
+// ── Per-agent channel add form ────────────────────────────────────────────
+const showAddChannel = ref(false)
+const newChannelForm = reactive({
+  type: 'telegram',
+  name: '',
+  botToken: '',
+  allowedFrom: '',
+  webPassword: '',
+  webWelcome: '',
+})
+const newTokenCheck = reactive({ loading: false, status: '' as ''|'ok'|'error'|'duplicate', botName: '', error: '' })
+
+function openAddChannelInline() {
+  Object.assign(newChannelForm, { type: 'telegram', name: '', botToken: '', allowedFrom: '', webPassword: '', webWelcome: '' })
+  Object.assign(newTokenCheck, { loading: false, status: '', botName: '', error: '' })
+  showAddChannel.value = true
+}
+
+async function checkNewToken() {
+  if (!newChannelForm.botToken) return
+  newTokenCheck.loading = true
+  newTokenCheck.status = ''
+  try {
+    // Use a temp check via the __config__ agent (any agent will do for token validation)
+    const tmpId = form.id || '__config__'
+    const res = await agentChannelsApi.checkToken(tmpId, newChannelForm.botToken)
+    const d = res.data
+    if (d.duplicate) {
+      Object.assign(newTokenCheck, { loading: false, status: 'duplicate', botName: '', error: `已被「${d.usedBy}」使用` })
+    } else if (d.valid) {
+      Object.assign(newTokenCheck, { loading: false, status: 'ok', botName: d.botName || '', error: '' })
+      if (!newChannelForm.name && d.botName) newChannelForm.name = d.botName
+    } else {
+      Object.assign(newTokenCheck, { loading: false, status: 'error', botName: '', error: d.error || 'Token 无效' })
+    }
+  } catch {
+    Object.assign(newTokenCheck, { loading: false, status: 'error', botName: '', error: '验证失败' })
+  }
+}
+
+function confirmAddChannel() {
+  const t = newChannelForm.type
+  const cfg: Record<string, string> = {}
+  if (t === 'telegram') {
+    if (!newChannelForm.botToken) { ElMessage.warning('请填写 Bot Token'); return }
+    cfg.botToken = newChannelForm.botToken
+    if (newTokenCheck.botName) cfg.botName = newTokenCheck.botName
+    if (newChannelForm.allowedFrom) cfg.allowedFrom = newChannelForm.allowedFrom
+  } else if (t === 'web') {
+    if (newChannelForm.webPassword) cfg.password = newChannelForm.webPassword
+    if (newChannelForm.webWelcome) cfg.welcome = newChannelForm.webWelcome
+  }
+  const chId = `${t}-${Date.now()}`
+  form.agentChannels.push({ id: chId, type: t, name: newChannelForm.name || chId, enabled: true, config: cfg })
+  showAddChannel.value = false
+  ElMessage.success('已添加，保存 Agent 后生效')
+}
+
+function removeChannel(idx: number) {
+  form.agentChannels.splice(idx, 1)
+}
 
 // Track which fields were AI-filled (show badge + revert btn)
 const aiFilledFields = reactive(new Set<string>())
@@ -305,7 +438,14 @@ async function save() {
     }
     if (writes.length) await Promise.all(writes)
 
-    // 3. 默认开启自动记忆
+    // 3. 保存 per-agent 消息通道
+    if (form.agentChannels.length) {
+      try {
+        await agentChannelsApi.set(form.id, form.agentChannels as any)
+      } catch { /* 非致命错误，忽略 */ }
+    }
+
+    // 4. 默认开启自动记忆
     try {
       await memoryConfigApi.setConfig(form.id, {
         enabled: true,
@@ -484,6 +624,14 @@ onMounted(async () => {
   color: #909399;
   font-size: 13px;
   padding: 4px 0;
+}
+
+.add-channel-form {
+  margin-top: 8px;
+  padding: 12px 16px;
+  background: #f5f7fa;
+  border-radius: 8px;
+  border: 1px solid #e4e7ed;
 }
 
 .create-footer {
