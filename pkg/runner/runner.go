@@ -563,23 +563,53 @@ func (r *Runner) makeSimpleLLMCaller() func(ctx context.Context, system, userMsg
 // buildAssistantContent constructs the assistant message content array.
 // Guarantees at least one valid block (Anthropic rejects empty arrays and
 // empty text blocks).
+//
+// IMPORTANT: tool_use blocks use a typed struct rather than map[string]any to
+// avoid the json.RawMessage("") empty-bytes bug: when input is an empty
+// json.RawMessage, json.Marshal of a map with that value produces malformed
+// JSON (empty bytes as a value), returns an error, and silently yields nil —
+// which causes the tool_use block to disappear, making the subsequent
+// tool_result orphaned ("unexpected tool_use_id" Anthropic 400).
 func buildAssistantContent(text string, toolCalls []llm.ToolCall) json.RawMessage {
-	blocks := make([]map[string]any, 0, 1+len(toolCalls))
+	type textBlock struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	type toolUseBlock struct {
+		Type  string          `json:"type"`
+		ID    string          `json:"id"`
+		Name  string          `json:"name"`
+		Input json.RawMessage `json:"input"`
+	}
+
+	parts := make([]any, 0, 1+len(toolCalls))
 	if strings.TrimSpace(text) != "" {
-		blocks = append(blocks, map[string]any{"type": "text", "text": text})
+		parts = append(parts, textBlock{Type: "text", Text: text})
 	}
 	for _, tc := range toolCalls {
-		blocks = append(blocks, map[string]any{
-			"type":  "tool_use",
-			"id":    tc.ID,
-			"name":  tc.Name,
-			"input": tc.Input,
+		input := tc.Input
+		if len(input) == 0 {
+			input = json.RawMessage("{}")
+		}
+		parts = append(parts, toolUseBlock{
+			Type:  "tool_use",
+			ID:    tc.ID,
+			Name:  tc.Name,
+			Input: input,
 		})
 	}
 	// Guard: Anthropic rejects empty content arrays and empty/whitespace text blocks
-	if len(blocks) == 0 {
-		blocks = append(blocks, map[string]any{"type": "text", "text": "."})
+	if len(parts) == 0 {
+		parts = append(parts, textBlock{Type: "text", Text: "."})
 	}
-	data, _ := json.Marshal(blocks)
+	data, err := json.Marshal(parts)
+	if err != nil {
+		// Fallback: drop tool_use blocks, keep only text
+		fallback := []textBlock{{Type: "text", Text: text}}
+		if strings.TrimSpace(text) == "" {
+			fallback[0].Text = "."
+		}
+		data, _ = json.Marshal(fallback)
+	}
 	return data
 }
