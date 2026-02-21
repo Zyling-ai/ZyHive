@@ -261,8 +261,9 @@ func (r *Runner) run(ctx context.Context, userMsg string, out chan<- RunEvent) e
 
 		// 4. If no tool calls or stop reason is "end_turn", we're done
 		if stopReason == "end_turn" || len(toolCalls) == 0 {
-			// Persist assistant message to session
-			if r.cfg.SessionID != "" && r.cfg.Session != nil {
+			// Only persist if we have actual content (avoid saving null/empty assistant turns
+			// that would corrupt the session history and cause Anthropic 400 errors later).
+			if r.cfg.SessionID != "" && r.cfg.Session != nil && assistantText != "" {
 				_ = r.cfg.Session.AppendMessage(r.cfg.SessionID, "assistant", assistantContent)
 			}
 			tokenEstimate := 0
@@ -343,7 +344,8 @@ func (r *Runner) makeSimpleLLMCaller() func(ctx context.Context, system, userMsg
 
 // buildAssistantContent constructs the assistant message content array.
 func buildAssistantContent(text string, toolCalls []llm.ToolCall) json.RawMessage {
-	var blocks []map[string]any
+	// Use non-nil slice so JSON serializes to [] instead of null when empty.
+	blocks := make([]map[string]any, 0)
 	if text != "" {
 		blocks = append(blocks, map[string]any{"type": "text", "text": text})
 	}
