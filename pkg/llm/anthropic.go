@@ -83,11 +83,32 @@ func buildAnthropicRequest(req *ChatRequest) ([]byte, error) {
 		maxTokens = 8096
 	}
 
+	// Normalise message content: Anthropic requires content to be a list in all cases.
+	// User messages stored in sessions may have string content ("text") — convert to
+	// [{"type":"text","text":"..."}] to satisfy the API.
+	messages := make([]ChatMessage, len(req.Messages))
+	for i, m := range req.Messages {
+		messages[i] = m
+		if len(m.Content) == 0 {
+			continue
+		}
+		// Check if content is a JSON string (not array/object)
+		if m.Content[0] == '"' {
+			var s string
+			if err := json.Unmarshal(m.Content, &s); err == nil {
+				block := []map[string]any{{"type": "text", "text": s}}
+				if b, err := json.Marshal(block); err == nil {
+					messages[i].Content = b
+				}
+			}
+		}
+	}
+
 	payload := map[string]any{
 		"model":      normaliseAnthropicModel(req.Model),
 		"max_tokens": maxTokens,
 		"stream":     true,
-		"messages":   req.Messages,
+		"messages":   messages,
 	}
 	if req.System != "" {
 		payload["system"] = req.System
