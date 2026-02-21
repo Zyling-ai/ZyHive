@@ -26,6 +26,7 @@ type AgentInfo struct {
 	ToolIDs      []string `json:"toolIds,omitempty"`
 	SkillIDs     []string `json:"skillIds,omitempty"`
 	AvatarColor  string   `json:"avatarColor,omitempty"`
+	System       bool     `json:"system,omitempty"`
 	Status       string   `json:"status"`
 	WorkspaceDir string   `json:"workspaceDir"`
 }
@@ -40,6 +41,7 @@ func agentToInfo(a *agent.Agent) AgentInfo {
 		ToolIDs:      a.ToolIDs,
 		SkillIDs:     a.SkillIDs,
 		AvatarColor:  a.AvatarColor,
+		System:       a.System,
 		Status:       a.Status,
 		WorkspaceDir: a.WorkspaceDir,
 	}
@@ -125,6 +127,12 @@ func (h *agentHandler) Delete(c *gin.Context) {
 	ag, ok := h.manager.Get(id)
 	if !ok {
 		c.JSON(http.StatusNotFound, gin.H{"error": "agent not found"})
+		return
+	}
+
+	// System agents cannot be deleted
+	if ag.System {
+		c.JSON(http.StatusForbidden, gin.H{"error": "系统内置成员不允许删除"})
 		return
 	}
 

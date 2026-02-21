@@ -19,6 +19,7 @@
               <div style="font-weight: 600; font-size: 16px">{{ agent.name }}</div>
               <el-text type="info" size="small">{{ agent.id }}</el-text>
             </div>
+            <el-tag v-if="agent.system" size="small" type="warning">系统</el-tag>
             <el-tag :type="statusType(agent.status)" size="small">{{ statusLabel(agent.status) }}</el-tag>
           </div>
           <div style="margin-bottom: 12px">
@@ -36,7 +37,7 @@
             <el-button type="primary" style="flex:1" @click="$router.push(`/agents/${agent.id}`)">
               <el-icon><ChatDotRound /></el-icon> 进入
             </el-button>
-            <el-button type="danger" plain @click.stop="confirmDelete(agent.id, agent.name)">
+            <el-button v-if="!agent.system" type="danger" plain @click.stop="confirmDelete(agent.id, agent.name)">
               <el-icon><Delete /></el-icon>
             </el-button>
           </div>

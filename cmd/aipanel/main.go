@@ -46,8 +46,19 @@ func main() {
 		log.Printf("Warning: failed to load agents: %v", err)
 	}
 
-	// Create default "main" agent on first startup if no agents exist
-	if len(mgr.List()) == 0 {
+	// Always ensure the built-in config assistant exists (system agent, cannot be deleted)
+	if err := mgr.EnsureSystemConfigAgent(cfg); err != nil {
+		log.Printf("Warning: failed to ensure system config agent: %v", err)
+	}
+
+	// Create default "main" agent on first startup if no non-system agents exist
+	nonSystem := 0
+	for _, a := range mgr.List() {
+		if !a.System {
+			nonSystem++
+		}
+	}
+	if nonSystem == 0 {
 		defaultModel := "anthropic/claude-sonnet-4-6"
 		defaultModelID := ""
 		if m := cfg.DefaultModel(); m != nil {

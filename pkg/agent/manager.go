@@ -20,6 +20,10 @@ import (
 	"github.com/sunhuihui6688-star/ai-panel/pkg/memory"
 )
 
+// SystemConfigAgentID is the reserved ID for the built-in configuration assistant.
+// This agent cannot be deleted.
+const SystemConfigAgentID = "__config__"
+
 // Agent represents a single AI agent (employee) managed by the panel.
 type Agent struct {
 	ID           string                `json:"id"`
@@ -31,6 +35,7 @@ type Agent struct {
 	ToolIDs      []string              `json:"toolIds,omitempty"`
 	SkillIDs     []string              `json:"skillIds,omitempty"`
 	AvatarColor  string                `json:"avatarColor,omitempty"`
+	System       bool                  `json:"system,omitempty"` // built-in, cannot be deleted
 	WorkspaceDir string                `json:"workspaceDir"`
 	SessionDir   string                `json:"sessionDir"`
 	Status       string                `json:"status"` // "running" | "stopped" | "idle"
@@ -47,6 +52,7 @@ type agentConfig struct {
 	ToolIDs     []string              `json:"toolIds,omitempty"`
 	SkillIDs    []string              `json:"skillIds,omitempty"`
 	AvatarColor string                `json:"avatarColor,omitempty"`
+	System      bool                  `json:"system,omitempty"`
 }
 
 // Manager manages all agents under a root directory.
@@ -114,6 +120,7 @@ func (m *Manager) LoadAll() error {
 			ToolIDs:      cfg.ToolIDs,
 			SkillIDs:     cfg.SkillIDs,
 			AvatarColor:  cfg.AvatarColor,
+			System:       cfg.System,
 			WorkspaceDir: wsDir,
 			SessionDir:   filepath.Join(agentDir, "sessions"),
 			Status:       "idle",
@@ -171,6 +178,7 @@ type CreateOpts struct {
 	ToolIDs     []string              `json:"toolIds,omitempty"`
 	SkillIDs    []string              `json:"skillIds,omitempty"`
 	AvatarColor string                `json:"avatarColor,omitempty"`
+	System      bool                  `json:"system,omitempty"`
 }
 
 func (m *Manager) Create(id, name, model string) (*Agent, error) {
@@ -207,6 +215,7 @@ func (m *Manager) CreateWithOpts(opts CreateOpts) (*Agent, error) {
 		ToolIDs:     opts.ToolIDs,
 		SkillIDs:    opts.SkillIDs,
 		AvatarColor: opts.AvatarColor,
+		System:      opts.System,
 	}
 	cfgData, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
@@ -232,6 +241,7 @@ func (m *Manager) CreateWithOpts(opts CreateOpts) (*Agent, error) {
 		ToolIDs:      opts.ToolIDs,
 		SkillIDs:     opts.SkillIDs,
 		AvatarColor:  opts.AvatarColor,
+		System:       opts.System,
 		WorkspaceDir: workspaceDir,
 		SessionDir:   sessionDir,
 		Status:       "idle",
@@ -250,6 +260,11 @@ func (m *Manager) Remove(id string) error {
 	ag, ok := m.agents[id]
 	if !ok {
 		return fmt.Errorf("agent %q not found", id)
+	}
+
+	// System agents (e.g. config assistant) cannot be deleted
+	if ag.System {
+		return fmt.Errorf("agent %q is a system agent and cannot be deleted", id)
 	}
 
 	// Delete the agent directory (workspace, sessions, convlogs, config)
@@ -385,6 +400,58 @@ func (m *Manager) GetAllowFrom(agentID, channelID string) []int64 {
 			return ids
 		}
 	}
+	return nil
+}
+
+// EnsureSystemConfigAgent creates the built-in configuration assistant if it doesn't exist.
+// It uses the first available model in cfg as the LLM backend.
+func (m *Manager) EnsureSystemConfigAgent(cfg *config.Config) error {
+	if _, exists := m.Get(SystemConfigAgentID); exists {
+		return nil
+	}
+
+	// Resolve model: use first available model
+	modelID := ""
+	model := ""
+	if len(cfg.Models) > 0 {
+		modelID = cfg.Models[0].ID
+		model = cfg.Models[0].ProviderModel()
+	}
+
+	a, err := m.CreateWithOpts(CreateOpts{
+		ID:          SystemConfigAgentID,
+		Name:        "配置助手",
+		Description: "系统内置 AI 配置助手，帮助创建和配置其他 AI 成员",
+		Model:       model,
+		ModelID:     modelID,
+		AvatarColor: "#6366f1",
+		System:      true,
+	})
+	if err != nil {
+		return fmt.Errorf("create system config agent: %w", err)
+	}
+
+	// Write SOUL.md for the config assistant
+	soul := `# SOUL.md - 配置助手
+
+我是 ZyHive 内置的配置助手，专门帮助用户设计和创建 AI 成员。
+
+## 核心职责
+- 根据用户描述，生成 AI 成员的 IDENTITY.md 和 SOUL.md
+- 提供专业的角色设计建议
+- 用 JSON 格式输出可一键应用的配置
+
+## 行为准则
+- 直接给出建议，不废话
+- 生成的配置要实用、清晰
+- 如果用户描述不清晰，先问清楚再生成
+`
+	soulPath := filepath.Join(a.WorkspaceDir, "SOUL.md")
+	if err := os.WriteFile(soulPath, []byte(soul), 0644); err != nil {
+		log.Printf("[manager] warning: write config agent SOUL.md: %v", err)
+	}
+
+	log.Printf("[manager] created system config agent: %s", SystemConfigAgentID)
 	return nil
 }
 

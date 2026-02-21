@@ -343,8 +343,8 @@ const allAgents = computed(() =>
   allAgentsFull.value.filter(a => !openedAgentIds.value.includes(a.id))
 )
 
-// 配置助手使用系统内第一个 agent 作为 LLM 后端
-const assistAgentId = computed(() => allAgentsFull.value[0]?.id || '')
+// 配置助手固定使用系统内置 agent
+const assistAgentId = '__config__'
 
 // 实时将左侧表单状态注入对话上下文
 const assistContext = computed(() => {
