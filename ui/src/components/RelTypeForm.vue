@@ -2,7 +2,18 @@
   <!-- Member pair header -->
   <div class="rel-pair">
     <span class="rel-node">{{ fromName }}</span>
-    <el-icon style="color:#c0c4cc;flex-shrink:0;font-size:18px"><ArrowRight /></el-icon>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:2px;flex-shrink:0">
+      <el-icon style="color:#c0c4cc;font-size:16px"><ArrowRight /></el-icon>
+      <!-- 上下级时显示交换方向按钮 -->
+      <el-button
+        v-if="type === '上下级'"
+        size="small" text type="primary"
+        style="padding:0 4px;font-size:11px;height:18px;min-height:0"
+        @click="$emit('swap')"
+        title="交换上下级方向">
+        ⇄ 翻转
+      </el-button>
+    </div>
     <span class="rel-node">{{ toName }}</span>
   </div>
 
@@ -56,6 +67,7 @@ defineEmits<{
   'update:type': [v: string]
   'update:strength': [v: string]
   'update:desc': [v: string]
+  'swap': []
 }>()
 
 const typeOptions = computed(() => [
