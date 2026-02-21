@@ -74,6 +74,12 @@ const router = createRouter({
       meta: { requiresAuth: true }
     },
     {
+      path: '/tasks',
+      name: 'tasks',
+      component: () => import('../views/SubagentsView.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
       path: '/logs',
       name: 'logs',
       component: () => import('../views/LogsView.vue'),

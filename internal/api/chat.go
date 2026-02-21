@@ -20,13 +20,15 @@ import (
 	"github.com/sunhuihui6688-star/ai-panel/pkg/project"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/runner"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/session"
+	"github.com/sunhuihui6688-star/ai-panel/pkg/subagent"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/tools"
 )
 
 type chatHandler struct {
-	cfg        *config.Config
-	manager    *agent.Manager
-	projectMgr *project.Manager
+	cfg         *config.Config
+	manager     *agent.Manager
+	projectMgr  *project.Manager
+	subagentMgr *subagent.Manager
 }
 
 // Chat POST /api/agents/:id/chat (SSE streaming)
@@ -100,6 +102,10 @@ func (h *chatHandler) Chat(c *gin.Context) {
 	// Inject per-agent env vars (e.g. GITHUB_TOKEN, GIT_AUTHOR_NAME) into exec tool
 	if len(ag.Env) > 0 {
 		toolRegistry.WithEnv(ag.Env)
+	}
+	// Enable background task tools if subagent manager is available
+	if h.subagentMgr != nil {
+		toolRegistry.WithSubagentManager(h.subagentMgr)
 	}
 	store := session.NewStore(ag.SessionDir)
 

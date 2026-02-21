@@ -513,4 +513,33 @@ export const projects = {
   deleteFile: (id: string, path: string) => api.delete(`/projects/${id}/files/${path}`),
 }
 
+// ─── Background Tasks (Subagents) ────────────────────────────────────────────
+
+export interface TaskInfo {
+  id: string
+  agentId: string
+  label?: string
+  task: string
+  status: 'pending' | 'running' | 'done' | 'error' | 'killed'
+  output: string
+  error?: string
+  sessionId: string
+  spawnedBy?: string
+  spawnedBySession?: string
+  model?: string
+  createdAt: number
+  startedAt?: number
+  endedAt?: number
+  duration?: string
+}
+
+export const tasks = {
+  list: (params?: { agentId?: string; status?: string }) =>
+    api.get<TaskInfo[]>('/tasks', { params }),
+  get: (id: string) => api.get<TaskInfo>(`/tasks/${id}`),
+  spawn: (data: { agentId: string; task: string; label?: string; model?: string; spawnedBy?: string }) =>
+    api.post<TaskInfo>('/tasks', data),
+  kill: (id: string) => api.delete(`/tasks/${id}`),
+}
+
 export default api
