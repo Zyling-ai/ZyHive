@@ -38,7 +38,7 @@
           @click.self="onSvgBgClick"
           style="display:block;width:100%;overflow:visible;">
 
-          <!-- Grid background -->
+          <!-- Grid background + arrowhead markers -->
           <defs>
             <pattern id="smallGrid" width="20" height="20" patternUnits="userSpaceOnUse">
               <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#e8ecf0" stroke-width="0.5"/>
@@ -47,6 +47,16 @@
               <rect width="100" height="100" fill="url(#smallGrid)"/>
               <path d="M 100 0 L 0 0 0 100" fill="none" stroke="#dde1e7" stroke-width="1"/>
             </pattern>
+            <!-- 上级：红色箭头 -->
+            <marker id="arrow-上级" markerWidth="10" markerHeight="10"
+              refX="9" refY="5" orient="auto" markerUnits="userSpaceOnUse">
+              <path d="M1,2 L1,8 L9,5 z" fill="#f56c6c" fill-opacity="0.85"/>
+            </marker>
+            <!-- 下级：橙色箭头 -->
+            <marker id="arrow-下级" markerWidth="10" markerHeight="10"
+              refX="9" refY="5" orient="auto" markerUnits="userSpaceOnUse">
+              <path d="M1,2 L1,8 L9,5 z" fill="#e6a23c" fill-opacity="0.85"/>
+            </marker>
           </defs>
           <rect width="100%" height="100%" fill="url(#grid)" rx="0"/>
 
@@ -68,7 +78,7 @@
               stroke="transparent" stroke-width="14"
               style="cursor:pointer"
               @click.stop="openEditEdge(edge)" />
-            <!-- Visible line -->
+            <!-- Visible line（上级/下级带箭头，平级/协作无箭头） -->
             <line
               :x1="edgePt(edge.from, edge.to, 'start').x"
               :y1="edgePt(edge.from, edge.to, 'start').y"
@@ -78,6 +88,7 @@
               :stroke-width="edgeWidth(edge.strength)"
               stroke-opacity="0.7"
               stroke-linecap="round"
+              :marker-end="isDirectional(edge.type) ? `url(#arrow-${edge.type})` : undefined"
               pointer-events="none"
               class="graph-edge" />
             <!-- Edge label (relation type) -->
@@ -217,6 +228,7 @@ const typeColors: Record<string, string> = {
   '上级': '#f56c6c', '下级': '#e6a23c', '平级协作': '#409eff', '支持': '#67c23a',
 }
 function edgeColor(type: string) { return typeColors[type] ?? '#94a3b8' }
+function isDirectional(type: string) { return type === '上级' || type === '下级' }
 
 // ── Hierarchy layout ───────────────────────────────────────────────────────
 function computeLevels(nodes: TeamGraphNode[], edges: TeamGraphEdge[]): Record<string, number> {
