@@ -17,6 +17,12 @@
     </Transition>
 
     <!-- ── 消息列表 ── -->
+    <!-- 后台任务运行中 banner -->
+    <div v-if="runningTaskCount > 0" class="running-tasks-banner">
+      <span class="running-dot" />
+      后台有 {{ runningTaskCount }} 个任务正在执行中，关闭窗口后仍会继续运行…
+    </div>
+
     <div class="chat-messages" ref="msgListRef">
       <!-- 历史加载中 -->
       <div v-if="historyLoading" class="history-loading">
@@ -82,6 +88,16 @@
                   <span class="tool-step-flex"/>
                   <!-- 耗时 -->
                   <span v-if="tc.duration" class="tool-step-dur">{{ tc.duration }}</span>
+                  <!-- agent_spawn 后台任务实时状态 -->
+                  <span v-if="tc.taskId" class="task-badge" :class="tc.taskStatus">
+                    <span v-if="tc.taskStatus === 'pending'">🟡 排队中</span>
+                    <span v-else-if="tc.taskStatus === 'running'">
+                      <span class="tool-spin">⟳</span> 执行中
+                    </span>
+                    <span v-else-if="tc.taskStatus === 'done'">✅ 完成</span>
+                    <span v-else-if="tc.taskStatus === 'error'">❌ 失败</span>
+                    <span v-else-if="tc.taskStatus === 'killed'">🛑 已终止</span>
+                  </span>
                   <!-- 展开箭头 -->
                   <span class="tool-step-chevron">{{ tc._expanded ? '▲' : '▼' }}</span>
                 </div>
@@ -178,6 +194,13 @@
                 <span v-if="tc.input" class="tool-step-summary">{{ toolSummary(tc.name, tc.input) }}</span>
                 <span class="tool-step-flex"/>
                 <span v-if="tc.duration" class="tool-step-dur">{{ tc.duration }}</span>
+                <span v-if="tc.taskId" class="task-badge" :class="tc.taskStatus">
+                  <span v-if="tc.taskStatus === 'pending'">🟡 排队中</span>
+                  <span v-else-if="tc.taskStatus === 'running'"><span class="tool-spin">⟳</span> 执行中</span>
+                  <span v-else-if="tc.taskStatus === 'done'">✅ 完成</span>
+                  <span v-else-if="tc.taskStatus === 'error'">❌ 失败</span>
+                  <span v-else-if="tc.taskStatus === 'killed'">🛑 已终止</span>
+                </span>
                 <span class="tool-step-chevron">{{ tc._expanded ? '▲' : '▼' }}</span>
               </div>
               <div v-if="tc._expanded" class="tool-step-body" @click.stop>
@@ -264,8 +287,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, nextTick, onMounted, watch } from 'vue'
-import { chatSSE, sessions as sessionsApi, type ChatParams } from '../api'
+import { ref, computed, reactive, nextTick, onMounted, onUnmounted, watch } from 'vue'
+import { chatSSE, sessions as sessionsApi, tasks as tasksApi, type ChatParams } from '../api'
 
 // ── Props ─────────────────────────────────────────────────────────────────
 interface Props {
@@ -322,6 +345,9 @@ interface ToolCallEntry {
   _expanded?: boolean
   duration?: string
   _startedAt?: number
+  // agent_spawn specific: background task tracking
+  taskId?: string
+  taskStatus?: 'pending' | 'running' | 'done' | 'error' | 'killed'
 }
 
 interface PendingFile {
@@ -350,6 +376,20 @@ watch(streaming, (v) => emit('streaming-change', v))
 const streamText = ref('')
 const streamThinking = ref('')
 const streamToolCalls = ref<ToolCallEntry[]>([])  // active tool calls during streaming
+
+// ── Background task tracking (agent_spawn) ─────────────────────────────────
+// Maps toolCallId → background taskId for live status polling
+const spawnedTaskMap = reactive<Map<string, string>>(new Map())
+let taskPollTimer: ReturnType<typeof setInterval> | null = null
+const runningTaskCount = computed(() => {
+  let count = 0
+  for (const msg of messages.value) {
+    for (const tc of msg.toolCalls ?? []) {
+      if (tc.taskId && tc.taskStatus && !['done','error','killed'].includes(tc.taskStatus)) count++
+    }
+  }
+  return count
+})
 const isDragOver  = ref(false)
 let   _dragDepth  = 0  // counter to handle child element drag enter/leave
 const copied = ref<number | null>(null)
@@ -370,6 +410,45 @@ const rootStyle = computed(() => ({
 }))
 
 // ── Helpers ───────────────────────────────────────────────────────────────
+// ── agent_spawn task polling ────────────────────────────────────────────────
+
+function startTaskPolling() {
+  if (taskPollTimer) return
+  taskPollTimer = setInterval(pollTasks, 3000)
+}
+
+async function pollTasks() {
+  if (spawnedTaskMap.size === 0) {
+    if (taskPollTimer) { clearInterval(taskPollTimer); taskPollTimer = null }
+    return
+  }
+  const doneIds: string[] = []
+  for (const [tcId, taskId] of spawnedTaskMap) {
+    try {
+      const res = await tasksApi.get(taskId)
+      const info = res.data
+      // Update tool call entry in messages
+      for (const msg of messages.value) {
+        const tc = msg.toolCalls?.find(t => t.id === tcId)
+        if (tc) {
+          tc.taskStatus = info.status as ToolCallEntry['taskStatus']
+          if (info.status === 'done' || info.status === 'error' || info.status === 'killed') {
+            doneIds.push(tcId)
+          }
+        }
+      }
+    } catch { /* task may be gone */ doneIds.push(tcId) }
+  }
+  for (const id of doneIds) spawnedTaskMap.delete(id)
+  if (spawnedTaskMap.size === 0 && taskPollTimer) {
+    clearInterval(taskPollTimer); taskPollTimer = null
+  }
+}
+
+onUnmounted(() => {
+  if (taskPollTimer) { clearInterval(taskPollTimer); taskPollTimer = null }
+})
+
 function scrollBottom() {
   nextTick(() => {
     if (msgListRef.value) {
@@ -831,6 +910,16 @@ function runChat(text: string, imgs: string[], silent = false) {
             const ms = Date.now() - tc._startedAt
             tc.duration = ms < 1000 ? `${ms}ms` : `${(ms/1000).toFixed(1)}s`
           }
+          // agent_spawn: extract task ID from result and start polling
+          if (tc.name === 'agent_spawn' && ev.text) {
+            const m = ev.text.match(/任务\s*ID[：:]\s*([a-f0-9-]{8,})/i)
+            if (m) {
+              tc.taskId = m[1]
+              tc.taskStatus = 'pending'
+              spawnedTaskMap.set(activeToolId, m[1])
+              startTaskPolling()
+            }
+          }
           // Sync into streamToolCalls
           const stc = streamToolCalls.value.find(t => t.id === activeToolId)
           if (stc) { stc.result = tc.result; stc.status = 'done'; stc.duration = tc.duration }
@@ -1115,6 +1204,35 @@ onMounted(() => {
 }
 .tool-step-flex { flex: 1; }
 .tool-step-dur  { font-size: 11px; color: #94a3b8; font-family: monospace; flex-shrink: 0; }
+
+/* ── agent_spawn task badge ── */
+.task-badge {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-size: 11px; padding: 1px 7px; border-radius: 10px;
+  font-weight: 600; flex-shrink: 0; white-space: nowrap;
+  background: #f1f5f9; color: #64748b;
+}
+.task-badge.pending  { background: #fef9c3; color: #a16207; }
+.task-badge.running  { background: #dbeafe; color: #1d4ed8; }
+.task-badge.done     { background: #dcfce7; color: #15803d; }
+.task-badge.error    { background: #fee2e2; color: #b91c1c; }
+.task-badge.killed   { background: #f1f5f9; color: #475569; }
+
+/* ── Running tasks banner ── */
+.running-tasks-banner {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 16px; background: #eff6ff; border-bottom: 1px solid #bfdbfe;
+  font-size: 12px; color: #1d4ed8; font-weight: 500; flex-shrink: 0;
+}
+.running-dot {
+  width: 8px; height: 8px; border-radius: 50%; background: #3b82f6;
+  flex-shrink: 0;
+  animation: pulse-dot 1.5s ease-in-out infinite;
+}
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.75); }
+}
 .tool-step-chevron { font-size: 9px; color: #94a3b8; flex-shrink: 0; }
 
 .tool-step-body {
