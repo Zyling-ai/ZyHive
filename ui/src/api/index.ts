@@ -31,6 +31,7 @@ export interface AgentInfo {
   toolIds?: string[]
   skillIds?: string[]
   avatarColor?: string
+  system?: boolean       // built-in system agent (cannot be deleted)
   status: string
   workspaceDir: string
 }
