@@ -118,6 +118,43 @@
 
         <!-- Tab 2: Identity & Soul -->
         <el-tab-pane label="身份 & 灵魂" name="identity">
+          <!-- 基本设置卡片 -->
+          <el-card style="margin-bottom: 16px;">
+            <template #header>
+              <span style="font-weight: 600;">基本设置</span>
+            </template>
+            <el-form label-width="80px" size="default">
+              <el-form-item label="使用模型">
+                <el-select
+                  v-model="agentModelId"
+                  placeholder="选择模型"
+                  style="width: 280px; margin-right: 10px"
+                >
+                  <el-option
+                    v-for="m in modelList"
+                    :key="m.id"
+                    :label="m.name || m.model"
+                    :value="m.id"
+                  >
+                    <div style="display:flex; justify-content:space-between; width:100%">
+                      <span>{{ m.name || m.model }}</span>
+                      <span style="color:#999; font-size:12px">{{ m.provider }}</span>
+                    </div>
+                  </el-option>
+                </el-select>
+                <el-button
+                  type="primary"
+                  :loading="agentModelSaving"
+                  @click="saveAgentModel"
+                  :disabled="!agentModelId"
+                >保存</el-button>
+                <el-text v-if="agent?.model" type="info" style="margin-left:12px; font-size:12px">
+                  当前：{{ agent.model }}
+                </el-text>
+              </el-form-item>
+            </el-form>
+          </el-card>
+
           <el-row :gutter="20">
             <el-col :span="12">
               <el-card header="IDENTITY.md">
@@ -972,7 +1009,7 @@ import { useRoute } from 'vue-router'
 import { ArrowLeft, Plus, EditPen, Refresh, FolderOpened, Document, ArrowDown } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import SkillStudio from '../components/SkillStudio.vue'
-import { agents as agentsApi, files as filesApi, memoryApi, cron as cronApi, sessions as sessionsApi, relationsApi, memoryConfigApi, agentChannels as agentChannelsApi, agentConversations, type AgentInfo, type FileEntry, type FileNode, type CronJob, type SessionSummary, type RelationRow, type MemConfig, type MemRunLog, type ChannelEntry, type PendingUser, type ConvEntry, type ChannelSummary } from '../api'
+import { agents as agentsApi, files as filesApi, memoryApi, cron as cronApi, sessions as sessionsApi, relationsApi, memoryConfigApi, agentChannels as agentChannelsApi, agentConversations, models as modelsApi, type AgentInfo, type FileEntry, type FileNode, type CronJob, type SessionSummary, type RelationRow, type MemConfig, type MemRunLog, type ChannelEntry, type PendingUser, type ConvEntry, type ChannelSummary, type ModelEntry } from '../api'
 import AiChat, { type ChatMsg } from '../components/AiChat.vue'
 
 const route = useRoute()
@@ -1097,6 +1134,11 @@ async function sendAtMessage() {
 // Identity/Soul
 const identityContent = ref('')
 const soulContent = ref('')
+
+// Model selector
+const modelList = ref<ModelEntry[]>([])
+const agentModelId = ref('')
+const agentModelSaving = ref(false)
 
 // Memory config (automatic consolidation)
 const memCfg = ref<MemConfig>({
@@ -1592,6 +1634,7 @@ onMounted(async () => {
     ElMessage.error('加载 Agent 失败')
   }
   loadIdentityFiles()
+  loadModels()
   loadRelations()
   loadOtherAgents()
   loadMemConfig()
@@ -1639,6 +1682,35 @@ async function saveFile(name: string, content: string) {
     ElMessage.success(`${name} 已保存`)
   } catch {
     ElMessage.error(`保存 ${name} 失败`)
+  }
+}
+
+async function loadModels() {
+  try {
+    const res = await modelsApi.list()
+    modelList.value = res.data || []
+    // Init selector from current agent
+    if (agent.value?.modelId) {
+      agentModelId.value = agent.value.modelId
+    } else {
+      // Try to match by model string
+      const matched = modelList.value.find(m => m.provider + '/' + m.model === agent.value?.model || m.id === agent.value?.model)
+      agentModelId.value = matched?.id || ''
+    }
+  } catch {}
+}
+
+async function saveAgentModel() {
+  if (!agentModelId.value) return
+  agentModelSaving.value = true
+  try {
+    const res = await agentsApi.update(agentId, { modelId: agentModelId.value })
+    agent.value = res.data
+    ElMessage.success('模型已更新')
+  } catch {
+    ElMessage.error('更新失败')
+  } finally {
+    agentModelSaving.value = false
   }
 }
 
