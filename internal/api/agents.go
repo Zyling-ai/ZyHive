@@ -13,6 +13,7 @@ type agentHandler struct {
 	cfg     *config.Config
 	manager *agent.Manager
 	pool    *agent.Pool
+	botCtrl BotControl
 }
 
 // AgentInfo is the JSON shape returned to the frontend.
@@ -120,7 +121,27 @@ func (h *agentHandler) Update(c *gin.Context) {
 
 // Delete DELETE /api/agents/:id
 func (h *agentHandler) Delete(c *gin.Context) {
-	c.JSON(http.StatusNotImplemented, gin.H{"message": "TODO: Phase 2"})
+	id := c.Param("id")
+	ag, ok := h.manager.Get(id)
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{"error": "agent not found"})
+		return
+	}
+
+	// Stop all Telegram bots for this agent before removing
+	if h.botCtrl.Stop != nil {
+		for _, ch := range ag.Channels {
+			if ch.Type == "telegram" && ch.Enabled {
+				h.botCtrl.Stop(id, ch.ID)
+			}
+		}
+	}
+
+	if err := h.manager.Remove(id); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
 // Start POST /api/agents/:id/start

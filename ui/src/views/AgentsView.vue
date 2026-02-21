@@ -32,9 +32,14 @@
           <el-text v-if="agent.description" type="info" size="small" style="display: block; margin-bottom: 12px">
             {{ agent.description }}
           </el-text>
-          <el-button type="primary" style="width: 100%" @click="$router.push(`/agents/${agent.id}`)">
-            <el-icon><ChatDotRound /></el-icon> 进入
-          </el-button>
+          <div style="display:flex;gap:8px">
+            <el-button type="primary" style="flex:1" @click="$router.push(`/agents/${agent.id}`)">
+              <el-icon><ChatDotRound /></el-icon> 进入
+            </el-button>
+            <el-button type="danger" plain @click.stop="confirmDelete(agent.id, agent.name)">
+              <el-icon><Delete /></el-icon>
+            </el-button>
+          </div>
         </el-card>
       </el-col>
     </el-row>
@@ -219,7 +224,7 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAgentsStore } from '../stores/agents'
 import {
   models as modelsApi,
@@ -336,6 +341,23 @@ function statusType(s: string) {
 }
 function statusLabel(s: string) {
   return s === 'running' ? '运行中' : s === 'stopped' ? '已停止' : '空闲'
+}
+
+async function confirmDelete(id: string, name: string) {
+  try {
+    await ElMessageBox.confirm(
+      `删除成员「${name}」将同时删除其工作区、对话记录和所有配置，且无法恢复。确认吗？`,
+      '删除 AI 成员',
+      { confirmButtonText: '确认删除', cancelButtonText: '取消', type: 'warning', confirmButtonClass: 'el-button--danger' }
+    )
+  } catch { return }
+  try {
+    await agentsApi.delete(id)
+    ElMessage.success(`已删除「${name}」`)
+    await store.fetchAll()
+  } catch (e: any) {
+    ElMessage.error('删除失败：' + (e?.response?.data?.error ?? e?.message ?? '未知错误'))
+  }
 }
 </script>
 

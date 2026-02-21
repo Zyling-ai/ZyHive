@@ -38,7 +38,7 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager, pool 
 	v1.Use(authMiddleware(cfg.Auth.Token))
 
 	// Agents
-	agentH := &agentHandler{cfg: cfg, manager: mgr, pool: pool}
+	agentH := &agentHandler{cfg: cfg, manager: mgr, pool: pool, botCtrl: botCtrl}
 	agents := v1.Group("/agents")
 	{
 		agents.GET("", agentH.List)

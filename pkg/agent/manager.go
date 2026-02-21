@@ -241,6 +241,27 @@ func (m *Manager) CreateWithOpts(opts CreateOpts) (*Agent, error) {
 	return a, nil
 }
 
+// Remove unloads an agent from memory and deletes its directory on disk.
+// The caller is responsible for stopping any running bots before calling this.
+func (m *Manager) Remove(id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	ag, ok := m.agents[id]
+	if !ok {
+		return fmt.Errorf("agent %q not found", id)
+	}
+
+	// Delete the agent directory (workspace, sessions, convlogs, config)
+	agentDir := filepath.Dir(ag.WorkspaceDir) // agents/{id}
+	if err := os.RemoveAll(agentDir); err != nil {
+		return fmt.Errorf("remove agent dir: %w", err)
+	}
+
+	delete(m.agents, id)
+	return nil
+}
+
 // UpdateChannels replaces the channel config for an agent and persists it to disk.
 func (m *Manager) UpdateChannels(agentID string, channels []config.ChannelEntry) error {
 	m.mu.Lock()

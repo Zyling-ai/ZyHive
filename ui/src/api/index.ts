@@ -126,6 +126,7 @@ export const agents = {
   get: (id: string) => api.get<AgentInfo>(`/agents/${id}`),
   create: (data: Partial<AgentInfo> & { id: string; name: string }) => api.post<AgentInfo>('/agents', data),
   update: (id: string, data: Partial<AgentInfo>) => api.patch<AgentInfo>(`/agents/${id}`, data),
+  delete: (id: string) => api.delete(`/agents/${id}`),
   /** Agent 间通信：向目标 Agent 发消息，同步等待回复 */
   message: (targetId: string, message: string, fromAgentId?: string) =>
     api.post<{ response: string }>(`/agents/${targetId}/message`, { message, fromAgentId }),
