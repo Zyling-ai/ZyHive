@@ -1,17 +1,26 @@
 // Chat handler — streaming SSE conversation endpoint.
-// Reference: openclaw/src/gateway/server-chat.ts
 //
-// The Chat endpoint creates a runner.Runner, calls runner.Run(ctx, message),
-// and streams RunEvents back as Server-Sent Events (SSE).
-// SSE format: data: {"type":"text_delta","text":"..."}\n\n
+// Architecture (post-worker refactor):
+//
+//   Browser → POST /api/agents/:id/chat
+//              ├─ Resolves session, builds RunFn closure, enqueues into SessionWorker
+//              └─ Subscribes this HTTP connection to the Broadcaster (SSE stream)
+//
+//   Runner executes in background goroutine — independent of HTTP connections.
+//   Browser disconnect stops SSE but does NOT cancel the runner.
+//
+//   Browser reconnects → GET /api/agents/:id/chat/stream?sessionId=...
+//              └─ Subscribes to Broadcaster; gets buffered events first, then live.
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"path/filepath"
+	"sync/atomic"
 
 	"github.com/gin-gonic/gin"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/agent"
@@ -24,16 +33,19 @@ import (
 	"github.com/sunhuihui6688-star/ai-panel/pkg/tools"
 )
 
+var subCounter atomic.Uint64
+
 type chatHandler struct {
 	cfg         *config.Config
 	manager     *agent.Manager
 	projectMgr  *project.Manager
 	subagentMgr *subagent.Manager
+	workerPool  *session.WorkerPool
 }
 
-// Chat POST /api/agents/:id/chat (SSE streaming)
-// Accepts: {"message": "user text here"}
-// Streams back SSE events as the agent processes the message.
+// Chat POST /api/agents/:id/chat
+// Enqueues the message into a background SessionWorker, then SSE-streams
+// the broadcaster output. Disconnecting does NOT stop the runner.
 func (h *chatHandler) Chat(c *gin.Context) {
 	id := c.Param("id")
 	ag, ok := h.manager.Get(id)
@@ -42,157 +54,271 @@ func (h *chatHandler) Chat(c *gin.Context) {
 		return
 	}
 
-	var req struct {
+	var body struct {
 		Message   string   `json:"message" binding:"required"`
-		SessionID string   `json:"sessionId"` // resume existing session; empty = create new
-		Context   string   `json:"context"`   // extra system context (page scenario, background)
-		Scenario  string   `json:"scenario"`  // label e.g. "agent-creation", "general"
-		SkillID   string   `json:"skillId"`   // skill-studio: restrict tools to this skill's directory
-		Images    []string `json:"images"`    // base64 data URIs: "data:image/png;base64,..."
+		SessionID string   `json:"sessionId"`
+		Context   string   `json:"context"`
+		Scenario  string   `json:"scenario"`
+		SkillID   string   `json:"skillId"`
+		Images    []string `json:"images"`
 		History   []struct {
-			Role    string `json:"role"`    // "user" | "assistant"
-			Content string `json:"content"` // plain text (legacy fallback when no sessionId)
-		} `json:"history"` // legacy: client-side history, used only when sessionId is empty
+			Role    string `json:"role"`
+			Content string `json:"content"`
+		} `json:"history"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Resolve model from global registry
-	var modelEntry *config.ModelEntry
-	if ag.ModelID != "" {
-		modelEntry = h.cfg.FindModel(ag.ModelID)
-	}
-	if modelEntry == nil && ag.Model != "" {
-		// Legacy compat: try matching by provider/model string
-		for i := range h.cfg.Models {
-			if h.cfg.Models[i].ProviderModel() == ag.Model {
-				modelEntry = &h.cfg.Models[i]
-				break
-			}
-		}
-	}
-	if modelEntry == nil {
-		modelEntry = h.cfg.DefaultModel()
-	}
-	if modelEntry == nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "no model configured"})
+	_, apiKey, model, err := h.resolveModel(ag)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	apiKey := resolveKey(modelEntry) // uses stored key, falls back to env var
-	if apiKey == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("no API key configured (set %s env var or add key in model settings)", envVarForProvider[modelEntry.Provider])})
-		return
-	}
-	model := modelEntry.ProviderModel()
 
-	// Create runner dependencies
+	store := session.NewStore(ag.SessionDir)
+	sessionID, _, err := store.GetOrCreate(body.SessionID, ag.ID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "session error: " + err.Error()})
+		return
+	}
+
+	// Snapshot legacy history (closure capture, no aliasing)
+	legacyHist := make([]struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	}, len(body.History))
+	copy(legacyHist, body.History)
+
+	// agCopy is a value copy; ag pointer is stable but we copy fields we need
+	agID := ag.ID
+	workspaceDir := ag.WorkspaceDir
+	sessionDir := ag.SessionDir
+	agEnv := ag.Env
+	scenario := body.Scenario
+	skillID := body.SkillID
+	images := append([]string{}, body.Images...)
+	extraContext := body.Context
+
+	// RunFn is called by the worker goroutine with ctx=context.Background()
+	runFn := func(ctx context.Context, sid string, message string, bc *session.Broadcaster) error {
+		return h.execRunner(ctx, agID, workspaceDir, sessionDir, model, apiKey,
+			sid, message, extraContext, scenario, skillID, images, legacyHist, agEnv, bc)
+	}
+
+	worker := h.workerPool.GetOrCreate(sessionID)
+	if err := worker.Enqueue(session.RunRequest{
+		AgentID:   ag.ID,
+		SessionID: sessionID,
+		Message:   body.Message,
+		RunFn:     runFn,
+	}); err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
+		return
+	}
+
+	h.pipeSSE(c, worker)
+}
+
+// StreamSession GET /api/agents/:id/chat/stream?sessionId=...
+// Reconnect: subscribe to an existing session's broadcaster.
+func (h *chatHandler) StreamSession(c *gin.Context) {
+	id := c.Param("id")
+	if _, ok := h.manager.Get(id); !ok {
+		c.JSON(http.StatusNotFound, gin.H{"error": "agent not found"})
+		return
+	}
+	sessionID := c.Query("sessionId")
+	if sessionID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "sessionId required"})
+		return
+	}
+	worker := h.workerPool.Get(sessionID)
+	if worker == nil {
+		// Worker gone — generation finished before reconnect; signal idle
+		c.Header("Content-Type", "text/event-stream")
+		c.Header("Cache-Control", "no-cache")
+		c.Header("Connection", "keep-alive")
+		data, _ := json.Marshal(map[string]any{"type": "idle"})
+		fmt.Fprintf(c.Writer, "data: %s\n\n", data)
+		c.Writer.Flush()
+		return
+	}
+	h.pipeSSE(c, worker)
+}
+
+// SessionStatus GET /api/agents/:id/chat/status?sessionId=...
+func (h *chatHandler) SessionStatus(c *gin.Context) {
+	sessionID := c.Query("sessionId")
+	w := h.workerPool.Get(sessionID)
+	if w == nil {
+		c.JSON(http.StatusOK, gin.H{"status": "idle", "hasWorker": false})
+		return
+	}
+	status := "idle"
+	if w.IsBusy() {
+		status = "generating"
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"status":         status,
+		"hasWorker":      true,
+		"bufferedEvents": w.Broadcaster.BufferLen(),
+	})
+}
+
+// pipeSSE subscribes to the worker's broadcaster and streams events via SSE.
+// Browser disconnect stops the SSE pipe but does NOT cancel the runner.
+func (h *chatHandler) pipeSSE(c *gin.Context, worker *session.SessionWorker) {
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
+
+	subKey := fmt.Sprintf("sse-%d", subCounter.Add(1))
+	ch, unsub := worker.Broadcaster.Subscribe(subKey)
+	defer unsub()
+
+	c.Stream(func(w io.Writer) bool {
+		select {
+		case ev, ok := <-ch:
+			if !ok {
+				return false
+			}
+			fmt.Fprintf(w, "data: %s\n\n", ev.Data)
+			return ev.Type != "done" && ev.Type != "error"
+		case <-c.Request.Context().Done():
+			return false // browser left; runner continues
+		}
+	})
+}
+
+// execRunner creates and runs a runner.Runner, publishing events to bc.
+// Called exclusively from inside a SessionWorker goroutine with context.Background().
+func (h *chatHandler) execRunner(
+	ctx context.Context,
+	agentID, workspaceDir, sessionDir,
+	model, apiKey,
+	sessionID, message,
+	extraContext, scenario, skillID string,
+	images []string,
+	legacyHistory []struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	},
+	agEnv map[string]string,
+	bc *session.Broadcaster,
+) error {
 	llmClient := llm.NewAnthropicClient()
-	// Use sandboxed registry for skill-studio: restricts file ops to skills/{skillID}/
+	store := session.NewStore(sessionDir)
+
 	var toolRegistry *tools.Registry
-	if req.Scenario == "skill-studio" && req.SkillID != "" {
-		toolRegistry = tools.NewSkillStudio(ag.WorkspaceDir, filepath.Dir(ag.WorkspaceDir), ag.ID, req.SkillID)
+	if scenario == "skill-studio" && skillID != "" {
+		toolRegistry = tools.NewSkillStudio(workspaceDir, filepath.Dir(workspaceDir), agentID, skillID)
 	} else {
-		toolRegistry = tools.New(ag.WorkspaceDir, filepath.Dir(ag.WorkspaceDir), ag.ID)
+		toolRegistry = tools.New(workspaceDir, filepath.Dir(workspaceDir), agentID)
 		if h.projectMgr != nil {
 			toolRegistry.WithProjectAccess(h.projectMgr)
 		}
 	}
-	// Inject per-agent env vars (e.g. GITHUB_TOKEN, GIT_AUTHOR_NAME) into exec tool
-	if len(ag.Env) > 0 {
-		toolRegistry.WithEnv(ag.Env)
+	if len(agEnv) > 0 {
+		toolRegistry.WithEnv(agEnv)
 	}
-	// Enable background task tools + agent_list if subagent manager is available
 	if h.subagentMgr != nil {
 		toolRegistry.WithSubagentManager(h.subagentMgr)
 		toolRegistry.WithAgentLister(func() []tools.AgentSummary {
 			list := h.manager.List()
 			out := make([]tools.AgentSummary, 0, len(list))
 			for _, a := range list {
-				if !a.System { // hide system agents
+				if !a.System {
 					out = append(out, tools.AgentSummary{ID: a.ID, Name: a.Name, Description: a.Description})
 				}
 			}
 			return out
 		})
 	}
-	store := session.NewStore(ag.SessionDir)
-
-	// Resolve session: resume existing or create new
-	sessionID, isNewSession, err := store.GetOrCreate(req.SessionID, ag.ID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "session error: " + err.Error()})
-		return
-	}
-	_ = isNewSession // could be used for logging
-	// Pass resolved session ID so agent_spawn records parent session for NotifyFunc
 	toolRegistry.WithSessionID(sessionID)
 
-	// Legacy fallback: convert client-side history when no server-side session history
 	var preHistory []llm.ChatMessage
-	if req.SessionID == "" {
-		for _, h := range req.History {
-			if h.Role == "user" || h.Role == "assistant" {
-				content, _ := json.Marshal(h.Content)
-				preHistory = append(preHistory, llm.ChatMessage{Role: h.Role, Content: content})
+	if sessionID == "" {
+		for _, m := range legacyHistory {
+			if m.Role == "user" || m.Role == "assistant" {
+				content, _ := json.Marshal(m.Content)
+				preHistory = append(preHistory, llm.ChatMessage{Role: m.Role, Content: content})
 			}
 		}
 	}
 
 	r := runner.New(runner.Config{
-		AgentID:          ag.ID,
-		WorkspaceDir:     ag.WorkspaceDir,
+		AgentID:          agentID,
+		WorkspaceDir:     workspaceDir,
 		Model:            model,
 		APIKey:           apiKey,
 		SessionID:        sessionID,
 		LLM:              llmClient,
 		Tools:            toolRegistry,
 		Session:          store,
-		ExtraContext:     req.Context,
-		Images:           req.Images,
+		ExtraContext:     extraContext,
+		Images:           images,
 		PreloadedHistory: preHistory,
-		ProjectContext:   runner.BuildProjectContext(h.projectMgr, ag.ID),
-		AgentEnv:         ag.Env,
+		ProjectContext:   runner.BuildProjectContext(h.projectMgr, agentID),
+		AgentEnv:         agEnv,
 	})
 
-	// Set SSE headers
-	c.Header("Content-Type", "text/event-stream")
-	c.Header("Cache-Control", "no-cache")
-	c.Header("Connection", "keep-alive")
-	c.Header("X-Accel-Buffering", "no")
+	for ev := range r.Run(ctx, message) {
+		bc.Publish(session.BroadcastEvent{
+			Type: ev.Type,
+			Data: runEventToJSON(ev),
+		})
+	}
+	return nil
+}
 
-	// Run the agent and stream events back as SSE
-	ctx := c.Request.Context()
-	events := r.Run(ctx, req.Message)
-
-	c.Stream(func(w io.Writer) bool {
-		ev, ok := <-events
-		if !ok {
-			return false
+// runEventToJSON serialises a RunEvent to SSE-ready JSON bytes.
+func runEventToJSON(ev runner.RunEvent) []byte {
+	m := map[string]any{"type": ev.Type}
+	switch ev.Type {
+	case "text_delta", "thinking_delta", "tool_result":
+		m["text"] = ev.Text
+	case "tool_call":
+		if ev.ToolCall != nil {
+			m["tool_call"] = ev.ToolCall
 		}
-		sseEvent := map[string]any{"type": ev.Type}
-		switch ev.Type {
-		case "text_delta":
-			sseEvent["text"] = ev.Text
-		case "thinking_delta":
-			sseEvent["text"] = ev.Text
-		case "tool_call":
-			if ev.ToolCall != nil {
-				sseEvent["tool_call"] = ev.ToolCall
+	case "error":
+		m["error"] = fmt.Sprintf("%v", ev.Error)
+	case "done":
+		m["sessionId"] = ev.SessionID
+		m["tokenEstimate"] = ev.TokenEstimate
+	}
+	data, _ := json.Marshal(m)
+	return data
+}
+
+// resolveModel finds the model entry and API key for an agent.
+func (h *chatHandler) resolveModel(ag *agent.Agent) (*config.ModelEntry, string, string, error) {
+	var me *config.ModelEntry
+	if ag.ModelID != "" {
+		me = h.cfg.FindModel(ag.ModelID)
+	}
+	if me == nil && ag.Model != "" {
+		for i := range h.cfg.Models {
+			if h.cfg.Models[i].ProviderModel() == ag.Model {
+				me = &h.cfg.Models[i]
+				break
 			}
-		case "tool_result":
-			sseEvent["text"] = ev.Text
-		case "error":
-			sseEvent["error"] = fmt.Sprintf("%v", ev.Error)
-		case "done":
-			sseEvent["sessionId"] = ev.SessionID
-			sseEvent["tokenEstimate"] = ev.TokenEstimate
 		}
-		data, _ := json.Marshal(sseEvent)
-		fmt.Fprintf(w, "data: %s\n\n", data)
-		return true
-	})
+	}
+	if me == nil {
+		me = h.cfg.DefaultModel()
+	}
+	if me == nil {
+		return nil, "", "", fmt.Errorf("no model configured")
+	}
+	key := resolveKey(me)
+	if key == "" {
+		return nil, "", "", fmt.Errorf("no API key configured (set %s env var or add key in model settings)", envVarForProvider[me.Provider])
+	}
+	return me, key, me.ProviderModel(), nil
 }
 
 // ListSessions GET /api/agents/:id/sessions

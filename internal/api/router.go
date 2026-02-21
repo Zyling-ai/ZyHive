@@ -31,7 +31,7 @@ type BotControl struct {
 }
 
 // RegisterRoutes mounts all API handlers onto the Gin engine.
-func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager, pool *agent.Pool, cronEngine *cron.Engine, uiFS fs.FS, runnerFunc channel.RunnerFunc, botCtrl BotControl, projectMgr *project.Manager, subagentMgr *subagent.Manager) {
+func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager, pool *agent.Pool, cronEngine *cron.Engine, uiFS fs.FS, runnerFunc channel.RunnerFunc, botCtrl BotControl, projectMgr *project.Manager, subagentMgr *subagent.Manager, workerPool *session.WorkerPool) {
 	rf := runnerFunc
 	r.Use(corsMiddleware())
 	r.Use(requestLogger())
@@ -66,9 +66,11 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager, pool 
 	// Whitelist management
 	agents.DELETE("/:id/channels/:chId/allowed/:userId", agChH.RemoveAllowed)
 
-	// Chat (streaming SSE)
-	chatH := &chatHandler{cfg: cfg, manager: mgr, projectMgr: projectMgr, subagentMgr: subagentMgr}
-	agents.POST("/:id/chat", chatH.Chat)
+	// Chat (streaming SSE) — background worker architecture
+	chatH := &chatHandler{cfg: cfg, manager: mgr, projectMgr: projectMgr, subagentMgr: subagentMgr, workerPool: workerPool}
+	agents.POST("/:id/chat", chatH.Chat)                          // enqueue + stream
+	agents.GET("/:id/chat/stream", chatH.StreamSession)           // reconnect: subscribe to broadcaster
+	agents.GET("/:id/chat/status", chatH.SessionStatus)           // poll status
 	agents.GET("/:id/sessions", chatH.ListSessions)
 	agents.GET("/:id/sessions/:sid", chatH.GetSession)
 

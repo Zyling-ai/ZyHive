@@ -196,13 +196,17 @@ func main() {
 		}
 	}
 
+	// Initialize session worker pool — decouples runner lifecycle from HTTP connections.
+	// Workers run in background goroutines; closing the browser does not stop generation.
+	workerPool := session.NewWorkerPool()
+
 	// Setup router
 	r := gin.Default()
 	botCtrl := api.BotControl{
 		Start: startBotForChannel,
 		Stop:  botPool.StopBot,
 	}
-	api.RegisterRoutes(r, cfg, mgr, pool, cronEngine, uiFS, runnerFunc, botCtrl, projectMgr, subagentMgr)
+	api.RegisterRoutes(r, cfg, mgr, pool, cronEngine, uiFS, runnerFunc, botCtrl, projectMgr, subagentMgr, workerPool)
 
 	// Print access URLs
 	port := cfg.Gateway.Port
@@ -232,6 +236,8 @@ func main() {
 		<-sigCh
 		log.Println("Shutting down...")
 		cancel() // stop telegram bot
+
+		workerPool.StopAll() // stop all background session workers
 
 		shutdownCtx := cronEngine.Stop() // stop cron
 		<-shutdownCtx.Done()
