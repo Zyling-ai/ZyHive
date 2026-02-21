@@ -28,7 +28,7 @@
           :data="treeData"
           :props="treeProps"
           :highlight-current="true"
-          :expand-on-click-node="false"
+          :expand-on-click-node="true"
           :default-expand-all="false"
           node-key="path"
           class="wc-file-tree"
@@ -306,7 +306,7 @@ function buildTree(data: any): FNode[] {
     path: item.path ?? item.name,
     isDir: !!(item.isDir ?? item.type === 'dir'),
     size: item.size,
-    children: item.children?.length ? buildTree(item.children) : (item.isDir ? [] : undefined),
+    children: item.children?.length ? buildTree(item.children) : undefined,
   })).sort((a, b) => (+b.isDir - +a.isDir) || a.name.localeCompare(b.name))
 }
 
