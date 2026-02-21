@@ -18,17 +18,18 @@ type agentHandler struct {
 
 // AgentInfo is the JSON shape returned to the frontend.
 type AgentInfo struct {
-	ID           string   `json:"id"`
-	Name         string   `json:"name"`
-	Description  string   `json:"description,omitempty"`
-	Model        string   `json:"model"`
-	ModelID      string   `json:"modelId,omitempty"`
-	ToolIDs      []string `json:"toolIds,omitempty"`
-	SkillIDs     []string `json:"skillIds,omitempty"`
-	AvatarColor  string   `json:"avatarColor,omitempty"`
-	System       bool     `json:"system,omitempty"`
-	Status       string   `json:"status"`
-	WorkspaceDir string   `json:"workspaceDir"`
+	ID           string            `json:"id"`
+	Name         string            `json:"name"`
+	Description  string            `json:"description,omitempty"`
+	Model        string            `json:"model"`
+	ModelID      string            `json:"modelId,omitempty"`
+	ToolIDs      []string          `json:"toolIds,omitempty"`
+	SkillIDs     []string          `json:"skillIds,omitempty"`
+	AvatarColor  string            `json:"avatarColor,omitempty"`
+	System       bool              `json:"system,omitempty"`
+	Status       string            `json:"status"`
+	WorkspaceDir string            `json:"workspaceDir"`
+	Env          map[string]string `json:"env,omitempty"` // per-agent env vars (keys shown; values masked in list)
 }
 
 func agentToInfo(a *agent.Agent) AgentInfo {
@@ -44,6 +45,7 @@ func agentToInfo(a *agent.Agent) AgentInfo {
 		System:       a.System,
 		Status:       a.Status,
 		WorkspaceDir: a.WorkspaceDir,
+		Env:          a.Env,
 	}
 }
 
@@ -185,6 +187,20 @@ func (h *agentHandler) Update(c *gin.Context) {
 				}
 			}
 			opts.SkillIDs = ids
+		}
+	}
+	if v, ok := raw["env"]; ok {
+		// env is a map[string]string; nil value in JSON means "clear all"
+		if v == nil {
+			opts.Env = map[string]string{}
+		} else if m, ok := v.(map[string]interface{}); ok {
+			env := make(map[string]string, len(m))
+			for k, val := range m {
+				if s, ok := val.(string); ok {
+					env[k] = s
+				}
+			}
+			opts.Env = env
 		}
 	}
 

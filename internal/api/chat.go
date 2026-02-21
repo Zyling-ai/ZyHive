@@ -97,6 +97,10 @@ func (h *chatHandler) Chat(c *gin.Context) {
 			toolRegistry.WithProjectAccess(h.projectMgr)
 		}
 	}
+	// Inject per-agent env vars (e.g. GITHUB_TOKEN, GIT_AUTHOR_NAME) into exec tool
+	if len(ag.Env) > 0 {
+		toolRegistry.WithEnv(ag.Env)
+	}
 	store := session.NewStore(ag.SessionDir)
 
 	// Resolve session: resume existing or create new
@@ -131,6 +135,7 @@ func (h *chatHandler) Chat(c *gin.Context) {
 		Images:           req.Images,
 		PreloadedHistory: preHistory,
 		ProjectContext:   runner.BuildProjectContext(h.projectMgr, ag.ID),
+		AgentEnv:         ag.Env,
 	})
 
 	// Set SSE headers

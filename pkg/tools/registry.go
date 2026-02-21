@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -27,6 +28,7 @@ type Registry struct {
 	agentDir     string // parent dir of workspace (contains config.json)
 	agentID      string // agent ID (used for self-management tools)
 	projectMgr   *project.Manager // shared project workspace (nil = no project access)
+	agentEnv     map[string]string // per-agent env vars injected into exec (bypass sanitize)
 }
 
 // New creates a Registry pre-loaded with all built-in tools.
@@ -107,6 +109,13 @@ func NewSkillStudio(workspaceDir, agentDir, agentID, skillID string) *Registry {
 	r.register(selfListSkillsDef, r.handleSelfListSkills)
 	// Bash, self_install_skill, self_uninstall_skill, self_rename, self_update_soul: NOT registered (disabled)
 	return r
+}
+
+// WithEnv configures per-agent environment variables that are injected into
+// exec/bash tool calls. These vars override the sanitized system env, allowing
+// agents to use credentials like GITHUB_TOKEN, GIT_AUTHOR_NAME, etc.
+func (r *Registry) WithEnv(env map[string]string) {
+	r.agentEnv = env
 }
 
 // WithProjectAccess registers project_list, project_read, and (if permitted)
@@ -443,24 +452,45 @@ func (r *Registry) handleGlobWS(ctx context.Context, input json.RawMessage) (str
 	return handleGlob(ctx, r.resolveFilePathInInput(input, "base_dir"))
 }
 
-// handleBashWS runs bash commands in the agent's workspace directory.
-func (r *Registry) handleBashWS(ctx context.Context, input json.RawMessage) (string, error) {
-	// Inject workspace dir as cwd by prepending a cd command
+// handleBashWS runs bash commands in the agent's workspace directory,
+// injecting any per-agent env vars (agentEnv) on top of the sanitized system env.
+func (r *Registry) handleBashWS(_ context.Context, input json.RawMessage) (string, error) {
 	var p struct {
 		Command string `json:"command"`
 		Timeout int    `json:"timeout"`
 	}
 	if err := json.Unmarshal(input, &p); err != nil {
-		return handleBash(ctx, input)
+		return "", err
 	}
-	if r.workspaceDir != "" && p.Command != "" {
-		p.Command = fmt.Sprintf("cd %q && %s", r.workspaceDir, p.Command)
-		modified, err := json.Marshal(p)
-		if err == nil {
-			return handleBash(ctx, modified)
-		}
+
+	// Prepend workspace cd so relative paths work
+	command := p.Command
+	if r.workspaceDir != "" && command != "" {
+		command = fmt.Sprintf("cd %q && %s", r.workspaceDir, command)
 	}
-	return handleBash(ctx, input)
+
+	timeout := time.Duration(p.Timeout) * time.Second
+	if timeout <= 0 || timeout > 120*time.Second {
+		timeout = 120 * time.Second
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "bash", "-c", command)
+
+	// Start with sanitized system env, then overlay agent-configured env vars
+	env := sanitizeEnv(os.Environ())
+	for k, v := range r.agentEnv {
+		env = append(env, k+"="+v)
+	}
+	cmd.Env = env
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return string(out), fmt.Errorf("command failed: %w\n%s", err, out)
+	}
+	return string(out), nil
 }
 
 // ── Self-Management Handlers ─────────────────────────────────────────────────
