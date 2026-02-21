@@ -372,9 +372,10 @@ func (h *relationsHandler) Graph(c *gin.Context) {
 	agents := h.manager.List()
 
 	type GraphNode struct {
-		ID     string `json:"id"`
-		Name   string `json:"name"`
-		Status string `json:"status"`
+		ID          string `json:"id"`
+		Name        string `json:"name"`
+		Status      string `json:"status"`
+		AvatarColor string `json:"avatarColor,omitempty"`
 	}
 
 	type GraphEdge struct {
@@ -389,7 +390,7 @@ func (h *relationsHandler) Graph(c *gin.Context) {
 	edgeMap := make(map[string]GraphEdge) // canonical key → edge (dedup)
 
 	for _, ag := range agents {
-		nodeMap[ag.ID] = GraphNode{ID: ag.ID, Name: ag.Name, Status: ag.Status}
+		nodeMap[ag.ID] = GraphNode{ID: ag.ID, Name: ag.Name, Status: ag.Status, AvatarColor: ag.AvatarColor}
 
 		filePath := filepath.Join(ag.WorkspaceDir, relationsFilename)
 		data, err := os.ReadFile(filePath)
