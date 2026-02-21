@@ -109,6 +109,11 @@
           <template #title>定时任务</template>
         </el-menu-item>
 
+        <el-menu-item index="/tasks">
+          <el-icon><Operation /></el-icon>
+          <template #title>后台任务</template>
+        </el-menu-item>
+
         <el-menu-item index="/logs">
           <el-icon><Document /></el-icon>
           <template #title>日志</template>

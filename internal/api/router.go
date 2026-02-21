@@ -19,6 +19,7 @@ import (
 	"github.com/sunhuihui6688-star/ai-panel/pkg/cron"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/project"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/session"
+	"github.com/sunhuihui6688-star/ai-panel/pkg/subagent"
 )
 
 const configFilePath = "aipanel.json"
@@ -30,7 +31,7 @@ type BotControl struct {
 }
 
 // RegisterRoutes mounts all API handlers onto the Gin engine.
-func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager, pool *agent.Pool, cronEngine *cron.Engine, uiFS fs.FS, runnerFunc channel.RunnerFunc, botCtrl BotControl, projectMgr *project.Manager) {
+func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager, pool *agent.Pool, cronEngine *cron.Engine, uiFS fs.FS, runnerFunc channel.RunnerFunc, botCtrl BotControl, projectMgr *project.Manager, subagentMgr *subagent.Manager) {
 	rf := runnerFunc
 	r.Use(corsMiddleware())
 	r.Use(requestLogger())
@@ -66,7 +67,7 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager, pool 
 	agents.DELETE("/:id/channels/:chId/allowed/:userId", agChH.RemoveAllowed)
 
 	// Chat (streaming SSE)
-	chatH := &chatHandler{cfg: cfg, manager: mgr, projectMgr: projectMgr}
+	chatH := &chatHandler{cfg: cfg, manager: mgr, projectMgr: projectMgr, subagentMgr: subagentMgr}
 	agents.POST("/:id/chat", chatH.Chat)
 	agents.GET("/:id/sessions", chatH.ListSessions)
 	agents.GET("/:id/sessions/:sid", chatH.GetSession)
@@ -211,6 +212,18 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager, pool 
 		projects.GET("/:id/files/*path", projFileH.Read)
 		projects.PUT("/:id/files/*path", projFileH.Write)
 		projects.DELETE("/:id/files/*path", projFileH.Delete)
+	}
+
+	// Background Tasks (subagents)
+	if subagentMgr != nil {
+		taskH := &subagentHandler{mgr: subagentMgr, agentMgr: mgr}
+		tasks := v1.Group("/tasks")
+		{
+			tasks.GET("", taskH.List)
+			tasks.POST("", taskH.Spawn)
+			tasks.GET("/:id", taskH.Get)
+			tasks.DELETE("/:id", taskH.Kill)
+		}
 	}
 
 	// Health & Stats

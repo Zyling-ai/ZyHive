@@ -24,6 +24,7 @@ import (
 	"github.com/sunhuihui6688-star/ai-panel/pkg/config"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/cron"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/project"
+	"github.com/sunhuihui6688-star/ai-panel/pkg/subagent"
 )
 
 //go:embed all:ui_dist
@@ -85,6 +86,12 @@ func main() {
 	// Initialize multi-agent runner pool
 	pool := agent.NewPool(cfg, mgr)
 	pool.SetProjectManager(projectMgr)
+
+	// Initialize subagent manager — background task execution
+	subagentStoreDir := filepath.Join(agentsDir, ".subagent-tasks")
+	subagentMgr := subagent.New(pool.SubagentRunFunc(), subagentStoreDir)
+	pool.SetSubagentManager(subagentMgr)
+	log.Println("Subagent manager initialized")
 
 	// Agent runner function — used by cron engine and telegram bot
 	runnerFunc := func(ctx context.Context, agentID, message string) (string, error) {
@@ -152,7 +159,7 @@ func main() {
 		Start: startBotForChannel,
 		Stop:  botPool.StopBot,
 	}
-	api.RegisterRoutes(r, cfg, mgr, pool, cronEngine, uiFS, runnerFunc, botCtrl, projectMgr)
+	api.RegisterRoutes(r, cfg, mgr, pool, cronEngine, uiFS, runnerFunc, botCtrl, projectMgr, subagentMgr)
 
 	// Print access URLs
 	port := cfg.Gateway.Port

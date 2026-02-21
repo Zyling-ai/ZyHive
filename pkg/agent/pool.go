@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -19,16 +20,18 @@ import (
 	"github.com/sunhuihui6688-star/ai-panel/pkg/project"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/runner"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/session"
+	"github.com/sunhuihui6688-star/ai-panel/pkg/subagent"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/tools"
 )
 
 // Pool manages multiple concurrent agent runners (one per agent).
 type Pool struct {
-	manager    *Manager
-	cfg        *config.Config
-	projectMgr *project.Manager // shared project workspace (may be nil)
-	runners    map[string]*runner.Runner
-	mu         sync.Mutex
+	manager      *Manager
+	cfg          *config.Config
+	projectMgr   *project.Manager // shared project workspace (may be nil)
+	SubagentMgr  *subagent.Manager // background task manager (set after NewPool)
+	runners      map[string]*runner.Runner
+	mu           sync.Mutex
 }
 
 // NewPool creates a new multi-agent runner pool.
@@ -40,9 +43,27 @@ func NewPool(cfg *config.Config, mgr *Manager) *Pool {
 	}
 }
 
+// SetSubagentManager attaches the subagent manager to the pool.
+func (p *Pool) SetSubagentManager(mgr *subagent.Manager) {
+	p.SubagentMgr = mgr
+}
+
 // SetProjectManager attaches the shared project manager so agents can access projects via tools.
 func (p *Pool) SetProjectManager(mgr *project.Manager) {
 	p.projectMgr = mgr
+}
+
+// configureToolRegistry applies all optional middlewares to a fresh tool registry.
+func (p *Pool) configureToolRegistry(reg *tools.Registry, ag *Agent) {
+	if p.projectMgr != nil {
+		reg.WithProjectAccess(p.projectMgr)
+	}
+	if len(ag.Env) > 0 {
+		reg.WithEnv(ag.Env)
+	}
+	if p.SubagentMgr != nil {
+		reg.WithSubagentManager(p.SubagentMgr)
+	}
 }
 
 // buildProjectContext returns the shared project context string for system prompt injection.
@@ -188,12 +209,7 @@ func (p *Pool) Run(ctx context.Context, agentID, message string) (string, error)
 	// Create a fresh runner for this invocation
 	llmClient := llm.NewAnthropicClient()
 	toolRegistry := tools.New(ag.WorkspaceDir, filepath.Dir(ag.WorkspaceDir), ag.ID)
-	if p.projectMgr != nil {
-		toolRegistry.WithProjectAccess(p.projectMgr)
-	}
-	if len(ag.Env) > 0 {
-		toolRegistry.WithEnv(ag.Env)
-	}
+	p.configureToolRegistry(toolRegistry, ag)
 	store := session.NewStore(ag.SessionDir)
 
 	r := runner.New(runner.Config{
@@ -245,12 +261,7 @@ func (p *Pool) RunStreamEvents(ctx context.Context, agentID, message string, med
 
 	llmClient := llm.NewAnthropicClient()
 	toolRegistry := tools.New(ag.WorkspaceDir, filepath.Dir(ag.WorkspaceDir), ag.ID)
-	if p.projectMgr != nil {
-		toolRegistry.WithProjectAccess(p.projectMgr)
-	}
-	if len(ag.Env) > 0 {
-		toolRegistry.WithEnv(ag.Env)
-	}
+	p.configureToolRegistry(toolRegistry, ag)
 	store := session.NewStore(ag.SessionDir)
 
 	// Convert MediaInput to base64 data URI strings for the runner.
@@ -322,12 +333,7 @@ func (p *Pool) RunStream(ctx context.Context, agentID, message, sessionID string
 
 	llmClient := llm.NewAnthropicClient()
 	toolRegistry := tools.New(ag.WorkspaceDir, filepath.Dir(ag.WorkspaceDir), ag.ID)
-	if p.projectMgr != nil {
-		toolRegistry.WithProjectAccess(p.projectMgr)
-	}
-	if len(ag.Env) > 0 {
-		toolRegistry.WithEnv(ag.Env)
-	}
+	p.configureToolRegistry(toolRegistry, ag)
 	store := session.NewStore(ag.SessionDir)
 
 	r := runner.New(runner.Config{
@@ -395,4 +401,71 @@ func normalizeVisionContentType(ct, fileName string) string {
 	}
 
 	return "" // unsupported
+}
+
+// SubagentRunFunc returns a RunFunc compatible with subagent.Manager.
+// This lets the Pool serve as the execution backend for background tasks.
+func (p *Pool) SubagentRunFunc() subagent.RunFunc {
+	return func(ctx context.Context, agentID, model, sessionID, task string) <-chan subagent.RunEvent {
+		out := make(chan subagent.RunEvent, 32)
+
+		go func() {
+			defer close(out)
+
+			ag, ok := p.manager.Get(agentID)
+			if !ok {
+				out <- subagent.RunEvent{Type: "error", Error: fmt.Errorf("agent %q not found", agentID)}
+				return
+			}
+			modelEntry, err := p.resolveModel(ag)
+			if err != nil {
+				out <- subagent.RunEvent{Type: "error", Error: err}
+				return
+			}
+			resolvedModel := modelEntry.ProviderModel()
+			if model != "" {
+				resolvedModel = model
+			}
+			apiKey := modelEntry.APIKey
+			if apiKey == "" {
+				out <- subagent.RunEvent{Type: "error", Error: fmt.Errorf("no API key for model: %s", resolvedModel)}
+				return
+			}
+
+			llmClient := llm.NewAnthropicClient()
+			// Subagent gets its own isolated session store (separate dir)
+			subSessionDir := filepath.Join(ag.SessionDir, "subagent")
+			if err := os.MkdirAll(subSessionDir, 0755); err != nil {
+				out <- subagent.RunEvent{Type: "error", Error: fmt.Errorf("create subagent session dir: %w", err)}
+				return
+			}
+			store := session.NewStore(subSessionDir)
+			toolRegistry := tools.New(ag.WorkspaceDir, filepath.Dir(ag.WorkspaceDir), ag.ID)
+			p.configureToolRegistry(toolRegistry, ag)
+
+			r := runner.New(runner.Config{
+				AgentID:        ag.ID,
+				WorkspaceDir:   ag.WorkspaceDir,
+				Model:          resolvedModel,
+				APIKey:         apiKey,
+				SessionID:      sessionID,
+				LLM:            llmClient,
+				Tools:          toolRegistry,
+				Session:        store,
+				ProjectContext: p.buildProjectContext(ag.ID),
+				AgentEnv:       ag.Env,
+			})
+
+			for ev := range r.Run(ctx, task) {
+				switch ev.Type {
+				case "text_delta":
+					out <- subagent.RunEvent{Type: "text_delta", Text: ev.Text}
+				case "error":
+					out <- subagent.RunEvent{Type: "error", Error: ev.Error}
+				}
+			}
+		}()
+
+		return out
+	}
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/sunhuihui6688-star/ai-panel/pkg/llm"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/project"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/skill"
+	"github.com/sunhuihui6688-star/ai-panel/pkg/subagent"
 )
 
 // Handler executes a tool call and returns the result string.
@@ -27,8 +28,9 @@ type Registry struct {
 	workspaceDir string // agent-specific working directory for path resolution
 	agentDir     string // parent dir of workspace (contains config.json)
 	agentID      string // agent ID (used for self-management tools)
-	projectMgr   *project.Manager // shared project workspace (nil = no project access)
-	agentEnv     map[string]string // per-agent env vars injected into exec (bypass sanitize)
+	projectMgr   *project.Manager  // shared project workspace (nil = no project access)
+	agentEnv     map[string]string  // per-agent env vars injected into exec (bypass sanitize)
+	subagentMgr  *subagent.Manager  // background task manager (nil = no subagent tools)
 }
 
 // New creates a Registry pre-loaded with all built-in tools.
@@ -116,6 +118,62 @@ func NewSkillStudio(workspaceDir, agentDir, agentID, skillID string) *Registry {
 // agents to use credentials like GITHUB_TOKEN, GIT_AUTHOR_NAME, etc.
 func (r *Registry) WithEnv(env map[string]string) {
 	r.agentEnv = env
+}
+
+// WithSubagentManager registers background task tools (agent_spawn, agent_tasks, agent_kill).
+func (r *Registry) WithSubagentManager(mgr *subagent.Manager) {
+	r.subagentMgr = mgr
+
+	r.register(llm.ToolDef{
+		Name:        "agent_spawn",
+		Description: "在后台派生一个 AI 成员执行任务。任务异步执行，不阻塞当前对话。完成后自动通知。返回任务 ID。",
+		InputSchema: json.RawMessage(`{
+			"type":"object",
+			"properties":{
+				"agentId":{"type":"string","description":"执行任务的 AI 成员 ID"},
+				"task":{"type":"string","description":"详细的任务描述/指令"},
+				"label":{"type":"string","description":"任务简短标签，便于识别（可选）"},
+				"model":{"type":"string","description":"覆盖默认模型（可选，格式: provider/model）"}
+			},
+			"required":["agentId","task"]
+		}`),
+	}, r.handleAgentSpawn)
+
+	r.register(llm.ToolDef{
+		Name:        "agent_tasks",
+		Description: "查看所有后台任务的状态列表（含任务ID、状态、执行者、标签、耗时）。",
+		InputSchema: json.RawMessage(`{
+			"type":"object",
+			"properties":{
+				"agentId":{"type":"string","description":"仅查看该 AI 成员的任务（可选，不填则看全部）"},
+				"status":{"type":"string","description":"按状态过滤: pending/running/done/error/killed（可选）"}
+			}
+		}`),
+	}, r.handleAgentTasks)
+
+	r.register(llm.ToolDef{
+		Name:        "agent_kill",
+		Description: "终止一个正在运行的后台任务。",
+		InputSchema: json.RawMessage(`{
+			"type":"object",
+			"properties":{
+				"taskId":{"type":"string","description":"要终止的任务 ID"}
+			},
+			"required":["taskId"]
+		}`),
+	}, r.handleAgentKill)
+
+	r.register(llm.ToolDef{
+		Name:        "agent_result",
+		Description: "获取后台任务的完整输出内容。",
+		InputSchema: json.RawMessage(`{
+			"type":"object",
+			"properties":{
+				"taskId":{"type":"string","description":"任务 ID"}
+			},
+			"required":["taskId"]
+		}`),
+	}, r.handleAgentResult)
 }
 
 // WithProjectAccess registers project_list, project_read, and (if permitted)
@@ -606,4 +664,115 @@ func (r *Registry) handleSelfUpdateSoul(_ context.Context, input json.RawMessage
 		return "", fmt.Errorf("write SOUL.md: %w", err)
 	}
 	return "SOUL.md 已更新", nil
+}
+
+// ── Subagent Tools ────────────────────────────────────────────────────────────
+
+func (r *Registry) handleAgentSpawn(_ context.Context, input json.RawMessage) (string, error) {
+	if r.subagentMgr == nil {
+		return "", fmt.Errorf("subagent manager not configured")
+	}
+	var p struct {
+		AgentID string `json:"agentId"`
+		Task    string `json:"task"`
+		Label   string `json:"label"`
+		Model   string `json:"model"`
+	}
+	if err := json.Unmarshal(input, &p); err != nil {
+		return "", err
+	}
+	task, err := r.subagentMgr.Spawn(subagent.SpawnOpts{
+		AgentID:   p.AgentID,
+		Label:     p.Label,
+		Task:      p.Task,
+		Model:     p.Model,
+		SpawnedBy: r.agentID,
+	})
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("✅ 任务已派生\n- 任务 ID: %s\n- 执行者: %s\n- 标签: %s\n- 状态: %s\n\n任务在后台异步执行，使用 agent_tasks 查看状态，agent_result 获取结果。", task.ID, task.AgentID, task.Label, task.Status), nil
+}
+
+func (r *Registry) handleAgentTasks(_ context.Context, input json.RawMessage) (string, error) {
+	if r.subagentMgr == nil {
+		return "", fmt.Errorf("subagent manager not configured")
+	}
+	var p struct {
+		AgentID string `json:"agentId"`
+		Status  string `json:"status"`
+	}
+	_ = json.Unmarshal(input, &p)
+
+	tasks := r.subagentMgr.List(p.AgentID)
+	if len(tasks) == 0 {
+		return "暂无后台任务", nil
+	}
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("共 %d 个任务：\n\n", len(tasks)))
+	for _, t := range tasks {
+		if p.Status != "" && string(t.Status) != p.Status {
+			continue
+		}
+		label := t.Label
+		if label == "" {
+			label = "(无标签)"
+		}
+		sb.WriteString(fmt.Sprintf("• [%s] %s | %s | 执行者: %s | 耗时: %s\n  任务: %s\n",
+			t.Status, t.ID, label, t.AgentID, t.Duration(),
+			truncate(t.Description, 80)))
+	}
+	return sb.String(), nil
+}
+
+func (r *Registry) handleAgentKill(_ context.Context, input json.RawMessage) (string, error) {
+	if r.subagentMgr == nil {
+		return "", fmt.Errorf("subagent manager not configured")
+	}
+	var p struct {
+		TaskID string `json:"taskId"`
+	}
+	if err := json.Unmarshal(input, &p); err != nil {
+		return "", err
+	}
+	if err := r.subagentMgr.Kill(p.TaskID); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("任务 %s 已终止", p.TaskID), nil
+}
+
+func (r *Registry) handleAgentResult(_ context.Context, input json.RawMessage) (string, error) {
+	if r.subagentMgr == nil {
+		return "", fmt.Errorf("subagent manager not configured")
+	}
+	var p struct {
+		TaskID string `json:"taskId"`
+	}
+	if err := json.Unmarshal(input, &p); err != nil {
+		return "", err
+	}
+	task, ok := r.subagentMgr.Get(p.TaskID)
+	if !ok {
+		return "", fmt.Errorf("任务 %q 不存在", p.TaskID)
+	}
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("任务 ID: %s\n状态: %s\n执行者: %s\n耗时: %s\n", task.ID, task.Status, task.AgentID, task.Duration()))
+	if task.ErrorMsg != "" {
+		sb.WriteString(fmt.Sprintf("错误: %s\n", task.ErrorMsg))
+	}
+	sb.WriteString("\n--- 输出 ---\n")
+	if task.Output == "" {
+		sb.WriteString("（无输出）")
+	} else {
+		sb.WriteString(task.Output)
+	}
+	return sb.String(), nil
+}
+
+func truncate(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max] + "…"
 }
