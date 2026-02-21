@@ -22,8 +22,11 @@ import (
 	"github.com/sunhuihui6688-star/ai-panel/pkg/agent"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/channel"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/config"
+	"encoding/json"
+
 	"github.com/sunhuihui6688-star/ai-panel/pkg/cron"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/project"
+	"github.com/sunhuihui6688-star/ai-panel/pkg/session"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/subagent"
 )
 
@@ -96,6 +99,42 @@ func main() {
 	subagentMgr := subagent.New(pool.SubagentRunFunc(), subagentStoreDir)
 	pool.SetSubagentManager(subagentMgr)
 	log.Println("Subagent manager initialized")
+
+	// Wire up completion notify: when a background task finishes, inject a message
+	// into the parent session so the user sees the result on next open.
+	subagentMgr.SetNotify(func(spawnedBy, spawnedBySession, taskID, label, output string, status subagent.TaskStatus) {
+		if spawnedBy == "" || spawnedBySession == "" {
+			return
+		}
+		ag, ok := mgr.Get(spawnedBy)
+		if !ok {
+			return
+		}
+		store := session.NewStore(ag.SessionDir)
+		var statusIcon string
+		switch status {
+		case subagent.TaskDone:
+			statusIcon = "✅"
+		case subagent.TaskError:
+			statusIcon = "❌"
+		case subagent.TaskKilled:
+			statusIcon = "🛑"
+		default:
+			statusIcon = "⚠️"
+		}
+		taskLabel := label
+		if taskLabel == "" {
+			taskLabel = taskID
+		}
+		summary := output
+		if len(summary) > 500 {
+			summary = summary[:500] + "\n…（截断，完整内容见后台任务）"
+		}
+		msg := fmt.Sprintf("[后台任务完成] %s **%s**（任务 ID: %s）\n\n%s", statusIcon, taskLabel, taskID, summary)
+		content, _ := json.Marshal(msg)
+		_ = store.AppendMessage(spawnedBySession, "user", content)
+		log.Printf("[subagent] notify: task %s (%s) → session %s", taskID, status, spawnedBySession)
+	})
 
 	// Agent runner function — used by cron engine and telegram bot
 	runnerFunc := func(ctx context.Context, agentID, message string) (string, error) {

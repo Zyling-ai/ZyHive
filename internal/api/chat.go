@@ -116,6 +116,8 @@ func (h *chatHandler) Chat(c *gin.Context) {
 		return
 	}
 	_ = isNewSession // could be used for logging
+	// Pass resolved session ID so agent_spawn records parent session for NotifyFunc
+	toolRegistry.WithSessionID(sessionID)
 
 	// Legacy fallback: convert client-side history when no server-side session history
 	var preHistory []llm.ChatMessage

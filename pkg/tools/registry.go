@@ -28,6 +28,7 @@ type Registry struct {
 	workspaceDir string // agent-specific working directory for path resolution
 	agentDir     string // parent dir of workspace (contains config.json)
 	agentID      string // agent ID (used for self-management tools)
+	sessionID    string // current session ID (passed to spawn so NotifyFunc can reply)
 	projectMgr   *project.Manager  // shared project workspace (nil = no project access)
 	agentEnv     map[string]string  // per-agent env vars injected into exec (bypass sanitize)
 	subagentMgr  *subagent.Manager  // background task manager (nil = no subagent tools)
@@ -121,6 +122,12 @@ func NewSkillStudio(workspaceDir, agentDir, agentID, skillID string) *Registry {
 // agents to use credentials like GITHUB_TOKEN, GIT_AUTHOR_NAME, etc.
 func (r *Registry) WithEnv(env map[string]string) {
 	r.agentEnv = env
+}
+
+// WithSessionID records the current session ID so agent_spawn can include it
+// in SpawnOpts, enabling the NotifyFunc to deliver results back to this session.
+func (r *Registry) WithSessionID(id string) {
+	r.sessionID = id
 }
 
 // WithSubagentManager registers background task tools (agent_spawn, agent_tasks, agent_kill).
@@ -689,7 +696,8 @@ func (r *Registry) handleAgentSpawn(_ context.Context, input json.RawMessage) (s
 		Label:     p.Label,
 		Task:      p.Task,
 		Model:     p.Model,
-		SpawnedBy: r.agentID,
+		SpawnedBy:        r.agentID,
+		SpawnedBySession: r.sessionID,
 	})
 	if err != nil {
 		return "", err
