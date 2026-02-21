@@ -36,7 +36,7 @@
         <svg ref="svgRef" :width="svgW" :height="svgH" class="graph-svg"
           @mousemove="onSvgMouseMove"
           @click.self="onSvgBgClick"
-          style="display:block;width:100%;">
+          style="display:block;width:100%;overflow:visible;">
 
           <!-- Grid background -->
           <defs>
@@ -305,45 +305,41 @@ function onNodeMouseDown(e: MouseEvent, nodeId: string) {
   document.addEventListener('mouseup', onDocMouseUp)
 }
 
-/** Convert client (screen) coordinates to SVG internal coordinates,
- *  correctly handling any CSS scaling of the SVG element. */
+/** Convert client coords → SVG coordinate space using explicit rect+scale. */
 function clientToSvg(clientX: number, clientY: number): { x: number; y: number } {
-  const svg = svgRef.value
-  if (!svg) return { x: clientX, y: clientY }
-  const ctm = svg.getScreenCTM()
-  if (!ctm) return { x: clientX, y: clientY }
-  const inv = ctm.inverse()
-  const pt = svg.createSVGPoint()
-  pt.x = clientX; pt.y = clientY
-  const r = pt.matrixTransform(inv)
-  return { x: r.x, y: r.y }
+  const el = svgRef.value
+  if (!el) return { x: clientX, y: clientY }
+  const rect = el.getBoundingClientRect()
+  const sx = rect.width  > 0 ? svgW.value / rect.width  : 1
+  const sy = rect.height > 0 ? svgH.value / rect.height : 1
+  return { x: (clientX - rect.left) * sx, y: (clientY - rect.top) * sy }
 }
 
 function onDocMouseMove(e: MouseEvent) {
-  // Update mousePos for connection-preview line (SVG coords)
-  const svgPos = clientToSvg(e.clientX, e.clientY)
-  mousePos.value = svgPos
-
+  if (svgRef.value) mousePos.value = clientToSvg(e.clientX, e.clientY)
   if (!dragState.value) return
+
   const dx = e.clientX - dragState.value.startClientX
   const dy = e.clientY - dragState.value.startClientY
   if (Math.abs(dx) > 4 || Math.abs(dy) > 4) dragState.value.moved = true
-  if (dragState.value.moved) {
-    // Compute new SVG position from original node position + delta (in SVG coords)
-    const startSvg = clientToSvg(dragState.value.startClientX, dragState.value.startClientY)
-    const curSvg = clientToSvg(e.clientX, e.clientY)
-    const newX = dragState.value.startNodeX + (curSvg.x - startSvg.x)
-    const newY = dragState.value.startNodeY + (curSvg.y - startSvg.y)
-    // Clamp within SVG bounds
-    const minX = NODE_R + 4, maxX = svgW.value - NODE_R - 4
-    const minY = NODE_R + 4, maxY = svgH.value - NODE_R - 24
-    dragPositions.value = {
-      ...dragPositions.value,
-      [dragState.value.id]: {
-        x: Math.round(Math.max(minX, Math.min(maxX, newX))),
-        y: Math.round(Math.max(minY, Math.min(maxY, newY))),
-      },
-    }
+  if (!dragState.value.moved) return
+
+  // Convert pixel delta to SVG units using current scale
+  const el = svgRef.value
+  const rect = el?.getBoundingClientRect()
+  const sx = rect && rect.width  > 0 ? svgW.value / rect.width  : 1
+  const sy = rect && rect.height > 0 ? svgH.value / rect.height : 1
+
+  const newX = dragState.value.startNodeX + dx * sx
+  const newY = dragState.value.startNodeY + dy * sy
+  const minX = NODE_R + 4, maxX = svgW.value * 2 - NODE_R
+  const minY = NODE_R + 4, maxY = svgH.value - NODE_R - 24
+  dragPositions.value = {
+    ...dragPositions.value,
+    [dragState.value.id]: {
+      x: Math.round(Math.max(minX, Math.min(maxX, newX))),
+      y: Math.round(Math.max(minY, Math.min(maxY, newY))),
+    },
   }
 }
 
@@ -354,9 +350,7 @@ function onDocMouseUp() {
 }
 
 function onSvgMouseMove(e: MouseEvent) {
-  if (!dragState.value) {
-    mousePos.value = clientToSvg(e.clientX, e.clientY)
-  }
+  if (!dragState.value) mousePos.value = clientToSvg(e.clientX, e.clientY)
 }
 
 function onSvgBgClick() { selectedNode.value = null }
@@ -506,15 +500,11 @@ async function clearAllRelations() {
 let ro: ResizeObserver | null = null
 onMounted(() => {
   loadGraph()
-  // Dynamic width: track graph container
   if (graphContainerRef.value) {
     ro = new ResizeObserver(entries => {
       const w = entries[0]?.contentRect.width
-      if (w && w > 100) {
-        svgW.value = Math.floor(w)
-        // When layout changes, reset drag positions so nodes reflow
-        dragPositions.value = {}
-      }
+      if (w && w > 100) svgW.value = Math.floor(w)
+      // ⚠️ Do NOT reset dragPositions here — that would cancel user drags
     })
     ro.observe(graphContainerRef.value)
   }
