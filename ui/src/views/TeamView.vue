@@ -361,8 +361,9 @@ function onDocMouseMove(e: MouseEvent) {
   // 直接用 SVG 坐标 + 初始偏移，完全跟手，无需缩放计算
   const newX = svgPos.x + dragState.value.offsetX
   const newY = svgPos.y + dragState.value.offsetY
-  const minX = NODE_R + 4, maxX = svgW.value - NODE_R
-  const minY = NODE_R + 4, maxY = svgH.value - NODE_R - 24
+  // 只限左/上边界，右/下不设硬墙（SVG overflow:visible 自然溢出）
+  const minX = NODE_R + 4, maxX = Infinity
+  const minY = NODE_R + 4, maxY = Infinity
   dragPositions.value = {
     ...dragPositions.value,
     [dragState.value.id]: {
@@ -562,7 +563,7 @@ onUnmounted(() => {
 .page-header h2 { margin: 0; font-size: 20px; font-weight: 700; color: #303133; }
 .graph-card { margin-bottom: 16px; }
 .empty-state { padding: 60px 0; }
-.graph-container { position: relative; display: flex; flex-direction: column; overflow: hidden; width: 100%; }
+.graph-container { position: relative; display: flex; flex-direction: column; overflow: visible; width: 100%; }
 
 /* Connect-mode banner */
 .connect-banner {
