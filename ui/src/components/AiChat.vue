@@ -20,7 +20,13 @@
     <!-- 后台任务运行中 banner -->
     <div v-if="runningTaskCount > 0" class="running-tasks-banner">
       <span class="running-dot" />
-      后台有 {{ runningTaskCount }} 个任务正在执行中，关闭窗口后仍会继续运行…
+      <span>后台有 {{ runningTaskCount }} 个任务正在执行中，关闭窗口后仍会继续运行</span>
+      <span v-if="resumedTasks.length" class="resumed-list">
+        <span v-for="rt in resumedTasks.filter(t => !['done','error','killed'].includes(t.status))" :key="rt.id"
+          class="resumed-chip" :class="rt.status">
+          {{ rt.status === 'running' ? '⟳' : '🟡' }} {{ rt.label }}
+        </span>
+      </span>
     </div>
 
     <div class="chat-messages" ref="msgListRef">
@@ -378,9 +384,12 @@ const streamThinking = ref('')
 const streamToolCalls = ref<ToolCallEntry[]>([])  // active tool calls during streaming
 
 // ── Background task tracking (agent_spawn) ─────────────────────────────────
-// Maps toolCallId → background taskId for live status polling
+// Maps toolCallId → background taskId for live status polling (current session)
 const spawnedTaskMap = reactive<Map<string, string>>(new Map())
+// Tasks re-attached after page reload (no tool call card, just status tracking)
+const resumedTasks = ref<Array<{ id: string; label: string; status: string }>>([])
 let taskPollTimer: ReturnType<typeof setInterval> | null = null
+
 const runningTaskCount = computed(() => {
   let count = 0
   for (const msg of messages.value) {
@@ -388,6 +397,7 @@ const runningTaskCount = computed(() => {
       if (tc.taskId && tc.taskStatus && !['done','error','killed'].includes(tc.taskStatus)) count++
     }
   }
+  count += resumedTasks.value.filter(t => !['done','error','killed'].includes(t.status)).length
   return count
 })
 const isDragOver  = ref(false)
@@ -418,29 +428,41 @@ function startTaskPolling() {
 }
 
 async function pollTasks() {
-  if (spawnedTaskMap.size === 0) {
+  const allIdle = spawnedTaskMap.size === 0 &&
+    resumedTasks.value.every(t => ['done','error','killed'].includes(t.status))
+  if (allIdle) {
     if (taskPollTimer) { clearInterval(taskPollTimer); taskPollTimer = null }
     return
   }
+  // Poll tool-call-linked tasks
   const doneIds: string[] = []
   for (const [tcId, taskId] of spawnedTaskMap) {
     try {
       const res = await tasksApi.get(taskId)
       const info = res.data
-      // Update tool call entry in messages
       for (const msg of messages.value) {
         const tc = msg.toolCalls?.find(t => t.id === tcId)
         if (tc) {
           tc.taskStatus = info.status as ToolCallEntry['taskStatus']
-          if (info.status === 'done' || info.status === 'error' || info.status === 'killed') {
-            doneIds.push(tcId)
-          }
+          if (['done','error','killed'].includes(info.status)) doneIds.push(tcId)
         }
       }
-    } catch { /* task may be gone */ doneIds.push(tcId) }
+    } catch { doneIds.push(tcId) }
   }
   for (const id of doneIds) spawnedTaskMap.delete(id)
-  if (spawnedTaskMap.size === 0 && taskPollTimer) {
+
+  // Poll resumed tasks (page-reload re-attached)
+  for (const rt of resumedTasks.value) {
+    if (['done','error','killed'].includes(rt.status)) continue
+    try {
+      const res = await tasksApi.get(rt.id)
+      rt.status = res.data.status
+    } catch { rt.status = 'error' }
+  }
+
+  const stillRunning = spawnedTaskMap.size > 0 ||
+    resumedTasks.value.some(t => !['done','error','killed'].includes(t.status))
+  if (!stillRunning && taskPollTimer) {
     clearInterval(taskPollTimer); taskPollTimer = null
   }
 }
@@ -448,6 +470,23 @@ async function pollTasks() {
 onUnmounted(() => {
   if (taskPollTimer) { clearInterval(taskPollTimer); taskPollTimer = null }
 })
+
+// After page reload, re-attach any still-running tasks spawned in this session
+async function reattachSessionTasks(sessionId: string) {
+  try {
+    const res = await tasksApi.list({ sessionId })
+    const active = (res.data as any[]).filter(
+      t => !['done','error','killed'].includes(t.status)
+    )
+    if (active.length === 0) return
+    resumedTasks.value = active.map(t => ({
+      id: t.id,
+      label: t.label || t.id.slice(0, 8),
+      status: t.status,
+    }))
+    startTaskPolling()
+  } catch { /* ignore */ }
+}
 
 function scrollBottom() {
   nextTick(() => {
@@ -1000,6 +1039,8 @@ async function resumeSession(sessionId: string) {
     }
     messages.value = loaded
     scrollBottom()
+    // Re-attach any still-running background tasks from this session
+    reattachSessionTasks(sessionId)
   } catch (e: any) {
     // 404 = 新 session，正常情况，直接留空
     if (e?.response?.status === 404) {
@@ -1220,10 +1261,17 @@ onMounted(() => {
 
 /* ── Running tasks banner ── */
 .running-tasks-banner {
-  display: flex; align-items: center; gap: 8px;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   padding: 8px 16px; background: #eff6ff; border-bottom: 1px solid #bfdbfe;
   font-size: 12px; color: #1d4ed8; font-weight: 500; flex-shrink: 0;
 }
+.resumed-list { display: flex; gap: 6px; flex-wrap: wrap; margin-left: 4px; }
+.resumed-chip {
+  padding: 1px 8px; border-radius: 10px; font-size: 11px; font-weight: 600;
+  background: #dbeafe; color: #1d4ed8;
+}
+.resumed-chip.running { background: #dbeafe; color: #1d4ed8; }
+.resumed-chip.pending  { background: #fef9c3; color: #a16207; }
 .running-dot {
   width: 8px; height: 8px; border-radius: 50%; background: #3b82f6;
   flex-shrink: 0;

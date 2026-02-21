@@ -17,7 +17,19 @@ type subagentHandler struct {
 func (h *subagentHandler) List(c *gin.Context) {
 	agentID := c.Query("agentId")
 	status := c.Query("status")
+	sessionID := c.Query("sessionId")
 	tasks := h.mgr.List(agentID)
+
+	// Filter by sessionId if requested (for re-attaching after page reload)
+	if sessionID != "" {
+		filtered := tasks[:0]
+		for _, t := range tasks {
+			if t.SpawnedBySession == sessionID {
+				filtered = append(filtered, t)
+			}
+		}
+		tasks = filtered
+	}
 
 	// Filter by status if requested
 	if status != "" {
