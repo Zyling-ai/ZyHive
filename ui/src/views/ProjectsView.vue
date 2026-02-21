@@ -48,9 +48,59 @@
           <el-icon style="color:#e6a23c"><FolderOpened /></el-icon>
           <span>{{ currentProject.name }}</span>
           <el-tag v-for="tag in (currentProject.tags || [])" :key="tag" size="small" style="margin-left:4px">{{ tag }}</el-tag>
+          <!-- 权限标签 -->
+          <el-tag v-if="currentProject.editors?.length === 0" size="small" type="success" style="margin-left:8px">
+            全员可写
+          </el-tag>
+          <el-tag v-else size="small" type="warning" style="margin-left:8px">
+            限制编辑（{{ currentProject.editors?.length }} 人）
+          </el-tag>
         </div>
-        <el-text v-if="currentProject.description" type="info" size="small">{{ currentProject.description }}</el-text>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <el-text v-if="currentProject.description" type="info" size="small">{{ currentProject.description }}</el-text>
+          <el-button size="small" plain @click="openPermissions">
+            <el-icon style="margin-right:4px"><Key /></el-icon>成员权限
+          </el-button>
+        </div>
       </div>
+
+      <!-- 权限管理 Dialog -->
+      <el-dialog v-model="showPermissions" title="成员写入权限" width="500px">
+        <div style="margin-bottom:16px;color:#606266;font-size:13px;">
+          设置哪些 AI 成员可以写入此项目。<br>
+          <strong>不选任何成员 = 全员可写（默认开放）</strong>
+        </div>
+        <div style="margin-bottom:12px;">
+          <el-radio-group v-model="permMode" size="small">
+            <el-radio-button label="open">全员可写</el-radio-button>
+            <el-radio-button label="limited">指定成员</el-radio-button>
+            <el-radio-button label="readonly">全员只读</el-radio-button>
+          </el-radio-group>
+        </div>
+        <div v-if="permMode === 'limited'" style="margin-top:12px;">
+          <div style="font-size:13px;font-weight:600;margin-bottom:8px;">选择有写入权限的成员：</div>
+          <el-checkbox-group v-model="permEditors">
+            <div v-for="a in allAgents" :key="a.id" style="margin-bottom:6px;">
+              <el-checkbox :label="a.id">
+                <div style="display:inline-flex;align-items:center;gap:8px;">
+                  <div :style="{
+                    width:'20px',height:'20px',borderRadius:'50%',
+                    background: a.avatarColor || '#6366f1',
+                    display:'flex',alignItems:'center',justifyContent:'center',
+                    fontSize:'10px',color:'#fff'
+                  }">{{ a.name.charAt(0) }}</div>
+                  <span>{{ a.name }}</span>
+                  <el-tag v-if="a.system" size="small" type="info">系统</el-tag>
+                </div>
+              </el-checkbox>
+            </div>
+          </el-checkbox-group>
+        </div>
+        <template #footer>
+          <el-button @click="showPermissions = false">取消</el-button>
+          <el-button type="primary" :loading="permSaving" @click="savePermissions">保存权限</el-button>
+        </template>
+      </el-dialog>
 
       <el-row :gutter="12" style="flex:1;overflow:hidden;">
         <!-- 文件树 -->
@@ -209,10 +259,10 @@
 import { ref, computed, onMounted } from 'vue'
 import {
   Plus, FolderOpened, MoreFilled, Document, DocumentAdd, FolderAdd,
-  Refresh, Delete, EditPen
+  Refresh, Delete, EditPen, Key
 } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { projects as projectsApi, type ProjectInfo, type FileNode } from '../api'
+import { projects as projectsApi, agents as agentsApi, type ProjectInfo, type FileNode, type AgentInfo } from '../api'
 
 // ── State ─────────────────────────────────────────────────────────────────
 const projectList = ref<ProjectInfo[]>([])
@@ -228,6 +278,52 @@ const isBinary = ref(false)
 // Dialogs
 const showCreate = ref(false)
 const showEdit = ref(false)
+
+// Permissions
+const showPermissions = ref(false)
+const permMode = ref<'open' | 'limited' | 'readonly'>('open')
+const permEditors = ref<string[]>([])
+const permSaving = ref(false)
+const allAgents = ref<AgentInfo[]>([])
+
+function openPermissions() {
+  const editors = currentProject.value?.editors ?? []
+  if (editors.length === 0) {
+    permMode.value = 'open'
+    permEditors.value = []
+  } else if (editors.includes('__none__')) {
+    permMode.value = 'readonly'
+    permEditors.value = []
+  } else {
+    permMode.value = 'limited'
+    permEditors.value = [...editors]
+  }
+  showPermissions.value = true
+  // Load agents list
+  agentsApi.list().then(r => { allAgents.value = r.data || [] }).catch(() => {})
+}
+
+async function savePermissions() {
+  if (!currentProject.value) return
+  permSaving.value = true
+  try {
+    let editors: string[] = []
+    if (permMode.value === 'open') editors = []
+    else if (permMode.value === 'readonly') editors = ['__none__']
+    else editors = permEditors.value
+
+    const res = await projectsApi.setPermissions(currentProject.value.id, editors)
+    // Update local project
+    const idx = projectList.value.findIndex(p => p.id === currentProject.value!.id)
+    if (idx >= 0) projectList.value[idx] = res.data
+    ElMessage.success('权限已保存')
+    showPermissions.value = false
+  } catch {
+    ElMessage.error('保存失败')
+  } finally {
+    permSaving.value = false
+  }
+}
 const showNewFile = ref(false)
 const showNewFolder = ref(false)
 const newFilePath = ref('')

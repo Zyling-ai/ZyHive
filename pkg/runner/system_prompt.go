@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/sunhuihui6688-star/ai-panel/pkg/memory"
+	"github.com/sunhuihui6688-star/ai-panel/pkg/project"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/skill"
 )
 
@@ -110,4 +111,34 @@ func readFileIfExists(path string) (string, error) {
 		return "", err
 	}
 	return string(data), nil
+}
+
+// BuildProjectContext builds the shared project workspace context string for system prompt injection.
+// agentID is used to determine write permissions per project.
+func BuildProjectContext(mgr *project.Manager, agentID string) string {
+	if mgr == nil {
+		return ""
+	}
+	projects := mgr.List()
+	if len(projects) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("--- 共享团队项目工作区 ---\n")
+	sb.WriteString("你可以使用 project_list / project_read / project_write / project_glob 工具访问以下项目：\n\n")
+
+	for _, p := range projects {
+		perm := "可读写"
+		if !p.CanWrite(agentID) {
+			perm = "只读"
+		}
+		sb.WriteString(fmt.Sprintf("• **%s** (id: `%s`, 权限: %s)", p.Name, p.ID, perm))
+		if p.Description != "" {
+			sb.WriteString(fmt.Sprintf(" — %s", p.Description))
+		}
+		sb.WriteString("\n")
+	}
+	sb.WriteString("\n使用 project_list 获取项目列表，project_read 读取文件，project_write 写入文件（需要写入权限）。")
+	return sb.String()
 }

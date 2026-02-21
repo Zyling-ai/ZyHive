@@ -488,6 +488,7 @@ export interface ProjectInfo {
   name: string
   description?: string
   tags?: string[]
+  editors: string[]   // empty = all agents can write; ['__none__'] = read-only for all
   createdAt: string
   updatedAt: string
 }
@@ -500,6 +501,9 @@ export const projects = {
   update: (id: string, data: { name?: string; description?: string; tags?: string[] }) =>
     api.patch<ProjectInfo>(`/projects/${id}`, data),
   delete: (id: string) => api.delete(`/projects/${id}`),
+  // Permissions
+  setPermissions: (id: string, editors: string[]) =>
+    api.put<ProjectInfo>(`/projects/${id}/permissions`, { editors }),
   // File management
   readTree: (id: string, path = '/') => api.get(`/projects/${id}/files${path}?tree=true`),
   readFile: (id: string, path: string) => api.get(`/projects/${id}/files/${path}`),

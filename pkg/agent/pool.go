@@ -16,6 +16,7 @@ import (
 	"github.com/sunhuihui6688-star/ai-panel/pkg/config"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/llm"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/memory"
+	"github.com/sunhuihui6688-star/ai-panel/pkg/project"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/runner"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/session"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/tools"
@@ -23,10 +24,11 @@ import (
 
 // Pool manages multiple concurrent agent runners (one per agent).
 type Pool struct {
-	manager *Manager
-	cfg     *config.Config
-	runners map[string]*runner.Runner
-	mu      sync.Mutex
+	manager    *Manager
+	cfg        *config.Config
+	projectMgr *project.Manager // shared project workspace (may be nil)
+	runners    map[string]*runner.Runner
+	mu         sync.Mutex
 }
 
 // NewPool creates a new multi-agent runner pool.
@@ -37,6 +39,20 @@ func NewPool(cfg *config.Config, mgr *Manager) *Pool {
 		runners: make(map[string]*runner.Runner),
 	}
 }
+
+// SetProjectManager attaches the shared project manager so agents can access projects via tools.
+func (p *Pool) SetProjectManager(mgr *project.Manager) {
+	p.projectMgr = mgr
+}
+
+// buildProjectContext returns the shared project context string for system prompt injection.
+func (p *Pool) buildProjectContext(agentID string) string {
+	if p.projectMgr == nil {
+		return ""
+	}
+	return runner.BuildProjectContext(p.projectMgr, agentID)
+}
+
 
 // resolveModel finds the model entry for an agent, falling back to default.
 func (p *Pool) resolveModel(ag *Agent) (*config.ModelEntry, error) {
@@ -172,6 +188,9 @@ func (p *Pool) Run(ctx context.Context, agentID, message string) (string, error)
 	// Create a fresh runner for this invocation
 	llmClient := llm.NewAnthropicClient()
 	toolRegistry := tools.New(ag.WorkspaceDir, filepath.Dir(ag.WorkspaceDir), ag.ID)
+	if p.projectMgr != nil {
+		toolRegistry.WithProjectAccess(p.projectMgr)
+	}
 	store := session.NewStore(ag.SessionDir)
 
 	r := runner.New(runner.Config{
@@ -182,6 +201,7 @@ func (p *Pool) Run(ctx context.Context, agentID, message string) (string, error)
 		LLM:          llmClient,
 		Tools:        toolRegistry,
 		Session:      store,
+		ProjectContext: p.buildProjectContext(ag.ID),
 	})
 
 	// Run and collect all text
@@ -221,6 +241,9 @@ func (p *Pool) RunStreamEvents(ctx context.Context, agentID, message string, med
 
 	llmClient := llm.NewAnthropicClient()
 	toolRegistry := tools.New(ag.WorkspaceDir, filepath.Dir(ag.WorkspaceDir), ag.ID)
+	if p.projectMgr != nil {
+		toolRegistry.WithProjectAccess(p.projectMgr)
+	}
 	store := session.NewStore(ag.SessionDir)
 
 	// Convert MediaInput to base64 data URI strings for the runner.
@@ -246,9 +269,10 @@ func (p *Pool) RunStreamEvents(ctx context.Context, agentID, message string, med
 		Model:        model,
 		APIKey:       apiKey,
 		LLM:          llmClient,
-		Tools:        toolRegistry,
-		Session:      store,
-		Images:       images,
+		Tools:          toolRegistry,
+		Session:        store,
+		Images:         images,
+		ProjectContext: p.buildProjectContext(ag.ID),
 	})
 
 	raw := r.Run(ctx, message)
@@ -290,6 +314,9 @@ func (p *Pool) RunStream(ctx context.Context, agentID, message, sessionID string
 
 	llmClient := llm.NewAnthropicClient()
 	toolRegistry := tools.New(ag.WorkspaceDir, filepath.Dir(ag.WorkspaceDir), ag.ID)
+	if p.projectMgr != nil {
+		toolRegistry.WithProjectAccess(p.projectMgr)
+	}
 	store := session.NewStore(ag.SessionDir)
 
 	r := runner.New(runner.Config{
@@ -298,9 +325,10 @@ func (p *Pool) RunStream(ctx context.Context, agentID, message, sessionID string
 		Model:        model,
 		APIKey:       apiKey,
 		LLM:          llmClient,
-		Tools:        toolRegistry,
-		Session:      store,
-		SessionID:    sessionID,
+		Tools:          toolRegistry,
+		Session:        store,
+		SessionID:      sessionID,
+		ProjectContext: p.buildProjectContext(ag.ID),
 	})
 
 	return r.Run(ctx, message), nil

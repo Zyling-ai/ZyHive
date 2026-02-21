@@ -17,9 +17,27 @@ type Project struct {
 	Name        string    `json:"name"`
 	Description string    `json:"description,omitempty"`
 	Tags        []string  `json:"tags,omitempty"`
+	// Editors: agent IDs that can write to this project.
+	// Empty slice = all agents can write (default open).
+	// Use ["__none__"] to make a project read-only for everyone.
+	Editors     []string  `json:"editors,omitempty"`
 	CreatedAt   time.Time `json:"createdAt"`
 	UpdatedAt   time.Time `json:"updatedAt"`
 	FilesDir    string    `json:"-"` // absolute path
+}
+
+// CanWrite returns true if agentID has write permission on this project.
+// An empty Editors list means all agents can write.
+func (p *Project) CanWrite(agentID string) bool {
+	if len(p.Editors) == 0 {
+		return true // open write by default
+	}
+	for _, id := range p.Editors {
+		if id == agentID {
+			return true
+		}
+	}
+	return false
 }
 
 // projectMeta is the on-disk meta.json format.
@@ -28,6 +46,7 @@ type projectMeta struct {
 	Name        string    `json:"name"`
 	Description string    `json:"description,omitempty"`
 	Tags        []string  `json:"tags,omitempty"`
+	Editors     []string  `json:"editors,omitempty"`
 	CreatedAt   time.Time `json:"createdAt"`
 	UpdatedAt   time.Time `json:"updatedAt"`
 }
@@ -79,6 +98,7 @@ func (m *Manager) LoadAll() error {
 			Name:        meta.Name,
 			Description: meta.Description,
 			Tags:        meta.Tags,
+			Editors:     meta.Editors,
 			CreatedAt:   meta.CreatedAt,
 			UpdatedAt:   meta.UpdatedAt,
 			FilesDir:    filepath.Join(m.rootDir, e.Name()),
@@ -116,6 +136,7 @@ type CreateOpts struct {
 	Name        string
 	Description string
 	Tags        []string
+	Editors     []string // empty = all can write
 }
 
 // Create creates a new project.
@@ -138,6 +159,7 @@ func (m *Manager) Create(opts CreateOpts) (*Project, error) {
 		Name:        opts.Name,
 		Description: opts.Description,
 		Tags:        opts.Tags,
+		Editors:     opts.Editors,
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
@@ -158,12 +180,36 @@ func (m *Manager) Create(opts CreateOpts) (*Project, error) {
 		Name:        opts.Name,
 		Description: opts.Description,
 		Tags:        opts.Tags,
+		Editors:     opts.Editors,
 		CreatedAt:   now,
 		UpdatedAt:   now,
 		FilesDir:    projectDir,
 	}
 	m.projects[opts.ID] = p
 	return p, nil
+}
+
+// SetEditors updates the editor list for a project and persists to meta.json.
+// Pass nil to allow all agents to write (open). Pass []string{} also means open.
+// Pass []string{"__none__"} to make read-only for everyone.
+func (m *Manager) SetEditors(projectID string, editors []string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	p, ok := m.projects[projectID]
+	if !ok {
+		return fmt.Errorf("project %q not found", projectID)
+	}
+	p.Editors = editors
+	p.UpdatedAt = time.Now()
+
+	meta := projectMeta{
+		ID: p.ID, Name: p.Name, Description: p.Description,
+		Tags: p.Tags, Editors: p.Editors,
+		CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt,
+	}
+	data, _ := json.MarshalIndent(meta, "", "  ")
+	return os.WriteFile(filepath.Join(p.FilesDir, "meta.json"), data, 0644)
 }
 
 // Update updates project metadata.
@@ -187,7 +233,8 @@ func (m *Manager) Update(id string, name, description string, tags []string) err
 
 	meta := projectMeta{
 		ID: p.ID, Name: p.Name, Description: p.Description,
-		Tags: p.Tags, CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt,
+		Tags: p.Tags, Editors: p.Editors,
+		CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt,
 	}
 	data, _ := json.MarshalIndent(meta, "", "  ")
 	return os.WriteFile(filepath.Join(p.FilesDir, "meta.json"), data, 0644)

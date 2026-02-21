@@ -17,14 +17,16 @@ import (
 	"github.com/sunhuihui6688-star/ai-panel/pkg/agent"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/config"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/llm"
+	"github.com/sunhuihui6688-star/ai-panel/pkg/project"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/runner"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/session"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/tools"
 )
 
 type chatHandler struct {
-	cfg     *config.Config
-	manager *agent.Manager
+	cfg        *config.Config
+	manager    *agent.Manager
+	projectMgr *project.Manager
 }
 
 // Chat POST /api/agents/:id/chat (SSE streaming)
@@ -91,6 +93,9 @@ func (h *chatHandler) Chat(c *gin.Context) {
 		toolRegistry = tools.NewSkillStudio(ag.WorkspaceDir, filepath.Dir(ag.WorkspaceDir), ag.ID, req.SkillID)
 	} else {
 		toolRegistry = tools.New(ag.WorkspaceDir, filepath.Dir(ag.WorkspaceDir), ag.ID)
+		if h.projectMgr != nil {
+			toolRegistry.WithProjectAccess(h.projectMgr)
+		}
 	}
 	store := session.NewStore(ag.SessionDir)
 
@@ -125,6 +130,7 @@ func (h *chatHandler) Chat(c *gin.Context) {
 		ExtraContext:     req.Context,
 		Images:           req.Images,
 		PreloadedHistory: preHistory,
+		ProjectContext:   runner.BuildProjectContext(h.projectMgr, ag.ID),
 	})
 
 	// Set SSE headers

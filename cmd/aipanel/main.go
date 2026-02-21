@@ -84,6 +84,7 @@ func main() {
 
 	// Initialize multi-agent runner pool
 	pool := agent.NewPool(cfg, mgr)
+	pool.SetProjectManager(projectMgr)
 
 	// Agent runner function — used by cron engine and telegram bot
 	runnerFunc := func(ctx context.Context, agentID, message string) (string, error) {

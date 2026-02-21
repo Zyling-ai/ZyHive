@@ -26,15 +26,40 @@ type ProjectInfo struct {
 	Name        string    `json:"name"`
 	Description string    `json:"description,omitempty"`
 	Tags        []string  `json:"tags,omitempty"`
+	// Editors: nil/empty = all agents can write; ["__none__"] = read-only for all
+	Editors     []string  `json:"editors"`
 	CreatedAt   time.Time `json:"createdAt"`
 	UpdatedAt   time.Time `json:"updatedAt"`
 }
 
 func projectToInfo(p *project.Project) ProjectInfo {
+	editors := p.Editors
+	if editors == nil {
+		editors = []string{}
+	}
 	return ProjectInfo{
 		ID: p.ID, Name: p.Name, Description: p.Description,
-		Tags: p.Tags, CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt,
+		Tags: p.Tags, Editors: editors,
+		CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt,
 	}
+}
+
+// SetPermissions PUT /api/projects/:id/permissions
+func (h *projectHandler) SetPermissions(c *gin.Context) {
+	id := c.Param("id")
+	var req struct {
+		Editors []string `json:"editors"` // empty = all can write
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := h.mgr.SetEditors(id, req.Editors); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	p, _ := h.mgr.Get(id)
+	c.JSON(http.StatusOK, projectToInfo(p))
 }
 
 // GET /api/projects

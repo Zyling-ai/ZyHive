@@ -30,6 +30,8 @@ type Config struct {
 	LLM          llm.Client
 	Tools        *tools.Registry
 	Session      *session.Store
+	// Optional: shared project list injected into the system prompt
+	ProjectContext string
 	// Optional: extra context injected before the user message (e.g. page context, scenario)
 	ExtraContext string
 	// Optional: base64 image data URIs attached to the user message
@@ -164,6 +166,10 @@ func (r *Runner) run(ctx context.Context, userMsg string, out chan<- RunEvent) e
 	for i := 0; i < maxIter; i++ {
 		// Build system prompt from workspace identity files
 		systemPrompt, _ := BuildSystemPrompt(r.cfg.WorkspaceDir)
+		// Inject shared project workspace context
+		if r.cfg.ProjectContext != "" {
+			systemPrompt = systemPrompt + "\n\n" + r.cfg.ProjectContext
+		}
 		if r.cfg.ExtraContext != "" {
 			systemPrompt = systemPrompt + "\n\n---\n" + r.cfg.ExtraContext
 		}
