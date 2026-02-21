@@ -60,14 +60,9 @@ defineEmits<{
 
 const typeOptions = computed(() => [
   {
-    value: '上级',
-    color: '#f56c6c',
-    desc: `${props.toName} 是 ${props.fromName} 的上级，负责领导和管理`,
-  },
-  {
-    value: '下级',
-    color: '#e6a23c',
-    desc: `${props.toName} 是 ${props.fromName} 的下级，接受指导和分配任务`,
+    value: '上下级',
+    color: '#7c3aed',
+    desc: `${props.fromName} 是 ${props.toName} 的上级，箭头指向下级`,
   },
   {
     value: '平级协作',
@@ -77,7 +72,12 @@ const typeOptions = computed(() => [
   {
     value: '支持',
     color: '#67c23a',
-    desc: `${props.toName} 为 ${props.fromName} 提供支持和辅助`,
+    desc: `${props.fromName} 为 ${props.toName} 提供支持和辅助`,
+  },
+  {
+    value: '其他',
+    color: '#909399',
+    desc: `${props.fromName} 与 ${props.toName} 之间的其他关系`,
   },
 ])
 </script>

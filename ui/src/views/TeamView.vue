@@ -47,15 +47,19 @@
               <rect width="100" height="100" fill="url(#smallGrid)"/>
               <path d="M 100 0 L 0 0 0 100" fill="none" stroke="#dde1e7" stroke-width="1"/>
             </pattern>
-            <!-- 上级：红色箭头 -->
+            <!-- 上下级：紫色箭头（from=上级 → to=下级） -->
+            <marker id="arrow-上下级" markerWidth="10" markerHeight="10"
+              refX="9" refY="5" orient="auto" markerUnits="userSpaceOnUse">
+              <path d="M1,2 L1,8 L9,5 z" fill="#7c3aed" fill-opacity="0.85"/>
+            </marker>
+            <!-- 向后兼容旧数据 -->
             <marker id="arrow-上级" markerWidth="10" markerHeight="10"
               refX="9" refY="5" orient="auto" markerUnits="userSpaceOnUse">
-              <path d="M1,2 L1,8 L9,5 z" fill="#f56c6c" fill-opacity="0.85"/>
+              <path d="M1,2 L1,8 L9,5 z" fill="#7c3aed" fill-opacity="0.85"/>
             </marker>
-            <!-- 下级：橙色箭头 -->
             <marker id="arrow-下级" markerWidth="10" markerHeight="10"
               refX="9" refY="5" orient="auto" markerUnits="userSpaceOnUse">
-              <path d="M1,2 L1,8 L9,5 z" fill="#e6a23c" fill-opacity="0.85"/>
+              <path d="M1,2 L1,8 L9,5 z" fill="#7c3aed" fill-opacity="0.85"/>
             </marker>
           </defs>
           <rect width="100%" height="100%" fill="url(#grid)" rx="0"/>
@@ -152,8 +156,8 @@
     <el-card v-if="graph.nodes.length" class="legend-card">
       <div class="legend">
         <span class="legend-title">布局规则：</span>
-        <span class="legend-item"><el-icon><ArrowUp /></el-icon> 上方 = 上级</span>
-        <span class="legend-item">— 同层 = 平级</span>
+        <span class="legend-item"><el-icon><ArrowUp /></el-icon> 上方 = 上级（箭头指下）</span>
+        <span class="legend-item">— 同层 = 平级/协作</span>
         <span class="legend-item"><el-icon><ArrowDown /></el-icon> 下方 = 下级</span>
         <span class="legend-divider">|</span>
         <span class="legend-title">线粗：</span>
@@ -225,10 +229,13 @@ const PAD_X = 80
 const strengthWidths: Record<string, number> = { '核心': 4, '常用': 2.5, '偶尔': 1.5 }
 
 const typeColors: Record<string, string> = {
-  '上级': '#f56c6c', '下级': '#e6a23c', '平级协作': '#409eff', '支持': '#67c23a',
+  '上下级': '#7c3aed',
+  // 向后兼容旧数据（Graph() 已将其转换，但保留以防万一）
+  '上级': '#7c3aed', '下级': '#7c3aed',
+  '平级协作': '#409eff', '支持': '#67c23a', '其他': '#909399',
 }
 function edgeColor(type: string) { return typeColors[type] ?? '#94a3b8' }
-function isDirectional(type: string) { return type === '上级' || type === '下级' }
+function isDirectional(type: string) { return type === '上下级' || type === '上级' || type === '下级' }
 
 // ── Hierarchy layout ───────────────────────────────────────────────────────
 function computeLevels(nodes: TeamGraphNode[], edges: TeamGraphEdge[]): Record<string, number> {
@@ -240,10 +247,16 @@ function computeLevels(nodes: TeamGraphNode[], edges: TeamGraphEdge[]): Record<s
     for (const edge of edges) {
       const lf = levels[edge.from] ?? 0
       const lt = levels[edge.to] ?? 0
-      if (edge.type === '上级') {
+      if (edge.type === '上下级') {
+        // from=上级(boss), to=下级(sub) → to should be ONE level below from
+        const want = lf + 1
+        if (lt < want) { levels[edge.to] = want; changed = true }
+      } else if (edge.type === '上级') {
+        // legacy: to is from's boss → to goes UP
         const want = lf - 1
         if (lt > want) { levels[edge.to] = want; changed = true }
       } else if (edge.type === '下级') {
+        // legacy: to is from's subordinate → to goes DOWN
         const want = lf + 1
         if (lt < want) { levels[edge.to] = want; changed = true }
       }

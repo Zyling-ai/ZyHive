@@ -92,13 +92,12 @@ func (h *relationsHandler) Put(c *gin.Context) {
 }
 
 // inverseRelationType returns the inverse of a relation type.
-// 上级↔下级 are inverses; 平级协作 and 支持 are symmetric.
+// 上下级 is directed (no inverse); 平级协作 and 支持 are symmetric.
+// Returns "" to indicate "skip inverse creation".
 func inverseRelationType(t string) string {
 	switch t {
-	case "上级":
-		return "下级"
-	case "下级":
-		return "上级"
+	case "上下级", "上级", "下级":
+		return "" // directed — no inverse
 	default:
 		return t // 平级协作, 支持 → symmetric
 	}
@@ -116,13 +115,17 @@ func (h *relationsHandler) syncBidirectional(src *agent.Agent, oldRows, newRows 
 		newMap[r.AgentID] = r
 	}
 
-	// Added relations → add inverse on peer
+	// Added relations → add inverse on peer (skip for directed types)
 	for targetID, row := range newMap {
 		if _, existed := oldMap[targetID]; !existed {
+			inv := inverseRelationType(row.RelationType)
+			if inv == "" {
+				continue // directed — no inverse
+			}
 			h.addInverseRelation(targetID, RelationRow{
 				AgentID:      src.ID,
 				AgentName:    src.Name,
-				RelationType: inverseRelationType(row.RelationType),
+				RelationType: inv,
 				Strength:     row.Strength,
 				Desc:         row.Desc,
 			})
@@ -133,10 +136,14 @@ func (h *relationsHandler) syncBidirectional(src *agent.Agent, oldRows, newRows 
 	for targetID, newRow := range newMap {
 		if oldRow, existed := oldMap[targetID]; existed {
 			if oldRow.RelationType != newRow.RelationType || oldRow.Strength != newRow.Strength || oldRow.Desc != newRow.Desc {
+				inv := inverseRelationType(newRow.RelationType)
+				if inv == "" {
+					continue // directed — no inverse to update
+				}
 				h.updateInverseRelation(targetID, src.ID, RelationRow{
 					AgentID:      src.ID,
 					AgentName:    src.Name,
-					RelationType: inverseRelationType(newRow.RelationType),
+					RelationType: inv,
 					Strength:     newRow.Strength,
 					Desc:         newRow.Desc,
 				})
@@ -392,28 +399,55 @@ func (h *relationsHandler) Graph(c *gin.Context) {
 
 		rows := parseRelationsMarkdown(string(data))
 		for _, row := range rows {
-			// Ensure target node is present (may not be a registered agent)
+			// Ensure target node is present
 			if _, exists := nodeMap[row.AgentID]; !exists {
 				nodeMap[row.AgentID] = GraphNode{ID: row.AgentID, Name: row.AgentName, Status: "idle"}
 			}
 
-			from := ag.ID
-			to := row.AgentID
-
-			// Canonical key to dedup bidirectional declarations
-			a, b := from, to
-			if a > b {
-				a, b = b, a
-			}
-			edgeKey := a + "|" + b
-
-			if _, exists := edgeMap[edgeKey]; !exists {
-				edgeMap[edgeKey] = GraphEdge{
-					From:     from,
-					To:       to,
-					Type:     row.RelationType,
-					Strength: row.Strength,
-					Label:    row.Desc,
+			switch row.RelationType {
+			case "下级":
+				// Skip — the inverse "上级" edge (or "上下级") already covers this direction
+				continue
+			case "上级":
+				// Legacy: ag→row means row.AgentID is ag's boss.
+				// Flip: edge goes boss→ag, type becomes "上下级".
+				edgeKey := row.AgentID + "→" + ag.ID
+				if _, exists := edgeMap[edgeKey]; !exists {
+					edgeMap[edgeKey] = GraphEdge{
+						From:     row.AgentID,
+						To:       ag.ID,
+						Type:     "上下级",
+						Strength: row.Strength,
+						Label:    row.Desc,
+					}
+				}
+			case "上下级":
+				// Directed: ag.ID is the boss, row.AgentID is the subordinate.
+				edgeKey := ag.ID + "→" + row.AgentID
+				if _, exists := edgeMap[edgeKey]; !exists {
+					edgeMap[edgeKey] = GraphEdge{
+						From:     ag.ID,
+						To:       row.AgentID,
+						Type:     "上下级",
+						Strength: row.Strength,
+						Label:    row.Desc,
+					}
+				}
+			default:
+				// 平级协作, 支持, 其他 — bidirectional, dedup by unordered pair
+				a, b := ag.ID, row.AgentID
+				if a > b {
+					a, b = b, a
+				}
+				edgeKey := a + "|" + b
+				if _, exists := edgeMap[edgeKey]; !exists {
+					edgeMap[edgeKey] = GraphEdge{
+						From:     ag.ID,
+						To:       row.AgentID,
+						Type:     row.RelationType,
+						Strength: row.Strength,
+						Label:    row.Desc,
+					}
 				}
 			}
 		}
@@ -517,8 +551,8 @@ func parseRelationsMarkdown(content string) []RelationRow {
 			desc = cols[4]
 		}
 
-		// Validate: relationType must be one of the known values
-		validTypes := map[string]bool{"上级": true, "下级": true, "平级协作": true, "支持": true}
+		// Validate: relationType must be one of the known values (keep legacy 上级/下级 readable)
+		validTypes := map[string]bool{"上下级": true, "上级": true, "下级": true, "平级协作": true, "支持": true, "其他": true}
 		if relationType != "" && !validTypes[relationType] {
 			continue
 		}
