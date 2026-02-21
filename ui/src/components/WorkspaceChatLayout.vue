@@ -21,7 +21,7 @@
         </div>
         <div v-else-if="!treeData.length" class="wc-empty">工作区为空</div>
 
-        <!-- ── el-tree 文件树 ── -->
+        <!-- ── el-tree 文件树（VSCode 风格）── -->
         <el-tree
           v-else
           ref="treeRef"
@@ -36,13 +36,21 @@
           @node-contextmenu="onNodeContextmenu"
         >
           <template #default="{ node, data }">
-            <span class="tree-node" :class="{ 'is-file': !data.isDir, 'is-active': data.path === openFilePath }">
-              <!-- 图标 -->
-              <span class="tree-node-icon">
-                <span v-if="data.isDir">{{ node.expanded ? '📂' : '📁' }}</span>
-                <span v-else>{{ fileNodeIcon(data.name) }}</span>
+            <span class="tree-node" :class="{ 'active': data.path === openFilePath }">
+              <!-- 文件夹/文件 SVG 图标 -->
+              <span class="tree-icon-wrap">
+                <svg v-if="data.isDir && node.expanded" class="icon-folder-open" viewBox="0 0 16 16">
+                  <path d="M1.5 3A1.5 1.5 0 0 0 0 4.5v8A1.5 1.5 0 0 0 1.5 14h13a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H7.914a.5.5 0 0 1-.354-.146L6.146 2.94A1.5 1.5 0 0 0 5.086 2.5H1.5z"/>
+                </svg>
+                <svg v-else-if="data.isDir" class="icon-folder" viewBox="0 0 16 16">
+                  <path d="M.54 3.87.5 3a2 2 0 0 1 2-2h3.672a2 2 0 0 1 1.414.586l.828.828A2 2 0 0 0 9.828 3h3.982a2 2 0 0 1 1.992 2.181l-.637 7A2 2 0 0 1 13.174 14H2.826a2 2 0 0 1-1.991-1.819l-.637-7a2 2 0 0 1 .342-1.31z"/>
+                </svg>
+                <svg v-else class="icon-file" :class="fileColorClass(data.name)" viewBox="0 0 16 16">
+                  <path fill-rule="evenodd" d="M4 0h5.293A1 1 0 0 1 10 .293L13.707 4a1 1 0 0 1 .293.707V14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V2a2 2 0 0 1 2-2zm5.5 1.5v2a1 1 0 0 0 1 1h2l-3-3z"/>
+                </svg>
               </span>
-              <!-- 文件名（重命名模式时改为 input）-->
+
+              <!-- 文件名 -->
               <input
                 v-if="renaming === data.path"
                 v-model="renameValue"
@@ -54,12 +62,15 @@
                 ref="renameInputRef"
               />
               <span v-else class="tree-node-name">{{ data.name }}</span>
-              <!-- 文件大小 -->
-              <span v-if="!data.isDir" class="tree-node-size">{{ fmtSize(data.size) }}</span>
-              <!-- 悬停操作按钮 -->
+
+              <!-- 悬停操作 -->
               <span class="tree-node-actions" @click.stop>
-                <button v-if="!data.isDir" class="tree-act-btn" title="重命名" @click="startRename(data)">✎</button>
-                <button class="tree-act-btn danger" title="删除" @click="deleteNode(data)">✕</button>
+                <button class="tree-act-btn" title="重命名" @click="startRename(data)">
+                  <svg viewBox="0 0 16 16" width="11" height="11"><path d="M15.502 1.94a.5.5 0 0 1 0 .706L14.459 3.69l-2-2L13.502.646a.5.5 0 0 1 .707 0l1.293 1.293zm-1.75 2.456-2-2L4.939 9.21a.5.5 0 0 0-.121.196l-.805 2.414a.25.25 0 0 0 .316.316l2.414-.805a.5.5 0 0 0 .196-.12l6.813-6.814z"/></svg>
+                </button>
+                <button class="tree-act-btn danger" title="删除" @click="deleteNode(data)">
+                  <svg viewBox="0 0 16 16" width="11" height="11"><path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z"/><path fill-rule="evenodd" d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1v1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z"/></svg>
+                </button>
               </span>
             </span>
           </template>
@@ -505,16 +516,19 @@ function fmtSize(bytes?: number): string {
 }
 function formatSize(bytes: number): string { return fmtSize(bytes) ?? '' }
 
-const FILE_ICONS: Record<string, string> = {
-  go:'🐹', js:'📜', ts:'📘', tsx:'📘', jsx:'📜', vue:'💚', py:'🐍',
-  md:'📝', markdown:'📝', json:'📋', yaml:'⚙️', yml:'⚙️', toml:'⚙️',
-  sh:'⚡', bash:'⚡', html:'🌐', css:'🎨', scss:'🎨',
-  sql:'🗄️', rs:'🦀', txt:'📄', env:'🔒', dockerfile:'🐳',
-  png:'🖼️', jpg:'🖼️', jpeg:'🖼️', gif:'🖼️', svg:'🖼️', webp:'🖼️',
-}
-function fileNodeIcon(name: string): string {
+// SVG file icon color classes
+function fileColorClass(name: string): string {
   const ext = name.split('.').pop()?.toLowerCase() ?? ''
-  return FILE_ICONS[ext] ?? (name.startsWith('.') ? '🔒' : '📄')
+  const colors: Record<string, string> = {
+    ts:'fc-blue', tsx:'fc-blue', js:'fc-yellow', jsx:'fc-yellow',
+    vue:'fc-green', py:'fc-blue', go:'fc-teal', rs:'fc-orange',
+    md:'fc-gray', json:'fc-yellow', yaml:'fc-red', yml:'fc-red',
+    toml:'fc-gray', html:'fc-orange', css:'fc-blue', scss:'fc-pink',
+    sh:'fc-green', bash:'fc-green', sql:'fc-orange',
+    png:'fc-purple', jpg:'fc-purple', jpeg:'fc-purple', gif:'fc-purple', svg:'fc-purple', webp:'fc-purple',
+    env:'fc-yellow', gitignore:'fc-gray', dockerfile:'fc-teal',
+  }
+  return colors[ext] ?? 'fc-default'
 }
 
 function fmtTs(ms: number): string {
@@ -602,88 +616,167 @@ onUnmounted(() => {
 .wc-save-btn:hover { background: #2563eb; }
 .wc-panel-body { flex: 1; overflow: hidden; position: relative; }
 
-/* ── File tree (el-tree) ── */
-.file-tree-body { overflow-y: auto; padding: 4px 0; }
+/* ── File tree (VSCode 风格) ── */
+.file-tree-body {
+  overflow-y: auto;
+  padding: 4px 0;
+  background: #1e1e2e;  /* 深色侧边栏 */
+}
 
+/* 整棵树深色背景 */
 :deep(.wc-file-tree) {
   background: transparent;
-  font-size: 12px;
-}
-:deep(.wc-file-tree .el-tree-node__content) {
-  height: 28px;
-  padding-right: 4px;
-  border-radius: 4px;
-  margin: 0 4px;
-}
-:deep(.wc-file-tree .el-tree-node__content:hover) {
-  background: #f1f5f9;
-}
-:deep(.wc-file-tree .el-tree-node.is-current > .el-tree-node__content) {
-  background: #eff6ff;
-  color: #2563eb;
+  font-size: 13px;
+  color: #cdd6f4;
+  --el-tree-node-hover-bg-color: rgba(205, 214, 244, 0.08);
 }
 
+/* 行高 & padding */
+:deep(.wc-file-tree .el-tree-node__content) {
+  height: 26px;
+  padding-right: 6px;
+  border-radius: 0;
+}
+:deep(.wc-file-tree .el-tree-node__content:hover) {
+  background: rgba(205, 214, 244, 0.08);
+}
+
+/* 当前选中 */
+:deep(.wc-file-tree .el-tree-node.is-current > .el-tree-node__content) {
+  background: rgba(137, 180, 250, 0.2);
+  color: #89b4fa;
+}
+
+/* 展开箭头颜色 */
+:deep(.wc-file-tree .el-tree-node__expand-icon) {
+  color: #6c7086;
+  font-size: 12px;
+}
+:deep(.wc-file-tree .el-tree-node__expand-icon.is-leaf) {
+  color: transparent;  /* 叶子节点无箭头 */
+}
+
+/* 缩进引导线 */
+:deep(.wc-file-tree .el-tree-node) {
+  position: relative;
+}
+
+/* ── Tree node row ── */
 .tree-node {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   flex: 1;
   min-width: 0;
   overflow: hidden;
   position: relative;
-  padding-right: 50px; /* space for action buttons */
+  padding-right: 44px;
 }
-.tree-node-icon  { font-size: 13px; flex-shrink: 0; }
-.tree-node-name  { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #334155; }
-.tree-node-size  { font-size: 10px; color: #94a3b8; flex-shrink: 0; }
+.tree-node.active .tree-node-name { color: #89b4fa; font-weight: 500; }
+
+/* ── Icons ── */
+.tree-icon-wrap { flex-shrink: 0; display: flex; align-items: center; }
+
+.icon-folder, .icon-folder-open {
+  width: 16px; height: 16px;
+  fill: #89b4fa;  /* VSCode 蓝色文件夹 */
+}
+.icon-folder-open { fill: #89dceb; }  /* 展开时用青色 */
+
+.icon-file { width: 14px; height: 14px; margin: 0 1px; }
+/* 文件图标颜色 */
+.fc-blue    { fill: #89b4fa; }
+.fc-yellow  { fill: #f9e2af; }
+.fc-green   { fill: #a6e3a1; }
+.fc-teal    { fill: #89dceb; }
+.fc-orange  { fill: #fab387; }
+.fc-red     { fill: #f38ba8; }
+.fc-pink    { fill: #f5c2e7; }
+.fc-purple  { fill: #cba6f7; }
+.fc-gray    { fill: #6c7086; }
+.fc-default { fill: #a6adc8; }
+
+/* ── File name ── */
+.tree-node-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #cdd6f4;
+  font-size: 13px;
+  letter-spacing: 0.01em;
+}
+
+/* ── Hover action buttons ── */
 .tree-node-actions {
   position: absolute;
-  right: 0;
+  right: 2px;
   display: none;
-  gap: 2px;
+  align-items: center;
+  gap: 1px;
 }
 .tree-node:hover .tree-node-actions { display: flex; }
 .tree-act-btn {
-  padding: 1px 4px; border: none; background: #e2e8f0; border-radius: 3px;
-  cursor: pointer; font-size: 11px; color: #475569;
+  width: 20px; height: 20px;
+  display: flex; align-items: center; justify-content: center;
+  border: none;
+  background: transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  color: #6c7086;
+  fill: #6c7086;
+  padding: 0;
 }
-.tree-act-btn:hover { background: #cbd5e1; }
-.tree-act-btn.danger:hover { background: #fee2e2; color: #dc2626; }
+.tree-act-btn:hover { background: rgba(205,214,244,.12); color: #cdd6f4; fill: #cdd6f4; }
+.tree-act-btn.danger:hover { background: rgba(243,139,168,.15); fill: #f38ba8; }
+.tree-act-btn svg { fill: inherit; }
+
+/* Rename input */
 .tree-rename-input {
-  flex: 1; border: 1px solid #3b82f6; border-radius: 4px; outline: none;
-  padding: 1px 4px; font-size: 12px; min-width: 0;
+  flex: 1; background: #313244; border: 1px solid #89b4fa; border-radius: 4px;
+  outline: none; padding: 1px 6px; font-size: 12px; min-width: 0; color: #cdd6f4;
 }
 
-.wc-loading { padding: 16px; font-size: 12px; color: #94a3b8; display: flex; align-items: center; gap: 6px; }
-.wc-empty   { padding: 16px; font-size: 12px; color: #94a3b8; text-align: center; }
-.rotating   { animation: spin .8s linear infinite; }
+.wc-loading { padding: 16px; font-size: 12px; color: #6c7086; display: flex; align-items: center; gap: 6px; }
+.wc-empty   { padding: 16px; font-size: 12px; color: #6c7086; text-align: center; }
+.rotating   { animation: spin .8s linear infinite; color: #89b4fa; }
 @keyframes spin { from { transform: rotate(0) } to { transform: rotate(360deg) } }
 
-/* ── Context menu ── */
+/* 面板头深色 */
+.wc-panel-left .wc-panel-header {
+  background: #181825;
+  border-bottom-color: #313244;
+}
+.wc-panel-left .wc-panel-title { color: #a6adc8; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+.wc-panel-left .wc-icon-btn { color: #6c7086; }
+.wc-panel-left .wc-icon-btn:hover { background: rgba(205,214,244,.08); border-color: transparent; color: #cdd6f4; }
+.wc-panel-left { background: #1e1e2e; border-right-color: #313244; }
+
+/* ── Context menu（深色）── */
 .ctx-menu {
   position: fixed;
   z-index: 9999;
-  background: #fff;
-  border: 1px solid #e2e8f0;
+  background: #313244;
+  border: 1px solid #45475a;
   border-radius: 8px;
   padding: 4px;
-  box-shadow: 0 8px 24px rgba(0,0,0,.12);
-  min-width: 140px;
+  box-shadow: 0 12px 32px rgba(0,0,0,.4);
+  min-width: 150px;
 }
 .ctx-item {
   padding: 7px 12px;
   font-size: 12px;
-  color: #334155;
-  border-radius: 4px;
+  color: #cdd6f4;
+  border-radius: 5px;
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
 }
-.ctx-item:hover { background: #f1f5f9; }
-.ctx-item.danger { color: #dc2626; }
-.ctx-item.danger:hover { background: #fee2e2; }
-.ctx-divider { height: 1px; background: #e2e8f0; margin: 3px 0; }
+.ctx-item:hover { background: rgba(137,180,250,.15); }
+.ctx-item.danger { color: #f38ba8; }
+.ctx-item.danger:hover { background: rgba(243,139,168,.12); }
+.ctx-divider { height: 1px; background: #45475a; margin: 3px 0; }
 
 /* ── Editor ── */
 .editor-body { display: flex; flex-direction: column; }
