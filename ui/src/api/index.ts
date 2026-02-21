@@ -298,7 +298,7 @@ export function chatSSE(agentId: string, message: string, onEvent: (ev: any) => 
           try {
             const data = JSON.parse(trimmed.slice(6))
             onEvent(data)
-            if (data.type === 'done') return
+            if (data.type === 'done' || data.type === 'error') return
           } catch {}
         }
       }
