@@ -4,6 +4,7 @@ package api
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"io"
 	"net/http"
 	"os"
@@ -191,6 +192,7 @@ func (h *fileHandler) Read(c *gin.Context) {
 }
 
 // Write PUT /api/agents/:id/files/*path
+// Accepts both raw text (Content-Type: text/plain) and JSON {content: string}.
 func (h *fileHandler) Write(c *gin.Context) {
 	_, absPath, ok := h.resolveWorkspacePath(c)
 	if !ok {
@@ -201,6 +203,17 @@ func (h *fileHandler) Write(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
+	}
+
+	// If Content-Type is application/json, extract the "content" field
+	ct := c.GetHeader("Content-Type")
+	if strings.Contains(ct, "application/json") {
+		var payload struct {
+			Content string `json:"content"`
+		}
+		if err := json.Unmarshal(body, &payload); err == nil {
+			body = []byte(payload.Content)
+		}
 	}
 
 	if err := os.MkdirAll(filepath.Dir(absPath), 0755); err != nil {
