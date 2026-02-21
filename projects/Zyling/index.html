@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>zyling · 智引领 — AI 团队操作系统</title>
+  <style>
+    :root {
+      --bg:      #07080f;
+      --bg2:     #0b0d1a;
+      --bg3:     #0f1220;
+      --card:    #10132a;
+      --border:  rgba(255,255,255,0.07);
+      --primary: #1e50d2;
+      --primary2:#4d8af0;
+      --primary3:#7ab0ff;
+      --accent:  #38bdf8;
+      --accent2: #34d399;
+      --text:    #e2e8f0;
+      --text2:   #94a3b8;
+      --text3:   #64748b;
+      --radius:  16px;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: -apple-system, 'PingFang SC', 'Helvetica Neue', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-thumb { background: var(--primary); border-radius: 3px; }
+
+    /* ── NAV ── */
+    nav {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 52px; height: 66px;
+      background: rgba(7,8,15,0.88);
+      backdrop-filter: blur(24px);
+      border-bottom: 1px solid var(--border);
+    }
+    .nav-logo { display: flex; align-items: center; gap: 12px; text-decoration: none; }
+    .nav-logo-img { width: 36px; height: 36px; border-radius: 8px; object-fit: cover; }
+    .nav-logo-info {}
+    .nav-logo-name { font-size: 17px; font-weight: 700; color: #fff; letter-spacing: -.3px; }
+    .nav-logo-sub  { font-size: 10px; color: var(--text3); letter-spacing: .5px; }
+    .nav-links { display: flex; align-items: center; gap: 28px; }
+    .nav-links a { color: var(--text2); text-decoration: none; font-size: 14px; transition: color .2s; }
+    .nav-links a:hover { color: #fff; }
+    .nav-cta {
+      padding: 8px 22px; border-radius: 8px;
+      background: var(--primary); color: #fff;
+      font-size: 14px; font-weight: 500; text-decoration: none;
+      transition: background .2s, box-shadow .2s;
+    }
+    .nav-cta:hover { background: #2563eb; box-shadow: 0 0 20px rgba(30,80,210,0.4); }
+
+    /* ── HERO ── */
+    .hero {
+      min-height: 100vh;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      text-align: center;
+      padding: 120px 24px 80px;
+      position: relative; overflow: hidden;
+    }
+    /* 背景网格 */
+    .hero::before {
+      content: '';
+      position: absolute; inset: 0;
+      background-image: linear-gradient(rgba(30,80,210,0.04) 1px, transparent 1px),
+                        linear-gradient(90deg, rgba(30,80,210,0.04) 1px, transparent 1px);
+      background-size: 60px 60px;
+      mask-image: radial-gradient(ellipse 80% 80% at 50% 40%, black, transparent);
+    }
+    .hero-glow {
+      position: absolute; top: 10%; left: 50%; transform: translateX(-50%);
+      width: 800px; height: 600px;
+      background: radial-gradient(ellipse at center,
+        rgba(30,80,210,0.2) 0%,
+        rgba(56,189,248,0.06) 45%,
+        transparent 70%);
+      pointer-events: none;
+    }
+    .hero-badge {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 6px 18px; border-radius: 99px;
+      background: rgba(30,80,210,0.12);
+      border: 1px solid rgba(30,80,210,0.35);
+      font-size: 13px; color: var(--primary3);
+      margin-bottom: 32px; position: relative;
+    }
+    .badge-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent2); animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.5;transform:scale(1.5)} }
+
+    .hero-logo-img {
+      width: 72px; height: 72px; border-radius: 18px;
+      object-fit: cover; margin-bottom: 28px;
+      box-shadow: 0 0 60px rgba(30,80,210,0.5), 0 0 120px rgba(30,80,210,0.2);
+      position: relative;
+    }
+
+    .hero h1 {
+      font-size: clamp(44px, 7.5vw, 88px);
+      font-weight: 800; letter-spacing: -3px; line-height: 1.05;
+      margin-bottom: 14px; position: relative;
+    }
+    .hero h1 .grad {
+      background: linear-gradient(135deg, #4d8af0 0%, #38bdf8 60%, #7ab0ff 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .hero-en {
+      font-size: 13px; color: var(--text3);
+      letter-spacing: 3px; text-transform: uppercase;
+      margin-bottom: 28px; position: relative;
+    }
+    .hero-desc {
+      max-width: 520px; font-size: clamp(15px,2vw,17px);
+      color: var(--text2); margin-bottom: 48px; line-height: 1.8;
+      position: relative;
+    }
+    .hero-actions { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; position: relative; }
+    .btn-primary {
+      padding: 14px 32px; border-radius: 10px;
+      background: linear-gradient(135deg, #1e50d2, #2563eb);
+      color: #fff; font-size: 15px; font-weight: 600;
+      text-decoration: none; border: none; cursor: pointer;
+      box-shadow: 0 0 40px rgba(30,80,210,0.35);
+      transition: transform .2s, box-shadow .2s;
+    }
+    .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 0 60px rgba(30,80,210,0.55); }
+    .btn-outline {
+      padding: 14px 32px; border-radius: 10px;
+      background: transparent; border: 1px solid var(--border);
+      color: var(--text); font-size: 15px;
+      text-decoration: none; cursor: pointer;
+      transition: border-color .2s, background .2s;
+    }
+    .btn-outline:hover { border-color: var(--primary); background: rgba(30,80,210,0.07); }
+
+    /* ── STATS ── */
+    .stats {
+      display: flex; justify-content: center; gap: 56px; flex-wrap: wrap;
+      padding: 60px 24px;
+      border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+      background: var(--bg2);
+    }
+    .stat-item { text-align: center; }
+    .stat-num {
+      font-size: 42px; font-weight: 800;
+      background: linear-gradient(135deg, var(--primary2), var(--accent));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .stat-label { font-size: 13px; color: var(--text3); margin-top: 4px; }
+
+    /* ── SECTION HEADER ── */
+    .section-header { text-align: center; margin-bottom: 56px; padding: 0 24px; }
+    .section-tag {
+      display: inline-block; padding: 4px 14px; border-radius: 99px;
+      font-size: 12px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase;
+      color: var(--primary3); border: 1px solid rgba(30,80,210,0.3);
+      margin-bottom: 16px;
+    }
+    .section-header h2 {
+      font-size: clamp(28px,5vw,48px); font-weight: 800;
+      letter-spacing: -1.5px; margin-bottom: 16px;
+    }
+    .section-header p { font-size: 15px; color: var(--text2); max-width: 480px; margin: 0 auto; line-height: 1.8; }
+
+    /* ── PRODUCTS ── */
+    .products { padding: 100px 24px; background: var(--bg); }
+    .products-grid {
+      max-width: 1100px; margin: 0 auto;
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(240px,1fr)); gap: 20px;
+    }
+    .product-card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 32px 28px;
+      position: relative; overflow: hidden;
+      transition: transform .25s, border-color .25s, box-shadow .25s;
+    }
+    .product-card:hover { transform: translateY(-5px); border-color: rgba(30,80,210,0.4); box-shadow: 0 24px 60px rgba(0,0,0,.35); }
+    .product-card.featured { border-color: rgba(30,80,210,0.5); background: linear-gradient(145deg, #0f1530, #121840); }
+    .product-card.featured::before {
+      content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+      background: linear-gradient(90deg, var(--primary), var(--accent));
+    }
+    .product-badge {
+      display: inline-block; padding: 3px 10px; border-radius: 99px;
+      font-size: 11px; font-weight: 600; margin-bottom: 20px;
+      background: rgba(30,80,210,0.15); color: var(--primary3);
+    }
+    .product-badge.soon { background: rgba(52,211,153,0.1); color: var(--accent2); }
+    .product-badge.plan { background: rgba(100,116,139,0.12); color: var(--text3); }
+    .product-icon {
+      width: 50px; height: 50px; border-radius: 13px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 24px; margin-bottom: 20px;
+    }
+    .p1 .product-icon { background: rgba(30,80,210,0.15); }
+    .p2 .product-icon { background: rgba(56,189,248,0.1); }
+    .p3 .product-icon { background: rgba(52,211,153,0.1); }
+    .p4 .product-icon { background: rgba(245,158,11,0.1); }
+    .product-name-en { font-size: 20px; font-weight: 700; color: #fff; }
+    .product-name-zh { font-size: 13px; color: var(--text3); margin-bottom: 12px; }
+    .product-desc { font-size: 14px; color: var(--text2); line-height: 1.75; }
+    .product-features { margin-top: 20px; display: flex; flex-direction: column; gap: 8px; }
+    .product-feature { font-size: 13px; color: var(--text2); display: flex; gap: 8px; }
+    .product-feature::before { content: '›'; color: var(--primary3); font-weight: 700; flex-shrink: 0; }
+
+    /* ── ABOUT ── */
+    .about { padding: 100px 24px; background: var(--bg2); }
+    .about-inner { max-width: 1000px; margin: 0 auto; }
+    .about-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 80px; align-items: center; }
+    .about-logo-wrap {
+      display: flex; justify-content: center; align-items: center;
+      position: relative;
+    }
+    .about-logo-ring {
+      width: 200px; height: 200px; border-radius: 40px;
+      display: flex; align-items: center; justify-content: center;
+      background: linear-gradient(145deg, #0f1d4a, #1a3380);
+      box-shadow: 0 0 80px rgba(30,80,210,0.4), 0 0 160px rgba(30,80,210,0.15);
+      position: relative;
+    }
+    .about-logo-ring img { width: 140px; height: 140px; border-radius: 28px; object-fit: cover; }
+    .about-text {}
+    .about-text h2 { font-size: clamp(26px,4vw,40px); font-weight: 800; letter-spacing: -1px; margin-bottom: 20px; line-height: 1.2; }
+    .about-text h2 span { color: var(--primary2); }
+    .about-text p { font-size: 15px; color: var(--text2); line-height: 1.85; margin-bottom: 20px; }
+    .about-fullname {
+      display: inline-block; padding: 10px 20px;
+      background: rgba(30,80,210,0.1); border: 1px solid rgba(30,80,210,0.25);
+      border-radius: 10px; font-size: 13px; color: var(--primary3);
+    }
+
+    /* ── VISION ── */
+    .vision { padding: 100px 24px; background: var(--bg); }
+    .vision-inner { max-width: 900px; margin: 0 auto; }
+    .vision-steps { display: grid; grid-template-columns: repeat(3,1fr); gap: 24px; }
+    .vision-step-card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 32px 24px;
+      position: relative; overflow: hidden;
+      transition: transform .25s, border-color .25s;
+    }
+    .vision-step-card:hover { transform: translateY(-4px); border-color: rgba(30,80,210,0.3); }
+    .vision-step-card::after {
+      content: attr(data-num);
+      position: absolute; bottom: -10px; right: 12px;
+      font-size: 72px; font-weight: 900; color: rgba(30,80,210,0.06);
+      line-height: 1; pointer-events: none;
+    }
+    .vstep-icon { font-size: 32px; margin-bottom: 16px; }
+    .vstep-title { font-size: 17px; font-weight: 700; margin-bottom: 10px; }
+    .vstep-desc { font-size: 13px; color: var(--text2); line-height: 1.75; }
+
+    /* ── ECOSYSTEM ── */
+    .ecosystem { padding: 100px 24px; background: var(--bg2); }
+    .eco-tree {
+      max-width: 580px; margin: 0 auto;
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 36px 40px;
+      font-family: 'SF Mono', 'Cascadia Code', monospace; font-size: 14px;
+    }
+    .eco-company { color: var(--primary2); font-weight: 700; font-size: 16px; margin-bottom: 18px; }
+    .eco-item { color: var(--text2); padding: 7px 0; display: flex; align-items: center; gap: 8px; border-radius: 6px; }
+    .eco-item-tree { color: var(--text3); user-select: none; }
+    .eco-name { color: #fff; font-weight: 600; }
+    .eco-sep { color: var(--text3); }
+    .eco-cn { color: var(--accent); }
+    .eco-desc { color: var(--text3); font-size: 12px; }
+    .eco-current { background: rgba(30,80,210,0.1); padding: 7px 10px; margin: 0 -10px; }
+    .eco-current .eco-name { color: var(--primary3); }
+
+    /* ── HOW ── */
+    .how { padding: 100px 24px; background: var(--bg); }
+    .how-grid { max-width: 900px; margin: 0 auto; display: grid; grid-template-columns: repeat(3,1fr); gap: 24px; }
+    .how-card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 32px 24px; text-align: center;
+      transition: transform .25s, border-color .25s;
+    }
+    .how-card:hover { transform: translateY(-4px); border-color: rgba(30,80,210,0.3); }
+    .how-num {
+      width: 40px; height: 40px; border-radius: 10px; margin: 0 auto 16px;
+      background: linear-gradient(135deg, var(--primary), #2563eb);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px; font-weight: 800; color: #fff;
+    }
+    .how-title { font-size: 17px; font-weight: 700; margin-bottom: 10px; }
+    .how-desc { font-size: 13px; color: var(--text2); line-height: 1.75; }
+
+    /* ── CTA ── */
+    .cta-section {
+      padding: 120px 24px; text-align: center;
+      background: var(--bg2); position: relative; overflow: hidden;
+    }
+    .cta-glow {
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+      width: 700px; height: 400px;
+      background: radial-gradient(ellipse, rgba(30,80,210,0.18), transparent 70%);
+      pointer-events: none;
+    }
+    .cta-section h2 { font-size: clamp(28px,5vw,52px); font-weight: 800; letter-spacing: -1.5px; margin-bottom: 16px; position: relative; }
+    .cta-section h2 span { background: linear-gradient(135deg, var(--primary2), var(--accent)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .cta-section p { font-size: 16px; color: var(--text2); max-width: 480px; margin: 0 auto 44px; position: relative; }
+    .install-block {
+      display: inline-flex; align-items: center; gap: 14px;
+      background: rgba(30,80,210,0.08); border: 1px solid rgba(30,80,210,0.2);
+      border-radius: 12px; padding: 14px 22px; margin-bottom: 36px;
+      font-family: 'SF Mono', monospace; font-size: 14px; color: var(--accent2);
+      position: relative;
+    }
+    .install-label { color: var(--text3); }
+    .install-copy {
+      background: rgba(255,255,255,0.07); border: none; border-radius: 6px;
+      padding: 4px 12px; color: var(--text2); cursor: pointer; font-size: 12px;
+      transition: background .2s;
+    }
+    .install-copy:hover { background: rgba(255,255,255,0.14); }
+
+    /* ── FOOTER ── */
+    .footer-wrap {
+      border-top: 1px solid var(--border);
+      padding: 48px 52px;
+      display: flex; align-items: center; justify-content: space-between;
+      flex-wrap: wrap; gap: 16px;
+      max-width: 1200px; margin: 0 auto;
+    }
+    .footer-brand { display: flex; align-items: center; gap: 12px; }
+    .footer-brand img { width: 28px; height: 28px; border-radius: 6px; }
+    .footer-brand-name { font-size: 15px; font-weight: 700; color: var(--text2); }
+    .footer-fullname { font-size: 12px; color: var(--text3); margin-top: 2px; }
+    .footer-copy { font-size: 12px; color: var(--text3); }
+    .footer-links { display: flex; gap: 24px; }
+    .footer-links a { font-size: 13px; color: var(--text3); text-decoration: none; transition: color .2s; }
+    .footer-links a:hover { color: var(--text); }
+
+    /* ── RESPONSIVE ── */
+    @media (max-width: 768px) {
+      nav { padding: 0 20px; }
+      .nav-links > a:not(.nav-cta) { display: none; }
+      .about-grid { grid-template-columns: 1fr; text-align: center; }
+      .about-logo-wrap { margin-bottom: 20px; }
+      .vision-steps { grid-template-columns: 1fr; }
+      .how-grid { grid-template-columns: 1fr; }
+      .stats { gap: 28px; }
+      .footer-wrap { flex-direction: column; align-items: flex-start; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <a href="#" class="nav-logo">
+    <img src="logo.jpg" alt="zyling" class="nav-logo-img" />
+    <div class="nav-logo-info">
+      <div class="nav-logo-name">zyling</div>
+      <div class="nav-logo-sub">智引领（广东）科技有限公司</div>
+    </div>
+  </a>
+  <div class="nav-links">
+    <a href="#products">产品</a>
+    <a href="#about">关于我们</a>
+    <a href="#ecosystem">生态</a>
+    <a href="#how">快速开始</a>
+    <a href="https://github.com/sunhuihui6688-star/ai-panel" target="_blank">GitHub</a>
+    <a href="#cta" class="nav-cta">免费试用</a>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="hero-glow"></div>
+  <div class="hero-badge">
+    <span class="badge-dot"></span>
+    ZyHive 引巢 · 旗舰产品现已开放
+  </div>
+  <img src="logo.jpg" alt="zyling logo" class="hero-logo-img" />
+  <h1>引领<span class="grad"> AI 团队</span><br>的未来</h1>
+  <div class="hero-en">Build your AI team &nbsp;·&nbsp; Lead the future</div>
+  <p class="hero-desc">
+    智引领致力于先进的人工智能技术探索——<br>
+    打造以团队为核心的 AI 协作操作系统，<br>
+    让每一个 AI 成员各司其职，协同引领。
+  </p>
+  <div class="hero-actions">
+    <a href="#cta" class="btn-primary">🚀 立即体验 ZyHive</a>
+    <a href="#products" class="btn-outline">了解产品体系 →</a>
+  </div>
+</section>
+
+<!-- STATS -->
+<div class="stats">
+  <div class="stat-item">
+    <div class="stat-num">∞</div>
+    <div class="stat-label">可管理 AI 成员数量</div>
+  </div>
+  <div class="stat-item">
+    <div class="stat-num">1</div>
+    <div class="stat-label">行命令极速安装</div>
+  </div>
+  <div class="stat-item">
+    <div class="stat-num">全</div>
+    <div class="stat-label">主流大模型支持</div>
+  </div>
+  <div class="stat-item">
+    <div class="stat-num">0</div>
+    <div class="stat-label">外部数据库依赖</div>
+  </div>
+</div>
+
+<!-- PRODUCTS -->
+<section class="products" id="products">
+  <div class="section-header">
+    <div class="section-tag">产品体系</div>
+    <h2>Zy 生态产品线</h2>
+    <p>以「引领」为核心基因，构建完整的 AI 团队基础设施</p>
+  </div>
+  <div class="products-grid">
+    <div class="product-card featured p1">
+      <div class="product-badge">旗舰产品 · 已上线</div>
+      <div class="product-icon">🐝</div>
+      <div class="product-name-en">ZyHive</div>
+      <div class="product-name-zh">引巢 · AI 团队操作系统</div>
+      <div class="product-desc">可视化管理面板，每个 AI 成员有独立身份、灵魂、记忆与工作区，协同引领完成任务。</div>
+      <div class="product-features">
+        <div class="product-feature">一行命令安装，内网 / 公网即刻访问</div>
+        <div class="product-feature">每位 AI 成员独立身份 · 灵魂 · 记忆</div>
+        <div class="product-feature">全局模型配置 + 多消息渠道接入</div>
+        <div class="product-feature">可视化定时任务 · 技能市场 · AI 协同</div>
+        <div class="product-feature">AI 成员间任务委派与组织架构设计</div>
+      </div>
+    </div>
+    <div class="product-card p2">
+      <div class="product-badge soon">研发中</div>
+      <div class="product-icon">🌐</div>
+      <div class="product-name-en">ZyHub</div>
+      <div class="product-name-zh">引汇 · AI 模型聚合中转服务</div>
+      <div class="product-desc">汇聚全球主流大模型能力，提供统一 API 接入——兼容 OpenAI 格式，一个 Key 调用所有模型。</div>
+      <div class="product-features">
+        <div class="product-feature">兼容 OpenAI / Anthropic / Gemini 等全系</div>
+        <div class="product-feature">统一 API 格式，一行代码切换模型</div>
+        <div class="product-feature">智能路由 · 价格优化 · 负载均衡</div>
+        <div class="product-feature">用量统计 · 费用管控 · 多 Key 轮换</div>
+      </div>
+    </div>
+    <div class="product-card p3">
+      <div class="product-badge plan">规划中</div>
+      <div class="product-icon">⌨️</div>
+      <div class="product-name-en">ZyType</div>
+      <div class="product-name-zh">引键 · AI 角色专家输入法</div>
+      <div class="product-desc">AI 越来越像你——预测你的下句话，扮演任何专家角色，把沟通能力提升 10 倍。</div>
+      <div class="product-features">
+        <div class="product-feature">AI 越用越像你，精准预测表达风格</div>
+        <div class="product-feature">一键扮演任意专家 / 角色身份卡</div>
+        <div class="product-feature">身份卡分享变现，创作者收益体系</div>
+        <div class="product-feature">UGC 身份经济，人人都能卖"灵魂"</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ABOUT -->
+<section class="about" id="about">
+  <div class="about-inner">
+    <div class="about-grid">
+      <div class="about-logo-wrap">
+        <div class="about-logo-ring">
+          <img src="logo.jpg" alt="zyling" />
+        </div>
+      </div>
+      <div class="about-text">
+        <div class="section-tag" style="display:inline-block;margin-bottom:16px">关于我们</div>
+        <h2>致力于先进的<br><span>人工智能</span>技术探索</h2>
+        <p>我们深信，AI 不是替代人类的工具，而是与人类并肩的团队成员。zyling 的使命，是让每一支团队都能轻松拥有属于自己的 AI 成员，共同完成更大的目标。</p>
+        <p>从 ZyHive 出发，我们正在构建一个以「引领」为核心的 AI 生态体系——让智能协作成为每个组织的标准配置。</p>
+        <div class="about-fullname">智引领（广东）科技有限公司</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- VISION -->
+<section class="vision" id="vision">
+  <div class="vision-inner">
+    <div class="section-header">
+      <div class="section-tag">核心理念</div>
+      <h2>三步，AI 引领一切</h2>
+      <p>从组建到协同，zyling 让 AI 团队运转如真实团队</p>
+    </div>
+    <div class="vision-steps">
+      <div class="vision-step-card" data-num="1">
+        <div class="vstep-icon">🧬</div>
+        <div class="vstep-title">塑造 AI 成员</div>
+        <div class="vstep-desc">为每位 AI 成员赋予独特的身份、灵魂与专长，如同真正的团队成员一般有温度、有个性。</div>
+      </div>
+      <div class="vision-step-card" data-num="2">
+        <div class="vstep-icon">🤝</div>
+        <div class="vstep-title">协同引领任务</div>
+        <div class="vstep-desc">AI 成员互相协作、委派任务、共享记忆，24×7 不间断地推进你的业务目标。</div>
+      </div>
+      <div class="vision-step-card" data-num="3">
+        <div class="vstep-icon">🚀</div>
+        <div class="vstep-title">智能生态扩展</div>
+        <div class="vstep-desc">随着 Zy 生态不断完善，你的 AI 团队可接管更多渠道、流程与场景，真正实现智引领。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ECOSYSTEM -->
+<section class="ecosystem" id="ecosystem">
+  <div class="section-header">
+    <div class="section-tag">品牌生态</div>
+    <h2>一个基因，一套体系</h2>
+    <p>zyling 旗下每款产品，都围绕「引领」的核心基因延伸</p>
+  </div>
+  <div class="eco-tree">
+    <div class="eco-company">zyling &nbsp;·&nbsp; 智引领</div>
+    <div class="eco-item eco-current">
+      <span class="eco-item-tree">├──</span>
+      <span class="eco-name">ZyHive</span>
+      <span class="eco-sep">/</span>
+      <span class="eco-cn">引巢</span>
+      <span class="eco-sep">—</span>
+      <span class="eco-desc">AI 团队管理面板 · 旗舰</span>
+    </div>
+    <div class="eco-item">
+      <span class="eco-item-tree">├──</span>
+      <span class="eco-name">ZyHub</span>
+      <span class="eco-sep">/</span>
+      <span class="eco-cn">引汇</span>
+      <span class="eco-sep">—</span>
+      <span class="eco-desc">AI 模型聚合中转服务</span>
+    </div>
+    <div class="eco-item">
+      <span class="eco-item-tree">└──</span>
+      <span class="eco-name">ZyType</span>
+      <span class="eco-sep">/</span>
+      <span class="eco-cn">引键</span>
+      <span class="eco-sep">—</span>
+      <span class="eco-desc">AI 角色专家输入法</span>
+    </div>
+  </div>
+</section>
+
+<!-- HOW -->
+<section class="how" id="how">
+  <div class="section-header">
+    <div class="section-tag">快速开始</div>
+    <h2>三步，拥有你的 AI 团队</h2>
+    <p>从安装到运转，最快 5 分钟</p>
+  </div>
+  <div class="how-grid">
+    <div class="how-card">
+      <div class="how-num">1</div>
+      <div class="how-title">一行命令安装</div>
+      <div class="how-desc">单二进制部署，无需配置数据库。终端直接显示内网和公网访问地址，立即可用。</div>
+    </div>
+    <div class="how-card">
+      <div class="how-num">2</div>
+      <div class="how-title">塑造 AI 成员</div>
+      <div class="how-desc">为每位 AI 成员配置身份、灵魂、模型与渠道，面板可视化，操作直观无门槛。</div>
+    </div>
+    <div class="how-card">
+      <div class="how-num">3</div>
+      <div class="how-title">团队引领运转</div>
+      <div class="how-desc">AI 成员 24×7 在线，通过定时任务、消息渠道、工作流协同完成团队目标。</div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="cta-section" id="cta">
+  <div class="cta-glow"></div>
+  <h2>准备好让<span> AI 引领</span>你的团队了吗？</h2>
+  <p>ZyHive 开源免费，一行命令即可拥有专属 AI 团队操作系统</p>
+  <div>
+    <div class="install-block">
+      <span class="install-label">$</span>
+      <span>curl -sSL https://zyhive.io/install.sh | bash</span>
+      <button class="install-copy"
+        onclick="navigator.clipboard?.writeText('curl -sSL https://zyhive.io/install.sh | bash');this.textContent='✓ 已复制';setTimeout(()=>this.textContent='复制',1800)">
+        复制
+      </button>
+    </div>
+  </div>
+  <div style="display:flex;gap:16px;justify-content:center;flex-wrap:wrap;position:relative">
+    <a href="https://github.com/sunhuihui6688-star/ai-panel" target="_blank" class="btn-primary">查看 GitHub →</a>
+    <a href="#products" class="btn-outline">了解更多产品</a>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<div style="border-top:1px solid var(--border)">
+  <div class="footer-wrap">
+    <div class="footer-brand">
+      <img src="logo.jpg" alt="zyling" />
+      <div>
+        <div class="footer-brand-name">zyling · 智引领</div>
+        <div class="footer-fullname">智引领（广东）科技有限公司</div>
+      </div>
+    </div>
+    <div class="footer-copy">© 2026 zyling. 致力于先进的人工智能技术探索</div>
+    <div class="footer-links">
+      <a href="#products">产品</a>
+      <a href="#about">关于</a>
+      <a href="https://github.com/sunhuihui6688-star/ai-panel" target="_blank">GitHub</a>
+    </div>
+  </div>
+</div>
+
+<script>
+  const io = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        e.target.style.opacity = '1';
+        e.target.style.transform = 'translateY(0)';
+      }
+    });
+  }, { threshold: 0.1 });
+
+  document.querySelectorAll(
+    '.product-card, .how-card, .vision-step-card, .about-logo-ring'
+  ).forEach(el => {
+    el.style.opacity = '0';
+    el.style.transform = 'translateY(24px)';
+    el.style.transition = 'opacity 0.55s ease, transform 0.55s ease';
+    io.observe(el);
+  });
+</script>
+</body>
+</html>

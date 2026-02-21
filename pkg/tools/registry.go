@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sunhuihui6688-star/ai-panel/pkg/skill"
-
 	"github.com/sunhuihui6688-star/ai-panel/pkg/llm"
+	"github.com/sunhuihui6688-star/ai-panel/pkg/project"
+	"github.com/sunhuihui6688-star/ai-panel/pkg/skill"
 )
 
 // Handler executes a tool call and returns the result string.
@@ -26,6 +26,7 @@ type Registry struct {
 	workspaceDir string // agent-specific working directory for path resolution
 	agentDir     string // parent dir of workspace (contains config.json)
 	agentID      string // agent ID (used for self-management tools)
+	projectMgr   *project.Manager // shared project workspace (nil = no project access)
 }
 
 // New creates a Registry pre-loaded with all built-in tools.
@@ -106,6 +107,199 @@ func NewSkillStudio(workspaceDir, agentDir, agentID, skillID string) *Registry {
 	r.register(selfListSkillsDef, r.handleSelfListSkills)
 	// Bash, self_install_skill, self_uninstall_skill, self_rename, self_update_soul: NOT registered (disabled)
 	return r
+}
+
+// WithProjectAccess registers project_list, project_read, and (if permitted)
+// project_write tools backed by the given project.Manager.
+// Call after New() to enable shared project workspace access.
+func (r *Registry) WithProjectAccess(mgr *project.Manager) {
+	r.projectMgr = mgr
+
+	// project_list — always available (read-only metadata)
+	r.register(llm.ToolDef{
+		Name:        "project_list",
+		Description: "列出所有共享团队项目，返回 ID、名称、描述和当前 agent 的写入权限。",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
+	}, r.handleProjectList)
+
+	// project_read — always available
+	r.register(llm.ToolDef{
+		Name:        "project_read",
+		Description: "读取共享项目中的文件内容。",
+		InputSchema: json.RawMessage(`{
+			"type":"object",
+			"properties":{
+				"project_id":{"type":"string","description":"项目 ID"},
+				"file_path":{"type":"string","description":"项目内的文件路径，如 README.md 或 src/main.go"}
+			},
+			"required":["project_id","file_path"]
+		}`),
+	}, r.handleProjectRead)
+
+	// project_write — always registered; permission checked at execute time
+	r.register(llm.ToolDef{
+		Name:        "project_write",
+		Description: "写入内容到共享项目的文件（需要该项目的编辑权限）。",
+		InputSchema: json.RawMessage(`{
+			"type":"object",
+			"properties":{
+				"project_id":{"type":"string","description":"项目 ID"},
+				"file_path":{"type":"string","description":"项目内的文件路径"},
+				"content":{"type":"string","description":"写入的内容"}
+			},
+			"required":["project_id","file_path","content"]
+		}`),
+	}, r.handleProjectWrite)
+
+	// project_glob — list files in a project
+	r.register(llm.ToolDef{
+		Name:        "project_glob",
+		Description: "列出共享项目中的文件列表（支持 glob 模式）。",
+		InputSchema: json.RawMessage(`{
+			"type":"object",
+			"properties":{
+				"project_id":{"type":"string","description":"项目 ID"},
+				"pattern":{"type":"string","description":"glob 模式，如 **/*.go，默认 *"}
+			},
+			"required":["project_id"]
+		}`),
+	}, r.handleProjectGlob)
+}
+
+// handleProjectList lists all projects with write permission info.
+func (r *Registry) handleProjectList(_ context.Context, _ json.RawMessage) (string, error) {
+	if r.projectMgr == nil {
+		return "", fmt.Errorf("project manager not available")
+	}
+	projects := r.projectMgr.List()
+	if len(projects) == 0 {
+		return "（暂无共享项目）", nil
+	}
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("共 %d 个共享项目：\n\n", len(projects)))
+	for _, p := range projects {
+		canWrite := p.CanWrite(r.agentID)
+		perm := "可读写"
+		if !canWrite {
+			perm = "只读"
+		}
+		sb.WriteString(fmt.Sprintf("- **%s** (`%s`)\n", p.Name, p.ID))
+		if p.Description != "" {
+			sb.WriteString(fmt.Sprintf("  描述: %s\n", p.Description))
+		}
+		if len(p.Tags) > 0 {
+			sb.WriteString(fmt.Sprintf("  标签: %s\n", strings.Join(p.Tags, ", ")))
+		}
+		sb.WriteString(fmt.Sprintf("  权限: %s\n", perm))
+		sb.WriteString(fmt.Sprintf("  更新: %s\n\n", p.UpdatedAt.Format("2006-01-02 15:04")))
+	}
+	return sb.String(), nil
+}
+
+// handleProjectRead reads a file from a shared project.
+func (r *Registry) handleProjectRead(_ context.Context, input json.RawMessage) (string, error) {
+	if r.projectMgr == nil {
+		return "", fmt.Errorf("project manager not available")
+	}
+	var p struct {
+		ProjectID string `json:"project_id"`
+		FilePath  string `json:"file_path"`
+	}
+	if err := json.Unmarshal(input, &p); err != nil {
+		return "", err
+	}
+	proj, ok := r.projectMgr.Get(p.ProjectID)
+	if !ok {
+		return "", fmt.Errorf("项目 %q 不存在", p.ProjectID)
+	}
+	fullPath := filepath.Join(proj.FilesDir, filepath.Clean(p.FilePath))
+	// safety: must remain within project dir
+	if !strings.HasPrefix(fullPath, proj.FilesDir) {
+		return "", fmt.Errorf("路径越界")
+	}
+	data, err := os.ReadFile(fullPath)
+	if err != nil {
+		return "", fmt.Errorf("读取失败: %w", err)
+	}
+	content := string(data)
+	const maxBytes = 50000
+	if len(content) > maxBytes {
+		content = content[:maxBytes] + "\n[已截断]"
+	}
+	return content, nil
+}
+
+// handleProjectWrite writes a file to a shared project (permission checked).
+func (r *Registry) handleProjectWrite(_ context.Context, input json.RawMessage) (string, error) {
+	if r.projectMgr == nil {
+		return "", fmt.Errorf("project manager not available")
+	}
+	var p struct {
+		ProjectID string `json:"project_id"`
+		FilePath  string `json:"file_path"`
+		Content   string `json:"content"`
+	}
+	if err := json.Unmarshal(input, &p); err != nil {
+		return "", err
+	}
+	proj, ok := r.projectMgr.Get(p.ProjectID)
+	if !ok {
+		return "", fmt.Errorf("项目 %q 不存在", p.ProjectID)
+	}
+	if !proj.CanWrite(r.agentID) {
+		return "", fmt.Errorf("🚫 权限不足：你没有编辑项目 %q 的权限", p.ProjectID)
+	}
+	fullPath := filepath.Join(proj.FilesDir, filepath.Clean(p.FilePath))
+	if !strings.HasPrefix(fullPath, proj.FilesDir) {
+		return "", fmt.Errorf("路径越界")
+	}
+	if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(fullPath, []byte(p.Content), 0644); err != nil {
+		return "", fmt.Errorf("写入失败: %w", err)
+	}
+	return fmt.Sprintf("✅ 已写入 %s/%s", p.ProjectID, p.FilePath), nil
+}
+
+// handleProjectGlob lists files in a shared project.
+func (r *Registry) handleProjectGlob(_ context.Context, input json.RawMessage) (string, error) {
+	if r.projectMgr == nil {
+		return "", fmt.Errorf("project manager not available")
+	}
+	var p struct {
+		ProjectID string `json:"project_id"`
+		Pattern   string `json:"pattern"`
+	}
+	if err := json.Unmarshal(input, &p); err != nil {
+		return "", err
+	}
+	proj, ok := r.projectMgr.Get(p.ProjectID)
+	if !ok {
+		return "", fmt.Errorf("项目 %q 不存在", p.ProjectID)
+	}
+	pattern := p.Pattern
+	if pattern == "" {
+		pattern = "*"
+	}
+	matches, err := filepath.Glob(filepath.Join(proj.FilesDir, pattern))
+	if err != nil {
+		return "", err
+	}
+	var lines []string
+	for _, m := range matches {
+		rel, _ := filepath.Rel(proj.FilesDir, m)
+		info, _ := os.Stat(m)
+		if info != nil && !info.IsDir() {
+			lines = append(lines, fmt.Sprintf("%s (%d bytes)", rel, info.Size()))
+		} else {
+			lines = append(lines, rel+"/")
+		}
+	}
+	if len(lines) == 0 {
+		return "（没有匹配文件）", nil
+	}
+	return strings.Join(lines, "\n"), nil
 }
 
 // resolvePath resolves p relative to the workspace directory.

@@ -66,7 +66,7 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager, pool 
 	agents.DELETE("/:id/channels/:chId/allowed/:userId", agChH.RemoveAllowed)
 
 	// Chat (streaming SSE)
-	chatH := &chatHandler{cfg: cfg, manager: mgr}
+	chatH := &chatHandler{cfg: cfg, manager: mgr, projectMgr: projectMgr}
 	agents.POST("/:id/chat", chatH.Chat)
 	agents.GET("/:id/sessions", chatH.ListSessions)
 	agents.GET("/:id/sessions/:sid", chatH.GetSession)
@@ -207,6 +207,7 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager, pool 
 		projects.GET("/:id", projH.Get)
 		projects.PATCH("/:id", projH.Update)
 		projects.DELETE("/:id", projH.Delete)
+		projects.PUT("/:id/permissions", projH.SetPermissions)
 		projects.GET("/:id/files/*path", projFileH.Read)
 		projects.PUT("/:id/files/*path", projFileH.Write)
 		projects.DELETE("/:id/files/*path", projFileH.Delete)
