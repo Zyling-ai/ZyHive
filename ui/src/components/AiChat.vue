@@ -1,19 +1,16 @@
 <template>
   <div class="ai-chat" :class="{ compact, 'has-bg': bgColor, 'drag-active': isDragOver }" :style="rootStyle"
-    @dragenter.prevent="isDragOver = true"
-    @dragover.prevent="isDragOver = true"
-    @dragleave.self="isDragOver = false"
-    @drop.prevent="handleGlobalDrop">
+    @dragenter.prevent="onDragEnter"
+    @dragover.prevent
+    @dragleave="onDragLeave"
+    @drop.prevent.stop="handleGlobalDrop">
 
-    <!-- ── 全局拖拽覆盖层 ── -->
+    <!-- ── 全局拖拽覆盖层（pointer-events:none 避免吸走事件）── -->
     <Transition name="drag-fade">
-      <div v-if="isDragOver" class="drag-overlay"
-        @dragover.prevent
-        @dragleave.prevent="isDragOver = false"
-        @drop.prevent="handleGlobalDrop">
+      <div v-if="isDragOver" class="drag-overlay">
         <div class="drag-overlay-content">
           <div class="drag-overlay-icon">📎</div>
-          <div class="drag-overlay-title">释放以附加文件</div>
+          <div class="drag-overlay-title">松开以附加文件</div>
           <div class="drag-overlay-hint">支持图片 · 代码 · 文本文件</div>
         </div>
       </div>
@@ -352,7 +349,8 @@ watch(streaming, (v) => emit('streaming-change', v))
 const streamText = ref('')
 const streamThinking = ref('')
 const streamToolCalls = ref<ToolCallEntry[]>([])  // active tool calls during streaming
-const isDragOver = ref(false)
+const isDragOver  = ref(false)
+let   _dragDepth  = 0  // counter to handle child element drag enter/leave
 const copied = ref<number | null>(null)
 const previewSrc = ref('')
 
@@ -657,7 +655,23 @@ function handlePaste(e: ClipboardEvent) {
   }
 }
 
+// Use depth counter to avoid flicker when dragging over child elements
+function onDragEnter(e: DragEvent) {
+  e.preventDefault()
+  _dragDepth++
+  isDragOver.value = true
+}
+function onDragLeave(e: DragEvent) {
+  e.preventDefault()
+  _dragDepth--
+  if (_dragDepth <= 0) {
+    _dragDepth = 0
+    isDragOver.value = false
+  }
+}
+
 function handleGlobalDrop(e: DragEvent) {
+  _dragDepth = 0
   isDragOver.value = false
   const files = e.dataTransfer?.files
   if (!files) return
@@ -1278,21 +1292,22 @@ onMounted(() => {
   position: absolute;
   inset: 0;
   z-index: 100;
-  background: rgba(64, 158, 255, 0.12);
-  border: 2px dashed #409eff;
+  background: rgba(15, 23, 42, 0.65);  /* 深色半透明，醒目 */
+  border: 2px dashed #60a5fa;
   border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
-  backdrop-filter: blur(2px);
+  backdrop-filter: blur(4px);
+  pointer-events: none;  /* 不拦截事件，由父层统一处理 drop */
 }
 .drag-overlay-content {
   text-align: center;
   pointer-events: none;
 }
-.drag-overlay-icon   { font-size: 40px; margin-bottom: 10px; }
-.drag-overlay-title  { font-size: 16px; font-weight: 600; color: #409eff; margin-bottom: 6px; }
-.drag-overlay-hint   { font-size: 13px; color: #64748b; }
+.drag-overlay-icon   { font-size: 48px; margin-bottom: 12px; }
+.drag-overlay-title  { font-size: 18px; font-weight: 700; color: #fff; margin-bottom: 6px; text-shadow: 0 1px 4px rgba(0,0,0,.4); }
+.drag-overlay-hint   { font-size: 13px; color: rgba(255,255,255,.7); }
 .drag-fade-enter-active, .drag-fade-leave-active { transition: opacity .15s; }
 .drag-fade-enter-from, .drag-fade-leave-to { opacity: 0; }
 
