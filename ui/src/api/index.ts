@@ -312,6 +312,65 @@ export function chatSSE(agentId: string, message: string, onEvent: (ev: any) => 
   return ctrl
 }
 
+// Resume an existing generation by subscribing to the session's broadcaster.
+// Returns buffered events first (replay), then live events.
+// If the worker no longer exists, receives {type:"idle"} immediately.
+export function resumeSSE(agentId: string, sessionId: string, onEvent: (ev: any) => void): AbortController {
+  const ctrl = new AbortController()
+  const token = localStorage.getItem('aipanel_token')
+
+  fetch(`/api/agents/${agentId}/chat/stream?sessionId=${encodeURIComponent(sessionId)}`, {
+    method: 'GET',
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    },
+    signal: ctrl.signal
+  }).then(async res => {
+    if (!res.ok) {
+      onEvent({ type: 'idle' })
+      return
+    }
+    const reader = res.body?.getReader()
+    if (!reader) { onEvent({ type: 'idle' }); return }
+    const decoder = new TextDecoder()
+    let buffer = ''
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const parts = buffer.split('\n')
+      buffer = parts.pop() || ''
+      for (const line of parts) {
+        const trimmed = line.trim()
+        if (trimmed.startsWith('data: ')) {
+          try {
+            const data = JSON.parse(trimmed.slice(6))
+            onEvent(data)
+            if (data.type === 'done' || data.type === 'error' || data.type === 'idle') return
+          } catch {}
+        }
+      }
+    }
+  }).catch((err) => {
+    if (err.name !== 'AbortError') {
+      onEvent({ type: 'idle' })
+    }
+  })
+  return ctrl
+}
+
+// Check if a session has an active background worker.
+export async function getSessionStatus(agentId: string, sessionId: string): Promise<{status: 'idle'|'generating', hasWorker: boolean, bufferedEvents: number}> {
+  const token = localStorage.getItem('aipanel_token')
+  try {
+    const res = await fetch(`/api/agents/${agentId}/chat/status?sessionId=${encodeURIComponent(sessionId)}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {}
+    })
+    if (res.ok) return await res.json()
+  } catch {}
+  return { status: 'idle', hasWorker: false, bufferedEvents: 0 }
+}
+
 // ── Session types ────────────────────────────────────────────────────────
 
 export interface SessionSummary {

@@ -294,7 +294,7 @@
 
 <script setup lang="ts">
 import { ref, computed, reactive, nextTick, onMounted, onUnmounted, watch } from 'vue'
-import { chatSSE, sessions as sessionsApi, tasks as tasksApi, type ChatParams } from '../api'
+import { chatSSE, resumeSSE, getSessionStatus, sessions as sessionsApi, tasks as tasksApi, type ChatParams } from '../api'
 
 // ── Props ─────────────────────────────────────────────────────────────────
 interface Props {
@@ -1041,6 +1041,8 @@ async function resumeSession(sessionId: string) {
     scrollBottom()
     // Re-attach any still-running background tasks from this session
     reattachSessionTasks(sessionId)
+    // Check if a generation is still running in the background → reconnect
+    reconnectIfGenerating(sessionId)
   } catch (e: any) {
     // 404 = 新 session，正常情况，直接留空
     if (e?.response?.status === 404) {
@@ -1052,6 +1054,104 @@ async function resumeSession(sessionId: string) {
   } finally {
     historyLoading.value = false
   }
+}
+
+/**
+ * Check if a session has an in-progress generation in the background.
+ * If so, attach to the broadcaster and show the streaming response.
+ * Called automatically on page load / tab refocus when a sessionId is known.
+ */
+async function reconnectIfGenerating(sessionId: string) {
+  if (streaming.value) return // already streaming
+
+  const status = await getSessionStatus(props.agentId, sessionId)
+  if (!status.hasWorker) return // no active worker — nothing to reconnect
+
+  // Worker is alive (generating or just finished).
+  // Subscribe to the broadcaster to get buffered + live events.
+  streaming.value = true
+  streamText.value = ''
+  streamThinking.value = ''
+  streamToolCalls.value = []
+
+  const assistantMsg: ChatMsg = { role: 'assistant', text: '', toolCalls: [] }
+  messages.value.push(assistantMsg)
+  const msgIdx = messages.value.length - 1
+  scrollBottom()
+
+  let activeToolId = ''
+
+  const ctrl = resumeSSE(props.agentId, sessionId, (ev: any) => {
+    switch (ev.type) {
+      case 'idle':
+        // Generation already finished before we connected — nothing to do
+        messages.value.splice(msgIdx, 1) // remove empty bubble
+        streaming.value = false
+        break
+
+      case 'thinking_delta':
+        streamThinking.value += ev.text
+        scrollBottom()
+        break
+
+      case 'text':
+      case 'text_delta':
+        streamText.value += ev.text
+        scrollBottom()
+        break
+
+      case 'tool_call': {
+        const tc: ToolCallEntry = {
+          id: ev.tool_call?.id ?? String(Date.now()),
+          name: ev.tool_call?.name ?? 'tool',
+          input: ev.tool_call?.input ? JSON.stringify(ev.tool_call.input) : undefined,
+          status: 'running',
+          _startedAt: Date.now(),
+          _expanded: false,
+        }
+        messages.value[msgIdx]!.toolCalls!.push(tc)
+        streamToolCalls.value.push(tc)
+        activeToolId = tc.id
+        scrollBottom()
+        break
+      }
+
+      case 'tool_result': {
+        const tc = messages.value[msgIdx]!.toolCalls?.find(t => t.id === activeToolId)
+        if (tc) {
+          tc.result = ev.text
+          tc.status = 'done'
+          const stc = streamToolCalls.value.find(t => t.id === activeToolId)
+          if (stc) { stc.result = tc.result; stc.status = 'done' }
+        }
+        scrollBottom()
+        break
+      }
+
+      case 'done':
+      case 'error': {
+        if (ev.type === 'done' && ev.sessionId) {
+          const isNew = !currentSessionId.value
+          currentSessionId.value = ev.sessionId
+          if (isNew) emit('session-change', ev.sessionId)
+        }
+        const cur = messages.value[msgIdx]!
+        cur.text = streamText.value
+        cur.thinking = streamThinking.value || undefined
+        if (ev.type === 'error') cur.text = `[错误] ${ev.error}`
+        streaming.value = false
+        streamText.value = ''
+        streamThinking.value = ''
+        streamToolCalls.value = []
+        scrollBottom()
+        break
+      }
+    }
+  })
+
+  // Store abort controller so it can be cancelled if needed
+  // (reuse the existing abortCtrl pattern if present, otherwise just store locally)
+  onUnmounted(() => ctrl.abort())
 }
 
 /** Start a brand new session (clears sessionId + messages) */
@@ -1069,6 +1169,10 @@ defineExpose({ clearMessages, appendMessage, sendText, sendSilent, fillInput, me
 // ── Init ─────────────────────────────────────────────────────────────────
 onMounted(() => {
   scrollBottom()
+  // On page load: if a session is already active, check for ongoing background generation
+  if (currentSessionId.value) {
+    reconnectIfGenerating(currentSessionId.value)
+  }
 })
 </script>
 
