@@ -139,6 +139,6 @@ func BuildProjectContext(mgr *project.Manager, agentID string) string {
 		}
 		sb.WriteString("\n")
 	}
-	sb.WriteString("\n使用 project_list 获取项目列表，project_read 读取文件，project_write 写入文件（需要写入权限）。")
+	sb.WriteString("\n工具：project_create 新建项目，project_list 列出项目，project_read 读取文件，project_write 写入文件（需写入权限），project_glob 列举文件。")
 	return sb.String()
 }

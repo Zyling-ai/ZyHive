@@ -151,6 +151,22 @@ func (r *Registry) WithProjectAccess(mgr *project.Manager) {
 		}`),
 	}, r.handleProjectWrite)
 
+	// project_create — create a new shared project
+	r.register(llm.ToolDef{
+		Name:        "project_create",
+		Description: "创建一个新的共享团队项目。",
+		InputSchema: json.RawMessage(`{
+			"type":"object",
+			"properties":{
+				"id":{"type":"string","description":"项目唯一 ID，小写字母/数字/连字符，如 my-project"},
+				"name":{"type":"string","description":"项目名称"},
+				"description":{"type":"string","description":"项目描述（可选）"},
+				"tags":{"type":"array","items":{"type":"string"},"description":"标签列表（可选）"}
+			},
+			"required":["id","name"]
+		}`),
+	}, r.handleProjectCreate)
+
 	// project_glob — list files in a project
 	r.register(llm.ToolDef{
 		Name:        "project_glob",
@@ -164,6 +180,32 @@ func (r *Registry) WithProjectAccess(mgr *project.Manager) {
 			"required":["project_id"]
 		}`),
 	}, r.handleProjectGlob)
+}
+
+// handleProjectCreate creates a new shared project.
+func (r *Registry) handleProjectCreate(_ context.Context, input json.RawMessage) (string, error) {
+	if r.projectMgr == nil {
+		return "", fmt.Errorf("project manager not available")
+	}
+	var p struct {
+		ID          string   `json:"id"`
+		Name        string   `json:"name"`
+		Description string   `json:"description"`
+		Tags        []string `json:"tags"`
+	}
+	if err := json.Unmarshal(input, &p); err != nil {
+		return "", err
+	}
+	proj, err := r.projectMgr.Create(project.CreateOpts{
+		ID:          p.ID,
+		Name:        p.Name,
+		Description: p.Description,
+		Tags:        p.Tags,
+	})
+	if err != nil {
+		return "", fmt.Errorf("创建项目失败: %w", err)
+	}
+	return fmt.Sprintf("✅ 项目「%s」(id: %s) 已创建", proj.Name, proj.ID), nil
 }
 
 // handleProjectList lists all projects with write permission info.
