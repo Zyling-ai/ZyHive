@@ -550,6 +550,26 @@ function fmtTime(t: string | undefined): string {
   background: #fff;
   overflow: hidden;
 }
+
+/* 让 el-textarea 填满剩余高度 */
+.editor-panel :deep(.el-textarea) {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.editor-panel :deep(.el-textarea .el-textarea__wrapper) {
+  flex: 1;
+  align-items: stretch;
+  padding: 0;
+}
+.editor-panel :deep(.el-textarea__inner) {
+  height: 100% !important;
+  resize: none;
+  padding: 12px;
+  border-radius: 0;
+  box-shadow: none !important;
+}
 .editor-header {
   display: flex;
   align-items: center;
