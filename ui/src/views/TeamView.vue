@@ -50,8 +50,8 @@
           </defs>
           <rect width="100%" height="100%" fill="url(#grid)" rx="0"/>
 
-          <!-- Connection preview line (dashed, from selected node to cursor) -->
-          <line v-if="selectedNode"
+          <!-- Connection preview line (dashed, from selected node to cursor) — 拖拽中不显示 -->
+          <line v-if="selectedNode && !dragState"
             :x1="effPos(selectedNode).x" :y1="effPos(selectedNode).y"
             :x2="mousePos.x" :y2="mousePos.y"
             stroke="#409eff" stroke-width="2" stroke-dasharray="6,4"
@@ -285,6 +285,8 @@ interface DragState {
 const dragPositions = ref<Record<string, { x: number; y: number }>>({})
 const dragState = ref<DragState | null>(null)
 const mousePos = ref({ x: 400, y: PAD_TOP })
+// 记录上一次是否为拖拽结束（mouseup 先于 click 触发，需跨事件传递）
+const lastDragId = ref<string | null>(null)
 
 /** Effective position: drag override → computed layout */
 function effPos(id: string): { x: number; y: number } {
@@ -294,6 +296,7 @@ function effPos(id: string): { x: number; y: number } {
 // ── Document-level drag (works even when pointer leaves SVG) ──────────────
 function onNodeMouseDown(e: MouseEvent, nodeId: string) {
   e.preventDefault()
+  lastDragId.value = null  // 每次按下都重置
   const pos = effPos(nodeId)
   dragState.value = {
     id: nodeId,
@@ -344,6 +347,9 @@ function onDocMouseMove(e: MouseEvent) {
 }
 
 function onDocMouseUp() {
+  if (dragState.value?.moved) {
+    lastDragId.value = dragState.value.id  // 标记刚刚拖拽结束的节点
+  }
   dragState.value = null
   document.removeEventListener('mousemove', onDocMouseMove)
   document.removeEventListener('mouseup', onDocMouseUp)
@@ -359,7 +365,12 @@ function onSvgBgClick() { selectedNode.value = null }
 const selectedNode = ref<string | null>(null)
 
 function onNodeClick(nodeId: string) {
-  if (dragState.value?.moved) return // was a drag
+  // dragState 在 mouseup 时已清空，用 lastDragId 判断是否为拖拽结束
+  if (lastDragId.value === nodeId) {
+    lastDragId.value = null
+    return  // 拖拽结束，忽略此次 click
+  }
+  lastDragId.value = null
   if (!selectedNode.value) {
     selectedNode.value = nodeId
     return
