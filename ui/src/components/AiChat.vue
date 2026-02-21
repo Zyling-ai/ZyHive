@@ -1,5 +1,23 @@
 <template>
-  <div class="ai-chat" :class="{ compact, 'has-bg': bgColor }" :style="rootStyle">
+  <div class="ai-chat" :class="{ compact, 'has-bg': bgColor, 'drag-active': isDragOver }" :style="rootStyle"
+    @dragenter.prevent="isDragOver = true"
+    @dragover.prevent="isDragOver = true"
+    @dragleave.self="isDragOver = false"
+    @drop.prevent="handleGlobalDrop">
+
+    <!-- ── 全局拖拽覆盖层 ── -->
+    <Transition name="drag-fade">
+      <div v-if="isDragOver" class="drag-overlay"
+        @dragover.prevent
+        @dragleave.prevent="isDragOver = false"
+        @drop.prevent="handleGlobalDrop">
+        <div class="drag-overlay-content">
+          <div class="drag-overlay-icon">📎</div>
+          <div class="drag-overlay-title">释放以附加文件</div>
+          <div class="drag-overlay-hint">支持图片 · 代码 · 文本文件</div>
+        </div>
+      </div>
+    </Transition>
 
     <!-- ── 消息列表 ── -->
     <div class="chat-messages" ref="msgListRef">
@@ -45,31 +63,46 @@
               <pre class="thinking-content">{{ msg.thinking }}</pre>
             </details>
 
-            <!-- 消息气泡 -->
-            <div class="msg-bubble assistant">
-              <!-- Tool calls -->
-              <div v-for="(tc, ti) in msg.toolCalls" :key="ti" class="tool-call-block">
-                <details class="tool-details">
-                  <summary class="tool-summary">
-                    <el-icon class="tool-icon"><Tools /></el-icon>
-                    <span class="tool-name">{{ tc.name }}</span>
-                    <span v-if="tc.status === 'running'" class="tool-status running">运行中…</span>
-                    <span v-else-if="tc.status === 'done'" class="tool-status done">完成</span>
-                    <span v-else-if="tc.status === 'error'" class="tool-status error">失败</span>
-                  </summary>
-                  <div class="tool-body">
-                    <div v-if="tc.input" class="tool-section">
-                      <div class="tool-label">输入</div>
-                      <pre class="tool-pre">{{ fmtJson(tc.input) }}</pre>
-                    </div>
-                    <div v-if="tc.result" class="tool-section">
-                      <div class="tool-label">输出</div>
-                      <pre class="tool-pre result">{{ tc.result.slice(0, 800) }}{{ tc.result.length > 800 ? '\n…(截断)' : '' }}</pre>
-                    </div>
+            <!-- ── 工具调用时间线（气泡外，独立展示）── -->
+            <div v-if="msg.toolCalls?.length" class="tool-timeline">
+              <div v-for="(tc, ti) in msg.toolCalls" :key="ti"
+                class="tool-step" :class="tc.status"
+                @click="tc._expanded = !tc._expanded">
+                <div class="tool-step-header">
+                  <!-- 状态指示 -->
+                  <span class="tool-step-dot" :class="tc.status">
+                    <span v-if="tc.status==='running'" class="tool-spin">⟳</span>
+                    <span v-else-if="tc.status==='done'">✓</span>
+                    <span v-else-if="tc.status==='error'">✗</span>
+                    <span v-else>○</span>
+                  </span>
+                  <!-- 工具图标 + 名称 -->
+                  <span class="tool-step-icon">{{ toolIcon(tc.name) }}</span>
+                  <code class="tool-step-name">{{ tc.name }}</code>
+                  <!-- 参数摘要 -->
+                  <span v-if="tc.input" class="tool-step-summary">{{ toolSummary(tc.name, tc.input) }}</span>
+                  <span class="tool-step-flex"/>
+                  <!-- 耗时 -->
+                  <span v-if="tc.duration" class="tool-step-dur">{{ tc.duration }}</span>
+                  <!-- 展开箭头 -->
+                  <span class="tool-step-chevron">{{ tc._expanded ? '▲' : '▼' }}</span>
+                </div>
+                <!-- 详情（可展开）-->
+                <div v-if="tc._expanded" class="tool-step-body" @click.stop>
+                  <div v-if="tc.input" class="tool-section">
+                    <div class="tool-label">INPUT</div>
+                    <pre class="tool-pre">{{ fmtJson(tc.input) }}</pre>
                   </div>
-                </details>
+                  <div v-if="tc.result" class="tool-section">
+                    <div class="tool-label">OUTPUT</div>
+                    <pre class="tool-pre result">{{ tc.result.slice(0, 3000) }}{{ tc.result.length > 3000 ? '\n… (截断)' : '' }}</pre>
+                  </div>
+                </div>
               </div>
+            </div>
 
+            <!-- 消息气泡（仅文字，无工具内容）-->
+            <div class="msg-bubble assistant">
               <!-- 正文 -->
               <div v-if="msg.text" class="msg-text" v-html="renderMd(msg.text)" />
 
@@ -131,12 +164,42 @@
             </summary>
             <pre class="thinking-content">{{ streamThinking }}<span class="blink">▊</span></pre>
           </details>
-          <div class="msg-bubble assistant">
-            <!-- 打字指示器 or 流式文字 -->
-            <div v-if="!streamText" class="typing-dots">
+          <!-- 流式工具调用时间线 -->
+          <div v-if="streamToolCalls.length" class="tool-timeline">
+            <div v-for="(tc, ti) in streamToolCalls" :key="ti"
+              class="tool-step" :class="tc.status"
+              @click="tc._expanded = !tc._expanded">
+              <div class="tool-step-header">
+                <span class="tool-step-dot" :class="tc.status">
+                  <span v-if="tc.status==='running'" class="tool-spin">⟳</span>
+                  <span v-else-if="tc.status==='done'">✓</span>
+                  <span v-else-if="tc.status==='error'">✗</span>
+                </span>
+                <span class="tool-step-icon">{{ toolIcon(tc.name) }}</span>
+                <code class="tool-step-name">{{ tc.name }}</code>
+                <span v-if="tc.input" class="tool-step-summary">{{ toolSummary(tc.name, tc.input) }}</span>
+                <span class="tool-step-flex"/>
+                <span v-if="tc.duration" class="tool-step-dur">{{ tc.duration }}</span>
+                <span class="tool-step-chevron">{{ tc._expanded ? '▲' : '▼' }}</span>
+              </div>
+              <div v-if="tc._expanded" class="tool-step-body" @click.stop>
+                <div v-if="tc.input" class="tool-section">
+                  <div class="tool-label">INPUT</div>
+                  <pre class="tool-pre">{{ fmtJson(tc.input) }}</pre>
+                </div>
+                <div v-if="tc.result" class="tool-section">
+                  <div class="tool-label">OUTPUT</div>
+                  <pre class="tool-pre result">{{ tc.result.slice(0, 3000) }}</pre>
+                </div>
+              </div>
+            </div>
+          </div>
+          <!-- 流式文字气泡 -->
+          <div class="msg-bubble assistant" v-if="streamText || !streamToolCalls.length">
+            <div v-if="!streamText && !streamToolCalls.length" class="typing-dots">
               <span /><span /><span />
             </div>
-            <div v-else class="msg-text" v-html="renderMd(streamText)" />
+            <div v-if="streamText" class="msg-text" v-html="renderMd(streamText)" />
             <span v-if="streamText" class="blink">▊</span>
           </div>
         </div>
@@ -150,11 +213,19 @@
 
     <!-- ── 输入区 ── -->
     <div class="chat-input-area">
-      <!-- 图片附件预览条 -->
-      <div v-if="pendingImages.length" class="attachments-bar">
-        <div v-for="(src, i) in pendingImages" :key="i" class="attach-thumb">
+      <!-- 附件预览条（图片 + 文件）-->
+      <div v-if="pendingImages.length || pendingFiles.length" class="attachments-bar">
+        <!-- 图片缩略图 -->
+        <div v-for="(src, i) in pendingImages" :key="'img-'+i" class="attach-thumb">
           <img :src="src" />
           <button class="remove-attach" @click="removeImage(i)">×</button>
+        </div>
+        <!-- 文本文件芯片 -->
+        <div v-for="(f, i) in pendingFiles" :key="'file-'+i" class="attach-file-chip">
+          <span class="attach-file-icon">{{ fileTypeIcon(f.name) }}</span>
+          <span class="attach-file-name">{{ f.name }}</span>
+          <span class="attach-file-size">{{ formatFileSize(f.content.length) }}</span>
+          <button class="attach-file-remove" @click="pendingFiles.splice(i, 1)">×</button>
         </div>
       </div>
 
@@ -163,7 +234,7 @@
           <textarea
             ref="inputRef"
             v-model="inputText"
-            :placeholder="placeholder || '输入消息… (Ctrl+Enter 发送)'"
+            :placeholder="placeholder || '输入消息… 支持拖拽图片或文件 (Ctrl+Enter 发送)'"
             :disabled="streaming || historyLoading"
             rows="1"
             class="chat-textarea"
@@ -171,18 +242,16 @@
             @keydown.enter.meta.prevent="send"
             @paste="handlePaste"
             @input="autoGrow"
-            @dragover.prevent
-            @drop.prevent="handleDrop"
           />
         </div>
         <div class="input-actions">
-          <!-- 图片上传 -->
-          <label class="icon-btn" title="上传图片">
+          <!-- 通用文件上传 -->
+          <label class="icon-btn" title="附加文件（图片/代码/文本）">
             <el-icon><Paperclip /></el-icon>
-            <input type="file" accept="image/*" multiple hidden @change="handleFileSelect" />
+            <input type="file" multiple hidden @change="handleFileSelect" />
           </label>
           <!-- 发送 -->
-          <button class="send-btn" :disabled="streaming || historyLoading || (!inputText.trim() && !pendingImages.length)"
+          <button class="send-btn" :disabled="streaming || historyLoading || (!inputText.trim() && !pendingImages.length && !pendingFiles.length)"
             @click="send">
             <span v-if="streaming" class="spinner" />
             <span v-else>↑</span>
@@ -190,7 +259,7 @@
         </div>
       </div>
 
-      <div class="input-hint">Ctrl+Enter 发送 · 支持粘贴图片</div>
+      <div class="input-hint">Ctrl+Enter 发送 · 支持拖拽图片/文件</div>
     </div>
 
   </div>
@@ -252,6 +321,14 @@ interface ToolCallEntry {
   input?: string
   result?: string
   status: 'running' | 'done' | 'error'
+  _expanded?: boolean
+  duration?: string
+  _startedAt?: number
+}
+
+interface PendingFile {
+  name: string
+  content: string  // text content
 }
 
 export interface ChatMsg {
@@ -269,10 +346,13 @@ export interface ChatMsg {
 const messages = ref<ChatMsg[]>(props.initialMessages ? [...props.initialMessages] : [])
 const inputText = ref('')
 const pendingImages = ref<string[]>([])
+const pendingFiles = ref<PendingFile[]>([])
 const streaming = ref(false)
 watch(streaming, (v) => emit('streaming-change', v))
 const streamText = ref('')
 const streamThinking = ref('')
+const streamToolCalls = ref<ToolCallEntry[]>([])  // active tool calls during streaming
+const isDragOver = ref(false)
 const copied = ref<number | null>(null)
 const previewSrc = ref('')
 
@@ -503,6 +583,67 @@ function escapeJsonNewlines(raw: string): string {
   return result
 }
 
+// ── Tool helpers ──────────────────────────────────────────────────────────
+const TOOL_ICONS: Record<string, string> = {
+  exec: '⚡', bash: '⚡',
+  read: '📖', write: '✏️', edit: '✏️',
+  web_search: '🌐', web_fetch: '🌐', browser: '🌐',
+  agent_spawn: '🚀', agent_tasks: '📋', agent_kill: '🛑', agent_result: '📊',
+  project_read: '📁', project_write: '📁', project_list: '📁', project_create: '📁', project_glob: '📁',
+  memory_search: '🧠', memory_get: '🧠',
+  image: '🖼️', tts: '🔊',
+  cron: '⏱️',
+}
+function toolIcon(name: string): string {
+  return TOOL_ICONS[name] ?? '⚙️'
+}
+
+function toolSummary(name: string, rawInput: string): string {
+  try {
+    const inp = JSON.parse(rawInput)
+    if (name === 'exec' || name === 'bash') return (inp.command ?? '').slice(0, 60)
+    if (name === 'read') return inp.file_path ?? inp.path ?? ''
+    if (name === 'write') return (inp.file_path ?? inp.path ?? '') + (inp.content ? ` (${inp.content.length}B)` : '')
+    if (name === 'edit') return inp.file_path ?? inp.path ?? ''
+    if (name === 'web_search') return inp.query ?? ''
+    if (name === 'web_fetch') return inp.url ?? ''
+    if (name === 'agent_spawn') return `→ ${inp.agentId}: ${(inp.task ?? '').slice(0, 40)}`
+    if (name === 'project_read') return inp.path ?? ''
+    if (name === 'project_write') return inp.path ?? ''
+    if (name === 'memory_search') return inp.query ?? ''
+  } catch {}
+  return ''
+}
+
+// ── File type helpers ──────────────────────────────────────────────────────
+const TEXT_EXTS = new Set([
+  'txt','md','markdown','js','ts','jsx','tsx','vue','go','py','rs','java','kt','swift',
+  'html','css','scss','less','json','yaml','yml','toml','ini','cfg','env',
+  'sh','bash','zsh','fish','ps1','bat','cmd','dockerfile','makefile',
+  'sql','graphql','proto','xml','svg','gitignore','gitattributes',
+])
+
+function isTextFile(name: string): boolean {
+  const ext = name.split('.').pop()?.toLowerCase() ?? ''
+  return TEXT_EXTS.has(ext)
+}
+
+function fileTypeIcon(name: string): string {
+  const ext = name.split('.').pop()?.toLowerCase() ?? ''
+  const icons: Record<string, string> = {
+    js:'🟨', ts:'🔵', vue:'💚', go:'🐹', py:'🐍', rs:'🦀',
+    html:'🌐', css:'🎨', json:'📋', md:'📝', sh:'⚡',
+    sql:'🗄️', yaml:'⚙️', yml:'⚙️', dockerfile:'🐳',
+  }
+  return icons[ext] ?? '📄'
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)}MB`
+}
+
 // ── Image handling ────────────────────────────────────────────────────────
 function handlePaste(e: ClipboardEvent) {
   const items = e.clipboardData?.items
@@ -516,18 +657,42 @@ function handlePaste(e: ClipboardEvent) {
   }
 }
 
-function handleDrop(e: DragEvent) {
+function handleGlobalDrop(e: DragEvent) {
+  isDragOver.value = false
   const files = e.dataTransfer?.files
   if (!files) return
   for (const file of Array.from(files)) {
-    if (file.type.startsWith('image/')) readImageFile(file)
+    if (file.type.startsWith('image/')) {
+      readImageFile(file)
+    } else if (isTextFile(file.name)) {
+      readTextFile(file)
+    }
+    // else: unsupported, silently ignore
   }
 }
 
 function handleFileSelect(e: Event) {
   const files = (e.target as HTMLInputElement).files
   if (!files) return
-  for (const file of Array.from(files)) readImageFile(file)
+  for (const file of Array.from(files)) {
+    if (file.type.startsWith('image/')) {
+      readImageFile(file)
+    } else if (isTextFile(file.name)) {
+      readTextFile(file)
+    }
+  }
+  // Reset the input so the same file can be selected again
+  ;(e.target as HTMLInputElement).value = ''
+}
+
+function readTextFile(file: File) {
+  const reader = new FileReader()
+  reader.onload = () => {
+    if (typeof reader.result === 'string') {
+      pendingFiles.value.push({ name: file.name, content: reader.result })
+    }
+  }
+  reader.readAsText(file)
 }
 
 function readImageFile(file: File) {
@@ -544,17 +709,29 @@ function removeImage(i: number) { pendingImages.value.splice(i, 1) }
 function send() {
   const text = inputText.value.trim()
   const imgs = [...pendingImages.value]
-  if (!text && !imgs.length) return
+  const files = [...pendingFiles.value]
+  if (!text && !imgs.length && !files.length) return
   if (streaming.value) return
+
+  // Build final message text: append file contents as code blocks
+  let finalText = text
+  if (files.length > 0) {
+    const fileBlocks = files.map(f => {
+      const ext = f.name.split('.').pop() ?? 'text'
+      return `\n\n📎 **${f.name}**\n\`\`\`${ext}\n${f.content}\n\`\`\``
+    }).join('')
+    finalText = (text ? text + fileBlocks : fileBlocks.trimStart())
+  }
 
   inputText.value = ''
   pendingImages.value = []
+  pendingFiles.value = []
   nextTick(() => {
     if (inputRef.value) { inputRef.value.style.height = 'auto' }
   })
 
-  emit('message', text, imgs)
-  runChat(text, imgs)
+  emit('message', finalText, imgs)
+  runChat(finalText, imgs)
 }
 
 function runChat(text: string, imgs: string[], silent = false) {
@@ -566,6 +743,7 @@ function runChat(text: string, imgs: string[], silent = false) {
   streaming.value = true
   streamText.value = ''
   streamThinking.value = ''
+  streamToolCalls.value = []
 
   // Current assistant message being built
   const assistantMsg: ChatMsg = { role: 'assistant', text: '', toolCalls: [] }
@@ -619,8 +797,11 @@ function runChat(text: string, imgs: string[], silent = false) {
           name: ev.tool_call?.name ?? 'tool',
           input: ev.tool_call?.input ? JSON.stringify(ev.tool_call.input) : undefined,
           status: 'running',
+          _startedAt: Date.now(),
+          _expanded: false,
         }
         messages.value[msgIdx]!.toolCalls!.push(tc)
+        streamToolCalls.value.push(tc)
         activeToolId = tc.id
         scrollBottom()
         break
@@ -628,7 +809,17 @@ function runChat(text: string, imgs: string[], silent = false) {
 
       case 'tool_result': {
         const tc = messages.value[msgIdx]!.toolCalls?.find(t => t.id === activeToolId)
-        if (tc) { tc.result = ev.text; tc.status = 'done' }
+        if (tc) {
+          tc.result = ev.text
+          tc.status = 'done'
+          if (tc._startedAt) {
+            const ms = Date.now() - tc._startedAt
+            tc.duration = ms < 1000 ? `${ms}ms` : `${(ms/1000).toFixed(1)}s`
+          }
+          // Sync into streamToolCalls
+          const stc = streamToolCalls.value.find(t => t.id === activeToolId)
+          if (stc) { stc.result = tc.result; stc.status = 'done'; stc.duration = tc.duration }
+        }
         scrollBottom()
         break
       }
@@ -669,6 +860,7 @@ function runChat(text: string, imgs: string[], silent = false) {
         streaming.value = false
         streamText.value = ''
         streamThinking.value = ''
+        streamToolCalls.value = []
         emit('response', cur.text)
         scrollBottom()
         break
@@ -849,40 +1041,88 @@ onMounted(() => {
   margin: 0;
 }
 
-/* ── Tool calls ── */
-.tool-call-block { margin-bottom: 6px; }
-.tool-details { background: #fafafa; border: 1px solid #ebeef5; border-radius: 6px; overflow: hidden; }
-.tool-summary {
-  padding: 5px 10px;
+/* ── Tool timeline（新设计）── */
+.tool-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-width: 82%;
+  margin-bottom: 4px;
+}
+.tool-step {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  overflow: hidden;
   cursor: pointer;
+  transition: border-color .15s, background .15s;
+  user-select: none;
+}
+.tool-step:hover { border-color: #cbd5e1; background: #f1f5f9; }
+.tool-step.running { border-color: #fbbf24; background: #fffbeb; }
+.tool-step.done    { border-color: #86efac; }
+.tool-step.error   { border-color: #fca5a5; background: #fff5f5; }
+
+.tool-step-header {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
+  padding: 5px 10px;
   font-size: 12px;
-  list-style: none;
+  min-height: 30px;
 }
-.tool-summary::-webkit-details-marker { display: none; }
-.tool-icon  { font-size: 13px; vertical-align: -2px; }
-.tool-name  { font-weight: 500; color: #303133; flex: 1; }
-.tool-status.running { color: #e6a23c; }
-.tool-status.done    { color: #67c23a; }
-.tool-status.error   { color: #f56c6c; }
-.tool-body   { padding: 8px 10px; border-top: 1px solid #f0f0f0; }
+.tool-step-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  flex-shrink: 0;
+  background: #e2e8f0;
+  color: #64748b;
+}
+.tool-step-dot.running { background: #fef3c7; color: #d97706; }
+.tool-step-dot.done    { background: #dcfce7; color: #16a34a; }
+.tool-step-dot.error   { background: #fee2e2; color: #dc2626; }
+.tool-spin { display: inline-block; animation: spin .8s linear infinite; }
+.tool-step-icon { font-size: 13px; flex-shrink: 0; }
+.tool-step-name { font-family: monospace; font-size: 12px; font-weight: 600; color: #334155; }
+.tool-step-summary {
+  font-size: 11px;
+  color: #64748b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 300px;
+}
+.tool-step-flex { flex: 1; }
+.tool-step-dur  { font-size: 11px; color: #94a3b8; font-family: monospace; flex-shrink: 0; }
+.tool-step-chevron { font-size: 9px; color: #94a3b8; flex-shrink: 0; }
+
+.tool-step-body {
+  border-top: 1px solid #e2e8f0;
+  padding: 8px 10px;
+  cursor: default;
+}
 .tool-section { margin-bottom: 6px; }
-.tool-label  { font-size: 11px; color: #909399; margin-bottom: 3px; text-transform: uppercase; }
+.tool-label  { font-size: 10px; color: #94a3b8; margin-bottom: 3px; text-transform: uppercase; letter-spacing: .5px; font-weight: 600; }
 .tool-pre {
   margin: 0;
   font-size: 11px;
-  background: #f5f7fa;
-  border-radius: 4px;
-  padding: 6px 8px;
+  background: #0f172a;
+  color: #94a3b8;
+  border-radius: 6px;
+  padding: 8px 10px;
   white-space: pre-wrap;
   word-break: break-all;
-  max-height: 150px;
+  max-height: 200px;
   overflow-y: auto;
-  color: #303133;
+  font-family: 'Menlo', 'Monaco', monospace;
 }
-.tool-pre.result { color: #067065; }
+.tool-pre.result { color: #86efac; }
 
 /* ── Markdown ── */
 .msg-text :deep(pre.code-block) {
@@ -1033,6 +1273,32 @@ onMounted(() => {
   gap: 6px;
   margin-bottom: 8px;
 }
+/* ── Drag overlay ── */
+.drag-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 100;
+  background: rgba(64, 158, 255, 0.12);
+  border: 2px dashed #409eff;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(2px);
+}
+.drag-overlay-content {
+  text-align: center;
+  pointer-events: none;
+}
+.drag-overlay-icon   { font-size: 40px; margin-bottom: 10px; }
+.drag-overlay-title  { font-size: 16px; font-weight: 600; color: #409eff; margin-bottom: 6px; }
+.drag-overlay-hint   { font-size: 13px; color: #64748b; }
+.drag-fade-enter-active, .drag-fade-leave-active { transition: opacity .15s; }
+.drag-fade-enter-from, .drag-fade-leave-to { opacity: 0; }
+
+.ai-chat { position: relative; }
+
+/* ── Attachments ── */
 .attach-thumb { position: relative; display: inline-block; }
 .attach-thumb img { width: 48px; height: 48px; object-fit: cover; border-radius: 6px; border: 1px solid #e4e7ed; }
 .remove-attach {
@@ -1049,6 +1315,31 @@ onMounted(() => {
   display: flex; align-items: center; justify-content: center;
   padding: 0;
 }
+
+.attach-file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 20px;
+  padding: 4px 10px 4px 8px;
+  font-size: 12px;
+}
+.attach-file-icon  { font-size: 14px; }
+.attach-file-name  { color: #334155; font-weight: 500; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.attach-file-size  { color: #94a3b8; font-size: 11px; }
+.attach-file-remove {
+  background: none;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0;
+  line-height: 1;
+  margin-left: 2px;
+}
+.attach-file-remove:hover { color: #f56c6c; }
 
 .input-row { display: flex; gap: 8px; align-items: flex-end; }
 .textarea-wrap { flex: 1; }
