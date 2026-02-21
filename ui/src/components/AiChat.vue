@@ -35,7 +35,8 @@
         </div>
       </div>
 
-      <template v-for="(msg, i) in messages" :key="i">
+      <!-- streaming 期间跳过最后一条（正在构建的 assistant 消息），由流式占位符渲染 -->
+      <template v-for="(msg, i) in (streaming ? messages.slice(0, -1) : messages)" :key="i">
 
         <!-- 用户消息 -->
         <div v-if="msg.role === 'user'" class="msg-row user">
