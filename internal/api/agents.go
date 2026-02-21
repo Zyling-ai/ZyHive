@@ -118,7 +118,83 @@ func (h *agentHandler) Get(c *gin.Context) {
 
 // Update PATCH /api/agents/:id
 func (h *agentHandler) Update(c *gin.Context) {
-	c.JSON(http.StatusNotImplemented, gin.H{"message": "TODO: Phase 2"})
+	id := c.Param("id")
+	if _, ok := h.manager.Get(id); !ok {
+		c.JSON(http.StatusNotFound, gin.H{"error": "agent not found"})
+		return
+	}
+
+	// Use raw map to distinguish "field absent" vs "field set to empty/null"
+	var raw map[string]interface{}
+	if err := c.ShouldBindJSON(&raw); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	opts := agent.UpdateOpts{}
+
+	if v, ok := raw["name"]; ok {
+		if s, ok := v.(string); ok {
+			opts.Name = &s
+		}
+	}
+	if v, ok := raw["description"]; ok {
+		if s, ok := v.(string); ok {
+			opts.Description = &s
+		}
+	}
+	if v, ok := raw["modelId"]; ok {
+		if s, ok := v.(string); ok {
+			opts.ModelID = &s
+			// Resolve modelId → provider/model string
+			if s != "" {
+				if m := h.cfg.FindModel(s); m != nil {
+					pm := m.ProviderModel()
+					opts.Model = &pm
+				}
+			}
+		}
+	}
+	if v, ok := raw["model"]; ok {
+		if s, ok := v.(string); ok {
+			opts.Model = &s
+		}
+	}
+	if v, ok := raw["avatarColor"]; ok {
+		if s, ok := v.(string); ok {
+			opts.AvatarColor = &s
+		}
+	}
+	if v, ok := raw["toolIds"]; ok {
+		if arr, ok := v.([]interface{}); ok {
+			ids := make([]string, 0, len(arr))
+			for _, item := range arr {
+				if s, ok := item.(string); ok {
+					ids = append(ids, s)
+				}
+			}
+			opts.ToolIDs = ids
+		}
+	}
+	if v, ok := raw["skillIds"]; ok {
+		if arr, ok := v.([]interface{}); ok {
+			ids := make([]string, 0, len(arr))
+			for _, item := range arr {
+				if s, ok := item.(string); ok {
+					ids = append(ids, s)
+				}
+			}
+			opts.SkillIDs = ids
+		}
+	}
+
+	if err := h.manager.UpdateAgent(id, opts); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	ag, _ := h.manager.Get(id)
+	c.JSON(http.StatusOK, agentToInfo(ag))
 }
 
 // Delete DELETE /api/agents/:id

@@ -277,6 +277,77 @@ func (m *Manager) Remove(id string) error {
 	return nil
 }
 
+// UpdateOpts holds fields that can be patched on an existing agent.
+// Pointer fields: nil means "leave unchanged"; non-nil means "apply this value".
+// Slice fields: nil means "leave unchanged"; non-nil (even empty) means "replace".
+type UpdateOpts struct {
+	Name        *string  `json:"name,omitempty"`
+	Description *string  `json:"description,omitempty"`
+	ModelID     *string  `json:"modelId,omitempty"`
+	Model       *string  `json:"model,omitempty"`
+	AvatarColor *string  `json:"avatarColor,omitempty"`
+	ToolIDs     []string `json:"toolIds"`
+	SkillIDs    []string `json:"skillIds"`
+}
+
+// UpdateAgent patches an agent's config fields and persists to disk.
+func (m *Manager) UpdateAgent(agentID string, opts UpdateOpts) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	ag, ok := m.agents[agentID]
+	if !ok {
+		return fmt.Errorf("agent %q not found", agentID)
+	}
+
+	agentDir := filepath.Join(m.rootDir, agentID)
+	cfgPath := filepath.Join(agentDir, "config.json")
+
+	data, err := os.ReadFile(cfgPath)
+	if err != nil {
+		return fmt.Errorf("read config.json: %w", err)
+	}
+	var cfg agentConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return fmt.Errorf("parse config.json: %w", err)
+	}
+
+	if opts.Name != nil {
+		cfg.Name = *opts.Name
+		ag.Name = *opts.Name
+	}
+	if opts.Description != nil {
+		cfg.Description = *opts.Description
+		ag.Description = *opts.Description
+	}
+	if opts.ModelID != nil {
+		cfg.ModelID = *opts.ModelID
+		ag.ModelID = *opts.ModelID
+	}
+	if opts.Model != nil {
+		cfg.Model = *opts.Model
+		ag.Model = *opts.Model
+	}
+	if opts.AvatarColor != nil {
+		cfg.AvatarColor = *opts.AvatarColor
+		ag.AvatarColor = *opts.AvatarColor
+	}
+	if opts.ToolIDs != nil {
+		cfg.ToolIDs = opts.ToolIDs
+		ag.ToolIDs = opts.ToolIDs
+	}
+	if opts.SkillIDs != nil {
+		cfg.SkillIDs = opts.SkillIDs
+		ag.SkillIDs = opts.SkillIDs
+	}
+
+	out, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal config.json: %w", err)
+	}
+	return os.WriteFile(cfgPath, out, 0644)
+}
+
 // UpdateChannels replaces the channel config for an agent and persists it to disk.
 func (m *Manager) UpdateChannels(agentID string, channels []config.ChannelEntry) error {
 	m.mu.Lock()
