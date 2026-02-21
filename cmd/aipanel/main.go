@@ -43,6 +43,10 @@ func main() {
 	if agentsDir == "" {
 		agentsDir = "./agents"
 	}
+	// Convert to absolute path so Remove(os.RemoveAll) works regardless of CWD changes
+	if abs, err := filepath.Abs(agentsDir); err == nil {
+		agentsDir = abs
+	}
 	mgr := agent.NewManager(agentsDir)
 	if err := mgr.LoadAll(); err != nil {
 		log.Printf("Warning: failed to load agents: %v", err)
