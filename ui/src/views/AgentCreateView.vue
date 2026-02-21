@@ -154,23 +154,30 @@
       </div>
 
       <!-- 配置助手 AiChat（用 v-show 保留对话历史） -->
-      <AiChat
-        v-show="activeAgentTab === '__assist__'"
-        :agent-id="assistAgentId"
-        :context="assistContext"
-        scenario="agent-creation"
-        placeholder="告诉我这个 Agent 要做什么..."
-        :examples="[
-          '我需要一个电商客服 Agent，负责解答订单问题，语气亲切',
-          '帮我创建一个代码审查助手，专注于 Python 代码规范',
-          '创建一个每天早上发送天气报告的 Agent',
-        ]"
-        height="100%"
-        :compact="true"
-        :show-thinking="true"
-        :applyable="true"
-        @apply="applyToForm"
-      />
+      <template v-if="activeAgentTab === '__assist__'">
+        <AiChat
+          v-if="assistAgentId"
+          :agent-id="assistAgentId"
+          :context="assistContext"
+          scenario="agent-creation"
+          placeholder="告诉我这个 Agent 要做什么..."
+          :examples="[
+            '我需要一个电商客服 Agent，负责解答订单问题，语气亲切',
+            '帮我创建一个代码审查助手，专注于 Python 代码规范',
+            '创建一个每天早上发送天气报告的 Agent',
+          ]"
+          height="100%"
+          :compact="true"
+          :show-thinking="true"
+          :applyable="true"
+          @apply="applyToForm"
+        />
+        <div v-else class="no-agent-hint">
+          <el-icon size="32"><InfoFilled /></el-icon>
+          <p>配置助手需要至少一个 AI 成员才能运行</p>
+          <p class="hint-sub">请先在左侧填写基本信息并创建第一个成员</p>
+        </div>
+      </template>
 
       <!-- 其他已打开的 Agent（每个保留独立对话历史） -->
       <template v-for="ag in agentList" :key="ag.id">
@@ -192,7 +199,7 @@
 import { ref, computed, onMounted, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ArrowLeft, Plus, Close } from '@element-plus/icons-vue'
+import { ArrowLeft, Plus, Close, InfoFilled } from '@element-plus/icons-vue'
 import { agents as agentsApi, files as filesApi, models, channels, tools, skills, memoryConfigApi, type AgentInfo, type ModelEntry, type ChannelEntry, type ToolEntry, type SkillEntry } from '../api'
 import AiChat from '../components/AiChat.vue'
 
@@ -337,7 +344,7 @@ const allAgents = computed(() =>
 )
 
 // 配置助手使用系统内第一个 agent 作为 LLM 后端
-const assistAgentId = computed(() => allAgentsFull.value[0]?.id || 'main')
+const assistAgentId = computed(() => allAgentsFull.value[0]?.id || '')
 
 // 实时将左侧表单状态注入对话上下文
 const assistContext = computed(() => {
@@ -655,4 +662,18 @@ onMounted(async () => {
 }
 
 .send-btn { height: auto; padding: 8px 18px; align-self: flex-end; }
+
+/* 无 Agent 提示 */
+.no-agent-hint {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: #909399;
+  font-size: 14px;
+}
+.no-agent-hint p { margin: 0; }
+.no-agent-hint .hint-sub { font-size: 12px; color: #c0c4cc; }
 </style>
