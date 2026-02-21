@@ -14,6 +14,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
+	"strings"
 
 	"github.com/sunhuihui6688-star/ai-panel/pkg/llm"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/session"
@@ -38,6 +40,8 @@ type Config struct {
 	Images []string
 	// Optional: preloaded conversation history (from client-side state, used when SessionID is empty)
 	PreloadedHistory []llm.ChatMessage
+	// Optional: per-agent env vars — tells the agent which credentials/env vars are available
+	AgentEnv map[string]string
 }
 
 // Runner drives a single agent's conversation lifecycle.
@@ -207,6 +211,17 @@ func (r *Runner) run(ctx context.Context, userMsg string, out chan<- RunEvent) e
 		}
 		if r.cfg.ExtraContext != "" {
 			systemPrompt = systemPrompt + "\n\n---\n" + r.cfg.ExtraContext
+		}
+		// Inject env vars hint so agent knows which credentials are configured
+		if len(r.cfg.AgentEnv) > 0 {
+			keys := make([]string, 0, len(r.cfg.AgentEnv))
+			for k := range r.cfg.AgentEnv {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			systemPrompt = systemPrompt + "\n\n## 可用环境变量\n" +
+				"以下环境变量已配置，exec 工具运行时自动可用（无需手动导出）：\n" +
+				"- " + strings.Join(keys, "\n- ") + "\n"
 		}
 		// Inject runtime metadata so the agent knows what model/context it's running in
 		systemPrompt = systemPrompt + fmt.Sprintf(

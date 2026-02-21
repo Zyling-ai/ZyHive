@@ -191,6 +191,9 @@ func (p *Pool) Run(ctx context.Context, agentID, message string) (string, error)
 	if p.projectMgr != nil {
 		toolRegistry.WithProjectAccess(p.projectMgr)
 	}
+	if len(ag.Env) > 0 {
+		toolRegistry.WithEnv(ag.Env)
+	}
 	store := session.NewStore(ag.SessionDir)
 
 	r := runner.New(runner.Config{
@@ -202,6 +205,7 @@ func (p *Pool) Run(ctx context.Context, agentID, message string) (string, error)
 		Tools:        toolRegistry,
 		Session:      store,
 		ProjectContext: p.buildProjectContext(ag.ID),
+		AgentEnv:     ag.Env,
 	})
 
 	// Run and collect all text
@@ -244,6 +248,9 @@ func (p *Pool) RunStreamEvents(ctx context.Context, agentID, message string, med
 	if p.projectMgr != nil {
 		toolRegistry.WithProjectAccess(p.projectMgr)
 	}
+	if len(ag.Env) > 0 {
+		toolRegistry.WithEnv(ag.Env)
+	}
 	store := session.NewStore(ag.SessionDir)
 
 	// Convert MediaInput to base64 data URI strings for the runner.
@@ -273,6 +280,7 @@ func (p *Pool) RunStreamEvents(ctx context.Context, agentID, message string, med
 		Session:        store,
 		Images:         images,
 		ProjectContext: p.buildProjectContext(ag.ID),
+		AgentEnv:       ag.Env,
 	})
 
 	raw := r.Run(ctx, message)
@@ -317,6 +325,9 @@ func (p *Pool) RunStream(ctx context.Context, agentID, message, sessionID string
 	if p.projectMgr != nil {
 		toolRegistry.WithProjectAccess(p.projectMgr)
 	}
+	if len(ag.Env) > 0 {
+		toolRegistry.WithEnv(ag.Env)
+	}
 	store := session.NewStore(ag.SessionDir)
 
 	r := runner.New(runner.Config{
@@ -329,6 +340,7 @@ func (p *Pool) RunStream(ctx context.Context, agentID, message, sessionID string
 		Session:        store,
 		SessionID:      sessionID,
 		ProjectContext: p.buildProjectContext(ag.ID),
+		AgentEnv:       ag.Env,
 	})
 
 	return r.Run(ctx, message), nil

@@ -36,6 +36,7 @@ type Agent struct {
 	SkillIDs     []string              `json:"skillIds,omitempty"`
 	AvatarColor  string                `json:"avatarColor,omitempty"`
 	System       bool                  `json:"system,omitempty"` // built-in, cannot be deleted
+	Env          map[string]string     `json:"env,omitempty"`   // per-agent environment variables for exec tool
 	WorkspaceDir string                `json:"workspaceDir"`
 	SessionDir   string                `json:"sessionDir"`
 	Status       string                `json:"status"` // "running" | "stopped" | "idle"
@@ -53,6 +54,7 @@ type agentConfig struct {
 	SkillIDs    []string              `json:"skillIds,omitempty"`
 	AvatarColor string                `json:"avatarColor,omitempty"`
 	System      bool                  `json:"system,omitempty"`
+	Env         map[string]string     `json:"env,omitempty"` // per-agent env vars for exec
 }
 
 // Manager manages all agents under a root directory.
@@ -121,6 +123,7 @@ func (m *Manager) LoadAll() error {
 			SkillIDs:     cfg.SkillIDs,
 			AvatarColor:  cfg.AvatarColor,
 			System:       cfg.System,
+			Env:          cfg.Env,
 			WorkspaceDir: wsDir,
 			SessionDir:   filepath.Join(agentDir, "sessions"),
 			Status:       "idle",
@@ -179,6 +182,7 @@ type CreateOpts struct {
 	SkillIDs    []string              `json:"skillIds,omitempty"`
 	AvatarColor string                `json:"avatarColor,omitempty"`
 	System      bool                  `json:"system,omitempty"`
+	Env         map[string]string     `json:"env,omitempty"`
 }
 
 func (m *Manager) Create(id, name, model string) (*Agent, error) {
@@ -216,6 +220,7 @@ func (m *Manager) CreateWithOpts(opts CreateOpts) (*Agent, error) {
 		SkillIDs:    opts.SkillIDs,
 		AvatarColor: opts.AvatarColor,
 		System:      opts.System,
+		Env:         opts.Env,
 	}
 	cfgData, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
@@ -242,6 +247,7 @@ func (m *Manager) CreateWithOpts(opts CreateOpts) (*Agent, error) {
 		SkillIDs:     opts.SkillIDs,
 		AvatarColor:  opts.AvatarColor,
 		System:       opts.System,
+		Env:          opts.Env,
 		WorkspaceDir: workspaceDir,
 		SessionDir:   sessionDir,
 		Status:       "idle",
@@ -281,13 +287,14 @@ func (m *Manager) Remove(id string) error {
 // Pointer fields: nil means "leave unchanged"; non-nil means "apply this value".
 // Slice fields: nil means "leave unchanged"; non-nil (even empty) means "replace".
 type UpdateOpts struct {
-	Name        *string  `json:"name,omitempty"`
-	Description *string  `json:"description,omitempty"`
-	ModelID     *string  `json:"modelId,omitempty"`
-	Model       *string  `json:"model,omitempty"`
-	AvatarColor *string  `json:"avatarColor,omitempty"`
-	ToolIDs     []string `json:"toolIds"`
-	SkillIDs    []string `json:"skillIds"`
+	Name        *string           `json:"name,omitempty"`
+	Description *string           `json:"description,omitempty"`
+	ModelID     *string           `json:"modelId,omitempty"`
+	Model       *string           `json:"model,omitempty"`
+	AvatarColor *string           `json:"avatarColor,omitempty"`
+	ToolIDs     []string          `json:"toolIds"`
+	SkillIDs    []string          `json:"skillIds"`
+	Env         map[string]string `json:"env"` // nil = leave unchanged; non-nil (even empty) = replace
 }
 
 // UpdateAgent patches an agent's config fields and persists to disk.
@@ -339,6 +346,10 @@ func (m *Manager) UpdateAgent(agentID string, opts UpdateOpts) error {
 	if opts.SkillIDs != nil {
 		cfg.SkillIDs = opts.SkillIDs
 		ag.SkillIDs = opts.SkillIDs
+	}
+	if opts.Env != nil {
+		cfg.Env = opts.Env
+		ag.Env = opts.Env
 	}
 
 	out, err := json.MarshalIndent(cfg, "", "  ")

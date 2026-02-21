@@ -34,6 +34,7 @@ export interface AgentInfo {
   system?: boolean       // built-in system agent (cannot be deleted)
   status: string
   workspaceDir: string
+  env?: Record<string, string>  // per-agent env vars for exec tool
 }
 
 export interface ModelEntry {

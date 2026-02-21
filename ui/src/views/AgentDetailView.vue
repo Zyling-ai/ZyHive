@@ -998,6 +998,77 @@
           </el-dialog>
         </el-tab-pane>
 
+        <!-- Tab: 环境变量 -->
+        <el-tab-pane label="环境变量" name="env">
+          <div style="padding: 20px; max-width: 800px;">
+            <div style="margin-bottom: 16px;">
+              <h3 style="margin: 0 0 8px 0; font-size: 15px;">环境变量</h3>
+              <p style="margin: 0; color: #666; font-size: 13px;">
+                配置此 AI 成员在执行 exec 命令时可用的环境变量，例如 GITHUB_TOKEN、GIT_AUTHOR_NAME 等。<br>
+                这些变量会注入到 bash 工具的执行环境中，<strong>不受系统默认的 token 过滤影响</strong>。
+              </p>
+            </div>
+
+            <!-- Add new env var -->
+            <div style="display: flex; gap: 8px; margin-bottom: 16px; align-items: flex-start;">
+              <el-input
+                v-model="newEnvKey"
+                placeholder="KEY（如 GITHUB_TOKEN）"
+                style="width: 220px; font-family: monospace;"
+                size="small"
+                @keyup.enter="addEnvVar"
+              />
+              <el-input
+                v-model="newEnvValue"
+                placeholder="VALUE"
+                style="flex: 1; font-family: monospace;"
+                size="small"
+                type="password"
+                show-password
+                @keyup.enter="addEnvVar"
+              />
+              <el-button size="small" type="primary" @click="addEnvVar" :disabled="!newEnvKey.trim()">
+                添加
+              </el-button>
+            </div>
+
+            <!-- Env vars table -->
+            <el-table
+              :data="envVarsList"
+              size="small"
+              style="width: 100%; margin-bottom: 16px;"
+              empty-text="暂无环境变量"
+            >
+              <el-table-column label="KEY" min-width="200">
+                <template #default="{ row }">
+                  <code style="font-size: 13px;">{{ row.key }}</code>
+                </template>
+              </el-table-column>
+              <el-table-column label="VALUE" min-width="200">
+                <template #default="{ row }">
+                  <el-input
+                    v-model="row.value"
+                    type="password"
+                    show-password
+                    size="small"
+                    style="font-family: monospace;"
+                    placeholder="（未设置）"
+                  />
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" width="80" fixed="right">
+                <template #default="{ $index }">
+                  <el-button size="small" type="danger" link @click="removeEnvVar($index)">删除</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+
+            <el-button type="primary" size="small" :loading="envSaving" @click="saveEnvVars">
+              保存环境变量
+            </el-button>
+          </div>
+        </el-tab-pane>
+
       </el-tabs>
     </el-main>
   </el-container>
@@ -1139,6 +1210,51 @@ const soulContent = ref('')
 const modelList = ref<ModelEntry[]>([])
 const agentModelId = ref('')
 const agentModelSaving = ref(false)
+
+// ── Env Vars ──────────────────────────────────────────────────────────────────
+const envVarsList = ref<{ key: string; value: string }[]>([])
+const newEnvKey = ref('')
+const newEnvValue = ref('')
+const envSaving = ref(false)
+
+function loadEnvVars() {
+  const env = agent.value?.env || {}
+  envVarsList.value = Object.entries(env).map(([key, value]) => ({ key, value }))
+}
+
+function addEnvVar() {
+  const key = newEnvKey.value.trim()
+  if (!key) return
+  const existing = envVarsList.value.findIndex(e => e.key === key)
+  if (existing >= 0) {
+    envVarsList.value[existing]!.value = newEnvValue.value
+  } else {
+    envVarsList.value.push({ key, value: newEnvValue.value })
+  }
+  newEnvKey.value = ''
+  newEnvValue.value = ''
+}
+
+function removeEnvVar(index: number) {
+  envVarsList.value.splice(index, 1)
+}
+
+async function saveEnvVars() {
+  envSaving.value = true
+  try {
+    const env: Record<string, string> = {}
+    for (const { key, value } of envVarsList.value) {
+      if (key.trim()) env[key.trim()] = value
+    }
+    const res = await agentsApi.update(agentId, { env })
+    agent.value = res.data
+    ElMessage.success('环境变量已保存')
+  } catch {
+    ElMessage.error('保存失败')
+  } finally {
+    envSaving.value = false
+  }
+}
 
 // Memory config (automatic consolidation)
 const memCfg = ref<MemConfig>({
@@ -1641,6 +1757,7 @@ onMounted(async () => {
   loadWorkspace()
   loadCron()
   loadAgentChannels()
+  loadEnvVars()
   await loadAgentSessions()
 
   // Handle ?tab=<name> query param (e.g. from CronView "查看" button)
