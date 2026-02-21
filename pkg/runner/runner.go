@@ -108,33 +108,187 @@ func (r *Runner) Run(ctx context.Context, userMsg string) <-chan RunEvent {
 	return out
 }
 
-// sanitizeHistory removes consecutive same-role messages to ensure Anthropic-compatible history.
-// When multiple requests race or errors leave orphaned user messages, history can have
-// [user, user, user, ...] which causes Anthropic to return HTTP 400.
-// Strategy: for consecutive user messages → keep only the last one.
-//           for consecutive assistant messages → keep only the first one.
+// sanitizeHistory fixes Anthropic-incompatible conversation history.
+// Problems handled:
+//  1. Consecutive same-role messages (user→user or assistant→assistant)
+//  2. Orphaned tool_use in assistant messages (next user msg has no tool_result)
+//  3. Orphaned tool_result in user messages (preceding assistant has no matching tool_use)
 func sanitizeHistory(msgs []llm.ChatMessage) []llm.ChatMessage {
 	if len(msgs) == 0 {
 		return msgs
 	}
-	result := make([]llm.ChatMessage, 0, len(msgs))
+	// Pass 1: deduplicate consecutive same-role messages
+	deduped := make([]llm.ChatMessage, 0, len(msgs))
 	for _, msg := range msgs {
-		if len(result) == 0 {
-			result = append(result, msg)
+		if len(deduped) == 0 {
+			deduped = append(deduped, msg)
 			continue
 		}
-		last := &result[len(result)-1]
+		last := &deduped[len(deduped)-1]
 		if msg.Role == last.Role {
 			if msg.Role == "user" {
-				// Keep the latest user message (replace)
-				*last = msg
+				*last = msg // keep latest user message
 			}
 			// For assistant: keep the first (skip duplicates)
 		} else {
+			deduped = append(deduped, msg)
+		}
+	}
+
+	// Pass 2: fix orphaned tool_use / tool_result pairs
+	result := make([]llm.ChatMessage, 0, len(deduped))
+	for i, msg := range deduped {
+		switch msg.Role {
+		case "assistant":
+			// Check if this assistant message has tool_use blocks
+			toolIDs := extractToolUseIDs(msg.Content)
+			if len(toolIDs) == 0 {
+				result = append(result, msg)
+				continue
+			}
+			// Check the NEXT message — it must be a user message with matching tool_result
+			hasNextToolResult := false
+			if i+1 < len(deduped) && deduped[i+1].Role == "user" {
+				resultIDs := extractToolResultIDs(deduped[i+1].Content)
+				hasNextToolResult = setsOverlap(toolIDs, resultIDs)
+			}
+			if hasNextToolResult {
+				result = append(result, msg)
+			} else {
+				// Strip tool_use blocks, keep only text
+				stripped := stripToolUseBlocks(msg.Content)
+				if stripped != nil {
+					result = append(result, llm.ChatMessage{Role: "assistant", Content: stripped})
+				}
+				// If stripped is nil (nothing left), skip this message entirely
+			}
+		case "user":
+			// Check if this user message contains tool_result blocks
+			resultIDs := extractToolResultIDs(msg.Content)
+			if len(resultIDs) == 0 {
+				result = append(result, msg)
+				continue
+			}
+			// Verify the preceding assistant message has matching tool_use
+			if len(result) > 0 && result[len(result)-1].Role == "assistant" {
+				prevToolIDs := extractToolUseIDs(result[len(result)-1].Content)
+				if setsOverlap(prevToolIDs, resultIDs) {
+					result = append(result, msg)
+					continue
+				}
+			}
+			// Orphaned tool_result — strip tool_result blocks, keep plain text
+			stripped := stripToolResultBlocks(msg.Content)
+			if stripped != nil {
+				result = append(result, llm.ChatMessage{Role: "user", Content: stripped})
+			}
+			// If stripped is nil, skip this message entirely
+		default:
 			result = append(result, msg)
 		}
 	}
 	return result
+}
+
+// extractToolUseIDs returns the set of tool_use IDs in a message content block.
+func extractToolUseIDs(raw json.RawMessage) map[string]bool {
+	if len(raw) == 0 || raw[0] != '[' {
+		return nil
+	}
+	var blocks []struct {
+		Type string `json:"type"`
+		ID   string `json:"id"`
+	}
+	if err := json.Unmarshal(raw, &blocks); err != nil {
+		return nil
+	}
+	ids := map[string]bool{}
+	for _, b := range blocks {
+		if b.Type == "tool_use" && b.ID != "" {
+			ids[b.ID] = true
+		}
+	}
+	return ids
+}
+
+// extractToolResultIDs returns the set of tool_use_ids referenced in tool_result blocks.
+func extractToolResultIDs(raw json.RawMessage) map[string]bool {
+	if len(raw) == 0 || raw[0] != '[' {
+		return nil
+	}
+	var blocks []struct {
+		Type      string `json:"type"`
+		ToolUseID string `json:"tool_use_id"`
+	}
+	if err := json.Unmarshal(raw, &blocks); err != nil {
+		return nil
+	}
+	ids := map[string]bool{}
+	for _, b := range blocks {
+		if b.Type == "tool_result" && b.ToolUseID != "" {
+			ids[b.ToolUseID] = true
+		}
+	}
+	return ids
+}
+
+// setsOverlap returns true if both sets share at least one element.
+func setsOverlap(a, b map[string]bool) bool {
+	for k := range a {
+		if b[k] {
+			return true
+		}
+	}
+	return false
+}
+
+// stripToolUseBlocks removes tool_use blocks from content, keeping only text blocks.
+// Returns nil if nothing remains.
+func stripToolUseBlocks(raw json.RawMessage) json.RawMessage {
+	if len(raw) == 0 || raw[0] != '[' {
+		return raw
+	}
+	var blocks []json.RawMessage
+	if err := json.Unmarshal(raw, &blocks); err != nil {
+		return raw
+	}
+	kept := blocks[:0]
+	for _, b := range blocks {
+		var probe struct{ Type string `json:"type"` }
+		if json.Unmarshal(b, &probe) == nil && probe.Type != "tool_use" {
+			kept = append(kept, b)
+		}
+	}
+	if len(kept) == 0 {
+		return nil
+	}
+	out, _ := json.Marshal(kept)
+	return out
+}
+
+// stripToolResultBlocks removes tool_result blocks, keeping plain text/image blocks.
+// Returns nil if nothing remains.
+func stripToolResultBlocks(raw json.RawMessage) json.RawMessage {
+	if len(raw) == 0 || raw[0] != '[' {
+		// Plain string user message — keep as-is
+		return raw
+	}
+	var blocks []json.RawMessage
+	if err := json.Unmarshal(raw, &blocks); err != nil {
+		return raw
+	}
+	kept := blocks[:0]
+	for _, b := range blocks {
+		var probe struct{ Type string `json:"type"` }
+		if json.Unmarshal(b, &probe) == nil && probe.Type != "tool_result" {
+			kept = append(kept, b)
+		}
+	}
+	if len(kept) == 0 {
+		return nil
+	}
+	out, _ := json.Marshal(kept)
+	return out
 }
 
 func (r *Runner) run(ctx context.Context, userMsg string, out chan<- RunEvent) error {
@@ -279,7 +433,14 @@ func (r *Runner) run(ctx context.Context, userMsg string, out chan<- RunEvent) e
 			// Only persist if we have actual content (avoid saving null/empty assistant turns
 			// that would corrupt the session history and cause Anthropic 400 errors later).
 			if r.cfg.SessionID != "" && r.cfg.Session != nil && assistantText != "" {
-				_ = r.cfg.Session.AppendMessage(r.cfg.SessionID, "assistant", assistantContent)
+				// When saving, strip tool_use blocks from the final assistant message.
+				// If the final turn (unexpectedly) had both text and tool_use, saving the
+				// tool_use without corresponding tool_result would corrupt the session.
+				safeContent := stripToolUseBlocks(assistantContent)
+				if safeContent == nil {
+					safeContent = assistantContent
+				}
+				_ = r.cfg.Session.AppendMessage(r.cfg.SessionID, "assistant", safeContent)
 			}
 			tokenEstimate := 0
 			if r.cfg.Session != nil {

@@ -585,107 +585,12 @@
         </el-tab-pane>
 
         <!-- Tab 4: Workspace -->
+        <!-- ── 工作区：三栏 Cursor 式布局 ── -->
         <el-tab-pane label="工作区" name="workspace">
-          <el-row :gutter="16">
-            <!-- 左栏：文件树 -->
-            <el-col :span="7">
-              <el-card shadow="never" style="height: calc(100vh - 200px); display: flex; flex-direction: column;">
-                <template #header>
-                  <div style="display: flex; align-items: center; justify-content: space-between;">
-                    <span>文件列表</span>
-                    <div style="display:flex;gap:4px">
-                      <el-button text size="small" @click="showNewFileDialog = true" title="新建文件">
-                        <el-icon><Plus /></el-icon>
-                      </el-button>
-                      <el-button text size="small" @click="loadWorkspace" title="刷新">
-                        <el-icon><Refresh /></el-icon>
-                      </el-button>
-                    </div>
-                  </div>
-                </template>
-                <div style="flex: 1; overflow-y: auto;">
-                  <el-tree
-                    :data="fileTreeData"
-                    :props="{ label: 'name', children: 'children' }"
-                    @node-click="handleFileClick"
-                    highlight-current
-                    default-expand-all
-                    style="font-size: 13px;"
-                  >
-                    <template #default="{ data }">
-                      <span style="display: flex; align-items: center; gap: 5px; line-height: 1.8; width: 100%;">
-                        <el-icon v-if="data.isDir" style="color: #e6a23c; font-size: 14px;"><FolderOpened /></el-icon>
-                        <el-icon v-else :style="{ color: fileIconColor(data.name), fontSize: '14px' }"><Document /></el-icon>
-                        <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ data.name }}</span>
-                        <el-text v-if="!data.isDir" type="info" size="small" style="flex-shrink:0; font-size:11px;">
-                          {{ formatSize(data.size) }}
-                        </el-text>
-                      </span>
-                    </template>
-                  </el-tree>
-                </div>
-              </el-card>
-            </el-col>
-
-            <!-- 右栏：编辑器 -->
-            <el-col :span="17">
-              <el-card shadow="never" style="height: calc(100vh - 200px); display: flex; flex-direction: column;">
-                <template #header>
-                  <div style="display:flex; align-items:center; justify-content:space-between;">
-                    <span style="font-family:monospace; font-size:13px; color:#606266;">
-                      {{ currentFile || '选择文件查看' }}
-                      <el-tag v-if="currentFile" size="small" style="margin-left:6px; font-size:11px;">
-                        {{ fileExt(currentFile) }}
-                      </el-tag>
-                    </span>
-                    <el-button
-                      v-if="currentFile"
-                      text size="small" type="danger"
-                      title="删除文件"
-                      @click="deleteCurrentFile"
-                    >
-                      <el-icon><Delete /></el-icon>
-                    </el-button>
-                  </div>
-                </template>
-                <template v-if="currentFile">
-                  <el-input
-                    v-model="currentFileContent"
-                    type="textarea"
-                    :autosize="false"
-                    :placeholder="currentFileBinary ? '二进制文件，无法编辑' : '（空文件）'"
-                    :readonly="currentFileBinary"
-                    style="flex: 1; font-family: monospace; font-size: 13px;"
-                    :rows="22"
-                  />
-                  <div style="margin-top: 8px; display: flex; gap: 8px; align-items: center;">
-                    <el-button type="primary" :disabled="currentFileBinary" @click="saveCurrentFile">保存</el-button>
-                    <el-text type="info" size="small" v-if="currentFileInfo">
-                      {{ formatSize(currentFileInfo.size) }} · {{ formatTime(currentFileInfo.modTime) }}
-                    </el-text>
-                  </div>
-                </template>
-                <el-empty v-else description="从左侧选择文件" :image-size="60" />
-              </el-card>
-            </el-col>
-          </el-row>
-
-          <!-- 新建文件 Dialog -->
-          <el-dialog v-model="showNewFileDialog" title="新建文件" width="400px">
-            <el-form label-width="80px">
-              <el-form-item label="文件路径">
-                <el-input
-                  v-model="newFilePath"
-                  placeholder="例如: notes.md 或 idear/my-idea.md"
-                  @keyup.enter="createNewFile"
-                />
-              </el-form-item>
-            </el-form>
-            <template #footer>
-              <el-button @click="showNewFileDialog = false">取消</el-button>
-              <el-button type="primary" @click="createNewFile">创建</el-button>
-            </template>
-          </el-dialog>
+          <WorkspaceChatLayout
+            :agent-id="agentId"
+            style="height: calc(100vh - 145px);"
+          />
         </el-tab-pane>
 
         <!-- Tab 5: Cron -->
@@ -1080,8 +985,9 @@ import { useRoute } from 'vue-router'
 import { ArrowLeft, Plus, EditPen, Refresh, FolderOpened, Document, ArrowDown } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import SkillStudio from '../components/SkillStudio.vue'
-import { agents as agentsApi, files as filesApi, memoryApi, cron as cronApi, sessions as sessionsApi, relationsApi, memoryConfigApi, agentChannels as agentChannelsApi, agentConversations, models as modelsApi, type AgentInfo, type FileEntry, type FileNode, type CronJob, type SessionSummary, type RelationRow, type MemConfig, type MemRunLog, type ChannelEntry, type PendingUser, type ConvEntry, type ChannelSummary, type ModelEntry } from '../api'
+import { agents as agentsApi, files as filesApi, memoryApi, cron as cronApi, sessions as sessionsApi, relationsApi, memoryConfigApi, agentChannels as agentChannelsApi, agentConversations, models as modelsApi, type AgentInfo, type CronJob, type SessionSummary, type RelationRow, type MemConfig, type MemRunLog, type ChannelEntry, type PendingUser, type ConvEntry, type ChannelSummary, type ModelEntry } from '../api'
 import AiChat, { type ChatMsg } from '../components/AiChat.vue'
+import WorkspaceChatLayout from '../components/WorkspaceChatLayout.vue'
 
 const route = useRoute()
 const agentId = route.params.id as string
@@ -1330,33 +1236,7 @@ const newMemoryPath = ref('')
 const showDailyEntry = ref(false)
 const dailyEntryContent = ref('')
 
-// Workspace
-const fileTreeData = ref<FileNode[]>([])
-const currentFile = ref('')
-const currentFileContent = ref('')
-const currentFileInfo = ref<FileEntry | null>(null)
-const currentFileBinary = ref(false)
-const showNewFileDialog = ref(false)
-const newFilePath = ref('')
-
-// 根据扩展名给文件图标着色
-function fileIconColor(name: string): string {
-  const ext = name.split('.').pop()?.toLowerCase() || ''
-  if (['md', 'txt', 'rst'].includes(ext)) return '#409eff'
-  if (['json', 'yaml', 'yml', 'toml'].includes(ext)) return '#67c23a'
-  if (['go', 'py', 'js', 'ts', 'sh', 'bash'].includes(ext)) return '#e6a23c'
-  if (['jpg', 'jpeg', 'png', 'gif', 'svg', 'webp'].includes(ext)) return '#f56c6c'
-  if (name.startsWith('.')) return '#c0c4cc'
-  return '#909399'
-}
-
-// 获取文件扩展名
-function fileExt(path: string): string {
-  const name = path.split('/').pop() || path
-  const ext = name.split('.').pop()?.toLowerCase() || ''
-  if (!ext || ext === name.toLowerCase()) return 'file'
-  return '.' + ext
-}
+// (Workspace tab now uses WorkspaceChatLayout component)
 
 // Relations
 const parsedRelations = ref<RelationRow[]>([])
@@ -1452,9 +1332,6 @@ function formatSize(bytes: number) {
   if (bytes < 1024) return bytes + ' B'
   if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB'
   return (bytes / 1048576).toFixed(1) + ' MB'
-}
-function formatTime(t: string) {
-  return new Date(t).toLocaleString()
 }
 function formatTimestamp(ms: number) {
   if (!ms) return ''
@@ -1754,7 +1631,6 @@ onMounted(async () => {
   loadRelations()
   loadOtherAgents()
   loadMemConfig()
-  loadWorkspace()
   loadCron()
   loadAgentChannels()
   loadEnvVars()
@@ -1897,76 +1773,6 @@ async function submitDailyEntry() {
   } catch {
     ElMessage.error('添加失败')
   }
-}
-
-// Workspace
-async function loadWorkspace() {
-  try {
-    const res = await filesApi.readTree(agentId)
-    if (Array.isArray(res.data)) {
-      fileTreeData.value = res.data as FileNode[]
-    }
-  } catch {}
-}
-
-async function handleFileClick(data: any) {
-  if (data.isDir) return
-  currentFile.value = data.path || data.name
-  currentFileInfo.value = data
-  currentFileBinary.value = false
-  try {
-    const res = await filesApi.read(agentId, currentFile.value)
-    if (res.data?.encoding === 'base64') {
-      currentFileBinary.value = true
-      currentFileContent.value = `[二进制文件 ${formatSize(res.data.size)}]`
-    } else {
-      currentFileContent.value = res.data?.content ?? ''
-    }
-  } catch {
-    currentFileContent.value = ''
-  }
-}
-
-async function deleteCurrentFile() {
-  if (!currentFile.value) return
-  try {
-    await ElMessageBox.confirm(`删除「${currentFile.value}」？此操作不可恢复`, '删除文件', {
-      confirmButtonText: '确认删除', cancelButtonText: '取消',
-      type: 'warning', confirmButtonClass: 'el-button--danger',
-    })
-    await filesApi.delete(agentId, currentFile.value)
-    ElMessage.success('已删除')
-    currentFile.value = ''
-    currentFileContent.value = ''
-    currentFileInfo.value = null
-    loadWorkspace()
-  } catch (e: any) {
-    if (e !== 'cancel') ElMessage.error('删除失败')
-  }
-}
-
-async function createNewFile() {
-  const path = newFilePath.value.trim()
-  if (!path) return
-  try {
-    await filesApi.write(agentId, path, '')
-    ElMessage.success(`已创建 ${path}`)
-    showNewFileDialog.value = false
-    newFilePath.value = ''
-    await loadWorkspace()
-    // Auto-open the new file
-    currentFile.value = path
-    currentFileContent.value = ''
-    currentFileInfo.value = null
-    currentFileBinary.value = false
-  } catch (e: any) {
-    ElMessage.error('创建失败')
-  }
-}
-
-async function saveCurrentFile() {
-  if (!currentFile.value) return
-  await saveFile(currentFile.value, currentFileContent.value)
 }
 
 // Cron
