@@ -243,23 +243,21 @@ function isDirectional(type: string) { return type === '上下级' || type === '
 function computeLevels(nodes: TeamGraphNode[], edges: TeamGraphEdge[]): Record<string, number> {
   const levels: Record<string, number> = {}
   nodes.forEach(n => { levels[n.id] = 0 })
+  const maxLevel = nodes.length + 1  // 防止循环依赖导致层级无限增长
   const maxIter = nodes.length + 2
   for (let iter = 0; iter < maxIter; iter++) {
     let changed = false
     for (const edge of edges) {
-      const lf = levels[edge.from] ?? 0
+      const lf = Math.min(levels[edge.from] ?? 0, maxLevel)
       const lt = levels[edge.to] ?? 0
       if (edge.type === '上下级') {
-        // from=上级(boss), to=下级(sub) → to should be ONE level below from
-        const want = lf + 1
+        const want = Math.min(lf + 1, maxLevel)
         if (lt < want) { levels[edge.to] = want; changed = true }
       } else if (edge.type === '上级') {
-        // legacy: to is from's boss → to goes UP
         const want = lf - 1
         if (lt > want) { levels[edge.to] = want; changed = true }
       } else if (edge.type === '下级') {
-        // legacy: to is from's subordinate → to goes DOWN
-        const want = lf + 1
+        const want = Math.min(lf + 1, maxLevel)
         if (lt < want) { levels[edge.to] = want; changed = true }
       }
     }
@@ -492,10 +490,15 @@ async function saveCreateRel() {
 // ── Edit relation dialog ───────────────────────────────────────────────────
 const editRelDialog = ref(false)
 const editForm = reactive({ from: '', to: '', type: '平级协作', strength: '常用', desc: '' })
+// 记录打开编辑弹窗时的原始方向，用于翻转后清除旧边
+let originalEdgeFrom = ''
+let originalEdgeTo = ''
 
 function openEditEdge(edge: TeamGraphEdge) {
   editForm.from = edge.from; editForm.to = edge.to
   editForm.type = edge.type; editForm.strength = edge.strength; editForm.desc = edge.label
+  originalEdgeFrom = edge.from
+  originalEdgeTo = edge.to
   editRelDialog.value = true
 }
 
@@ -503,6 +506,11 @@ async function saveEditRel() {
   if (savingRel.value) return
   savingRel.value = true
   try {
+    const directionChanged = editForm.from !== originalEdgeFrom || editForm.to !== originalEdgeTo
+    if (directionChanged) {
+      // 方向翻转：先删掉原来的边，再建新边（避免两条边并存）
+      await relationsApi.deleteEdge(originalEdgeFrom, originalEdgeTo)
+    }
     await relationsApi.putEdge(editForm.from, editForm.to, editForm.type, editForm.strength, editForm.desc)
     ElMessage.success('关系已更新')
     editRelDialog.value = false
