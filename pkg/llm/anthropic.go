@@ -94,9 +94,9 @@ func sanitizeContentBlocks(raw json.RawMessage) json.RawMessage {
 		if err := json.Unmarshal(b, &probe); err != nil {
 			continue
 		}
-		if probe.Type == "text" && probe.Text == "" {
-			// Replace the whole block with a minimal valid one
-			if nb, err := json.Marshal(map[string]any{"type": "text", "text": " "}); err == nil {
+		if probe.Type == "text" && strings.TrimSpace(probe.Text) == "" {
+			// Replace the whole block with a minimal valid non-whitespace one
+			if nb, err := json.Marshal(map[string]any{"type": "text", "text": "."}); err == nil {
 				blocks[i] = nb
 				changed = true
 			}
@@ -130,7 +130,7 @@ func buildAnthropicRequest(req *ChatRequest) ([]byte, error) {
 		messages[i] = m
 		content := m.Content
 		if len(content) == 0 {
-			messages[i].Content = []byte(`[{"type":"text","text":" "}]`)
+			messages[i].Content = []byte(`[{"type":"text","text":"."}]`)
 			continue
 		}
 		switch content[0] {
@@ -138,8 +138,8 @@ func buildAnthropicRequest(req *ChatRequest) ([]byte, error) {
 			// JSON string — unwrap and wrap in block array
 			var s string
 			if err := json.Unmarshal(content, &s); err == nil {
-				if s == "" {
-					s = " " // prevent empty text block
+				if strings.TrimSpace(s) == "" {
+					s = "." // prevent whitespace-only text block
 				}
 				block := []map[string]any{{"type": "text", "text": s}}
 				if b, err := json.Marshal(block); err == nil {
@@ -147,11 +147,11 @@ func buildAnthropicRequest(req *ChatRequest) ([]byte, error) {
 				}
 			}
 		case 'n': // null
-			messages[i].Content = []byte(`[{"type":"text","text":" "}]`)
+			messages[i].Content = []byte(`[{"type":"text","text":"."}]`)
 		case '[':
 			if string(content) == "[]" {
 				// Empty array — replace with minimal text block
-				messages[i].Content = []byte(`[{"type":"text","text":" "}]`)
+				messages[i].Content = []byte(`[{"type":"text","text":"."}]`)
 			} else {
 				// Non-empty array: sanitise any empty text blocks in-place
 				messages[i].Content = sanitizeContentBlocks(content)
