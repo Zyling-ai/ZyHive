@@ -23,18 +23,18 @@
         </el-form-item>
 
         <!-- 简单算术验证码 -->
-        <el-form-item>
+        <el-form-item label="验证码">
           <div class="captcha-row">
             <span class="captcha-question">{{ captchaA }} + {{ captchaB }} = ?</span>
-            <el-button size="small" text @click="refreshCaptcha" style="margin-left:8px">换一题</el-button>
+            <el-input
+              v-model="captchaInput"
+              placeholder="结果"
+              size="large"
+              style="width:100px;margin:0 8px"
+              @keyup.enter="handleLogin"
+            />
+            <el-button size="small" text type="primary" @click="refreshCaptcha">换一题</el-button>
           </div>
-          <el-input
-            v-model="captchaInput"
-            placeholder="输入计算结果"
-            size="large"
-            style="margin-top:8px"
-            @keyup.enter="handleLogin"
-          />
         </el-form-item>
 
         <el-form-item>
@@ -115,16 +115,18 @@ async function handleLogin() {
 .captcha-row {
   display: flex;
   align-items: center;
+  width: 100%;
 }
 .captcha-question {
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 700;
   color: #303133;
-  background: #f5f7fa;
-  padding: 6px 16px;
+  background: #f0f2f5;
+  padding: 8px 14px;
   border-radius: 6px;
-  letter-spacing: 2px;
+  letter-spacing: 3px;
   font-family: monospace;
   flex-shrink: 0;
+  white-space: nowrap;
 }
 </style>
