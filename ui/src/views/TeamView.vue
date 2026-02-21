@@ -26,11 +26,19 @@
 
       <!-- Graph -->
       <div v-else class="graph-container" ref="graphContainerRef">
-        <!-- Connect-mode banner -->
-        <div v-if="selectedNode" class="connect-banner">
-          <el-icon style="margin-right:6px"><Link /></el-icon>
-          连线模式：已选中 <strong style="margin:0 4px;">{{ nodeName(selectedNode) }}</strong>，点击另一个成员建立关系
-          <el-button size="small" text style="margin-left:8px" @click="selectedNode = null">取消</el-button>
+        <!-- Connect-mode banner + node edit panel -->
+        <div v-if="selectedNode" style="display:flex;gap:10px;align-items:stretch;margin-bottom:10px;flex-wrap:wrap">
+          <div class="connect-banner" style="flex:1;margin-bottom:0">
+            <el-icon style="margin-right:6px"><Link /></el-icon>
+            已选中 <strong style="margin:0 4px;">{{ nodeName(selectedNode) }}</strong>，点击另一个成员建立关系
+            <el-button size="small" text style="margin-left:8px" @click="selectedNode = null">取消</el-button>
+          </div>
+          <!-- 节点信息编辑（头像颜色） -->
+          <div class="node-edit-panel">
+            <span style="font-size:12px;color:#606266;margin-right:8px">头像颜色</span>
+            <input type="color" v-model="editingColor" class="color-picker-input" title="选择颜色" />
+            <el-button size="small" type="primary" :loading="savingColor" @click="saveNodeColor" style="margin-left:8px">保存</el-button>
+          </div>
         </div>
 
         <svg ref="svgRef" :width="svgW" :height="svgH" class="graph-svg"
@@ -211,9 +219,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, reactive } from 'vue'
+import { ref, computed, onMounted, onUnmounted, reactive, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { relationsApi, type TeamGraph, type TeamGraphEdge, type TeamGraphNode } from '../api'
+import { relationsApi, agents as agentsApi, type TeamGraph, type TeamGraphEdge, type TeamGraphNode } from '../api'
 import RelTypeForm from '../components/RelTypeForm.vue'
 
 const svgRef = ref<SVGSVGElement>()
@@ -401,8 +409,27 @@ function onSvgMouseMove(e: MouseEvent) {
 
 function onSvgBgClick() { selectedNode.value = null }
 
-// ── Connection creation ───────────────────────────────────────────────────
+// ── Connection creation + node edit ──────────────────────────────────────
 const selectedNode = ref<string | null>(null)
+const editingColor = ref('#409EFF')
+const savingColor = ref(false)
+
+watch(selectedNode, (id) => {
+  if (!id) return
+  const node = graph.value.nodes.find(n => n.id === id)
+  editingColor.value = node?.avatarColor ?? nodeColor(id)
+})
+
+async function saveNodeColor() {
+  if (!selectedNode.value || savingColor.value) return
+  savingColor.value = true
+  try {
+    await agentsApi.update(selectedNode.value, { avatarColor: editingColor.value })
+    ElMessage.success('头像颜色已更新')
+    await loadGraph()  // 刷新图谱使颜色生效
+  } catch { ElMessage.error('保存失败') }
+  finally { savingColor.value = false }
+}
 
 function onNodeClick(nodeId: string) {
   // dragState 在 mouseup 时已清空，用 lastDragId 判断是否为拖拽结束
@@ -440,6 +467,10 @@ function edgeWidth(strength: string) { return strengthWidths[strength] ?? 1.5 }
 // ── Node helpers ──────────────────────────────────────────────────────────
 const palette = ['#409EFF', '#67C23A', '#E6A23C', '#F56C6C', '#7C3AED', '#0891B2', '#B45309', '#64748B']
 function nodeColor(id: string) {
+  // 优先使用成员配置的头像颜色
+  const node = graph.value.nodes.find(n => n.id === id)
+  if (node?.avatarColor) return node.avatarColor
+  // fallback: hash-based
   let h = 0
   for (let i = 0; i < id.length; i++) h = id.charCodeAt(i) + ((h << 5) - h)
   return palette[Math.abs(h) % palette.length] ?? '#409EFF'
@@ -592,7 +623,19 @@ onUnmounted(() => {
 .connect-banner {
   display: flex; align-items: center; padding: 8px 16px;
   background: #ecf5ff; color: #409eff; font-size: 13px;
-  border-radius: 6px; margin-bottom: 10px;
+  border-radius: 6px;
+}
+/* Node edit panel */
+.node-edit-panel {
+  display: flex; align-items: center;
+  background: #f5f7fa; border: 1px solid #e4e7ed;
+  border-radius: 6px; padding: 6px 14px;
+  font-size: 13px; flex-shrink: 0;
+}
+.color-picker-input {
+  width: 32px; height: 26px; border: 1px solid #dcdfe6;
+  border-radius: 4px; padding: 0 2px; cursor: pointer;
+  background: none;
 }
 
 .graph-svg { display: block; max-width: 100%; }

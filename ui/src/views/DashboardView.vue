@@ -5,39 +5,27 @@
     <!-- Stats cards -->
     <el-row :gutter="16" style="margin-bottom: 24px">
       <el-col :span="6">
-        <el-card shadow="hover" class="stat-card">
-          <div class="stat-icon" style="background: #ecf5ff; color: #409eff"><el-icon><User /></el-icon></div>
-          <div class="stat-info">
-            <div class="stat-value">{{ stats?.agents.total ?? agentStore.list.length }}</div>
-            <div class="stat-label">AI 成员</div>
-          </div>
+        <el-card shadow="never" class="stat-card stat-card--members">
+          <div class="stat-label">AI 成员</div>
+          <div class="stat-value">{{ stats?.agents.total ?? agentStore.list.length }}</div>
         </el-card>
       </el-col>
       <el-col :span="6">
-        <el-card shadow="hover" class="stat-card">
-          <div class="stat-icon" style="background: #f0f9eb; color: #67c23a"><el-icon><ChatLineRound /></el-icon></div>
-          <div class="stat-info">
-            <div class="stat-value">{{ stats?.sessions.total ?? 0 }}</div>
-            <div class="stat-label">对话总数</div>
-          </div>
+        <el-card shadow="never" class="stat-card stat-card--sessions">
+          <div class="stat-label">对话总数</div>
+          <div class="stat-value">{{ stats?.sessions.total ?? 0 }}</div>
         </el-card>
       </el-col>
       <el-col :span="6">
-        <el-card shadow="hover" class="stat-card">
-          <div class="stat-icon" style="background: #fdf6ec; color: #e6a23c"><el-icon><Message /></el-icon></div>
-          <div class="stat-info">
-            <div class="stat-value">{{ stats?.sessions.totalMessages ?? 0 }}</div>
-            <div class="stat-label">消息总数</div>
-          </div>
+        <el-card shadow="never" class="stat-card stat-card--messages">
+          <div class="stat-label">消息总数</div>
+          <div class="stat-value">{{ stats?.sessions.totalMessages ?? 0 }}</div>
         </el-card>
       </el-col>
       <el-col :span="6">
-        <el-card shadow="hover" class="stat-card">
-          <div class="stat-icon" style="background: #fef0f0; color: #f56c6c"><el-icon><Odometer /></el-icon></div>
-          <div class="stat-info">
-            <div class="stat-value">{{ formatTokens(stats?.sessions.totalTokens ?? 0) }}</div>
-            <div class="stat-label">Token 用量</div>
-          </div>
+        <el-card shadow="never" class="stat-card stat-card--tokens">
+          <div class="stat-label">Token 用量</div>
+          <div class="stat-value">{{ formatTokens(stats?.sessions.totalTokens ?? 0) }}</div>
         </el-card>
       </el-col>
     </el-row>
@@ -153,30 +141,18 @@ function formatTokens(n: number): string {
 </script>
 
 <style scoped>
+.stat-card--members { border-left: 3px solid #409eff !important; }
+.stat-card--sessions { border-left: 3px solid #67c23a !important; }
+.stat-card--messages { border-left: 3px solid #e6a23c !important; }
+.stat-card--tokens   { border-left: 3px solid #f56c6c !important; }
 .stat-card {
   display: flex;
   align-items: center;
   padding: 0;
 }
-.stat-card :deep(.el-card__body) {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  width: 100%;
-}
-.stat-icon {
-  width: 48px;
-  height: 48px;
-  border-radius: 12px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 22px;
-  flex-shrink: 0;
-}
-.stat-info { flex: 1; }
-.stat-value { font-size: 24px; font-weight: 700; line-height: 1.2; }
-.stat-label { font-size: 13px; color: #909399; }
+.stat-card :deep(.el-card__body) { padding: 16px 20px !important; }
+.stat-value { font-size: 28px; font-weight: 700; color: #303133; margin-top: 6px; }
+.stat-label { font-size: 12px; color: #909399; text-transform: uppercase; letter-spacing: 0.5px; }
 .avatar-dot {
   width: 32px;
   height: 32px;
