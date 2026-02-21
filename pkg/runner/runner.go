@@ -215,8 +215,8 @@ func sanitizeContentBlocksInHistory(raw json.RawMessage) json.RawMessage {
 		if err := json.Unmarshal(b, &probe); err != nil {
 			continue
 		}
-		if probe.Type == "text" && probe.Text == "" {
-			if nb, err := json.Marshal(map[string]any{"type": "text", "text": " "}); err == nil {
+		if probe.Type == "text" && strings.TrimSpace(probe.Text) == "" {
+			if nb, err := json.Marshal(map[string]any{"type": "text", "text": "."}); err == nil {
 				blocks[i] = nb
 				changed = true
 			}
@@ -474,7 +474,7 @@ func (r *Runner) run(ctx context.Context, userMsg string, out chan<- RunEvent) e
 		if stopReason == "end_turn" || len(toolCalls) == 0 {
 			// Only persist if we have actual content (avoid saving null/empty assistant turns
 			// that would corrupt the session history and cause Anthropic 400 errors later).
-			if r.cfg.SessionID != "" && r.cfg.Session != nil && assistantText != "" {
+			if r.cfg.SessionID != "" && r.cfg.Session != nil && strings.TrimSpace(assistantText) != "" {
 				// When saving, strip tool_use blocks from the final assistant message.
 				// If the final turn (unexpectedly) had both text and tool_use, saving the
 				// tool_use without corresponding tool_result would corrupt the session.
@@ -565,7 +565,7 @@ func (r *Runner) makeSimpleLLMCaller() func(ctx context.Context, system, userMsg
 // empty text blocks).
 func buildAssistantContent(text string, toolCalls []llm.ToolCall) json.RawMessage {
 	blocks := make([]map[string]any, 0, 1+len(toolCalls))
-	if text != "" {
+	if strings.TrimSpace(text) != "" {
 		blocks = append(blocks, map[string]any{"type": "text", "text": text})
 	}
 	for _, tc := range toolCalls {
@@ -576,9 +576,9 @@ func buildAssistantContent(text string, toolCalls []llm.ToolCall) json.RawMessag
 			"input": tc.Input,
 		})
 	}
-	// Guard: Anthropic rejects empty content arrays and empty text blocks
+	// Guard: Anthropic rejects empty content arrays and empty/whitespace text blocks
 	if len(blocks) == 0 {
-		blocks = append(blocks, map[string]any{"type": "text", "text": " "})
+		blocks = append(blocks, map[string]any{"type": "text", "text": "."})
 	}
 	data, _ := json.Marshal(blocks)
 	return data
