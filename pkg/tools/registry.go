@@ -61,8 +61,8 @@ func New(workspaceDir, agentDir, agentID string) *Registry {
 }
 
 // NewSkillStudio creates a sandboxed Registry for the SkillStudio AI.
-// File operations are restricted to skills/{skillID}/ only.
-// Dangerous tools (self_install_skill, self_uninstall_skill, self_rename, self_update_soul, bash) are disabled.
+// File writes are restricted to skills/{skillID}/ only.
+// Bash is enabled (needed to test CLI skills). Self-management tools are disabled.
 func NewSkillStudio(workspaceDir, agentDir, agentID, skillID string) *Registry {
 	r := &Registry{
 		handlers:     make(map[string]Handler),
@@ -109,7 +109,10 @@ func NewSkillStudio(workspaceDir, agentDir, agentID, skillID string) *Registry {
 	r.register(webFetchToolDef, handleWebFetch)
 	// List skills is read-only, allow it
 	r.register(selfListSkillsDef, r.handleSelfListSkills)
-	// Bash, self_install_skill, self_uninstall_skill, self_rename, self_update_soul: NOT registered (disabled)
+	// Bash: enabled in skill-studio so the AI can test CLI tools and verify skill behaviour.
+	// CWD is set to the agent workspace, same as the normal chat context.
+	r.register(bashToolDef, r.handleBashWS)
+	// self_install_skill, self_uninstall_skill, self_rename, self_update_soul: NOT registered (disabled)
 	return r
 }
 
