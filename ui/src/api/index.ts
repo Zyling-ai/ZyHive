@@ -534,7 +534,7 @@ export interface TaskInfo {
 }
 
 export const tasks = {
-  list: (params?: { agentId?: string; status?: string }) =>
+  list: (params?: { agentId?: string; status?: string; sessionId?: string }) =>
     api.get<TaskInfo[]>('/tasks', { params }),
   get: (id: string) => api.get<TaskInfo>(`/tasks/${id}`),
   spawn: (data: { agentId: string; task: string; label?: string; model?: string; spawnedBy?: string }) =>
