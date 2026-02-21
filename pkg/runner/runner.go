@@ -135,6 +135,14 @@ func sanitizeHistory(msgs []llm.ChatMessage) []llm.ChatMessage {
 		}
 	}
 
+	// Pass 1b: sanitise empty text blocks in any message content
+	// (handles stale session data written before this fix was applied)
+	for i, m := range deduped {
+		if len(m.Content) > 0 && m.Content[0] == '[' {
+			deduped[i].Content = sanitizeContentBlocksInHistory(m.Content)
+		}
+	}
+
 	// Pass 2: fix orphaned tool_use / tool_result pairs
 	result := make([]llm.ChatMessage, 0, len(deduped))
 	for i, msg := range deduped {
@@ -188,6 +196,40 @@ func sanitizeHistory(msgs []llm.ChatMessage) []llm.ChatMessage {
 		}
 	}
 	return result
+}
+
+// sanitizeContentBlocksInHistory replaces empty text blocks with a space,
+// preventing Anthropic "text content blocks must be non-empty" errors
+// when session history was written with empty text content.
+func sanitizeContentBlocksInHistory(raw json.RawMessage) json.RawMessage {
+	var blocks []json.RawMessage
+	if err := json.Unmarshal(raw, &blocks); err != nil {
+		return raw
+	}
+	changed := false
+	for i, b := range blocks {
+		var probe struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		}
+		if err := json.Unmarshal(b, &probe); err != nil {
+			continue
+		}
+		if probe.Type == "text" && probe.Text == "" {
+			if nb, err := json.Marshal(map[string]any{"type": "text", "text": " "}); err == nil {
+				blocks[i] = nb
+				changed = true
+			}
+		}
+	}
+	if !changed {
+		return raw
+	}
+	out, err := json.Marshal(blocks)
+	if err != nil {
+		return raw
+	}
+	return out
 }
 
 // extractToolUseIDs returns the set of tool_use IDs in a message content block.
@@ -519,9 +561,10 @@ func (r *Runner) makeSimpleLLMCaller() func(ctx context.Context, system, userMsg
 }
 
 // buildAssistantContent constructs the assistant message content array.
+// Guarantees at least one valid block (Anthropic rejects empty arrays and
+// empty text blocks).
 func buildAssistantContent(text string, toolCalls []llm.ToolCall) json.RawMessage {
-	// Use non-nil slice so JSON serializes to [] instead of null when empty.
-	blocks := make([]map[string]any, 0)
+	blocks := make([]map[string]any, 0, 1+len(toolCalls))
 	if text != "" {
 		blocks = append(blocks, map[string]any{"type": "text", "text": text})
 	}
@@ -532,6 +575,10 @@ func buildAssistantContent(text string, toolCalls []llm.ToolCall) json.RawMessag
 			"name":  tc.Name,
 			"input": tc.Input,
 		})
+	}
+	// Guard: Anthropic rejects empty content arrays and empty text blocks
+	if len(blocks) == 0 {
+		blocks = append(blocks, map[string]any{"type": "text", "text": " "})
 	}
 	data, _ := json.Marshal(blocks)
 	return data

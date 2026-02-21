@@ -77,40 +77,85 @@ func (c *AnthropicClient) Stream(ctx context.Context, req *ChatRequest) (<-chan 
 }
 
 // buildAnthropicRequest converts our generic ChatRequest to Anthropic JSON.
+// sanitizeContentBlocks walks a JSON content array and replaces any
+// text blocks with empty "text" field with a single space, preventing
+// the Anthropic "text content blocks must be non-empty" 400 error.
+func sanitizeContentBlocks(raw json.RawMessage) json.RawMessage {
+	var blocks []json.RawMessage
+	if err := json.Unmarshal(raw, &blocks); err != nil {
+		return raw
+	}
+	changed := false
+	for i, b := range blocks {
+		var probe struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		}
+		if err := json.Unmarshal(b, &probe); err != nil {
+			continue
+		}
+		if probe.Type == "text" && probe.Text == "" {
+			// Replace the whole block with a minimal valid one
+			if nb, err := json.Marshal(map[string]any{"type": "text", "text": " "}); err == nil {
+				blocks[i] = nb
+				changed = true
+			}
+		}
+	}
+	if !changed {
+		return raw
+	}
+	out, err := json.Marshal(blocks)
+	if err != nil {
+		return raw
+	}
+	return out
+}
+
 func buildAnthropicRequest(req *ChatRequest) ([]byte, error) {
 	maxTokens := req.MaxTokens
 	if maxTokens == 0 {
 		maxTokens = 8096
 	}
 
-	// Normalise message content: Anthropic requires content to be a non-empty list.
-	// Session-persisted user messages use JSON string format — must be converted.
-	// Edge cases to handle: null, empty string "", empty array [].
+	// Normalise message content: Anthropic requires content to be a non-empty list
+	// with no empty text blocks ("text content blocks must be non-empty").
+	// Handled cases:
+	//   null / empty bytes  → [{"type":"text","text":" "}]
+	//   "" (JSON string)    → [{"type":"text","text":"<value or space>"}]
+	//   "[]" (empty array)  → [{"type":"text","text":" "}]
+	//   array with "" text  → replace "" with " " in each text block
 	messages := make([]ChatMessage, len(req.Messages))
 	for i, m := range req.Messages {
 		messages[i] = m
 		content := m.Content
 		if len(content) == 0 {
-			content = []byte(`""`)
+			messages[i].Content = []byte(`[{"type":"text","text":" "}]`)
+			continue
 		}
 		switch content[0] {
 		case '"':
-			// String content — wrap in text block array
+			// JSON string — unwrap and wrap in block array
 			var s string
 			if err := json.Unmarshal(content, &s); err == nil {
+				if s == "" {
+					s = " " // prevent empty text block
+				}
 				block := []map[string]any{{"type": "text", "text": s}}
 				if b, err := json.Marshal(block); err == nil {
 					messages[i].Content = b
 				}
 			}
 		case 'n': // null
-			messages[i].Content = []byte(`[{"type":"text","text":""}]`)
+			messages[i].Content = []byte(`[{"type":"text","text":" "}]`)
 		case '[':
-			// Array content — check if empty []
 			if string(content) == "[]" {
-				messages[i].Content = []byte(`[{"type":"text","text":""}]`)
+				// Empty array — replace with minimal text block
+				messages[i].Content = []byte(`[{"type":"text","text":" "}]`)
+			} else {
+				// Non-empty array: sanitise any empty text blocks in-place
+				messages[i].Content = sanitizeContentBlocks(content)
 			}
-			// Non-empty array: leave as-is (already valid)
 		}
 		// '{' (bare object) and other cases: leave as-is
 	}
