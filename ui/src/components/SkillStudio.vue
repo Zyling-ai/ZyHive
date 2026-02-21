@@ -578,11 +578,7 @@ async function openNew() {
         initializedSessions.value.add(id)
         await getChatRef(id)?.resumeSession?.(`skill-studio-${id}`)
       }
-      // 自动触发 AI 生成推荐（后台异步，不阻塞，不影响其他 skill 的流）
-      const existingNames = skills.value.filter(s => s.id !== id).map(s => s.name).join('、') || '暂无'
-      getChatRef(id)?.sendSilent?.(
-        `【纯文字输出，不使用任何工具，不创建任何文件】当前已有技能：${existingNames}。请推荐3个全新的、与已有技能不重复的技能方向，每条一句话，直接列出即可。`
-      )
+      // 欢迎词已通过 chatWelcome computed + :welcome-message 展示，无需 AI 自动发消息
     }
   } catch (e: any) {
     ElMessage.error(e.response?.data?.error || '创建失败')
