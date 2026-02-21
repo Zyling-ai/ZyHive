@@ -291,8 +291,11 @@ const posMap = computed<Record<string, { x: number; y: number }>>(() => {
 
 // ── Drag ──────────────────────────────────────────────────────────────────
 interface DragState {
-  id: string; startClientX: number; startClientY: number
-  startNodeX: number; startNodeY: number; moved: boolean
+  id: string
+  startClientX: number; startClientY: number
+  // 鼠标点击时，节点中心相对于鼠标的 SVG 坐标偏移（保持跟手）
+  offsetX: number; offsetY: number
+  moved: boolean
 }
 const dragPositions = ref<Record<string, { x: number; y: number }>>({})
 const dragState = ref<DragState | null>(null)
@@ -309,29 +312,45 @@ function effPos(id: string): { x: number; y: number } {
 function onNodeMouseDown(e: MouseEvent, nodeId: string) {
   e.preventDefault()
   lastDragId.value = null  // 每次按下都重置
-  const pos = effPos(nodeId)
+  const nodePos = effPos(nodeId)
+  const mouseInSvg = clientToSvg(e.clientX, e.clientY)
   dragState.value = {
     id: nodeId,
     startClientX: e.clientX, startClientY: e.clientY,
-    startNodeX: pos.x, startNodeY: pos.y,
+    // 节点中心与鼠标点击位置在 SVG 坐标系中的偏移，保持完全跟手
+    offsetX: nodePos.x - mouseInSvg.x,
+    offsetY: nodePos.y - mouseInSvg.y,
     moved: false,
   }
   document.addEventListener('mousemove', onDocMouseMove)
   document.addEventListener('mouseup', onDocMouseUp)
 }
 
-/** Convert client coords → SVG coordinate space using explicit rect+scale. */
+/** Convert client coords → SVG coordinate space.
+ *  使用 getScreenCTM().inverse() 精确处理任意缩放/平移/DPR，
+ *  比手动 rect+scale 更准确，不受 CSS width:100% 影响。 */
 function clientToSvg(clientX: number, clientY: number): { x: number; y: number } {
   const el = svgRef.value
   if (!el) return { x: clientX, y: clientY }
-  const rect = el.getBoundingClientRect()
-  const sx = rect.width  > 0 ? svgW.value / rect.width  : 1
-  const sy = rect.height > 0 ? svgH.value / rect.height : 1
-  return { x: (clientX - rect.left) * sx, y: (clientY - rect.top) * sy }
+  const ctm = el.getScreenCTM()
+  if (!ctm) {
+    // fallback: 手动换算
+    const rect = el.getBoundingClientRect()
+    const sx = rect.width  > 0 ? svgW.value / rect.width  : 1
+    const sy = rect.height > 0 ? svgH.value / rect.height : 1
+    return { x: (clientX - rect.left) * sx, y: (clientY - rect.top) * sy }
+  }
+  const pt = el.createSVGPoint()
+  pt.x = clientX
+  pt.y = clientY
+  const r = pt.matrixTransform(ctm.inverse())
+  return { x: r.x, y: r.y }
 }
 
 function onDocMouseMove(e: MouseEvent) {
-  if (svgRef.value) mousePos.value = clientToSvg(e.clientX, e.clientY)
+  const svgPos = clientToSvg(e.clientX, e.clientY)
+  mousePos.value = svgPos
+
   if (!dragState.value) return
 
   const dx = e.clientX - dragState.value.startClientX
@@ -339,15 +358,10 @@ function onDocMouseMove(e: MouseEvent) {
   if (Math.abs(dx) > 4 || Math.abs(dy) > 4) dragState.value.moved = true
   if (!dragState.value.moved) return
 
-  // Convert pixel delta to SVG units using current scale
-  const el = svgRef.value
-  const rect = el?.getBoundingClientRect()
-  const sx = rect && rect.width  > 0 ? svgW.value / rect.width  : 1
-  const sy = rect && rect.height > 0 ? svgH.value / rect.height : 1
-
-  const newX = dragState.value.startNodeX + dx * sx
-  const newY = dragState.value.startNodeY + dy * sy
-  const minX = NODE_R + 4, maxX = svgW.value * 2 - NODE_R
+  // 直接用 SVG 坐标 + 初始偏移，完全跟手，无需缩放计算
+  const newX = svgPos.x + dragState.value.offsetX
+  const newY = svgPos.y + dragState.value.offsetY
+  const minX = NODE_R + 4, maxX = svgW.value - NODE_R
   const minY = NODE_R + 4, maxY = svgH.value - NODE_R - 24
   dragPositions.value = {
     ...dragPositions.value,
