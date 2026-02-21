@@ -36,7 +36,19 @@
         <svg ref="svgRef" :width="svgW" :height="svgH" class="graph-svg"
           @mousemove="onSvgMouseMove"
           @click.self="onSvgBgClick"
-          style="display:block;width:100%;">
+          style="display:block;">
+
+          <!-- Grid background -->
+          <defs>
+            <pattern id="smallGrid" width="20" height="20" patternUnits="userSpaceOnUse">
+              <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#e8ecf0" stroke-width="0.5"/>
+            </pattern>
+            <pattern id="grid" width="100" height="100" patternUnits="userSpaceOnUse">
+              <rect width="100" height="100" fill="url(#smallGrid)"/>
+              <path d="M 100 0 L 0 0 0 100" fill="none" stroke="#dde1e7" stroke-width="1"/>
+            </pattern>
+          </defs>
+          <rect width="100%" height="100%" fill="url(#grid)" rx="0"/>
 
           <!-- Connection preview line (dashed, from selected node to cursor) -->
           <line v-if="selectedNode"
@@ -293,25 +305,43 @@ function onNodeMouseDown(e: MouseEvent, nodeId: string) {
   document.addEventListener('mouseup', onDocMouseUp)
 }
 
+/** Convert client (screen) coordinates to SVG internal coordinates,
+ *  correctly handling any CSS scaling of the SVG element. */
+function clientToSvg(clientX: number, clientY: number): { x: number; y: number } {
+  const svg = svgRef.value
+  if (!svg) return { x: clientX, y: clientY }
+  const ctm = svg.getScreenCTM()
+  if (!ctm) return { x: clientX, y: clientY }
+  const inv = ctm.inverse()
+  const pt = svg.createSVGPoint()
+  pt.x = clientX; pt.y = clientY
+  const r = pt.matrixTransform(inv)
+  return { x: r.x, y: r.y }
+}
+
 function onDocMouseMove(e: MouseEvent) {
-  // Update mousePos for connection preview (SVG-relative)
-  if (svgRef.value) {
-    const rect = svgRef.value.getBoundingClientRect()
-    mousePos.value = { x: e.clientX - rect.left, y: e.clientY - rect.top }
-  }
+  // Update mousePos for connection-preview line (SVG coords)
+  const svgPos = clientToSvg(e.clientX, e.clientY)
+  mousePos.value = svgPos
+
   if (!dragState.value) return
   const dx = e.clientX - dragState.value.startClientX
   const dy = e.clientY - dragState.value.startClientY
   if (Math.abs(dx) > 4 || Math.abs(dy) > 4) dragState.value.moved = true
   if (dragState.value.moved) {
-    // Clamp within SVG bounds with padding
+    // Compute new SVG position from original node position + delta (in SVG coords)
+    const startSvg = clientToSvg(dragState.value.startClientX, dragState.value.startClientY)
+    const curSvg = clientToSvg(e.clientX, e.clientY)
+    const newX = dragState.value.startNodeX + (curSvg.x - startSvg.x)
+    const newY = dragState.value.startNodeY + (curSvg.y - startSvg.y)
+    // Clamp within SVG bounds
     const minX = NODE_R + 4, maxX = svgW.value - NODE_R - 4
     const minY = NODE_R + 4, maxY = svgH.value - NODE_R - 24
     dragPositions.value = {
       ...dragPositions.value,
       [dragState.value.id]: {
-        x: Math.round(Math.max(minX, Math.min(maxX, dragState.value.startNodeX + dx))),
-        y: Math.round(Math.max(minY, Math.min(maxY, dragState.value.startNodeY + dy))),
+        x: Math.round(Math.max(minX, Math.min(maxX, newX))),
+        y: Math.round(Math.max(minY, Math.min(maxY, newY))),
       },
     }
   }
@@ -324,10 +354,8 @@ function onDocMouseUp() {
 }
 
 function onSvgMouseMove(e: MouseEvent) {
-  // Keep mousePos updated for connection-preview line (SVG-relative coords)
-  if (!dragState.value && svgRef.value) {
-    const rect = svgRef.value.getBoundingClientRect()
-    mousePos.value = { x: e.clientX - rect.left, y: e.clientY - rect.top }
+  if (!dragState.value) {
+    mousePos.value = clientToSvg(e.clientX, e.clientY)
   }
 }
 
