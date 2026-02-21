@@ -1,7 +1,7 @@
 <template>
   <div class="skill-studio">
     <!-- ── 左：技能列表 ── -->
-    <div class="studio-sidebar">
+    <div class="studio-sidebar" :style="{ width: sideW + 'px' }">
       <div class="sidebar-top">
         <span class="sidebar-title">技能库</span>
         <div class="sidebar-acts">
@@ -44,6 +44,9 @@
       </div>
     </div>
 
+    <!-- 拖拽手柄 1: 侧边栏 ↔ 编辑器 -->
+    <div class="ss-handle" @mousedown="startResize($event, 'side')" :class="{ dragging: dragging === 'side' }"><div class="ss-handle-bar"/></div>
+
     <!-- ── 中：编辑器 ── -->
     <div class="studio-editor">
       <!-- 空态 -->
@@ -79,7 +82,7 @@
         <!-- 文件树 + 编辑区 -->
         <div class="editor-body">
           <!-- 文件树 -->
-          <div class="file-tree">
+          <div class="file-tree" :style="{ width: treeW + 'px' }">
             <div class="tree-title">
               目录
               <el-button link size="small" :loading="dirLoading" @click="loadDirFiles" style="margin-left:auto;padding:0">
@@ -109,6 +112,9 @@
             </div>
             <div v-if="!dirLoading && dirFiles.length === 0" class="tree-empty">空目录</div>
           </div>
+
+          <!-- 拖拽手柄 2: 文件树 ↔ 编辑区 -->
+          <div class="ss-handle" @mousedown="startResize($event, 'tree')" :class="{ dragging: dragging === 'tree' }"><div class="ss-handle-bar"/></div>
 
           <!-- skill.json 元数据编辑 -->
           <div v-if="activeFile === 'meta'" class="file-editor">
@@ -221,8 +227,11 @@
       </template>
     </div>
 
+    <!-- 拖拽手柄 3: 编辑器 ↔ 聊天 -->
+    <div class="ss-handle" @mousedown="startResize($event, 'chat')" :class="{ dragging: dragging === 'chat' }"><div class="ss-handle-bar"/></div>
+
     <!-- ── 右：AI 协作聊天 ── -->
-    <div class="studio-chat">
+    <div class="studio-chat" :style="{ width: chatW + 'px' }">
       <div class="chat-panel-head">
         <el-icon><ChatLineRound /></el-icon>
         AI 协作配置
@@ -264,6 +273,33 @@ import AiChat from './AiChat.vue'
 
 const props = defineProps<{ agentId: string }>()
 const agentId = props.agentId
+
+// ── Panel resize ──────────────────────────────────────────────────────────
+const sideW    = ref(200)  // sidebar width
+const treeW    = ref(140)  // file tree width
+const chatW    = ref(340)  // chat panel width
+const dragging = ref<'side'|'tree'|'chat'|''>('')
+
+function startResize(e: MouseEvent, target: 'side'|'tree'|'chat') {
+  const startX = e.clientX
+  const startW = target === 'side' ? sideW.value : target === 'tree' ? treeW.value : chatW.value
+  dragging.value = target
+  const onMove = (ev: MouseEvent) => {
+    const d = ev.clientX - startX
+    if      (target === 'side') sideW.value = Math.max(140, Math.min(340, startW + d))
+    else if (target === 'tree') treeW.value = Math.max(100, Math.min(280, startW + d))
+    else                        chatW.value = Math.max(240, Math.min(560, startW - d))
+  }
+  const onUp = () => {
+    dragging.value = ''
+    window.removeEventListener('mousemove', onMove)
+    window.removeEventListener('mouseup', onUp)
+    document.body.style.cursor = ''; document.body.style.userSelect = ''
+  }
+  window.addEventListener('mousemove', onMove)
+  window.addEventListener('mouseup', onUp)
+  document.body.style.cssText += 'cursor:col-resize;user-select:none;'
+}
 
 // ── State ──────────────────────────────────────────────────────────────────
 const skills = ref<AgentSkillMeta[]>([])
@@ -630,7 +666,7 @@ onMounted(loadList)
 <style scoped>
 .skill-studio {
   display: flex;
-  height: 600px;
+  height: 100%;   /* 由父元素传入 style="height: calc(...)" 控制 */
   min-height: 400px;
   overflow: hidden;
   gap: 0;
@@ -639,7 +675,6 @@ onMounted(loadList)
 
 /* ── Sidebar ── */
 .studio-sidebar {
-  width: 220px;
   flex-shrink: 0;
   background: #fff;
   border-right: 1px solid #e4e7ed;
@@ -740,7 +775,6 @@ onMounted(loadList)
 
 /* File tree */
 .file-tree {
-  width: 150px;
   flex-shrink: 0;
   border-right: 1px solid #f0f0f0;
   background: #fafafa;
@@ -833,7 +867,6 @@ onMounted(loadList)
 
 /* ── Chat ── */
 .studio-chat {
-  width: 340px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -858,5 +891,25 @@ onMounted(loadList)
   overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+/* ── 拖拽手柄 ── */
+.ss-handle {
+  width: 4px;
+  background: #e4e7ed;
+  cursor: col-resize;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background .15s;
+  position: relative;
+  z-index: 10;
+}
+.ss-handle:hover, .ss-handle.dragging { background: #409eff; }
+.ss-handle-bar {
+  width: 2px; height: 28px;
+  background: rgba(255,255,255,.6);
+  border-radius: 2px;
 }
 </style>

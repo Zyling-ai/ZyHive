@@ -528,7 +528,7 @@
 
         <!-- Tab: 技能 -->
         <el-tab-pane label="技能" name="skills">
-          <SkillStudio :agent-id="agentId" />
+          <SkillStudio :agent-id="agentId" style="height: calc(100vh - 145px);" />
         </el-tab-pane>
 
         <!-- Tab: 历史对话 -->
