@@ -32,6 +32,14 @@ type Registry struct {
 	projectMgr   *project.Manager  // shared project workspace (nil = no project access)
 	agentEnv     map[string]string  // per-agent env vars injected into exec (bypass sanitize)
 	subagentMgr  *subagent.Manager  // background task manager (nil = no subagent tools)
+	agentLister  func() []AgentSummary // optional: lists available agents for agent_list tool
+}
+
+// AgentSummary is the minimal agent info exposed through the agent_list tool.
+type AgentSummary struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
 }
 
 // New creates a Registry pre-loaded with all built-in tools.
@@ -130,13 +138,39 @@ func (r *Registry) WithSessionID(id string) {
 	r.sessionID = id
 }
 
+// WithAgentLister registers an agent_list tool that lets the AI look up available
+// agent IDs before calling agent_spawn.
+func (r *Registry) WithAgentLister(lister func() []AgentSummary) {
+	r.agentLister = lister
+	r.register(llm.ToolDef{
+		Name:        "agent_list",
+		Description: "列出所有可用的 AI 成员（返回 id、name、description）。在调用 agent_spawn 前先调用此工具确认正确的 agentId。",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
+	}, func(_ context.Context, _ json.RawMessage) (string, error) {
+		agents := r.agentLister()
+		if len(agents) == 0 {
+			return "（暂无可用成员）", nil
+		}
+		var sb strings.Builder
+		sb.WriteString("可用 AI 成员列表：\n\n")
+		for _, a := range agents {
+			sb.WriteString(fmt.Sprintf("- **%s** (id: `%s`)", a.Name, a.ID))
+			if a.Description != "" {
+				sb.WriteString(" — " + a.Description)
+			}
+			sb.WriteString("\n")
+		}
+		return sb.String(), nil
+	})
+}
+
 // WithSubagentManager registers background task tools (agent_spawn, agent_tasks, agent_kill).
 func (r *Registry) WithSubagentManager(mgr *subagent.Manager) {
 	r.subagentMgr = mgr
 
 	r.register(llm.ToolDef{
 		Name:        "agent_spawn",
-		Description: "在后台派生一个 AI 成员执行任务。任务异步执行，不阻塞当前对话。完成后自动通知。返回任务 ID。",
+		Description: "在后台派生一个 AI 成员执行任务。任务异步执行，不阻塞当前对话。完成后自动通知。返回任务 ID。⚠️ 务必先调用 agent_list 确认正确的 agentId，不要猜测。",
 		InputSchema: json.RawMessage(`{
 			"type":"object",
 			"properties":{

@@ -103,9 +103,19 @@ func (h *chatHandler) Chat(c *gin.Context) {
 	if len(ag.Env) > 0 {
 		toolRegistry.WithEnv(ag.Env)
 	}
-	// Enable background task tools if subagent manager is available
+	// Enable background task tools + agent_list if subagent manager is available
 	if h.subagentMgr != nil {
 		toolRegistry.WithSubagentManager(h.subagentMgr)
+		toolRegistry.WithAgentLister(func() []tools.AgentSummary {
+			list := h.manager.List()
+			out := make([]tools.AgentSummary, 0, len(list))
+			for _, a := range list {
+				if !a.System { // hide system agents
+					out = append(out, tools.AgentSummary{ID: a.ID, Name: a.Name, Description: a.Description})
+				}
+			}
+			return out
+		})
 	}
 	store := session.NewStore(ag.SessionDir)
 
