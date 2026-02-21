@@ -66,6 +66,9 @@ func New(cfg Config) *Runner {
 			for _, m := range msgs {
 				r.history = append(r.history, llm.ChatMessage{Role: m.Role, Content: m.Content})
 			}
+			// Sanitize: remove consecutive same-role messages to prevent Anthropic 400 errors.
+			// This can happen when concurrent requests or errors leave orphaned user messages.
+			r.history = sanitizeHistory(r.history)
 			return r
 		}
 	}
@@ -99,6 +102,35 @@ func (r *Runner) Run(ctx context.Context, userMsg string) <-chan RunEvent {
 		}
 	}()
 	return out
+}
+
+// sanitizeHistory removes consecutive same-role messages to ensure Anthropic-compatible history.
+// When multiple requests race or errors leave orphaned user messages, history can have
+// [user, user, user, ...] which causes Anthropic to return HTTP 400.
+// Strategy: for consecutive user messages → keep only the last one.
+//           for consecutive assistant messages → keep only the first one.
+func sanitizeHistory(msgs []llm.ChatMessage) []llm.ChatMessage {
+	if len(msgs) == 0 {
+		return msgs
+	}
+	result := make([]llm.ChatMessage, 0, len(msgs))
+	for _, msg := range msgs {
+		if len(result) == 0 {
+			result = append(result, msg)
+			continue
+		}
+		last := &result[len(result)-1]
+		if msg.Role == last.Role {
+			if msg.Role == "user" {
+				// Keep the latest user message (replace)
+				*last = msg
+			}
+			// For assistant: keep the first (skip duplicates)
+		} else {
+			result = append(result, msg)
+		}
+	}
+	return result
 }
 
 func (r *Runner) run(ctx context.Context, userMsg string, out chan<- RunEvent) error {
@@ -151,10 +183,13 @@ func (r *Runner) run(ctx context.Context, userMsg string, out chan<- RunEvent) e
 	} else {
 		userContent, _ = json.Marshal(userMsg)
 	}
-	r.history = append(r.history, llm.ChatMessage{
-		Role:    "user",
-		Content: userContent,
-	})
+	// If history ends with a "user" message (orphaned from a failed turn),
+	// replace it in-memory so we don't send consecutive user messages to the LLM.
+	if len(r.history) > 0 && r.history[len(r.history)-1].Role == "user" {
+		r.history[len(r.history)-1] = llm.ChatMessage{Role: "user", Content: userContent}
+	} else {
+		r.history = append(r.history, llm.ChatMessage{Role: "user", Content: userContent})
+	}
 
 	// Persist user message to session (server-side history)
 	if r.cfg.SessionID != "" && r.cfg.Session != nil {
