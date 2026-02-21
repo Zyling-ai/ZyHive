@@ -151,6 +151,11 @@ func parseAnthropicSSE(ctx context.Context, body io.Reader, events chan<- Stream
 				ID    string `json:"id"`
 				Name  string `json:"name"`
 			} `json:"content_block"`
+			// error event
+			Error struct {
+				Type    string `json:"type"`
+				Message string `json:"message"`
+			} `json:"error"`
 		}
 		if err := json.Unmarshal([]byte(data), &event); err != nil {
 			continue
@@ -211,6 +216,17 @@ func parseAnthropicSSE(ctx context.Context, body io.Reader, events chan<- Stream
 			events <- StreamEvent{Type: EventStop, StopReason: delta.StopReason}
 
 		case "message_stop":
+			return
+
+		case "error":
+			msg := event.Error.Message
+			if msg == "" {
+				msg = event.Error.Type
+			}
+			if msg == "" {
+				msg = "unknown Anthropic error"
+			}
+			events <- StreamEvent{Type: EventError, Err: fmt.Errorf("anthropic: %s", msg)}
 			return
 		}
 	}
