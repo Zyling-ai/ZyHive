@@ -197,7 +197,7 @@ func (r *Runner) run(ctx context.Context, userMsg string, out chan<- RunEvent) e
 	}
 
 	// 2. Agentic loop — call LLM, handle tools, repeat
-	const maxIter = 10
+	const maxIter = 30
 	for i := 0; i < maxIter; i++ {
 		// Build system prompt from workspace identity files
 		systemPrompt, _ := BuildSystemPrompt(r.cfg.WorkspaceDir)
