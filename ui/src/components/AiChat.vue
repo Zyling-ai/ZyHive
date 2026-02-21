@@ -1065,7 +1065,29 @@ async function reconnectIfGenerating(sessionId: string) {
   if (streaming.value) return // already streaming
 
   const status = await getSessionStatus(props.agentId, sessionId)
-  if (!status.hasWorker) return // no active worker — nothing to reconnect
+  if (!status.hasWorker) return // no active worker at all
+
+  if (status.status !== 'generating') {
+    // Worker exists but is idle — generation just finished while we were loading history.
+    // Silently reload messages to pick up the completed response.
+    try {
+      const res = await sessionsApi.get(props.agentId, sessionId)
+      const parsed = res.data.messages ?? []
+      const loaded: ChatMsg[] = []
+      if (parsed.some((m: any) => m.isCompact || m.role === 'compaction')) {
+        loaded.push({ role: 'system', text: '更早的内容已压缩' })
+      }
+      for (const m of parsed) {
+        if (m.role === 'compaction') continue
+        loaded.push({ role: m.role as 'user' | 'assistant', text: m.text })
+      }
+      messages.value = loaded
+      scrollBottom()
+    } catch {}
+    return
+  }
+
+  // Worker is actively generating — subscribe to live stream
 
   // Worker is alive (generating or just finished).
   // Subscribe to the broadcaster to get buffered + live events.

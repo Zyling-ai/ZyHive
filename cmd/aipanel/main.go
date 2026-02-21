@@ -132,7 +132,8 @@ func main() {
 		}
 		msg := fmt.Sprintf("[后台任务完成] %s **%s**（任务 ID: %s）\n\n%s", statusIcon, taskLabel, taskID, summary)
 		content, _ := json.Marshal(msg)
-		_ = store.AppendMessage(spawnedBySession, "user", content)
+		// Save as "assistant" so it renders on the left side (not as a user bubble)
+		_ = store.AppendMessage(spawnedBySession, "assistant", content)
 		log.Printf("[subagent] notify: task %s (%s) → session %s", taskID, status, spawnedBySession)
 	})
 
