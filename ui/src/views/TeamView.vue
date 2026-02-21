@@ -183,6 +183,7 @@
         v-model:type="relForm.type"
         v-model:strength="relForm.strength"
         v-model:desc="relForm.desc"
+        @swap="() => { const t = relForm.from; relForm.from = relForm.to; relForm.to = t }"
       />
       <template #footer>
         <el-button @click="createRelDialog = false">取消</el-button>
@@ -198,6 +199,7 @@
         v-model:type="editForm.type"
         v-model:strength="editForm.strength"
         v-model:desc="editForm.desc"
+        @swap="() => { const t = editForm.from; editForm.from = editForm.to; editForm.to = t }"
       />
       <template #footer>
         <el-button type="danger" plain :loading="savingRel" @click="confirmDeleteEdge">删除关系</el-button>
