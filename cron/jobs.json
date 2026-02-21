@@ -19,9 +19,9 @@
     "agentId": "main",
     "createdAtMs": 1771548403812,
     "state": {
-      "nextRunAtMs": 1771696800000,
-      "lastRunAtMs": 1771610400002,
-      "lastStatus": "ok"
+      "nextRunAtMs": 1771783200000,
+      "lastRunAtMs": 1771696800002,
+      "lastStatus": "error"
     }
   },
   {
@@ -44,9 +44,9 @@
     "agentId": "arch",
     "createdAtMs": 1771596383761,
     "state": {
-      "nextRunAtMs": 1771696800000,
-      "lastRunAtMs": 1771610400002,
-      "lastStatus": "ok"
+      "nextRunAtMs": 1771783200000,
+      "lastRunAtMs": 1771696800002,
+      "lastStatus": "error"
     }
   },
   {
@@ -69,9 +69,9 @@
     "agentId": "footy",
     "createdAtMs": 1771609575622,
     "state": {
-      "nextRunAtMs": 1771696800000,
-      "lastRunAtMs": 1771610400002,
-      "lastStatus": "ok"
+      "nextRunAtMs": 1771783200000,
+      "lastRunAtMs": 1771696800002,
+      "lastStatus": "error"
     }
   },
   {
@@ -94,7 +94,9 @@
     "agentId": "xiuliu",
     "createdAtMs": 1771663283024,
     "state": {
-      "nextRunAtMs": 1771696800000
+      "nextRunAtMs": 1771783200000,
+      "lastRunAtMs": 1771696800003,
+      "lastStatus": "ok"
     }
   },
   {
@@ -116,9 +118,9 @@
     "agentId": "agent-5ch-3eya",
     "createdAtMs": 1771543822402,
     "state": {
-      "nextRunAtMs": 1771696800000,
-      "lastRunAtMs": 1771610400002,
-      "lastStatus": "ok"
+      "nextRunAtMs": 1771783200000,
+      "lastRunAtMs": 1771696800002,
+      "lastStatus": "error"
     }
   }
 ]

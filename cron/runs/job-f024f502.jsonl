@@ -1,1 +1,2 @@
 {"jobId":"job-f024f502","runId":"run-82441d30","startedAt":1771610400002,"endedAt":1771610406451,"status":"ok","output":"✅ 记忆整理完成"}
+{"jobId":"job-f024f502","runId":"run-f474a80e","startedAt":1771696800002,"endedAt":1771696800003,"status":"error","output":"","error":"agent \"arch\" not found"}
