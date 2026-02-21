@@ -269,12 +269,16 @@ func parseAnthropicSSE(ctx context.Context, body io.Reader, events chan<- Stream
 
 		case "content_block_stop":
 			if currentBlockType == "tool_use" {
+				input := toolInputBuf.String()
+				if input == "" {
+					input = "{}" // ensure valid JSON — empty RawMessage causes marshal failures
+				}
 				events <- StreamEvent{
 					Type: EventToolCall,
 					ToolCall: &ToolCall{
 						ID:    currentToolID,
 						Name:  currentToolName,
-						Input: json.RawMessage(toolInputBuf.String()),
+						Input: json.RawMessage(input),
 					},
 				}
 			}
