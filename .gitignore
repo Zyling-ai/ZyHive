@@ -16,3 +16,4 @@ aipanel.json
 agents/
 *.log
 .DS_Store
+/aipanel
