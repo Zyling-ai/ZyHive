@@ -7,13 +7,15 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/agent"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/config"
+	"github.com/sunhuihui6688-star/ai-panel/pkg/cron"
 )
 
 type agentHandler struct {
-	cfg     *config.Config
-	manager *agent.Manager
-	pool    *agent.Pool
-	botCtrl BotControl
+	cfg        *config.Config
+	manager    *agent.Manager
+	pool       *agent.Pool
+	botCtrl    BotControl
+	cronEngine *cron.Engine // optional: used to clean up jobs on agent deletion
 }
 
 // AgentInfo is the JSON shape returned to the frontend.
@@ -234,6 +236,13 @@ func (h *agentHandler) Delete(c *gin.Context) {
 			if ch.Type == "telegram" && ch.Enabled {
 				h.botCtrl.Stop(id, ch.ID)
 			}
+		}
+	}
+
+	// Remove all cron jobs belonging to this agent
+	if h.cronEngine != nil {
+		for _, job := range h.cronEngine.ListJobsByAgent(id) {
+			_ = h.cronEngine.Remove(job.ID)
 		}
 	}
 
