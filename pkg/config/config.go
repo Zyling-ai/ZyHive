@@ -137,24 +137,29 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 
-	// Try new format first
-	var cfg Config
-	if err := json.Unmarshal(data, &cfg); err != nil {
+	// Always read via legacyConfig first (uses json.RawMessage for models/channels
+	// so it handles both old object-format and new array-format safely).
+	var raw legacyConfig
+	if err := json.Unmarshal(data, &raw); err != nil {
 		return nil, err
 	}
 
 	// Detect legacy format: if models is an object with "primary" field
-	var raw legacyConfig
-	if err := json.Unmarshal(data, &raw); err == nil && raw.Models != nil {
+	if raw.Models != nil {
 		var lm legacyModelsConfig
 		if json.Unmarshal(raw.Models, &lm) == nil && lm.Primary != "" {
-			// Migrate legacy → new
-			cfg = migrateFromLegacy(raw, lm)
-			// Save migrated config
+			// Migrate legacy → new format and persist
+			cfg := migrateFromLegacy(raw, lm)
 			_ = Save(path, &cfg)
+			return &cfg, nil
 		}
 	}
 
+	// New format: unmarshal directly into Config
+	var cfg Config
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return nil, err
+	}
 	return &cfg, nil
 }
 
