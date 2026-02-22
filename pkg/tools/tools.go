@@ -434,6 +434,72 @@ func (r *Registry) handleSendFile(_ context.Context, input json.RawMessage) (str
 	return r.fileSender(p.Path)
 }
 
+// ── Self Env Vars ────────────────────────────────────────────────────────────
+
+var selfSetEnvDef = lllm.ToolDef{
+	Name:        "self_set_env",
+	Description: "设置或更新当前 Agent 自己的环境变量（立即生效并持久化到 config.json）。下次会话即可用 os.Getenv 读取。",
+	InputSchema: json.RawMessage(`{
+		"type":"object",
+		"properties":{
+			"key":{"type":"string","description":"环境变量名，如 WECHAT_APP_ID"},
+			"value":{"type":"string","description":"环境变量值"}
+		},
+		"required":["key","value"]
+	}`),
+}
+
+var selfDeleteEnvDef = lllm.ToolDef{
+	Name:        "self_delete_env",
+	Description: "删除当前 Agent 自己的某个环境变量。",
+	InputSchema: json.RawMessage(`{
+		"type":"object",
+		"properties":{
+			"key":{"type":"string","description":"要删除的环境变量名"}
+		},
+		"required":["key"]
+	}`),
+}
+
+func (r *Registry) handleSelfSetEnv(_ context.Context, input json.RawMessage) (string, error) {
+	var p struct {
+		Key   string `json:"key"`
+		Value string `json:"value"`
+	}
+	if err := json.Unmarshal(input, &p); err != nil || p.Key == "" {
+		return "", fmt.Errorf("key and value required")
+	}
+	if r.envUpdater == nil {
+		return "", fmt.Errorf("env update not available in this context")
+	}
+	if err := r.envUpdater(p.Key, p.Value, false); err != nil {
+		return "", fmt.Errorf("set env %s: %w", p.Key, err)
+	}
+	// Also update the in-memory agentEnv so the current session sees it immediately
+	if r.agentEnv == nil {
+		r.agentEnv = make(map[string]string)
+	}
+	r.agentEnv[p.Key] = p.Value
+	return fmt.Sprintf("✅ 已设置环境变量 %s（已持久化到 config.json，当前会话立即生效）", p.Key), nil
+}
+
+func (r *Registry) handleSelfDeleteEnv(_ context.Context, input json.RawMessage) (string, error) {
+	var p struct {
+		Key string `json:"key"`
+	}
+	if err := json.Unmarshal(input, &p); err != nil || p.Key == "" {
+		return "", fmt.Errorf("key required")
+	}
+	if r.envUpdater == nil {
+		return "", fmt.Errorf("env update not available in this context")
+	}
+	if err := r.envUpdater(p.Key, "", true); err != nil {
+		return "", fmt.Errorf("delete env %s: %w", p.Key, err)
+	}
+	delete(r.agentEnv, p.Key)
+	return fmt.Sprintf("✅ 已删除环境变量 %s", p.Key), nil
+}
+
 var selfRenameDef = lllm.ToolDef{
 	Name:        "self_rename",
 	Description: "修改当前 Agent 的名字。",

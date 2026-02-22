@@ -905,10 +905,14 @@
         <el-tab-pane label="环境变量" name="env">
           <div style="padding: 20px; max-width: 800px;">
             <div style="margin-bottom: 16px;">
-              <h3 style="margin: 0 0 8px 0; font-size: 15px;">环境变量</h3>
-              <p style="margin: 0; color: #666; font-size: 13px;">
-                配置此 AI 成员在执行 exec 命令时可用的环境变量，例如 GITHUB_TOKEN、GIT_AUTHOR_NAME 等。<br>
-                这些变量会注入到 bash 工具的执行环境中，<strong>不受系统默认的 token 过滤影响</strong>。
+              <h3 style="margin: 0 0 8px 0; font-size: 15px;">环境变量 <span style="font-size:12px;color:#888;font-weight:400;">（仅此成员可见）</span></h3>
+              <p style="margin: 0 0 6px; color: #666; font-size: 13px;">
+                配置此 AI 成员<strong>私有</strong>的环境变量（如专属的 GitHub Token、微信 AppSecret 等）。<br>
+                变量会注入到 bash 工具的执行环境中，<strong>不受系统默认过滤影响</strong>，且<strong>仅对本成员可见</strong>。
+              </p>
+              <p style="margin: 0; color: #94a3b8; font-size: 12px; background:#1e293b; padding:6px 10px; border-radius:6px; display:inline-block;">
+                💡 AI 成员可以通过 <code style="color:#38bdf8">self_set_env</code> 工具自行添加环境变量，无需手动在此页面操作。<br>
+                全局共享的 API Key（如 Brave Search）请在左侧「<strong>能力</strong>」板块配置。
               </p>
             </div>
 

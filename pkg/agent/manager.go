@@ -359,6 +359,30 @@ func (m *Manager) UpdateAgent(agentID string, opts UpdateOpts) error {
 	return os.WriteFile(cfgPath, out, 0644)
 }
 
+// SetAgentEnvVar sets or deletes a single environment variable for an agent.
+// If value is "" and delete is true, the key is removed; otherwise it is upserted.
+// Persists to disk immediately (same as UpdateAgent with Env set).
+func (m *Manager) SetAgentEnvVar(agentID, key, value string, remove bool) error {
+	m.mu.Lock()
+	ag, ok := m.agents[agentID]
+	if !ok {
+		m.mu.Unlock()
+		return fmt.Errorf("agent %q not found", agentID)
+	}
+	// Build merged env map
+	merged := make(map[string]string, len(ag.Env)+1)
+	for k, v := range ag.Env {
+		merged[k] = v
+	}
+	if remove {
+		delete(merged, key)
+	} else {
+		merged[key] = value
+	}
+	m.mu.Unlock()
+	return m.UpdateAgent(agentID, UpdateOpts{Env: merged})
+}
+
 // UpdateChannels replaces the channel config for an agent and persists it to disk.
 func (m *Manager) UpdateChannels(agentID string, channels []config.ChannelEntry) error {
 	m.mu.Lock()

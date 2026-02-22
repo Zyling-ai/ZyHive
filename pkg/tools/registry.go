@@ -33,9 +33,10 @@ type Registry struct {
 	agentEnv      map[string]string            // per-agent env vars injected into exec (bypass sanitize)
 	subagentMgr   *subagent.Manager            // background task manager (nil = no subagent tools)
 	agentLister   func() []AgentSummary        // optional: lists available agents for agent_list tool
-	fileSender    func(string) (string, error) // optional: sends a file to the current chat (e.g. Telegram)
-	serverBaseURL string                       // base URL for generating download links (files > 50 MB)
-	authToken     string                       // auth token for download link generation
+	fileSender    func(string) (string, error)                   // optional: sends a file to the current chat (e.g. Telegram)
+	serverBaseURL string                                         // base URL for generating download links (files > 50 MB)
+	authToken     string                                         // auth token for download link generation
+	envUpdater    func(key, value string, remove bool) error     // optional: lets the agent update its own env vars
 }
 
 // AgentSummary is the minimal agent info exposed through the agent_list tool.
@@ -141,6 +142,18 @@ func (r *Registry) WithEnv(env map[string]string) {
 // in SpawnOpts, enabling the NotifyFunc to deliver results back to this session.
 func (r *Registry) WithSessionID(id string) {
 	r.sessionID = id
+}
+
+// WithEnvUpdater registers self_set_env and self_delete_env tools backed by the given updater.
+// updater(key, value, remove) sets or deletes a single env var for the agent.
+func (r *Registry) WithEnvUpdater(updater func(key, value string, remove bool) error) {
+	r.envUpdater = updater
+	r.register(selfSetEnvDef, func(ctx context.Context, input json.RawMessage) (string, error) {
+		return r.handleSelfSetEnv(ctx, input)
+	})
+	r.register(selfDeleteEnvDef, func(ctx context.Context, input json.RawMessage) (string, error) {
+		return r.handleSelfDeleteEnv(ctx, input)
+	})
 }
 
 // WithFileSender registers the send_file tool backed by the given sender function.
