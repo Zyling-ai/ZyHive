@@ -480,9 +480,11 @@ async function pollTasks() {
   if ((anyJustCompleted || spawnedJustCompleted) && currentSessionId.value && !streaming.value) {
     const sid = currentSessionId.value
     setTimeout(async () => {
+      if (streaming.value) return          // don't overwrite mid-stream
       if (currentSessionId.value !== sid) return // stale
       try {
         const res = await sessionsApi.get(props.agentId, sid)
+        if (streaming.value) return        // streaming may have started while awaiting
         if (currentSessionId.value !== sid) return
         const parsed = res.data.messages ?? []
         const loaded: ChatMsg[] = []
@@ -516,9 +518,11 @@ async function reattachSessionTasks(sessionId: string) {
     // (e.g. page was closed while subagent was running), do a reload to catch up.
     if (justDone.length > 0) {
       setTimeout(async () => {
+        if (streaming.value) return          // don't overwrite mid-stream
         if (currentSessionId.value !== sessionId) return
         try {
           const r = await sessionsApi.get(props.agentId, sessionId)
+          if (streaming.value) return        // streaming may have started while awaiting
           if (currentSessionId.value !== sessionId) return
           const parsed = r.data.messages ?? []
           const loaded: ChatMsg[] = []
@@ -1146,8 +1150,10 @@ async function reconnectIfGenerating(sessionId: string) {
     // Reload history once now, then again after a short delay in case the runner
     // saved to disk just as we were checking (race between AppendMessage and IsBusy).
     const doReload = async () => {
+      if (streaming.value) return          // don't overwrite mid-stream
       try {
         const res = await sessionsApi.get(props.agentId, sessionId)
+        if (streaming.value) return        // streaming may have started while awaiting
         if (currentSessionId.value !== sessionId) return
         const parsed = res.data.messages ?? []
         const loaded: ChatMsg[] = []
@@ -1165,6 +1171,7 @@ async function reconnectIfGenerating(sessionId: string) {
     await doReload()
     // Second reload after 1s — catches the case where the runner saved just after our first reload
     setTimeout(async () => {
+      if (streaming.value) return          // don't overwrite mid-stream
       if (currentSessionId.value !== sessionId) return
       await doReload()
     }, 1000)
