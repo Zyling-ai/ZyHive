@@ -110,7 +110,7 @@ func printStatus() {
 		}
 	}
 
-	fmt.Printf("\n  状态: %s   端口: %s%d%s   Token: %s%s%s\n\n",
+	fmt.Printf("\n  状态: %s   端口: %s%d%s   访问令牌: %s%s%s\n\n",
 		status,
 		ansiBold, port, ansiReset,
 		ansiYellow, token, ansiReset,
@@ -121,7 +121,7 @@ func printMainMenu() {
 	items := []string{
 		"1", "系统状态",
 		"2", "服务管理（启动 / 停止 / 重启）",
-		"3", "配置管理（Token / 端口 / 绑定模式）",
+		"3", "配置管理（访问令牌 / 端口 / 绑定模式）",
 		"4", "成员管理（查看 / 重置 AI 成员）",
 		"5", "日志查看",
 		"6", "在线更新",
@@ -198,9 +198,9 @@ func menuSystemInfo() {
 	}
 
 	fmt.Printf(ansiBold+"  │\n"+ansiReset)
-	fmt.Printf(ansiBold+ansiYellow+"  │  🔑 Token： %s\n"+ansiReset, token)
+	fmt.Printf(ansiBold+ansiYellow+"  │  🔑 访问令牌： %s\n"+ansiReset, token)
 	if tokenFull != "" {
-		fmt.Printf(ansiYellow+"  │  （完整）  %s\n"+ansiReset, tokenFull)
+		fmt.Printf(ansiYellow+"  │  （完整令牌）%s\n"+ansiReset, tokenFull)
 	}
 	fmt.Printf(ansiBold+"  └%s┘\n\n"+ansiReset, line)
 
@@ -345,14 +345,14 @@ func menuConfigManage() {
 				if len(t) > 8 {
 					masked = t[:4] + strings.Repeat("*", len(t)-8) + t[len(t)-4:]
 				}
-				printKV("Token", masked)
+				printKV("访问令牌", masked)
 			}
 			fmt.Printf("  已配置模型: %s%d 个%s\n", ansiBold, len(cfg.Models), ansiReset)
 		}
 
 		fmt.Println()
 		printMenuItem("1", "查看完整配置（明文）")
-		printMenuItem("2", "修改 Token（访问密钥）")
+		printMenuItem("2", "修改访问令牌")
 		printMenuItem("3", "修改监听端口")
 		printMenuItem("4", "修改绑定模式（lan / localhost / all）")
 		printMenuItem("5", "修改成员目录")
@@ -371,14 +371,14 @@ func menuConfigManage() {
 			}
 			pause()
 		case "2":
-			newToken := readInput("输入新 Token（直接回车生成随机 Token）")
+			newToken := readInput("输入新访问令牌（直接回车生成随机令牌）")
 			newToken = strings.TrimSpace(newToken)
 			if newToken == "" {
 				newToken = generateToken()
-				fmt.Printf("  已生成随机 Token: %s%s%s\n", ansiGreen+ansiBold, newToken, ansiReset)
+				fmt.Printf("  已生成随机访问令牌：%s%s%s\n", ansiGreen+ansiBold, newToken, ansiReset)
 			}
 			if cfg != nil && patchConfig(configPath, cfg, func(c *config.Config) { c.Auth.Token = newToken }) {
-				printSuccess("Token 已更新，需要重启服务生效")
+				printSuccess("访问令牌已更新，需要重启服务生效")
 				if confirm("立即重启服务？") {
 					systemctlAction("restart", "zyhive")
 				}
