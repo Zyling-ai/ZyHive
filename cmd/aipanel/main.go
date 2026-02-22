@@ -126,11 +126,7 @@ func main() {
 		if taskLabel == "" {
 			taskLabel = taskID
 		}
-		summary := output
-		if len(summary) > 500 {
-			summary = summary[:500] + "\n…（截断，完整内容见后台任务）"
-		}
-		msg := fmt.Sprintf("[后台任务完成] %s **%s**（任务 ID: %s）\n\n%s", statusIcon, taskLabel, taskID, summary)
+		msg := fmt.Sprintf("[后台任务完成] %s **%s**（任务 ID: %s）\n\n%s", statusIcon, taskLabel, taskID, output)
 		content, _ := json.Marshal(msg)
 		// Save as "assistant" so it renders on the left side (not as a user bubble)
 		_ = store.AppendMessage(spawnedBySession, "assistant", content)
