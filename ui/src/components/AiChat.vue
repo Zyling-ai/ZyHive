@@ -122,6 +122,15 @@
                 <div v-if="tc.mediaUrl" class="tool-media-preview" @click.stop>
                   <img :src="tc.mediaUrl" class="tool-media-img" @click="previewImg(tc.mediaUrl!)" />
                 </div>
+                <!-- send_file (web UI): file download card -->
+                <div v-if="tc.fileCard" class="tool-file-card" @click.stop>
+                  <a :href="tc.fileCard.url" target="_blank" download class="tool-file-link">
+                    <span class="tool-file-icon">📎</span>
+                    <span class="tool-file-name">{{ tc.fileCard.name }}</span>
+                    <span class="tool-file-size">{{ tc.fileCard.size }}</span>
+                    <span class="tool-file-dl">↓ 下载</span>
+                  </a>
+                </div>
               </div>
             </div>
 
@@ -226,6 +235,15 @@
               <!-- show_image: image preview -->
               <div v-if="tc.mediaUrl" class="tool-media-preview" @click.stop>
                 <img :src="tc.mediaUrl" class="tool-media-img" @click="previewImg(tc.mediaUrl!)" />
+              </div>
+              <!-- send_file (web UI): file download card -->
+              <div v-if="tc.fileCard" class="tool-file-card" @click.stop>
+                <a :href="tc.fileCard.url" target="_blank" download class="tool-file-link">
+                  <span class="tool-file-icon">📎</span>
+                  <span class="tool-file-name">{{ tc.fileCard.name }}</span>
+                  <span class="tool-file-size">{{ tc.fileCard.size }}</span>
+                  <span class="tool-file-dl">↓ 下载</span>
+                </a>
               </div>
             </div>
           </div>
@@ -364,6 +382,8 @@ interface ToolCallEntry {
   taskStatus?: 'pending' | 'running' | 'done' | 'error' | 'killed'
   // show_image tool: URL to render as an <img> in the tool card
   mediaUrl?: string
+  // send_file tool (web UI): file download card
+  fileCard?: { url: string; name: string; size: string }
 }
 
 interface PendingFile {
@@ -1030,6 +1050,11 @@ function runChat(text: string, imgs: string[], silent = false) {
               const token = localStorage.getItem('aipanel_token') ?? ''
               tc.mediaUrl = `/api/media?path=${encodeURIComponent(filePath)}&token=${encodeURIComponent(token)}`
             }
+            // send_file (web UI): detect [file_card:URL|NAME|SIZE] → render download card
+            const fileCardMatch = ev.text.match(/\[file_card:([^|]+)\|([^|]+)\|([^\]]+)\]/)
+            if (fileCardMatch) {
+              tc.fileCard = { url: fileCardMatch[1], name: fileCardMatch[2], size: fileCardMatch[3] }
+            }
           }
           // agent_spawn: extract task ID from result and start polling
           if (tc.name === 'agent_spawn' && ev.text) {
@@ -1552,6 +1577,23 @@ onMounted(() => {
   cursor: zoom-in; display: block;
   object-fit: contain;
 }
+
+/* ── File card (send_file web UI) ── */
+.tool-file-card { padding: 8px 10px 6px; }
+.tool-file-link {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 8px 14px; border-radius: 8px;
+  background: #1e293b; border: 1px solid #334155;
+  text-decoration: none; color: #94a3b8;
+  font-size: 13px; transition: background 0.15s, border-color 0.15s;
+}
+.tool-file-link:hover {
+  background: #253348; border-color: #4f6b8a; color: #cbd5e1;
+}
+.tool-file-icon { font-size: 16px; }
+.tool-file-name { color: #e2e8f0; font-weight: 500; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tool-file-size { color: #64748b; font-size: 12px; }
+.tool-file-dl { color: #38bdf8; font-size: 12px; font-weight: 600; margin-left: 4px; }
 
 /* ── Markdown ── */
 .msg-text :deep(pre.code-block) {
