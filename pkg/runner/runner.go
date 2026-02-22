@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/sunhuihui6688-star/ai-panel/pkg/llm"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/session"
@@ -398,34 +399,33 @@ func (r *Runner) run(ctx context.Context, userMsg string, out chan<- RunEvent) e
 		_ = r.cfg.Session.AppendMessage(r.cfg.SessionID, "user", userContent)
 	}
 
-	// 2. Agentic loop — call LLM, handle tools, repeat
+	// 2. Build system prompt once (identity files + env + runtime metadata).
+	//    Prompt is static for the lifetime of this run — no need to re-read files per iteration.
+	systemPrompt, _ := BuildSystemPrompt(r.cfg.WorkspaceDir)
+	if r.cfg.ProjectContext != "" {
+		systemPrompt = systemPrompt + "\n\n" + r.cfg.ProjectContext
+	}
+	if r.cfg.ExtraContext != "" {
+		systemPrompt = systemPrompt + "\n\n---\n" + r.cfg.ExtraContext
+	}
+	if len(r.cfg.AgentEnv) > 0 {
+		keys := make([]string, 0, len(r.cfg.AgentEnv))
+		for k := range r.cfg.AgentEnv {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		systemPrompt = systemPrompt + "\n\n## 可用环境变量\n" +
+			"以下环境变量已配置，exec 工具运行时自动可用（无需手动导出）：\n" +
+			"- " + strings.Join(keys, "\n- ") + "\n"
+	}
+	systemPrompt = systemPrompt + fmt.Sprintf(
+		"\n\n## Runtime\nModel: %s | Agent: %s | Workspace: %s",
+		r.cfg.Model, r.cfg.AgentID, r.cfg.WorkspaceDir,
+	)
+
+	// 3. Agentic loop — call LLM, handle tools, repeat
 	const maxIter = 30
 	for i := 0; i < maxIter; i++ {
-		// Build system prompt from workspace identity files
-		systemPrompt, _ := BuildSystemPrompt(r.cfg.WorkspaceDir)
-		// Inject shared project workspace context
-		if r.cfg.ProjectContext != "" {
-			systemPrompt = systemPrompt + "\n\n" + r.cfg.ProjectContext
-		}
-		if r.cfg.ExtraContext != "" {
-			systemPrompt = systemPrompt + "\n\n---\n" + r.cfg.ExtraContext
-		}
-		// Inject env vars hint so agent knows which credentials are configured
-		if len(r.cfg.AgentEnv) > 0 {
-			keys := make([]string, 0, len(r.cfg.AgentEnv))
-			for k := range r.cfg.AgentEnv {
-				keys = append(keys, k)
-			}
-			sort.Strings(keys)
-			systemPrompt = systemPrompt + "\n\n## 可用环境变量\n" +
-				"以下环境变量已配置，exec 工具运行时自动可用（无需手动导出）：\n" +
-				"- " + strings.Join(keys, "\n- ") + "\n"
-		}
-		// Inject runtime metadata so the agent knows what model/context it's running in
-		systemPrompt = systemPrompt + fmt.Sprintf(
-			"\n\n## Runtime\nModel: %s | Agent: %s | Workspace: %s",
-			r.cfg.Model, r.cfg.AgentID, r.cfg.WorkspaceDir,
-		)
 
 		req := &llm.ChatRequest{
 			Model:    r.cfg.Model,
@@ -518,36 +518,49 @@ func (r *Runner) run(ctx context.Context, userMsg string, out chan<- RunEvent) e
 	return fmt.Errorf("exceeded max iterations (%d)", maxIter)
 }
 
-// executeTools runs all tool calls sequentially and returns results + display records.
+// executeTools runs all tool calls in parallel and returns results + display records.
+// Results are returned in the original call order (required by Anthropic API).
 func (r *Runner) executeTools(ctx context.Context, calls []llm.ToolCall, out chan<- RunEvent) ([]map[string]any, []session.ToolCallRecord) {
-	var results []map[string]any
-	var records []session.ToolCallRecord
-	for _, tc := range calls {
-		result, err := r.cfg.Tools.Execute(ctx, tc.Name, tc.Input)
-		if err != nil {
-			result = fmt.Sprintf("Error: %v", err)
-		}
-		out <- RunEvent{Type: "tool_result", Text: result}
-		results = append(results, map[string]any{
+	type slot struct {
+		result string
+		record session.ToolCallRecord
+	}
+	slots := make([]slot, len(calls))
+	var wg sync.WaitGroup
+	for i, tc := range calls {
+		wg.Add(1)
+		go func(i int, tc llm.ToolCall) {
+			defer wg.Done()
+			result, err := r.cfg.Tools.Execute(ctx, tc.Name, tc.Input)
+			if err != nil {
+				result = fmt.Sprintf("Error: %v", err)
+			}
+			inputStr := string(tc.Input)
+			if len(inputStr) > 500 {
+				inputStr = inputStr[:500] + "…"
+			}
+			resultStr := result
+			if len(resultStr) > 500 {
+				resultStr = resultStr[:500] + "…"
+			}
+			slots[i] = slot{
+				result: result,
+				record: session.ToolCallRecord{ID: tc.ID, Name: tc.Name, Input: inputStr, Result: resultStr},
+			}
+		}(i, tc)
+	}
+	wg.Wait()
+
+	results := make([]map[string]any, len(calls))
+	records := make([]session.ToolCallRecord, len(calls))
+	for i, s := range slots {
+		results[i] = map[string]any{
 			"type":        "tool_result",
-			"tool_use_id": tc.ID,
-			"content":     result,
-		})
-		// Build display record (truncate long values for storage efficiency)
-		inputStr := string(tc.Input)
-		if len(inputStr) > 500 {
-			inputStr = inputStr[:500] + "…"
+			"tool_use_id": calls[i].ID,
+			"content":     s.result,
 		}
-		resultStr := result
-		if len(resultStr) > 500 {
-			resultStr = resultStr[:500] + "…"
-		}
-		records = append(records, session.ToolCallRecord{
-			ID:     tc.ID,
-			Name:   tc.Name,
-			Input:  inputStr,
-			Result: resultStr,
-		})
+		records[i] = s.record
+		out <- RunEvent{Type: "tool_result", Text: s.result}
 	}
 	return results, records
 }

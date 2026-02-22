@@ -290,11 +290,15 @@ func requestLogger() gin.HandlerFunc {
 }
 
 func authMiddleware(token string) gin.HandlerFunc {
+	if token == "" {
+		// Dev mode: no token configured — allow all (prints warning at startup).
+		return func(c *gin.Context) { c.Next() }
+	}
+	if token == "changeme" {
+		log.Println("[WARN] Auth token is set to the default value 'changeme'. " +
+			"Please update auth.token in aipanel.json before exposing to the internet.")
+	}
 	return func(c *gin.Context) {
-		if token == "" || token == "changeme" {
-			c.Next()
-			return
-		}
 		auth := c.GetHeader("Authorization")
 		if auth != "Bearer "+token {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
