@@ -27,10 +27,10 @@
           </svg>
           GitHub
         </a>
-        <a href="https://github.com/Zyling-ai/zyhive" target="_blank" class="header-star-btn" title="Star on GitHub">
+        <span class="header-star-btn">
           ★<template v-if="starCount !== null"> {{ starCount.toLocaleString() }}</template>
           <span class="header-hide-xs"> Star</span>
-        </a>
+        </span>
         <el-divider direction="vertical" style="margin:0 4px;border-color:rgba(255,255,255,0.2)" />
         <span class="header-link" style="cursor:pointer" @click="logout" title="退出登录">
           退出
@@ -306,15 +306,12 @@ body {
   padding: 2px 8px;
   font-size: 12px;
   font-weight: 600;
-  text-decoration: none;
-  cursor: pointer;
-  transition: background 0.15s;
   white-space: nowrap;
   display: flex;
   align-items: center;
   gap: 3px;
+  user-select: none;
 }
-.header-star-btn:hover { background: rgba(255,215,0,0.22); }
 .header-website-btn {
   background: rgba(99,102,241,0.12);
   border: 1px solid rgba(99,102,241,0.3);
