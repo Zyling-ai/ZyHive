@@ -1019,6 +1019,8 @@ function newSession() {
 
 function onSessionChange(sessionId: string) {
   activeSessionId.value = sessionId
+  // Persist so we can restore after page refresh
+  localStorage.setItem(`zyhive_session_${agentId}`, sessionId)
   // Refresh session list to show new entry
   setTimeout(loadAgentSessions, 500)
 }
@@ -1640,16 +1642,17 @@ onMounted(async () => {
 
   // Handle ?resumeSession=<id> query param (from ChatsView 继续对话 button)
   const resumeId = route.query.resumeSession as string | undefined
-  if (resumeId) {
-    activeSessionId.value = resumeId
+  // Restore last active session from localStorage (persists across page refresh)
+  const savedSessionId = !resumeId ? localStorage.getItem(`zyhive_session_${agentId}`) : null
+
+  const sessionToLoad = resumeId || savedSessionId || null
+  if (sessionToLoad) {
+    activeSessionId.value = sessionToLoad
     // Give AiChat a tick to mount before calling resumeSession
     await new Promise(r => setTimeout(r, 100))
-    aiChatRef.value?.resumeSession(resumeId)
-    // Scroll the sidebar item into view by highlighting
-    const target = agentSessions.value.find(s => s.id === resumeId)
-    if (!target) {
-      // Session not in list yet — still set active id so it highlights when list loads
-      activeSessionId.value = resumeId
+    aiChatRef.value?.resumeSession(sessionToLoad)
+    if (!agentSessions.value.find(s => s.id === sessionToLoad)) {
+      activeSessionId.value = sessionToLoad
     }
   }
 })
