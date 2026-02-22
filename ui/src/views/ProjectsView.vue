@@ -45,8 +45,9 @@
     <div class="projects-main" v-if="currentProject">
       <div class="main-header">
         <div class="main-title">
+          <el-button class="mobile-back-btn" size="small" :icon="ArrowLeft" @click="currentProjectId = ''" circle />
           <el-icon style="color:#e6a23c"><FolderOpened /></el-icon>
-          <span>{{ currentProject.name }}</span>
+          <span class="main-title-text">{{ currentProject.name }}</span>
           <el-tag v-for="tag in (currentProject.tags || [])" :key="tag" size="small" style="margin-left:4px">{{ tag }}</el-tag>
           <!-- 权限标签 -->
           <el-tag v-if="currentProject.editors?.length === 0" size="small" type="success" style="margin-left:8px">
@@ -102,9 +103,9 @@
         </template>
       </el-dialog>
 
-      <el-row :gutter="12" style="flex:1;overflow:hidden;">
+      <el-row :gutter="12" class="projects-inner-row" style="flex:1;overflow:hidden;">
         <!-- 文件树 -->
-        <el-col :span="6" style="height:100%;display:flex;flex-direction:column;">
+        <el-col :xs="24" :sm="6" :md="6" class="file-col">
           <div class="file-panel">
             <div class="file-panel-header">
               <span>文件</span>
@@ -145,7 +146,7 @@
         </el-col>
 
         <!-- 编辑器 -->
-        <el-col :span="18" style="height:100%;display:flex;flex-direction:column;">
+        <el-col :xs="24" :sm="18" :md="18" class="editor-col">
           <div class="editor-panel">
             <div class="editor-header" v-if="currentFile">
               <span class="editor-path">{{ currentFile }}</span>
@@ -259,7 +260,7 @@
 import { ref, computed, onMounted } from 'vue'
 import {
   Plus, FolderOpened, MoreFilled, Document, DocumentAdd, FolderAdd,
-  Refresh, Delete, EditPen, Key
+  Refresh, Delete, EditPen, Key, ArrowLeft
 } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { projects as projectsApi, agents as agentsApi, type ProjectInfo, type FileNode, type AgentInfo } from '../api'
@@ -715,5 +716,35 @@ function fmtTime(t: string | undefined): string {
   font-size: 11px;
   color: #c0c4cc;
   flex-shrink: 0;
+}
+
+/* ─── Mobile back button ─────────────────────────────────────────────────── */
+.mobile-back-btn { display: none; }
+.main-title-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 160px; }
+
+/* ─── Mobile ─────────────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  /* Stack layout: show sidebar on full width, or main on full width */
+  .projects-layout { flex-direction: column; height: calc(100vh - 44px); overflow: hidden; }
+
+  /* Sidebar: fixed height list on mobile */
+  .projects-sidebar { width: 100% !important; height: auto; max-height: 180px; flex-shrink: 0; border-right: none; border-bottom: 1px solid #e4e7ed; }
+  .project-list { max-height: 130px; overflow-y: auto; }
+
+  /* When a project is selected → hide sidebar, show main full width */
+  .projects-main { flex: 1; overflow: hidden; padding: 8px; gap: 8px; }
+
+  /* Back button visible on mobile */
+  .mobile-back-btn { display: inline-flex !important; }
+
+  /* Inner row: stack file tree on top, editor below */
+  .projects-inner-row { flex-direction: column; height: auto !important; overflow: visible !important; }
+  .file-col { height: 180px !important; display: flex; flex-direction: column; }
+  .editor-col { height: calc(100vh - 380px) !important; min-height: 200px; display: flex; flex-direction: column; }
+  .file-panel, .editor-panel { height: 100%; }
+
+  /* Main header: wrap */
+  .main-header { flex-direction: column; align-items: flex-start; gap: 6px; }
+  .main-title { font-size: 14px; flex-wrap: wrap; gap: 4px; }
 }
 </style>
