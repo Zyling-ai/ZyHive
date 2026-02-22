@@ -1463,8 +1463,12 @@ onMounted(() => {
   font-weight: 600; flex-shrink: 0; white-space: nowrap;
   background: #f1f5f9; color: #64748b;
 }
-.task-badge.pending  { background: #fef9c3; color: #a16207; }
-.task-badge.running  { background: #dbeafe; color: #1d4ed8; }
+.task-badge.pending  { background: #fef9c3; color: #a16207; animation: badge-breathe 1.8s ease-in-out infinite; }
+.task-badge.running  { background: #dbeafe; color: #1d4ed8; animation: badge-breathe 1.2s ease-in-out infinite; }
+@keyframes badge-breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
 .task-badge.done     { background: #dcfce7; color: #15803d; }
 .task-badge.error    { background: #fee2e2; color: #b91c1c; }
 .task-badge.killed   { background: #f1f5f9; color: #475569; }
