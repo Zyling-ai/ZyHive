@@ -175,8 +175,8 @@
           </el-card>
 
           <el-row :gutter="20">
-            <el-col :span="12">
-              <el-card header="IDENTITY.md">
+            <el-col :xs="24" :sm="12">
+              <el-card header="IDENTITY.md" style="margin-bottom: 16px;">
                 <el-input
                   v-model="identityContent"
                   type="textarea"
@@ -185,7 +185,7 @@
                 />
               </el-card>
             </el-col>
-            <el-col :span="12">
+            <el-col :xs="24" :sm="12">
               <el-card header="SOUL.md">
                 <el-input
                   v-model="soulContent"
@@ -928,7 +928,7 @@
             </div>
 
             <!-- Add new env var -->
-            <div style="display: flex; gap: 8px; margin-bottom: 16px; align-items: flex-start;">
+            <div class="env-add-row" style="display: flex; gap: 8px; margin-bottom: 16px; align-items: flex-start;">
               <el-input
                 v-model="newEnvKey"
                 placeholder="KEY（如 GITHUB_TOKEN）"
@@ -2418,27 +2418,43 @@ watch(activeTab, (tab) => {
 
 /* ─── Mobile ─────────────────────────────────────────────────────────────── */
 @media (max-width: 768px) {
-  /* Detail header */
-  .detail-header { padding: 0 10px !important; height: 52px !important; }
-  .header-left { gap: 8px; }
-  .detail-title { font-size: 14px; max-width: 120px; }
+  /* ── Detail header ─────────────────────────────────────────────────────── */
+  .detail-header { padding: 0 10px !important; height: 50px !important; }
+  .header-left { gap: 6px; }
+  .detail-title { font-size: 14px; max-width: 110px; }
   .detail-model-mobile { display: block; }
   .detail-model-desktop { display: none; }
 
-  /* Tabs: horizontal scroll */
-  :deep(.el-tabs__nav-wrap) { overflow-x: auto !important; -webkit-overflow-scrolling: touch; }
+  /* ── Tabs: horizontal scroll ───────────────────────────────────────────── */
+  /* Force Element Plus border-card tabs header to scroll horizontally */
+  :deep(.el-tabs--border-card > .el-tabs__header) {
+    overflow: hidden;
+  }
+  :deep(.el-tabs__nav-scroll) {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  :deep(.el-tabs__nav-scroll::-webkit-scrollbar) { display: none; }
+  :deep(.el-tabs__nav-wrap) { overflow: visible !important; }
   :deep(.el-tabs__nav-wrap::after) { display: none !important; }
   :deep(.el-tabs__nav) { white-space: nowrap !important; }
-  :deep(.el-tabs--border-card > .el-tabs__header .el-tabs__item) { padding: 0 10px; font-size: 13px; }
+  :deep(.el-tabs--border-card > .el-tabs__header .el-tabs__item) {
+    padding: 0 10px;
+    font-size: 12px;
+    height: 36px;
+    line-height: 36px;
+    white-space: nowrap;
+  }
   :deep(.el-tab-pane) { padding: 0 !important; }
 
-  /* Main: no horizontal padding */
+  /* ── Page layout ───────────────────────────────────────────────────────── */
+  .agent-detail :deep(.el-main) { padding: 0 !important; overflow: hidden; }
   :deep(.el-main) { padding: 0 !important; }
 
-  /* Chat layout: stack vertically */
+  /* ── 对话 Tab ──────────────────────────────────────────────────────────── */
   .chat-layout { flex-direction: column; height: calc(100vh - 108px); }
 
-  /* Mobile session toggle button */
   .mobile-session-toggle {
     display: flex;
     align-items: center;
@@ -2455,7 +2471,6 @@ watch(activeTab, (tab) => {
   }
   .mobile-session-toggle:active { background: #ecf5ff; }
 
-  /* Session sidebar: hidden on mobile by default, expands when open */
   .session-sidebar {
     width: 100% !important;
     border-right: none !important;
@@ -2470,21 +2485,48 @@ watch(activeTab, (tab) => {
     max-height: 220px;
     overflow-y: auto;
   }
-
-  /* Chat area: fill remaining space */
   .chat-area { flex: 1; min-height: 0; overflow: hidden; }
 
-  /* Agent header row */
+  /* ── 工作区 / 技能 Tab height ──────────────────────────────────────────── */
+  :deep(.workspace-chat-layout),
+  :deep(.skill-studio) {
+    height: calc(100vh - 160px) !important;
+  }
+
+  /* ── 身份 & 灵魂 Tab ───────────────────────────────────────────────────── */
+  :deep(.el-form-item) { flex-direction: column; margin-bottom: 12px; }
+  :deep(.el-form-item__label) { width: auto !important; text-align: left !important; font-size: 13px; padding-bottom: 4px; }
+  :deep(.el-form-item__content) { margin-left: 0 !important; }
+  :deep(.el-select) { width: 100% !important; }
+  :deep(.el-input) { max-width: 100% !important; }
+
+  /* ── 渠道 Tab ──────────────────────────────────────────────────────────── */
+  .channel-card-header { flex-direction: column; align-items: flex-start; gap: 8px; }
+  .channel-card-actions { flex-wrap: wrap; gap: 6px; width: 100%; }
+  .channel-card-actions .el-button { flex: 1; min-width: 0; font-size: 12px; }
+  .channel-info-row { flex-direction: column; gap: 2px; }
+  .channel-info-value { word-break: break-all; }
+
+  /* ── 定时任务 / 环境变量 Tab ────────────────────────────────────────────── */
+  :deep(.el-table) { font-size: 12px; }
+  :deep(.el-table__body-wrapper) { overflow-x: auto !important; }
+  :deep(.el-table th) { font-size: 12px; padding: 6px 0; }
+  :deep(.el-table td) { padding: 6px 0; }
+
+  /* Env var input row: stack on mobile */
+  .env-add-row { flex-direction: column !important; gap: 6px !important; }
+  .env-add-row .el-input { width: 100% !important; }
+
+  /* ── 关系 Tab ──────────────────────────────────────────────────────────── */
+  .rel-item { flex-wrap: wrap; gap: 6px; }
+
+  /* ── 记忆 Tab ──────────────────────────────────────────────────────────── */
+  .memory-header { flex-wrap: wrap; gap: 8px; }
+
+  /* ── General ───────────────────────────────────────────────────────────── */
   .agent-header { flex-wrap: wrap; gap: 8px; }
-
-  /* Tables scroll */
-  :deep(.el-table) { overflow-x: auto; }
-  :deep(.el-table__body-wrapper) { overflow-x: auto; }
-
-  /* Detail page el-main */
-  .agent-detail :deep(.el-main) { padding: 0 !important; overflow: hidden; }
-
-  /* Env / identity forms: reduce padding */
-  :deep(.el-form-item__label) { font-size: 13px; }
+  :deep(.el-card) { margin-bottom: 12px; }
+  :deep(.el-card__body) { padding: 12px !important; }
+  :deep(.el-card__header) { padding: 10px 12px !important; }
 }
 </style>
