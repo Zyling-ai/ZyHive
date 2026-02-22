@@ -2386,4 +2386,25 @@ watch(activeTab, (tab) => {
   padding: 32px 0;
   font-size: 13px;
 }
+
+/* ─── Mobile ─────────────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  /* Tabs: horizontal scroll, no wrap */
+  :deep(.el-tabs__nav-wrap) { overflow-x: auto !important; }
+  :deep(.el-tabs__nav) { white-space: nowrap !important; }
+  :deep(.el-tabs--border-card > .el-tabs__header .el-tabs__item) {
+    padding: 0 12px;
+    font-size: 13px;
+  }
+
+  /* Chat pane: fill screen height */
+  :deep(.el-tab-pane) { padding: 0 !important; }
+
+  /* Agent header row: stack vertically */
+  .agent-header { flex-direction: column; align-items: flex-start; gap: 10px; }
+  .agent-header .el-button-group, .agent-header .el-button { width: 100%; }
+
+  /* Env / cron / channel tables: scroll */
+  .el-table-wrapper { overflow-x: auto; }
+}
 </style>

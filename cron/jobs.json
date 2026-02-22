@@ -19,8 +19,8 @@
     "agentId": "xiuliu",
     "createdAtMs": 1771663283024,
     "state": {
-      "nextRunAtMs": 1771783200000,
-      "lastRunAtMs": 1771696800003,
+      "nextRunAtMs": 1771869600000,
+      "lastRunAtMs": 1771783200003,
       "lastStatus": "ok"
     }
   },
@@ -44,7 +44,9 @@
     "agentId": "agent-7ch-1lyl",
     "createdAtMs": 1771724550364,
     "state": {
-      "nextRunAtMs": 1771783200000
+      "nextRunAtMs": 1771869600000,
+      "lastRunAtMs": 1771783200003,
+      "lastStatus": "ok"
     }
   },
   {
@@ -67,7 +69,9 @@
     "agentId": "python",
     "createdAtMs": 1771772242961,
     "state": {
-      "nextRunAtMs": 1771783200000
+      "nextRunAtMs": 1771869600000,
+      "lastRunAtMs": 1771783200004,
+      "lastStatus": "ok"
     }
   },
   {
@@ -90,7 +94,9 @@
     "agentId": "yiyin",
     "createdAtMs": 1771772870112,
     "state": {
-      "nextRunAtMs": 1771783200000
+      "nextRunAtMs": 1771869600000,
+      "lastRunAtMs": 1771783200003,
+      "lastStatus": "ok"
     }
   }
 ]

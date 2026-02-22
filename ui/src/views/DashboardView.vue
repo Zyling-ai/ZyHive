@@ -3,26 +3,26 @@
     <h2 style="margin: 0 0 20px">仪表盘</h2>
 
     <!-- Stats cards -->
-    <el-row :gutter="16" style="margin-bottom: 24px">
-      <el-col :span="6">
+    <el-row :gutter="12" style="margin-bottom: 20px">
+      <el-col :xs="12" :sm="12" :md="6" :lg="6">
         <el-card shadow="never" class="stat-card stat-card--members">
           <div class="stat-label">AI 成员</div>
           <div class="stat-value">{{ stats?.agents.total ?? agentStore.list.length }}</div>
         </el-card>
       </el-col>
-      <el-col :span="6">
+      <el-col :xs="12" :sm="12" :md="6" :lg="6">
         <el-card shadow="never" class="stat-card stat-card--sessions">
           <div class="stat-label">对话总数</div>
           <div class="stat-value">{{ stats?.sessions.total ?? 0 }}</div>
         </el-card>
       </el-col>
-      <el-col :span="6">
+      <el-col :xs="12" :sm="12" :md="6" :lg="6" style="margin-top: 0">
         <el-card shadow="never" class="stat-card stat-card--messages">
           <div class="stat-label">消息总数</div>
           <div class="stat-value">{{ stats?.sessions.totalMessages ?? 0 }}</div>
         </el-card>
       </el-col>
-      <el-col :span="6">
+      <el-col :xs="12" :sm="12" :md="6" :lg="6" style="margin-top: 0">
         <el-card shadow="never" class="stat-card stat-card--tokens">
           <div class="stat-label">Token 用量</div>
           <div class="stat-value">{{ formatTokens(stats?.sessions.totalTokens ?? 0) }}</div>
@@ -164,5 +164,10 @@ function formatTokens(n: number): string {
   font-weight: 600;
   font-size: 14px;
   flex-shrink: 0;
+}
+@media (max-width: 768px) {
+  .stat-card :deep(.el-card__body) { padding: 12px 14px !important; }
+  .stat-value { font-size: 22px; }
+  .el-row { row-gap: 10px; }
 }
 </style>
