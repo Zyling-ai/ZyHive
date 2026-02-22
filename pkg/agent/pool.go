@@ -53,6 +53,11 @@ func (p *Pool) SetProjectManager(mgr *project.Manager) {
 	p.projectMgr = mgr
 }
 
+// GetProjectMgr returns the project manager (may be nil).
+func (p *Pool) GetProjectMgr() *project.Manager {
+	return p.projectMgr
+}
+
 // configureToolRegistry applies all optional middlewares to a fresh tool registry.
 // fileSender is optional; when non-nil, the send_file tool is registered.
 func (p *Pool) configureToolRegistry(reg *tools.Registry, ag *Agent, fileSender channel.FileSenderFunc) {

@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<!--
+  文章标题：你的 AI 团队，现在真的可以有了
+  作者：智引领 zyling
+  创建时间：2026-02-23
+  状态：待发布（需上传配图后推送草稿箱）
+
+  配图占位说明（共 5 处，用 [IMG-x] 标注）：
+    [IMG-1] 封面图   — ZyHive 品牌主视觉 / Logo 大图（建议 900×500px）
+    [IMG-2] 功能图1  — 仪表盘截图（AI 成员卡片网格）
+    [IMG-3] 功能图2  — 对话界面截图（流式输出 + 工具调用）
+    [IMG-4] 功能图3  — 技能/定时任务/渠道配置截图
+    [IMG-5] 结尾图   — zyling 品牌 Logo / 官网二维码
+-->
+<head>
+  <meta charset="UTF-8" />
+  <style>
+    body {
+      font-family: -apple-system, 'PingFang SC', 'Helvetica Neue', sans-serif;
+      color: #1a1a1a;
+      line-height: 1.85;
+      max-width: 677px;
+      margin: 0 auto;
+      padding: 0;
+      background: #fff;
+    }
+
+    /* 封面区 */
+    .cover {
+      width: 100%;
+      background: linear-gradient(135deg, #07080f 0%, #0f1530 60%, #1e3a8a 100%);
+      padding: 56px 36px;
+      text-align: center;
+      box-sizing: border-box;
+    }
+    .cover-badge {
+      display: inline-block;
+      padding: 5px 16px;
+      border-radius: 99px;
+      background: rgba(56,189,248,0.15);
+      border: 1px solid rgba(56,189,248,0.4);
+      color: #7ab0ff;
+      font-size: 12px;
+      letter-spacing: 1px;
+      margin-bottom: 24px;
+    }
+    .cover-icon {
+      font-size: 64px;
+      margin-bottom: 16px;
+      display: block;
+    }
+    .cover h1 {
+      font-size: 30px;
+      font-weight: 800;
+      color: #fff;
+      letter-spacing: -0.5px;
+      line-height: 1.3;
+      margin: 0 0 14px;
+    }
+    .cover h1 span {
+      background: linear-gradient(135deg, #4d8af0, #38bdf8);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .cover-sub {
+      color: #94a3b8;
+      font-size: 14px;
+    }
+
+    /* 正文区 */
+    .body {
+      padding: 40px 28px;
+    }
+
+    /* 引言 */
+    .lead {
+      font-size: 17px;
+      color: #374151;
+      line-height: 2;
+      margin-bottom: 36px;
+      padding: 24px 28px;
+      background: #f8fafc;
+      border-left: 4px solid #1e50d2;
+      border-radius: 0 12px 12px 0;
+    }
+
+    /* 章节标题 */
+    .section-title {
+      font-size: 20px;
+      font-weight: 800;
+      color: #0f172a;
+      margin: 44px 0 20px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .section-title::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: linear-gradient(90deg, #e2e8f0, transparent);
+    }
+
+    /* 图片占位 */
+    .img-placeholder {
+      width: 100%;
+      background: linear-gradient(135deg, #0f1530, #1e3a8a);
+      border-radius: 12px;
+      margin: 20px 0 32px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 48px 0;
+      box-sizing: border-box;
+    }
+    .img-placeholder .icon { font-size: 40px; margin-bottom: 10px; }
+    .img-placeholder .label { color: #94a3b8; font-size: 13px; }
+
+    /* 正文段落 */
+    p {
+      font-size: 15px;
+      color: #374151;
+      line-height: 2;
+      margin: 0 0 18px;
+    }
+
+    /* 特性卡片组 */
+    .features {
+      display: block;
+      margin: 24px 0 36px;
+    }
+    .feature-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 16px;
+      padding: 18px 20px;
+      margin-bottom: 12px;
+      background: #f8fafc;
+      border-radius: 12px;
+      border: 1px solid #e2e8f0;
+    }
+    .feature-icon {
+      font-size: 28px;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+    .feature-text {}
+    .feature-name {
+      font-size: 15px;
+      font-weight: 700;
+      color: #0f172a;
+      margin-bottom: 4px;
+    }
+    .feature-desc {
+      font-size: 13px;
+      color: #64748b;
+      line-height: 1.7;
+      margin: 0;
+    }
+
+    /* 高亮引用 */
+    .highlight {
+      background: linear-gradient(135deg, #eff6ff, #e0f2fe);
+      border-radius: 12px;
+      padding: 24px 28px;
+      margin: 32px 0;
+      border: 1px solid #bfdbfe;
+    }
+    .highlight p {
+      margin: 0;
+      font-size: 16px;
+      color: #1e40af;
+      font-weight: 500;
+      line-height: 1.8;
+    }
+
+    /* 产品矩阵 */
+    .product-row {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 16px 20px;
+      margin-bottom: 10px;
+      border-radius: 10px;
+      border: 1px solid #e2e8f0;
+    }
+    .product-row.active {
+      background: linear-gradient(135deg, #eff6ff, #f0f9ff);
+      border-color: #bfdbfe;
+    }
+    .product-emoji { font-size: 24px; flex-shrink: 0; }
+    .product-info {}
+    .product-en { font-size: 15px; font-weight: 700; color: #0f172a; }
+    .product-zh { font-size: 12px; color: #64748b; }
+    .product-status {
+      margin-left: auto;
+      font-size: 11px;
+      padding: 3px 10px;
+      border-radius: 99px;
+      flex-shrink: 0;
+    }
+    .status-live { background: #dcfce7; color: #16a34a; }
+    .status-dev  { background: #fef9c3; color: #b45309; }
+    .status-plan { background: #f1f5f9; color: #64748b; }
+
+    /* 结尾 CTA */
+    .cta {
+      text-align: center;
+      padding: 44px 28px;
+      background: linear-gradient(135deg, #07080f, #0f1530);
+      border-radius: 16px;
+      margin: 40px 0 0;
+    }
+    .cta-icon { font-size: 48px; margin-bottom: 16px; display: block; }
+    .cta h3 {
+      color: #fff;
+      font-size: 20px;
+      font-weight: 800;
+      margin: 0 0 12px;
+    }
+    .cta p {
+      color: #94a3b8;
+      font-size: 14px;
+      margin: 0 0 24px;
+    }
+    .cta-links {
+      display: flex;
+      justify-content: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .cta-btn {
+      display: inline-block;
+      padding: 10px 24px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      text-decoration: none;
+    }
+    .cta-btn-primary {
+      background: linear-gradient(135deg, #1e50d2, #2563eb);
+      color: #fff;
+    }
+    .cta-btn-outline {
+      background: rgba(255,255,255,0.08);
+      color: #94a3b8;
+      border: 1px solid rgba(255,255,255,0.12);
+    }
+
+    /* 品牌尾部 */
+    .footer {
+      text-align: center;
+      padding: 32px 0 16px;
+      color: #94a3b8;
+      font-size: 12px;
+    }
+    .footer strong { color: #475569; }
+
+    /* 分割线 */
+    hr {
+      border: none;
+      border-top: 1px solid #f1f5f9;
+      margin: 36px 0;
+    }
+  </style>
+</head>
+<body>
+
+<!-- ① 封面 -->
+<div class="cover">
+  <div class="cover-badge">🐝 ZyHive · 引巢 · v0.9.0 正式上线</div>
+  <!-- [IMG-1] 替换为实际封面图 -->
+  <span class="cover-icon">🐝</span>
+  <h1>你的 AI 团队，<br><span>现在真的可以有了</span></h1>
+  <div class="cover-sub">不只是一个 AI，而是一整支会协作的智能团队</div>
+</div>
+
+<!-- ② 正文 -->
+<div class="body">
+
+  <!-- 引言 -->
+  <div class="lead">
+    你有没有想过——<br>
+    不是和一个 AI 聊天，而是<strong>拥有一整支 AI 团队</strong>？<br><br>
+    每个成员有自己的名字、性格、专长和记忆；他们分工明确，24×7 在线，随时响应，协同完成你交给他们的每一件事。
+  </div>
+
+  <p>这不是科幻，这是智引领（zyling）正在做的事。</p>
+  <p>今天，我们想正式向你介绍旗下旗舰产品——</p>
+
+  <div class="section-title">🐝 引巢 · ZyHive</div>
+
+  <p><strong>ZyHive（引巢）</strong>是一个 <strong>AI 团队操作系统</strong>，让你可视化地创建、管理多个 AI 成员，每一位都是有温度的独立个体，而不是冷冰冰的对话窗口。</p>
+
+  <!-- [IMG-2] 仪表盘截图 -->
+  <div class="img-placeholder">
+    <span class="icon">🖥️</span>
+    <span class="label">[ 待替换：ZyHive 仪表盘截图 ]</span>
+  </div>
+
+  <div class="highlight">
+    <p>💡 你不再只是在「使用 AI」，而是在<strong>管理一支 AI 团队</strong>——他们各有专长，随时协同，共同推进你的目标。</p>
+  </div>
+
+  <div class="section-title">✨ 每位成员，都是独立个体</div>
+
+  <div class="features">
+    <div class="feature-item">
+      <span class="feature-icon">🧬</span>
+      <div class="feature-text">
+        <div class="feature-name">独立身份 · Identity</div>
+        <p class="feature-desc">为每位 AI 成员设定名字、职责、定位。他是你的助理、你的设计师、你的运营官，各司其职。</p>
+      </div>
+    </div>
+    <div class="feature-item">
+      <span class="feature-icon">💡</span>
+      <div class="feature-text">
+        <div class="feature-name">专属灵魂 · Soul</div>
+        <p class="feature-desc">自定义性格、语气、工作风格，让 AI 成员真正有温度，越用越像你的"人"。</p>
+      </div>
+    </div>
+    <div class="feature-item">
+      <span class="feature-icon">🧠</span>
+      <div class="feature-text">
+        <div class="feature-name">持久记忆 · Memory</div>
+        <p class="feature-desc">跨对话记住关键信息，不再每次都要重新解释背景，越用越懂你。</p>
+      </div>
+    </div>
+    <div class="feature-item">
+      <span class="feature-icon">🎯</span>
+      <div class="feature-text">
+        <div class="feature-name">技能模块 · Skills</div>
+        <p class="feature-desc">为成员安装不同技能，扩展他的能力边界——代码、设计、运营、客服，按需装配。</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- [IMG-3] 对话界面截图 -->
+  <div class="img-placeholder">
+    <span class="icon">💬</span>
+    <span class="label">[ 待替换：对话界面截图 ]</span>
+  </div>
+
+  <div class="section-title">⚙️ 让团队 24×7 自动运转</div>
+
+  <p>ZyHive 不只是一个"聊天工具"，它是让 AI 成员真正<strong>主动工作</strong>的平台。</p>
+
+  <div class="features">
+    <div class="feature-item">
+      <span class="feature-icon">⏰</span>
+      <div class="feature-text">
+        <div class="feature-name">定时任务</div>
+        <p class="feature-desc">可视化 Cron 配置，让 AI 成员按计划自动执行任务，不需要你每次手动触发。</p>
+      </div>
+    </div>
+    <div class="feature-item">
+      <span class="feature-icon">📡</span>
+      <div class="feature-text">
+        <div class="feature-name">消息渠道接入</div>
+        <p class="feature-desc">接入 Telegram 等平台，AI 成员主动找你汇报、提醒、推送，而不只是等你发问。</p>
+      </div>
+    </div>
+    <div class="feature-item">
+      <span class="feature-icon">🤝</span>
+      <div class="feature-text">
+        <div class="feature-name">多成员协作（即将上线）</div>
+        <p class="feature-desc">AI 成员之间互相委派任务、共享信息，真正形成协作闭环。</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- [IMG-4] 配置/定时任务截图 -->
+  <div class="img-placeholder">
+    <span class="icon">⚙️</span>
+    <span class="label">[ 待替换：定时任务 / 渠道配置截图 ]</span>
+  </div>
+
+  <hr>
+
+  <div class="section-title">🌐 zyling 产品生态</div>
+
+  <p>ZyHive 是智引领生态的旗舰起点，更多产品正在路上：</p>
+
+  <div class="product-row active">
+    <span class="product-emoji">🐝</span>
+    <div class="product-info">
+      <div class="product-en">ZyHive · 引巢</div>
+      <div class="product-zh">AI 团队操作系统</div>
+    </div>
+    <span class="product-status status-live">✅ 已上线</span>
+  </div>
+  <div class="product-row">
+    <span class="product-emoji">🌐</span>
+    <div class="product-info">
+      <div class="product-en">ZyHub · 引汇</div>
+      <div class="product-zh">AI 模型聚合中转服务</div>
+    </div>
+    <span class="product-status status-dev">🔨 研发中</span>
+  </div>
+  <div class="product-row">
+    <span class="product-emoji">⌨️</span>
+    <div class="product-info">
+      <div class="product-en">ZyType · 引键</div>
+      <div class="product-zh">AI 角色专家输入法</div>
+    </div>
+    <span class="product-status status-plan">📋 规划中</span>
+  </div>
+
+  <hr>
+
+  <div class="cta">
+    <!-- [IMG-5] 替换为 zyling logo 或官网二维码 -->
+    <span class="cta-icon">🐝</span>
+    <h3>准备好让 AI 引领你的团队了吗？</h3>
+    <p>ZyHive 开源免费，GitHub 上已有完整源码<br>欢迎 Star、体验、提 Issue</p>
+    <div class="cta-links">
+      <a class="cta-btn cta-btn-primary" href="https://github.com/Zyling-ai/zyhive">⭐ GitHub 查看源码</a>
+      <a class="cta-btn cta-btn-outline" href="https://zyling.ai">🌐 官网了解更多</a>
+    </div>
+  </div>
+
+  <div class="footer">
+    <p><strong>智引领 · zyling</strong></p>
+    <p>让每一个 AI 成员各司其职，协同引领</p>
+    <p>zyling.ai &nbsp;·&nbsp; github.com/Zyling-ai/zyhive</p>
+  </div>
+
+</div>
+</body>
+</html>
