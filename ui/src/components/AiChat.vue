@@ -1911,4 +1911,18 @@ onMounted(() => {
 .compact .chat-input-area { padding: 8px; }
 .compact .chat-textarea { font-size: 13px; padding: 7px 10px; }
 .compact .input-hint { display: none; }
+
+/* ── Mobile ── */
+@media (max-width: 768px) {
+  .chat-input-area { padding: 8px 10px 10px; }
+  .chat-textarea { font-size: 15px; min-height: 44px; padding: 10px 12px; }
+  .send-btn { min-width: 48px; height: 48px; font-size: 20px; border-radius: 12px; }
+  .input-hint { display: none; }
+  .msg-bubble { font-size: 15px; line-height: 1.6; }
+  .msg-bubble.user { border-radius: 18px 18px 4px 18px; }
+  .msg-bubble.assistant { border-radius: 4px 18px 18px 18px; }
+  .msg-col { max-width: 88%; }
+  .chat-messages { padding: 12px 10px; gap: 10px; }
+  .tool-step-summary { display: none; } /* hide summary text on mobile to save space */
+}
 </style>
