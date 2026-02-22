@@ -4,6 +4,60 @@
 
 ---
 
+## [v0.9.1] — 2026-02-22 · 移动端响应式 + 关系任务系统 + Telegram 持久会话
+
+### 新增
+
+#### 后台任务系统 — 关系权限驱动（SubagentsView 全新重写）
+- **关系权限模型**：上级可向下级「派遣任务」，下级可向上级「汇报」，平级协作双向互发，支持/其他关系无权操作
+- 新增 `pkg/agent/relations.go`：跨成员读取 RELATIONS.md，构建关系图，提供 `EligibleTargets()` / `CanSpawn()` 方法
+- `GET /api/tasks/eligible?from=&mode=task|report`：返回可操作目标列表 + 关系类型
+- Spawn API 权限校验：无权操作返回 403 + 具体中文错误（如"引引 没有权限向 小流 派遣任务"）
+- Task 结构新增 `taskType`（task/report/system）和 `relation`（记录关系快照）
+- 任务卡片：派遣/汇报/系统 badge + 关系类型 badge + 发起→执行流向箭头（含成员头像色）
+- 筛选栏支持按任务类型过滤
+
+#### Telegram 持久会话 + 主动推送
+- Telegram 每个 chat 绑定持久 session（`telegram-{chatID}`），bot 有完整对话记忆
+- `TelegramBot.Notify()` 方法：在指定 chat 的 session 中主动发消息，同时写入 convlog
+- `POST /api/agents/:id/notify`：触发主动推送，cron/事件均可调用
+- `BotPool.GetBot()` / `GetFirstBot()`：API 层获取运行中的 bot 实例
+
+#### 移动端响应式（全面适配 ≤768px）
+- **App.vue**：汉堡菜单 + 侧边栏 overlay 抽屉（点遮罩/菜单项自动关闭）
+- Header 链接按屏宽分级隐藏（≤768px 隐藏 GitHub，≤480px 隐藏官网）
+- **AgentsView**：卡片 1→2→3 列响应式，名字/ID 单行截断
+- **AgentDetailView**：Tab 导航横向滑动（`el-tabs__nav-scroll` 强制 overflow-x），历史会话折叠抽屉，渠道按钮折行，环境变量输入纵向堆叠，表格横向滚动
+- **ProjectsView**：文件树 + 编辑器纵向堆叠，项目列表固定顶部，加返回按钮
+- **TeamView**：连接横幅正常折行，图谱横向滚动
+- **DashboardView**：统计卡片 2×2 网格
+- **AiChat**：发送按钮 48px 触控区，字号 15px，iOS 安全区兼容
+
+#### 全局 Header 升级
+- 官网按钮（zyling.ai，紫色风格）
+- GitHub 链接更新为 `Zyling-ai/zyhive`
+- Star 数量实时获取（GitHub API，10 分钟本地缓存），改为纯展示不可点击
+
+#### 成员 Env 自管理工具
+- `self_set_env` / `self_delete_env`：AI 成员可自行持久化更新私有环境变量
+- `manager.SetAgentEnvVar()` 经由 manager 持久化（内存+磁盘），当前 session 立即生效
+- UI 作用域说明：ToolsView 标注「全局共享」，AgentDetail env tab 标注「仅此成员可见」
+
+#### 其他
+- `send_file` 工具：Telegram ≤50MB multipart 上传，>50MB 返回下载链接；Web 端图片预览/文件卡片渲染
+- `show_image` 工具：成员可在对话中展示截图/图片
+- Web channel 历史持久化、background generation 支持、deleted 状态
+- README 动态 Stars/Forks badge
+
+### 修复
+- stale broadcaster replay 导致新消息回复旧内容（StartGen 清空 buffer）
+- processToolResult 统一 marker 检测（历史加载 + streaming 5 处全覆盖）
+- session 历史侧边栏过滤内部 session（skill-studio-* / subagent-*）
+- AgentCreate apply card 每次只保留最新一张
+- skill-studio sandbox bash 工具开放
+
+---
+
 ## [v0.9.0] — 2026-02-21 · 团队图谱 + 项目系统 + 成员管理增强
 
 ### 新增
