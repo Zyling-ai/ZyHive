@@ -19,6 +19,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"os"
 	"path/filepath"
 	"sync/atomic"
 
@@ -238,6 +240,25 @@ func (h *chatHandler) execRunner(
 		})
 	}
 	toolRegistry.WithSessionID(sessionID)
+
+	// Web UI file sender: generate a download link so the user can click to download.
+	// Unlike Telegram (which uploads the file), the web UI just needs a URL.
+	if scenario != "skill-studio" {
+		baseURL := h.cfg.Gateway.BaseURL()
+		authToken := h.cfg.Auth.Token
+		webSender := func(filePath string) (string, error) {
+			info, err := os.Stat(filePath)
+			if err != nil {
+				return "", fmt.Errorf("file not found: %v", err)
+			}
+			dlURL := baseURL + "/api/download?path=" + url.QueryEscape(filePath) +
+				"&token=" + url.QueryEscape(authToken)
+			sizeMB := float64(info.Size()) / (1024 * 1024)
+			name := filepath.Base(filePath)
+			return fmt.Sprintf("📎 **%s** (%.2f MB)\n\n下载链接：%s", name, sizeMB, dlURL), nil
+		}
+		toolRegistry.WithFileSender(webSender, baseURL, authToken)
+	}
 
 	var preHistory []llm.ChatMessage
 	if sessionID == "" {
