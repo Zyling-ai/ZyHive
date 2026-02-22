@@ -1,11 +1,15 @@
 <template>
   <div class="tools-page">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px">
-      <h2 style="margin: 0"><el-icon style="vertical-align:-2px;margin-right:6px"><SetUp /></el-icon>能力配置</h2>
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px">
+      <h2 style="margin: 0"><el-icon style="vertical-align:-2px;margin-right:6px"><SetUp /></el-icon>能力配置 <span style="font-size:12px;color:#64748b;font-weight:400;">（全局，所有成员共享）</span></h2>
       <el-button type="primary" @click="openAdd">
         <el-icon><Plus /></el-icon> 添加能力
       </el-button>
     </div>
+    <p style="margin: 0 0 16px; color: #64748b; font-size: 13px;">
+      配置<strong>所有 AI 成员</strong>都能使用的工具 API Key，例如 Brave Search、ElevenLabs 等。<br>
+      如需配置<strong>某个成员专属</strong>的 API Key 或 Token，请进入该成员的「环境变量」Tab。
+    </p>
 
     <el-card shadow="hover">
       <el-table :data="list" stripe>

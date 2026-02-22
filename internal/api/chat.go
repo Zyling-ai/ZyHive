@@ -250,6 +250,14 @@ func (h *chatHandler) execRunner(
 	}
 	toolRegistry.WithSessionID(sessionID)
 
+	// Allow the agent to update its own env vars via self_set_env / self_delete_env.
+	if scenario != "skill-studio" {
+		agIDcopy := agentID
+		toolRegistry.WithEnvUpdater(func(key, value string, remove bool) error {
+			return h.manager.SetAgentEnvVar(agIDcopy, key, value, remove)
+		})
+	}
+
 	// Web UI file sender: render files inline in the chat window.
 	//   Images      → [media:path]   → AiChat.vue renders as <img>
 	//   Other files → [file_card:URL|NAME|SIZE] → AiChat.vue renders as download card

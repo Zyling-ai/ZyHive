@@ -68,6 +68,11 @@ func (p *Pool) configureToolRegistry(reg *tools.Registry, ag *Agent, fileSender 
 	if fileSender != nil {
 		reg.WithFileSender(fileSender, p.cfg.Gateway.BaseURL(), p.cfg.Auth.Token)
 	}
+	// Allow the agent to update its own env vars via self_set_env / self_delete_env tools.
+	agID := ag.ID
+	reg.WithEnvUpdater(func(key, value string, remove bool) error {
+		return p.manager.SetAgentEnvVar(agID, key, value, remove)
+	})
 }
 
 // buildProjectContext returns the shared project context string for system prompt injection.
