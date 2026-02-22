@@ -665,9 +665,10 @@ function hasJsonBlock(text?: string): boolean {
 /** 用户手动触发解析并 emit apply */
 function manualApply(msg: ChatMsg) {
   const data = tryExtractJson(msg.text)
-  console.log('[AiChat] manualApply result:', data)
   if (data) {
-    msg.applyData = data   // 缓存到消息，让卡片出现
+    // Clear previous apply cards — only show the one being applied
+    messages.value.forEach(m => { if (m !== msg && m.applyData) delete m.applyData })
+    msg.applyData = data
     nextTick(() => emit('apply', data))
   } else {
     alert('未能从消息中提取到配置 JSON，请手动复制')
@@ -1044,10 +1045,9 @@ function runChat(text: string, imgs: string[], silent = false) {
         if (props.applyable) {
           const extracted = tryExtractJson(streamText.value)
           if (extracted) {
+            // Clear apply cards from all previous messages — only the latest should show
+            messages.value.forEach(m => { if (m !== cur && m.applyData) delete m.applyData })
             cur.applyData = extracted
-            console.log('[AiChat] applyData extracted:', extracted)
-          } else {
-            console.log('[AiChat] no applyData found in text length:', streamText.value.length)
           }
         }
 
