@@ -34,13 +34,27 @@ import (
 var embeddedUI embed.FS
 
 func main() {
-	// Parse flags: --config <path> (also $AIPANEL_CONFIG env var)
+	// Parse flags
 	defaultCfg := "aipanel.json"
 	if env := os.Getenv("AIPANEL_CONFIG"); env != "" {
 		defaultCfg = env
 	}
 	configPath := flag.String("config", defaultCfg, "path to aipanel.json config file")
+	serveMode := flag.Bool("serve", false, "直接启动服务（跳过 CLI 菜单）")
 	flag.Parse()
+
+	// 无参数 且 无环境变量 → 进入 CLI 管理面板
+	// 判断：config 是默认值 且 没有 --serve 且 没有 AIPANEL_CONFIG 环境变量
+	configExplicitlySet := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "config" {
+			configExplicitlySet = true
+		}
+	})
+	if !configExplicitlySet && !*serveMode && os.Getenv("AIPANEL_CONFIG") == "" {
+		RunCLI()
+		return
+	}
 
 	// Load config
 	cfg, err := config.Load(*configPath)
