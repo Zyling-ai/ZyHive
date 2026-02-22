@@ -508,9 +508,33 @@ onUnmounted(() => {
 async function reattachSessionTasks(sessionId: string) {
   try {
     const res = await tasksApi.list({ sessionId })
-    const active = (res.data as any[]).filter(
-      t => !['done','error','killed'].includes(t.status)
-    )
+    const all = (res.data as any[])
+    const active = all.filter(t => !['done','error','killed'].includes(t.status))
+    const justDone = all.filter(t => ['done','error','killed'].includes(t.status))
+
+    // If some tasks already completed but we don't have their notifications yet
+    // (e.g. page was closed while subagent was running), do a reload to catch up.
+    if (justDone.length > 0) {
+      setTimeout(async () => {
+        if (currentSessionId.value !== sessionId) return
+        try {
+          const r = await sessionsApi.get(props.agentId, sessionId)
+          if (currentSessionId.value !== sessionId) return
+          const parsed = r.data.messages ?? []
+          const loaded: ChatMsg[] = []
+          if (parsed.some((m: any) => m.isCompact || m.role === 'compaction')) {
+            loaded.push({ role: 'system', text: '更早的内容已压缩' })
+          }
+          for (const m of parsed) {
+            if (m.role === 'compaction') continue
+            loaded.push({ role: m.role as 'user' | 'assistant', text: m.text })
+          }
+          messages.value = loaded
+          scrollBottom()
+        } catch {}
+      }, 500)
+    }
+
     if (active.length === 0) return
     resumedTasks.value = active.map(t => ({
       id: t.id,
@@ -1110,24 +1134,32 @@ async function reconnectIfGenerating(sessionId: string) {
   if (!status.hasWorker) return // no active worker at all
 
   if (status.status !== 'generating') {
-    // Worker exists but is idle — generation just finished while we were loading history.
-    // Silently reload messages to pick up the completed response (e.g. from SetNotify).
-    try {
-      const res = await sessionsApi.get(props.agentId, sessionId)
-      // Double-check: session might have changed during the await
+    // Worker exists but is idle — generation just finished (or just became idle).
+    // Reload history once now, then again after a short delay in case the runner
+    // saved to disk just as we were checking (race between AppendMessage and IsBusy).
+    const doReload = async () => {
+      try {
+        const res = await sessionsApi.get(props.agentId, sessionId)
+        if (currentSessionId.value !== sessionId) return
+        const parsed = res.data.messages ?? []
+        const loaded: ChatMsg[] = []
+        if (parsed.some((m: any) => m.isCompact || m.role === 'compaction')) {
+          loaded.push({ role: 'system', text: '更早的内容已压缩' })
+        }
+        for (const m of parsed) {
+          if (m.role === 'compaction') continue
+          loaded.push({ role: m.role as 'user' | 'assistant', text: m.text })
+        }
+        messages.value = loaded
+        scrollBottom()
+      } catch {}
+    }
+    await doReload()
+    // Second reload after 1s — catches the case where the runner saved just after our first reload
+    setTimeout(async () => {
       if (currentSessionId.value !== sessionId) return
-      const parsed = res.data.messages ?? []
-      const loaded: ChatMsg[] = []
-      if (parsed.some((m: any) => m.isCompact || m.role === 'compaction')) {
-        loaded.push({ role: 'system', text: '更早的内容已压缩' })
-      }
-      for (const m of parsed) {
-        if (m.role === 'compaction') continue
-        loaded.push({ role: m.role as 'user' | 'assistant', text: m.text })
-      }
-      messages.value = loaded
-      scrollBottom()
-    } catch {}
+      await doReload()
+    }, 1000)
     return
   }
 
