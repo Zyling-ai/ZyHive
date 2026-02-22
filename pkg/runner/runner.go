@@ -334,6 +334,8 @@ func stripToolResultBlocks(raw json.RawMessage) json.RawMessage {
 }
 
 func (r *Runner) run(ctx context.Context, userMsg string, out chan<- RunEvent) error {
+	// Accumulates tool call display records across all iterations for session persistence.
+	var allToolCallRecords []session.ToolCallRecord
 	// 1. Append user message to history (with optional images)
 	var userContent json.RawMessage
 	if len(r.cfg.Images) > 0 {
@@ -476,13 +478,16 @@ func (r *Runner) run(ctx context.Context, userMsg string, out chan<- RunEvent) e
 			// that would corrupt the session history and cause Anthropic 400 errors later).
 			if r.cfg.SessionID != "" && r.cfg.Session != nil && strings.TrimSpace(assistantText) != "" {
 				// When saving, strip tool_use blocks from the final assistant message.
-				// If the final turn (unexpectedly) had both text and tool_use, saving the
-				// tool_use without corresponding tool_result would corrupt the session.
 				safeContent := stripToolUseBlocks(assistantContent)
 				if safeContent == nil {
 					safeContent = assistantContent
 				}
-				_ = r.cfg.Session.AppendMessage(r.cfg.SessionID, "assistant", safeContent)
+				// Attach accumulated tool call records for UI timeline reconstruction.
+				var records []session.ToolCallRecord
+				if len(allToolCallRecords) > 0 {
+					records = allToolCallRecords
+				}
+				_ = r.cfg.Session.AppendMessageWithTools(r.cfg.SessionID, "assistant", safeContent, records)
 			}
 			tokenEstimate := 0
 			if r.cfg.Session != nil {
@@ -501,7 +506,8 @@ func (r *Runner) run(ctx context.Context, userMsg string, out chan<- RunEvent) e
 		}
 
 		// 5. Execute tools and append results
-		toolResults := r.executeTools(ctx, toolCalls, out)
+		toolResults, toolRecords := r.executeTools(ctx, toolCalls, out)
+		allToolCallRecords = append(allToolCallRecords, toolRecords...)
 		toolResultContent, _ := json.Marshal(toolResults)
 		r.history = append(r.history, llm.ChatMessage{
 			Role:    "user",
@@ -512,9 +518,10 @@ func (r *Runner) run(ctx context.Context, userMsg string, out chan<- RunEvent) e
 	return fmt.Errorf("exceeded max iterations (%d)", maxIter)
 }
 
-// executeTools runs all tool calls in parallel and returns results.
-func (r *Runner) executeTools(ctx context.Context, calls []llm.ToolCall, out chan<- RunEvent) []map[string]any {
+// executeTools runs all tool calls sequentially and returns results + display records.
+func (r *Runner) executeTools(ctx context.Context, calls []llm.ToolCall, out chan<- RunEvent) ([]map[string]any, []session.ToolCallRecord) {
 	var results []map[string]any
+	var records []session.ToolCallRecord
 	for _, tc := range calls {
 		result, err := r.cfg.Tools.Execute(ctx, tc.Name, tc.Input)
 		if err != nil {
@@ -526,8 +533,23 @@ func (r *Runner) executeTools(ctx context.Context, calls []llm.ToolCall, out cha
 			"tool_use_id": tc.ID,
 			"content":     result,
 		})
+		// Build display record (truncate long values for storage efficiency)
+		inputStr := string(tc.Input)
+		if len(inputStr) > 500 {
+			inputStr = inputStr[:500] + "…"
+		}
+		resultStr := result
+		if len(resultStr) > 500 {
+			resultStr = resultStr[:500] + "…"
+		}
+		records = append(records, session.ToolCallRecord{
+			ID:     tc.ID,
+			Name:   tc.Name,
+			Input:  inputStr,
+			Result: resultStr,
+		})
 	}
-	return results
+	return results, records
 }
 
 // makeSimpleLLMCaller returns a function suitable for compaction summarization.

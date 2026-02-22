@@ -38,10 +38,21 @@ type MessageEntry struct {
 	Timestamp int64   `json:"timestamp"`
 }
 
+// ToolCallRecord persists tool call display metadata alongside a message.
+// It is stored in the session JSONL for UI reconstruction after page reload.
+// It is NOT sent to the LLM — it is purely for rendering the tool timeline.
+type ToolCallRecord struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Input  string `json:"input,omitempty"`  // JSON-encoded input (truncated for display)
+	Result string `json:"result,omitempty"` // tool result text (truncated)
+}
+
 // Message is a single turn in the conversation.
 type Message struct {
-	Role    string          `json:"role"` // "user" | "assistant"
-	Content json.RawMessage `json:"content"`
+	Role      string           `json:"role"`                // "user" | "assistant"
+	Content   json.RawMessage  `json:"content"`
+	ToolCalls []ToolCallRecord `json:"toolCalls,omitempty"` // display-only tool call history
 }
 
 // ContentBlock is one element of a message's content array.

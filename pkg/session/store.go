@@ -89,13 +89,19 @@ func (s *Store) Create(sessionID, agentID string) (string, error) {
 
 // AppendMessage appends a user or assistant message and updates session metadata.
 func (s *Store) AppendMessage(sessionID, role string, content json.RawMessage) error {
+	return s.AppendMessageWithTools(sessionID, role, content, nil)
+}
+
+// AppendMessageWithTools appends a message and optionally attaches display-only tool call metadata.
+// ToolCalls are NOT sent to the LLM — they are stored only for UI timeline reconstruction.
+func (s *Store) AppendMessageWithTools(sessionID, role string, content json.RawMessage, toolCalls []ToolCallRecord) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	path := filepath.Join(s.dir, sessionID+".jsonl")
 	entry := MessageEntry{
 		BaseEntry: BaseEntry{Type: EntryTypeMessage},
-		Message:   Message{Role: role, Content: content},
+		Message:   Message{Role: role, Content: content, ToolCalls: toolCalls},
 		Timestamp: nowMs(),
 	}
 	if err := appendEntry(path, entry); err != nil {
