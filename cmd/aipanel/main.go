@@ -162,8 +162,8 @@ func main() {
 		cID := chID
 		pdDir := filepath.Join(agentsDir, aID, "channels-pending")
 		pending := channel.NewPendingStore(pdDir, cID)
-		sf := func(ctx2 context.Context, aid, msg string, media []channel.MediaInput) (<-chan channel.StreamEvent, error) {
-			return pool.RunStreamEvents(ctx2, aid, msg, media)
+		sf := func(ctx2 context.Context, aid, msg string, media []channel.MediaInput, fileSender channel.FileSenderFunc) (<-chan channel.StreamEvent, error) {
+			return pool.RunStreamEvents(ctx2, aid, msg, media, fileSender)
 		}
 		getAllowFrom := func() []int64 { return mgr.GetAllowFrom(aID, cID) }
 		agentDir := filepath.Join(agentsDir, aID)

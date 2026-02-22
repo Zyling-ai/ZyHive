@@ -7,7 +7,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -306,6 +309,77 @@ func mediaToDataURIs(media []MediaInput) []string {
 		uris = append(uris, "data:"+ct+";base64,"+encoded)
 	}
 	return uris
+}
+
+// SendFileToChat sends a local file to a Telegram chat using multipart form upload.
+// It auto-selects the appropriate Telegram method based on file extension:
+//   image/*  → sendPhoto (Telegram displays inline)
+//   video/*  → sendVideo
+//   audio/*  → sendAudio
+//   other    → sendDocument (generic file delivery)
+//
+// Telegram hard-limits are 10 MB for photos and 50 MB for other types.
+// Files exceeding the limit return an error so the caller can fall back to a download link.
+func (b *TelegramBot) SendFileToChat(chatID, threadID int64, filePath string) (string, error) {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return "", fmt.Errorf("read file: %w", err)
+	}
+
+	ext := strings.ToLower(filepath.Ext(filePath))
+	baseName := filepath.Base(filePath)
+
+	// Choose Telegram method + form field name based on extension
+	type sendConfig struct{ method, field string }
+	var sc sendConfig
+	switch ext {
+	case ".jpg", ".jpeg", ".png", ".gif", ".webp":
+		sc = sendConfig{"sendPhoto", "photo"}
+	case ".mp4", ".mov", ".avi", ".mkv", ".webm":
+		sc = sendConfig{"sendVideo", "video"}
+	case ".mp3", ".m4a", ".ogg", ".flac", ".wav", ".aac":
+		sc = sendConfig{"sendAudio", "audio"}
+	default:
+		sc = sendConfig{"sendDocument", "document"}
+	}
+
+	// Build multipart/form-data body
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+
+	_ = mw.WriteField("chat_id", fmt.Sprintf("%d", chatID))
+	if threadID > 0 {
+		_ = mw.WriteField("message_thread_id", fmt.Sprintf("%d", threadID))
+	}
+
+	fw, err := mw.CreateFormFile(sc.field, baseName)
+	if err != nil {
+		return "", fmt.Errorf("create form file: %w", err)
+	}
+	if _, err = fw.Write(data); err != nil {
+		return "", fmt.Errorf("write file data: %w", err)
+	}
+	mw.Close()
+
+	url := fmt.Sprintf("https://api.telegram.org/bot%s/%s", b.token, sc.method)
+	resp, err := b.client.Post(url, mw.FormDataContentType(), &body)
+	if err != nil {
+		return "", fmt.Errorf("telegram upload: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+
+	var result struct {
+		OK          bool   `json:"ok"`
+		Description string `json:"description"`
+	}
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return "", fmt.Errorf("parse response: %w", err)
+	}
+	if !result.OK {
+		return "", fmt.Errorf("telegram %s failed: %s", sc.method, result.Description)
+	}
+	return fmt.Sprintf("✅ 已发送 %s (%.1f KB)", baseName, float64(len(data))/1024), nil
 }
 
 // Ensure RunnerFunc is exported so other packages can reference it cleanly.

@@ -3,7 +3,9 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
+	"strings"
 )
 
 // Config is the top-level configuration.
@@ -19,8 +21,22 @@ type Config struct {
 }
 
 type GatewayConfig struct {
-	Port int    `json:"port"`
-	Bind string `json:"bind"`
+	Port      int    `json:"port"`
+	Bind      string `json:"bind"`
+	PublicURL string `json:"publicUrl,omitempty"` // e.g. "https://zyhive.example.com"
+}
+
+// BaseURL returns the canonical server base URL (no trailing slash).
+// Uses PublicURL if configured, otherwise falls back to http://localhost:PORT.
+func (g *GatewayConfig) BaseURL() string {
+	if g.PublicURL != "" {
+		return strings.TrimRight(g.PublicURL, "/")
+	}
+	port := g.Port
+	if port == 0 {
+		port = 8080
+	}
+	return fmt.Sprintf("http://localhost:%d", port)
 }
 
 type AgentsConfig struct {

@@ -23,16 +23,19 @@ type Handler func(ctx context.Context, input json.RawMessage) (string, error)
 
 // Registry maps tool names to their definition and handler.
 type Registry struct {
-	defs         []llm.ToolDef
-	handlers     map[string]Handler
-	workspaceDir string // agent-specific working directory for path resolution
-	agentDir     string // parent dir of workspace (contains config.json)
-	agentID      string // agent ID (used for self-management tools)
-	sessionID    string // current session ID (passed to spawn so NotifyFunc can reply)
-	projectMgr   *project.Manager  // shared project workspace (nil = no project access)
-	agentEnv     map[string]string  // per-agent env vars injected into exec (bypass sanitize)
-	subagentMgr  *subagent.Manager  // background task manager (nil = no subagent tools)
-	agentLister  func() []AgentSummary // optional: lists available agents for agent_list tool
+	defs          []llm.ToolDef
+	handlers      map[string]Handler
+	workspaceDir  string // agent-specific working directory for path resolution
+	agentDir      string // parent dir of workspace (contains config.json)
+	agentID       string // agent ID (used for self-management tools)
+	sessionID     string // current session ID (passed to spawn so NotifyFunc can reply)
+	projectMgr    *project.Manager             // shared project workspace (nil = no project access)
+	agentEnv      map[string]string            // per-agent env vars injected into exec (bypass sanitize)
+	subagentMgr   *subagent.Manager            // background task manager (nil = no subagent tools)
+	agentLister   func() []AgentSummary        // optional: lists available agents for agent_list tool
+	fileSender    func(string) (string, error) // optional: sends a file to the current chat (e.g. Telegram)
+	serverBaseURL string                       // base URL for generating download links (files > 50 MB)
+	authToken     string                       // auth token for download link generation
 }
 
 // AgentSummary is the minimal agent info exposed through the agent_list tool.
@@ -138,6 +141,18 @@ func (r *Registry) WithEnv(env map[string]string) {
 // in SpawnOpts, enabling the NotifyFunc to deliver results back to this session.
 func (r *Registry) WithSessionID(id string) {
 	r.sessionID = id
+}
+
+// WithFileSender registers the send_file tool backed by the given sender function.
+// sender is a closure that delivers a local file to the active chat (e.g. via Telegram).
+// serverBaseURL and authToken are used to generate download links for files > 50 MB.
+func (r *Registry) WithFileSender(sender func(string) (string, error), serverBaseURL, authToken string) {
+	r.fileSender = sender
+	r.serverBaseURL = serverBaseURL
+	r.authToken = authToken
+	r.register(sendFileDef, func(ctx context.Context, input json.RawMessage) (string, error) {
+		return r.handleSendFile(ctx, input)
+	})
 }
 
 // WithAgentLister registers an agent_list tool that lets the AI look up available
