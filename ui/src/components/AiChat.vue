@@ -436,6 +436,7 @@ async function pollTasks() {
   }
   // Poll tool-call-linked tasks
   const doneIds: string[] = []
+  let spawnedJustCompleted = false
   for (const [tcId, taskId] of spawnedTaskMap) {
     try {
       const res = await tasksApi.get(taskId)
@@ -443,27 +444,59 @@ async function pollTasks() {
       for (const msg of messages.value) {
         const tc = msg.toolCalls?.find(t => t.id === tcId)
         if (tc) {
+          const wasRunning = !['done','error','killed'].includes(tc.taskStatus ?? '')
           tc.taskStatus = info.status as ToolCallEntry['taskStatus']
-          if (['done','error','killed'].includes(info.status)) doneIds.push(tcId)
+          if (['done','error','killed'].includes(info.status)) {
+            doneIds.push(tcId)
+            if (wasRunning) spawnedJustCompleted = true
+          }
         }
       }
-    } catch { doneIds.push(tcId) }
+    } catch { doneIds.push(tcId); spawnedJustCompleted = true }
   }
   for (const id of doneIds) spawnedTaskMap.delete(id)
 
   // Poll resumed tasks (page-reload re-attached)
+  let anyJustCompleted = false
   for (const rt of resumedTasks.value) {
     if (['done','error','killed'].includes(rt.status)) continue
     try {
       const res = await tasksApi.get(rt.id)
+      const prevStatus = rt.status
       rt.status = res.data.status
-    } catch { rt.status = 'error' }
+      if (['done','error','killed'].includes(rt.status) && prevStatus !== rt.status) {
+        anyJustCompleted = true
+      }
+    } catch { rt.status = 'error'; anyJustCompleted = true }
   }
 
   const stillRunning = spawnedTaskMap.size > 0 ||
     resumedTasks.value.some(t => !['done','error','killed'].includes(t.status))
   if (!stillRunning && taskPollTimer) {
     clearInterval(taskPollTimer); taskPollTimer = null
+  }
+
+  // When any task just completed, reload session messages to pick up the [后台任务完成] notification
+  if ((anyJustCompleted || spawnedJustCompleted) && currentSessionId.value && !streaming.value) {
+    const sid = currentSessionId.value
+    setTimeout(async () => {
+      if (currentSessionId.value !== sid) return // stale
+      try {
+        const res = await sessionsApi.get(props.agentId, sid)
+        if (currentSessionId.value !== sid) return
+        const parsed = res.data.messages ?? []
+        const loaded: ChatMsg[] = []
+        if (parsed.some((m: any) => m.isCompact || m.role === 'compaction')) {
+          loaded.push({ role: 'system', text: '更早的内容已压缩' })
+        }
+        for (const m of parsed) {
+          if (m.role === 'compaction') continue
+          loaded.push({ role: m.role as 'user' | 'assistant', text: m.text })
+        }
+        messages.value = loaded
+        scrollBottom()
+      } catch {}
+    }, 1500) // small delay to let server write the notification first
   }
 }
 
@@ -1021,8 +1054,12 @@ async function resumeSession(sessionId: string) {
   currentSessionId.value = sessionId
   messages.value = []
   historyLoading.value = true
+  // Snapshot the sessionId at call time so we can detect stale closures
+  const mySessionId = sessionId
   try {
     const res = await sessionsApi.get(props.agentId, sessionId)
+    // Guard: user may have switched sessions while waiting for response
+    if (currentSessionId.value !== mySessionId) return
     const parsed = res.data.messages ?? []
     const loaded: ChatMsg[] = []
     // Insert a compaction marker if any compaction entry exists
@@ -1065,13 +1102,20 @@ async function reconnectIfGenerating(sessionId: string) {
   if (streaming.value) return // already streaming
 
   const status = await getSessionStatus(props.agentId, sessionId)
+
+  // Stale-closure guard: user may have switched sessions while we were waiting for status.
+  // If currentSessionId changed, our update would overwrite the wrong session's UI.
+  if (currentSessionId.value !== sessionId) return
+
   if (!status.hasWorker) return // no active worker at all
 
   if (status.status !== 'generating') {
     // Worker exists but is idle — generation just finished while we were loading history.
-    // Silently reload messages to pick up the completed response.
+    // Silently reload messages to pick up the completed response (e.g. from SetNotify).
     try {
       const res = await sessionsApi.get(props.agentId, sessionId)
+      // Double-check: session might have changed during the await
+      if (currentSessionId.value !== sessionId) return
       const parsed = res.data.messages ?? []
       const loaded: ChatMsg[] = []
       if (parsed.some((m: any) => m.isCompact || m.role === 'compaction')) {
@@ -1087,10 +1131,10 @@ async function reconnectIfGenerating(sessionId: string) {
     return
   }
 
-  // Worker is actively generating — subscribe to live stream
+  // Worker is actively generating — subscribe to live stream.
+  // Guard: only proceed if still on the same session
+  if (currentSessionId.value !== sessionId) return
 
-  // Worker is alive (generating or just finished).
-  // Subscribe to the broadcaster to get buffered + live events.
   streaming.value = true
   streamText.value = ''
   streamThinking.value = ''
