@@ -111,6 +111,14 @@ func (h *chatHandler) Chat(c *gin.Context) {
 	}
 
 	worker := h.workerPool.GetOrCreate(sessionID)
+
+	// Clear stale replay buffer BEFORE subscribing via pipeSSE.
+	// Without this, Subscribe() snapshots the previous generation's buffer
+	// (which ends with "done") and replays the old response to the new request.
+	// Calling StartGen() here is safe: the buffer is only used for reconnect replay;
+	// live subscribers receive events via their own channels and are unaffected.
+	worker.Broadcaster.StartGen()
+
 	if err := worker.Enqueue(session.RunRequest{
 		AgentID:   ag.ID,
 		SessionID: sessionID,
