@@ -256,7 +256,16 @@
                 <span class="msg-role">{{ msg.role === 'user' ? '用户' : 'AI 助手' }}</span>
                 <span class="msg-time">{{ formatTime(msg.timestamp) }}</span>
               </div>
-              <div class="msg-text" v-html="renderText(msg.text)" />
+              <!-- Tool call timeline (persisted from session history) -->
+              <div v-if="msg.toolCalls?.length" class="hist-tool-timeline">
+                <div v-for="tc in msg.toolCalls" :key="tc.id" class="hist-tool-step">
+                  <span class="hist-tool-dot">✓</span>
+                  <span class="hist-tool-icon">{{ histToolIcon(tc.name) }}</span>
+                  <code class="hist-tool-name">{{ tc.name }}</code>
+                  <span v-if="tc.input" class="hist-tool-summary">{{ histToolSummary(tc.name, tc.input) }}</span>
+                </div>
+              </div>
+              <div v-if="msg.text" class="msg-text" v-html="renderText(msg.text)" />
             </div>
           </template>
         </div>
@@ -463,6 +472,28 @@ function rowClassName({ row }: { row: SessionSummary }) {
 }
 
 // ── Formatting ────────────────────────────────────────────────────────────
+function histToolIcon(name: string): string {
+  const icons: Record<string,string> = {
+    bash: '💻', read: '📄', write: '✏️', list_files: '📁',
+    agent_spawn: '🚀', agent_list: '👥', agent_kill: '🛑',
+    read_file: '📄', write_file: '✏️', project_read: '📂', project_write: '✏️',
+    web_search: '🔍', web_fetch: '🌐',
+  }
+  return icons[name] ?? '🔧'
+}
+
+function histToolSummary(name: string, input: string): string {
+  try {
+    const p = JSON.parse(input)
+    if (name === 'bash' || name === 'exec') return (p.command ?? '').slice(0, 40)
+    if (name === 'read' || name === 'write') return (p.path ?? p.file_path ?? '').split('/').pop() ?? ''
+    if (name === 'agent_spawn') return `→ ${p.agentId ?? '?'}: ${(p.task ?? '').slice(0, 30)}…`
+    if (name === 'agent_list') return ''
+    if (name === 'web_search') return (p.query ?? '').slice(0, 40)
+  } catch {}
+  return input.slice(0, 40)
+}
+
 function formatTime(ms: number | string): string {
   if (!ms) return '—'
   const d = typeof ms === 'string' ? new Date(ms) : new Date(ms)
@@ -523,4 +554,26 @@ onMounted(async () => {
 .compact-marker { width: 100%; }
 .compact-summary { margin-top: 8px; background: #fdf6ec; border: 1px dashed #e6a23c; }
 :deep(.active-row) { background: #ecf5ff !important; }
+
+/* ── History tool call timeline ─────────────────────── */
+.hist-tool-timeline { display: flex; flex-direction: column; gap: 4px; margin-bottom: 6px; }
+.hist-tool-step {
+  display: flex; align-items: center; gap: 6px;
+  background: #f0faf0; border: 1px solid #b7eb8f;
+  border-radius: 6px; padding: 4px 10px; font-size: 12px;
+  max-width: 520px;
+}
+.hist-tool-dot { color: #52c41a; font-weight: bold; }
+.hist-tool-icon { font-size: 14px; }
+.hist-tool-name { color: #237804; font-family: monospace; }
+.hist-tool-summary { color: #606266; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 240px; }
+
+/* ── Breathing animation (for running tasks) ─────────── */
+@keyframes breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+.task-badge-running, .breathing {
+  animation: breathe 1.5s ease-in-out infinite;
+}
 </style>
