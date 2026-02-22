@@ -118,6 +118,10 @@
                     <pre class="tool-pre result">{{ tc.result.slice(0, 3000) }}{{ tc.result.length > 3000 ? '\n… (截断)' : '' }}</pre>
                   </div>
                 </div>
+                <!-- show_image: image preview always visible below the tool card -->
+                <div v-if="tc.mediaUrl" class="tool-media-preview" @click.stop>
+                  <img :src="tc.mediaUrl" class="tool-media-img" @click="previewImg(tc.mediaUrl!)" />
+                </div>
               </div>
             </div>
 
@@ -218,6 +222,10 @@
                   <div class="tool-label">OUTPUT</div>
                   <pre class="tool-pre result">{{ tc.result.slice(0, 3000) }}</pre>
                 </div>
+              </div>
+              <!-- show_image: image preview -->
+              <div v-if="tc.mediaUrl" class="tool-media-preview" @click.stop>
+                <img :src="tc.mediaUrl" class="tool-media-img" @click="previewImg(tc.mediaUrl!)" />
               </div>
             </div>
           </div>
@@ -354,6 +362,8 @@ interface ToolCallEntry {
   // agent_spawn specific: background task tracking
   taskId?: string
   taskStatus?: 'pending' | 'running' | 'done' | 'error' | 'killed'
+  // show_image tool: URL to render as an <img> in the tool card
+  mediaUrl?: string
 }
 
 interface PendingFile {
@@ -770,7 +780,7 @@ const TOOL_ICONS: Record<string, string> = {
   agent_spawn: '🚀', agent_tasks: '📋', agent_kill: '🛑', agent_result: '📊',
   project_read: '📁', project_write: '📁', project_list: '📁', project_create: '📁', project_glob: '📁',
   memory_search: '🧠', memory_get: '🧠',
-  image: '🖼️', tts: '🔊',
+  image: '🖼️', tts: '🔊', show_image: '🖼️',
   cron: '⏱️',
 }
 function toolIcon(name: string): string {
@@ -790,6 +800,7 @@ function toolSummary(name: string, rawInput: string): string {
     if (name === 'project_read') return inp.path ?? ''
     if (name === 'project_write') return inp.path ?? ''
     if (name === 'memory_search') return inp.query ?? ''
+    if (name === 'show_image') return (inp.path ?? '').split('/').pop() ?? ''
   } catch {}
   return ''
 }
@@ -1010,6 +1021,15 @@ function runChat(text: string, imgs: string[], silent = false) {
           if (tc._startedAt) {
             const ms = Date.now() - tc._startedAt
             tc.duration = ms < 1000 ? `${ms}ms` : `${(ms/1000).toFixed(1)}s`
+          }
+          // show_image: detect [media:path] marker → build API URL with auth token
+          if (ev.text) {
+            const mediaMatch = ev.text.match(/\[media:([^\]]+)\]/)
+            if (mediaMatch) {
+              const filePath = mediaMatch[1]
+              const token = localStorage.getItem('aipanel_token') ?? ''
+              tc.mediaUrl = `/api/media?path=${encodeURIComponent(filePath)}&token=${encodeURIComponent(token)}`
+            }
           }
           // agent_spawn: extract task ID from result and start polling
           if (tc.name === 'agent_spawn' && ev.text) {
@@ -1525,6 +1545,13 @@ onMounted(() => {
   font-family: 'Menlo', 'Monaco', monospace;
 }
 .tool-pre.result { color: #86efac; }
+.tool-media-preview { padding: 8px 10px 6px; cursor: default; }
+.tool-media-img {
+  max-width: 100%; max-height: 400px;
+  border-radius: 6px; border: 1px solid #334155;
+  cursor: zoom-in; display: block;
+  object-fit: contain;
+}
 
 /* ── Markdown ── */
 .msg-text :deep(pre.code-block) {

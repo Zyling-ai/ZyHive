@@ -60,6 +60,7 @@ func New(workspaceDir, agentDir, agentID string) *Registry {
 	r.register(grepToolDef, r.handleGrepWS)
 	r.register(globToolDef, r.handleGlobWS)
 	r.register(webFetchToolDef, handleWebFetch)
+	r.register(showImageDef, func(ctx context.Context, input json.RawMessage) (string, error) { return handleShowImage(ctx, input) })
 	// Self-management tools (available to all agents)
 	r.register(selfListSkillsDef, r.handleSelfListSkills)
 	r.register(selfInstallSkillDef, r.handleSelfInstallSkill)
@@ -116,6 +117,7 @@ func NewSkillStudio(workspaceDir, agentDir, agentID, skillID string) *Registry {
 	r.register(grepToolDef, r.handleGrepWS)
 	r.register(globToolDef, r.handleGlobWS)
 	r.register(webFetchToolDef, handleWebFetch)
+	r.register(showImageDef, func(ctx context.Context, input json.RawMessage) (string, error) { return handleShowImage(ctx, input) })
 	// List skills is read-only, allow it
 	r.register(selfListSkillsDef, r.handleSelfListSkills)
 	// Bash: enabled in skill-studio so the AI can test CLI tools and verify skill behaviour.
