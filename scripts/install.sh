@@ -245,30 +245,41 @@ PLIST
 install_nginx_https() {
   local domain="$1"
 
-  # 安装依赖
+  # ── 安装 nginx + certbot ───────────────────────────────────────────────
   if command -v apt-get &>/dev/null; then
-    info "安装 nginx + certbot…"
+    info "安装 nginx + certbot（apt）…"
     sudo apt-get update -q
     sudo apt-get install -y -q nginx certbot python3-certbot-nginx
+    CERTBOT_CMD="certbot --nginx"
   elif command -v yum &>/dev/null; then
     info "安装 nginx + certbot（yum）…"
-    sudo yum install -y nginx certbot python3-certbot-nginx
+    # 确保 epel-release 已启用
+    sudo yum install -y epel-release &>/dev/null || true
+    sudo yum install -y nginx certbot &>/dev/null
+    # CentOS 7 yum 仓库里 certbot-nginx 插件不可用，用 pip3 安装
+    if ! certbot plugins 2>/dev/null | grep -q nginx; then
+      if command -v pip3 &>/dev/null; then
+        sudo pip3 install certbot-nginx -q 2>/dev/null || true
+      elif command -v pip &>/dev/null; then
+        sudo pip install certbot-nginx -q 2>/dev/null || true
+      fi
+    fi
+    CERTBOT_CMD="certbot --nginx"
   else
     warning "无法自动安装 nginx，请手动安装后配置反向代理至 http://localhost:$PORT"
     return
   fi
 
-  # 生成 NGINX 配置（先 HTTP，certbot 再升 HTTPS）
-  local NGINX_CONF="/etc/nginx/sites-available/$SERVICE_NAME"
-  sudo tee "$NGINX_CONF" > /dev/null << NGINX
+  # ── 确定 NGINX 配置目录 ────────────────────────────────────────────────
+  if [ -d /etc/nginx/sites-available ]; then
+    # Debian/Ubuntu 风格
+    NGINX_CONF="/etc/nginx/sites-available/$SERVICE_NAME"
+    sudo tee "$NGINX_CONF" > /dev/null << NGINX
 server {
     listen 80;
     listen [::]:80;
     server_name $domain;
-
-    # 用于 certbot ACME 验证
     location /.well-known/acme-challenge/ { root /var/www/certbot; }
-
     location / {
         proxy_pass         http://127.0.0.1:$PORT;
         proxy_http_version 1.1;
@@ -280,20 +291,37 @@ server {
         proxy_set_header   X-Forwarded-Proto \$scheme;
         proxy_read_timeout 3600s;
         proxy_send_timeout 3600s;
-        # SSE 支持
         proxy_buffering    off;
         proxy_cache        off;
     }
 }
 NGINX
-
-  # 启用站点
-  sudo mkdir -p /etc/nginx/sites-enabled
-  sudo ln -sf "$NGINX_CONF" "/etc/nginx/sites-enabled/$SERVICE_NAME"
-
-  # 确保 sites-enabled 被 include（Debian 默认有，CentOS 可能没有）
-  if ! grep -q "sites-enabled" /etc/nginx/nginx.conf 2>/dev/null; then
-    sudo sed -i '/http {/a\    include /etc/nginx/sites-enabled/*;' /etc/nginx/nginx.conf
+    sudo ln -sf "$NGINX_CONF" "/etc/nginx/sites-enabled/$SERVICE_NAME"
+  else
+    # CentOS/RHEL 风格：直接写 conf.d
+    NGINX_CONF="/etc/nginx/conf.d/$SERVICE_NAME.conf"
+    sudo tee "$NGINX_CONF" > /dev/null << NGINX
+server {
+    listen 80;
+    listen [::]:80;
+    server_name $domain;
+    location /.well-known/acme-challenge/ { root /var/www/certbot; }
+    location / {
+        proxy_pass         http://127.0.0.1:$PORT;
+        proxy_http_version 1.1;
+        proxy_set_header   Upgrade \$http_upgrade;
+        proxy_set_header   Connection "upgrade";
+        proxy_set_header   Host \$host;
+        proxy_set_header   X-Real-IP \$remote_addr;
+        proxy_set_header   X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+        proxy_buffering    off;
+        proxy_cache        off;
+    }
+}
+NGINX
   fi
 
   sudo mkdir -p /var/www/certbot
@@ -301,17 +329,16 @@ NGINX
   sudo systemctl restart nginx
   success "NGINX 已启动，代理 $domain → localhost:$PORT"
 
-  # 申请 Let's Encrypt 证书
+  # ── 申请 Let's Encrypt 证书 ────────────────────────────────────────────
   info "申请 HTTPS 证书（Let's Encrypt）…"
-  if sudo certbot --nginx -d "$domain" --non-interactive --agree-tos \
-     --email "admin@$domain" --redirect; then
+  if sudo $CERTBOT_CMD -d "$domain" --non-interactive --agree-tos \
+     --email "admin@$domain" --redirect 2>&1; then
     success "HTTPS 证书申请成功！"
-    # 设置自动续期
     (crontab -l 2>/dev/null; echo "0 3 * * * certbot renew --quiet && systemctl reload nginx") | sudo crontab -
     success "已设置证书自动续期（每天 3:00 检查）"
   else
     warning "HTTPS 证书申请失败，请手动运行：sudo certbot --nginx -d $domain"
-    warning "可能原因：域名未解析到此 IP，或 80 端口被防火墙拦截"
+    warning "可能原因：域名未解析到此 IP，或 80/443 端口被防火墙拦截"
   fi
 }
 
