@@ -22,6 +22,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 
 	"github.com/gin-gonic/gin"
@@ -241,8 +242,9 @@ func (h *chatHandler) execRunner(
 	}
 	toolRegistry.WithSessionID(sessionID)
 
-	// Web UI file sender: generate a download link so the user can click to download.
-	// Unlike Telegram (which uploads the file), the web UI just needs a URL.
+	// Web UI file sender: render files inline in the chat window.
+	//   Images      → [media:path]   → AiChat.vue renders as <img>
+	//   Other files → [file_card:URL|NAME|SIZE] → AiChat.vue renders as download card
 	if scenario != "skill-studio" {
 		baseURL := h.cfg.Gateway.BaseURL()
 		authToken := h.cfg.Auth.Token
@@ -251,11 +253,27 @@ func (h *chatHandler) execRunner(
 			if err != nil {
 				return "", fmt.Errorf("file not found: %v", err)
 			}
+			name := filepath.Base(filePath)
+			ext := strings.ToLower(filepath.Ext(name))
+
+			// Images: reuse the existing [media:path] rendering path in AiChat.vue
+			imageExts := map[string]bool{".png": true, ".jpg": true, ".jpeg": true, ".gif": true, ".webp": true}
+			if imageExts[ext] {
+				sizeKB := float64(info.Size()) / 1024
+				return fmt.Sprintf("[media:%s] (%.1f KB)", filePath, sizeKB), nil
+			}
+
+			// Other files: file card marker rendered by AiChat.vue
 			dlURL := baseURL + "/api/download?path=" + url.QueryEscape(filePath) +
 				"&token=" + url.QueryEscape(authToken)
-			sizeMB := float64(info.Size()) / (1024 * 1024)
-			name := filepath.Base(filePath)
-			return fmt.Sprintf("📎 **%s** (%.2f MB)\n\n下载链接：%s", name, sizeMB, dlURL), nil
+			sizeKB := float64(info.Size()) / 1024
+			var sizeStr string
+			if sizeKB < 1024 {
+				sizeStr = fmt.Sprintf("%.1f KB", sizeKB)
+			} else {
+				sizeStr = fmt.Sprintf("%.2f MB", sizeKB/1024)
+			}
+			return fmt.Sprintf("[file_card:%s|%s|%s]", dlURL, name, sizeStr), nil
 		}
 		toolRegistry.WithFileSender(webSender, baseURL, authToken)
 	}
