@@ -143,31 +143,74 @@ func printMainMenu() {
 // ── 1. 系统状态 ────────────────────────────────────────────────────────────
 func menuSystemInfo() {
 	clearScreen()
-	printSectionTitle("系统状态")
+	printSectionTitle("访问入口 & 系统状态")
 
-	// OS 信息
-	osInfo := runCmd("uname", "-a")
-	hostname := runCmd("hostname")
-	uptime := runCmd("uptime", "-p")
-	cpuCores := runCmd("nproc")
-	memInfo := runCmd("free", "-h")
-	diskInfo := runCmd("df", "-h", "/")
+	cfg := loadConfigQuiet()
+	configPath := findConfigPath()
 
-	// 服务状态
+	// ── 访问入口（最重要，放最顶部）────────────────────────────────────────
+	port := 8080
+	if cfg != nil {
+		port = cfg.Gateway.Port
+	}
+
+	// 获取所有 IP
+	localIP := strings.TrimSpace(runCmd("hostname", "-I"))
+	if localIP == "" {
+		localIP = strings.TrimSpace(runCmd("hostname", "-i"))
+	}
+	firstLocalIP := strings.Fields(localIP)
+	lanIP := ""
+	if len(firstLocalIP) > 0 {
+		lanIP = firstLocalIP[0]
+	}
+	publicIP := strings.TrimSpace(runCmd("curl", "-fsSL", "--max-time", "4", "https://api.ipify.org"))
+
+	// Token（脱敏）
+	token := "(未配置)"
+	tokenFull := ""
+	if cfg != nil && cfg.Auth.Token != "" {
+		tokenFull = cfg.Auth.Token
+		t := cfg.Auth.Token
+		if len(t) > 8 {
+			token = t[:4] + strings.Repeat("*", len(t)-8) + t[len(t)-4:]
+		} else {
+			token = strings.Repeat("*", len(t))
+		}
+	}
+
+	w := 52
+	line := strings.Repeat("─", w)
+	fmt.Printf(ansiBold+ansiGreen+"  ┌─ 访问入口 %s┐\n"+ansiReset, strings.Repeat("─", w-7))
+
+	if publicIP != "" {
+		fmt.Printf(ansiBold+ansiGreen+"  │  🌐 公网：  http://%s:%d\n"+ansiReset, publicIP, port)
+	}
+	if lanIP != "" {
+		fmt.Printf(ansiBold+ansiBlue+"  │  🏠 内网：  http://%s:%d\n"+ansiReset, lanIP, port)
+	}
+	fmt.Printf(ansiBold+"  │  💻 本机：  http://localhost:%d\n"+ansiReset, port)
+
+	// Nginx 域名
+	domain := detectDomain()
+	if domain != "" {
+		fmt.Printf(ansiBold+ansiMagenta+"  │  🔒 域名：  https://%s\n"+ansiReset, domain)
+	}
+
+	fmt.Printf(ansiBold+"  │\n"+ansiReset)
+	fmt.Printf(ansiBold+ansiYellow+"  │  🔑 Token： %s\n"+ansiReset, token)
+	if tokenFull != "" {
+		fmt.Printf(ansiYellow+"  │  （完整）  %s\n"+ansiReset, tokenFull)
+	}
+	fmt.Printf(ansiBold+"  └%s┘\n\n"+ansiReset, line)
+
+	// ── 服务状态 ────────────────────────────────────────────────────────────
 	running := isServiceRunning()
 	status := ansiGreen + "● 运行中" + ansiReset
 	if !running {
 		status = ansiRed + "● 已停止" + ansiReset
 	}
 
-	cfg := loadConfigQuiet()
-	configPath := findConfigPath()
-
-	printKV("系统", strings.TrimSpace(osInfo))
-	printKV("主机名", strings.TrimSpace(hostname))
-	printKV("运行时长", strings.TrimSpace(uptime))
-	printKV("CPU 核心", strings.TrimSpace(cpuCores))
-	fmt.Println()
 	printKV("服务状态", status)
 	if cfg != nil {
 		printKV("监听端口", fmt.Sprintf("%d", cfg.Gateway.Port))
@@ -182,13 +225,57 @@ func menuSystemInfo() {
 	binaryPath, _ := os.Executable()
 	printKV("二进制路径", binaryPath)
 
+	// ── 系统信息 ────────────────────────────────────────────────────────────
+	fmt.Println()
+	hostname := strings.TrimSpace(runCmd("hostname"))
+	uptime := strings.TrimSpace(runCmd("uptime", "-p"))
+	cpuCores := strings.TrimSpace(runCmd("nproc"))
+	printKV("主机名", hostname)
+	printKV("运行时长", uptime)
+	printKV("CPU 核心", cpuCores)
+
 	fmt.Println()
 	fmt.Println(ansiBold + "  内存信息：" + ansiReset)
-	fmt.Println(ansiCyan + memInfo + ansiReset)
+	fmt.Print(ansiCyan + runCmd("free", "-h") + ansiReset)
 	fmt.Println(ansiBold + "  磁盘信息：" + ansiReset)
-	fmt.Println(ansiCyan + diskInfo + ansiReset)
+	fmt.Print(ansiCyan + runCmd("df", "-h", "/") + ansiReset)
 
 	pause()
+}
+
+// detectDomain 从 Nginx conf 中提取 server_name
+func detectDomain() string {
+	confDirs := []string{
+		"/etc/nginx/conf.d/",
+		"/etc/nginx/sites-enabled/",
+	}
+	for _, dir := range confDirs {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if strings.Contains(e.Name(), "zyhive") || strings.Contains(e.Name(), "aipanel") {
+				data, err := os.ReadFile(filepath.Join(dir, e.Name()))
+				if err != nil {
+					continue
+				}
+				for _, line := range strings.Split(string(data), "\n") {
+					line = strings.TrimSpace(line)
+					if strings.HasPrefix(line, "server_name") {
+						parts := strings.Fields(line)
+						if len(parts) >= 2 {
+							domain := strings.TrimRight(parts[1], ";")
+							if domain != "_" && domain != "localhost" {
+								return domain
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	return ""
 }
 
 // ── 2. 服务管理 ────────────────────────────────────────────────────────────
