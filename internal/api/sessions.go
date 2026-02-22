@@ -27,10 +27,11 @@ type SessionSummary struct {
 
 // ParsedMessage is a cleaned-up message for the UI.
 type ParsedMessage struct {
-	Role      string `json:"role"`      // "user" | "assistant" | "compaction"
-	Text      string `json:"text"`      // plain text extracted from content
-	Timestamp int64  `json:"timestamp"`
-	IsCompact bool   `json:"isCompact,omitempty"` // true for compaction summary entries
+	Role      string                   `json:"role"`                // "user" | "assistant" | "compaction"
+	Text      string                   `json:"text"`                // plain text extracted from content
+	Timestamp int64                    `json:"timestamp"`
+	IsCompact bool                     `json:"isCompact,omitempty"` // true for compaction summary entries
+	ToolCalls []session.ToolCallRecord `json:"toolCalls,omitempty"` // tool timeline (display only)
 }
 
 // List GET /api/sessions?agentId=&limit=50&q=
@@ -180,9 +181,10 @@ func parseMessagesFromJSONL(lines []json.RawMessage) []ParsedMessage {
 		switch base.Type {
 		case "message":
 			var entry struct {
-				Message struct {
-					Role    string          `json:"role"`
-					Content json.RawMessage `json:"content"`
+				Message   struct {
+					Role      string                   `json:"role"`
+					Content   json.RawMessage          `json:"content"`
+					ToolCalls []session.ToolCallRecord `json:"toolCalls,omitempty"`
 				} `json:"message"`
 				Timestamp int64 `json:"timestamp"`
 			}
@@ -196,6 +198,7 @@ func parseMessagesFromJSONL(lines []json.RawMessage) []ParsedMessage {
 				Role:      entry.Message.Role,
 				Text:      extractText(entry.Message.Content),
 				Timestamp: entry.Timestamp,
+				ToolCalls: entry.Message.ToolCalls,
 			})
 
 		case "compaction":

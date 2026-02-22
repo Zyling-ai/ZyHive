@@ -385,11 +385,19 @@ export interface SessionSummary {
   tokenEstimate: number
 }
 
+export interface SavedToolCall {
+  id: string
+  name: string
+  input?: string
+  result?: string
+}
+
 export interface ParsedMessage {
   role: 'user' | 'assistant' | 'compaction'
   text: string
   timestamp: number
   isCompact?: boolean
+  toolCalls?: SavedToolCall[]
 }
 
 export interface SessionDetail {
