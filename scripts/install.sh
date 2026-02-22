@@ -1,12 +1,24 @@
 #!/bin/bash
 # ZyHive (引巢) — 一键安装脚本
-# 用法: curl -sSL https://raw.githubusercontent.com/sunhuihui6688-star/ai-panel/main/scripts/install.sh | bash
+# 用法:
+#   curl -sSL https://raw.githubusercontent.com/Zyling-ai/zyhive/main/scripts/install.sh | bash
+#   curl -sSL ... | bash -s -- --domain hive.example.com --port 8080
 set -e
 
-REPO="sunhuihui6688-star/ai-panel"
+REPO="Zyling-ai/zyhive"
 SERVICE_NAME="zyhive"
 BINARY_NAME="zyhive"
 PORT=8080
+DOMAIN=""
+
+# ── 解析参数 ───────────────────────────────────────────────────────────────
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --domain)  DOMAIN="$2"; shift 2 ;;
+    --port)    PORT="$2";   shift 2 ;;
+    *) shift ;;
+  esac
+done
 
 # ── 颜色输出 ───────────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
@@ -32,7 +44,7 @@ case "$RAW_OS" in
   *) error "不支持的操作系统: $RAW_OS" ;;
 esac
 
-# ── 检测是否有 root / sudo 权限 ────────────────────────────────────────────
+# ── 检测 root / sudo 权限 ──────────────────────────────────────────────────
 HAVE_ROOT=false
 if [ "$(id -u)" = "0" ]; then
   HAVE_ROOT=true
@@ -66,6 +78,7 @@ echo ""
 info "操作系统：$RAW_OS / $RAW_ARCH → 下载 $OS-$ARCH"
 info "安装路径：$INSTALL_BIN"
 info "配置目录：$CONFIG_DIR"
+[ -n "$DOMAIN" ] && info "域名：$DOMAIN（将自动配置 NGINX + HTTPS）"
 echo ""
 
 # ── 获取最新版本号 ─────────────────────────────────────────────────────────
@@ -78,26 +91,21 @@ fi
 info "最新版本：$LATEST"
 
 # ── 构造下载 URL ───────────────────────────────────────────────────────────
-# GitHub Release 中的二进制命名规则: aipanel-{OS}-{ARCH}
 BINARY_URL="https://github.com/$REPO/releases/download/$LATEST/aipanel-${OS}-${ARCH}"
 
 # ── 创建目录 ───────────────────────────────────────────────────────────────
 if $RUN_AS_ROOT; then
-  sudo mkdir -p "$(dirname "$INSTALL_BIN")"
-  sudo mkdir -p "$CONFIG_DIR"
-  sudo mkdir -p "$AGENTS_DIR"
+  sudo mkdir -p "$(dirname "$INSTALL_BIN")" "$CONFIG_DIR" "$AGENTS_DIR"
 else
-  mkdir -p "$(dirname "$INSTALL_BIN")"
-  mkdir -p "$CONFIG_DIR"
-  mkdir -p "$AGENTS_DIR"
+  mkdir -p "$(dirname "$INSTALL_BIN")" "$CONFIG_DIR" "$AGENTS_DIR"
 fi
 
 # ── 下载二进制 ─────────────────────────────────────────────────────────────
-info "下载 aipanel $LATEST ($OS/$ARCH)…"
+info "下载 $BINARY_NAME $LATEST ($OS/$ARCH)…"
 TMP_BIN=$(mktemp)
 if ! curl -fsSL --progress-bar "$BINARY_URL" -o "$TMP_BIN"; then
   rm -f "$TMP_BIN"
-  error "下载失败，URL: $BINARY_URL\n请确认该版本已发布对应平台的二进制。"
+  error "下载失败，URL: $BINARY_URL"
 fi
 
 if $RUN_AS_ROOT; then
@@ -113,8 +121,15 @@ if [ ! -f "$CONFIG_FILE" ]; then
   ADMIN_TOKEN=$(openssl rand -hex 16 2>/dev/null \
     || tr -dc 'a-f0-9' < /dev/urandom | head -c 32)
 
+  # 有域名时 bind 设为 localhost（前面挂 NGINX），否则 lan
+  if [ -n "$DOMAIN" ]; then
+    BIND_MODE="localhost"
+  else
+    BIND_MODE="lan"
+  fi
+
   CONFIG_CONTENT="{
-  \"gateway\": { \"port\": $PORT, \"bind\": \"lan\" },
+  \"gateway\": { \"port\": $PORT, \"bind\": \"$BIND_MODE\" },
   \"agents\":  { \"dir\": \"$AGENTS_DIR\" },
   \"models\":  { \"primary\": \"anthropic/claude-sonnet-4-6\" },
   \"auth\":    { \"mode\": \"token\", \"token\": \"$ADMIN_TOKEN\" }
@@ -128,14 +143,13 @@ if [ ! -f "$CONFIG_FILE" ]; then
 
   echo ""
   echo -e "${YELLOW}🔑 管理员 Token：${NC}${GREEN}$ADMIN_TOKEN${NC}"
-  echo -e "   （已保存至 $CONFIG_FILE）"
+  echo -e "   （已保存至 $CONFIG_FILE，请妥善保存）"
+  SHOW_TOKEN="$ADMIN_TOKEN"
 fi
 
 # ── Linux: 安装 systemd 服务 ───────────────────────────────────────────────
 install_systemd() {
   local SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
-  local EXEC_USER=""
-  # 如有 root，以 root 身份运行；否则跳过 systemd（需要 sudo）
   sudo tee "$SERVICE_FILE" > /dev/null << UNIT
 [Unit]
 Description=ZyHive — AI 团队操作系统
@@ -161,7 +175,7 @@ UNIT
   sudo systemctl enable "$SERVICE_NAME"
   sudo systemctl start  "$SERVICE_NAME"
   success "systemd 服务已启动：$SERVICE_NAME"
-  info   "服务状态：sudo systemctl status $SERVICE_NAME"
+  info   "查看状态：sudo systemctl status $SERVICE_NAME"
 }
 
 # ── macOS: 安装 launchd 服务 ───────────────────────────────────────────────
@@ -227,21 +241,96 @@ PLIST
   info "日志目录：$LOG_DIR"
 }
 
+# ── 配置 NGINX + HTTPS（需要 --domain 参数且有 root）──────────────────────
+install_nginx_https() {
+  local domain="$1"
+
+  # 安装依赖
+  if command -v apt-get &>/dev/null; then
+    info "安装 nginx + certbot…"
+    sudo apt-get update -q
+    sudo apt-get install -y -q nginx certbot python3-certbot-nginx
+  elif command -v yum &>/dev/null; then
+    info "安装 nginx + certbot（yum）…"
+    sudo yum install -y nginx certbot python3-certbot-nginx
+  else
+    warning "无法自动安装 nginx，请手动安装后配置反向代理至 http://localhost:$PORT"
+    return
+  fi
+
+  # 生成 NGINX 配置（先 HTTP，certbot 再升 HTTPS）
+  local NGINX_CONF="/etc/nginx/sites-available/$SERVICE_NAME"
+  sudo tee "$NGINX_CONF" > /dev/null << NGINX
+server {
+    listen 80;
+    listen [::]:80;
+    server_name $domain;
+
+    # 用于 certbot ACME 验证
+    location /.well-known/acme-challenge/ { root /var/www/certbot; }
+
+    location / {
+        proxy_pass         http://127.0.0.1:$PORT;
+        proxy_http_version 1.1;
+        proxy_set_header   Upgrade \$http_upgrade;
+        proxy_set_header   Connection "upgrade";
+        proxy_set_header   Host \$host;
+        proxy_set_header   X-Real-IP \$remote_addr;
+        proxy_set_header   X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+        # SSE 支持
+        proxy_buffering    off;
+        proxy_cache        off;
+    }
+}
+NGINX
+
+  # 启用站点
+  sudo mkdir -p /etc/nginx/sites-enabled
+  sudo ln -sf "$NGINX_CONF" "/etc/nginx/sites-enabled/$SERVICE_NAME"
+
+  # 确保 sites-enabled 被 include（Debian 默认有，CentOS 可能没有）
+  if ! grep -q "sites-enabled" /etc/nginx/nginx.conf 2>/dev/null; then
+    sudo sed -i '/http {/a\    include /etc/nginx/sites-enabled/*;' /etc/nginx/nginx.conf
+  fi
+
+  sudo mkdir -p /var/www/certbot
+  sudo systemctl enable nginx
+  sudo systemctl restart nginx
+  success "NGINX 已启动，代理 $domain → localhost:$PORT"
+
+  # 申请 Let's Encrypt 证书
+  info "申请 HTTPS 证书（Let's Encrypt）…"
+  if sudo certbot --nginx -d "$domain" --non-interactive --agree-tos \
+     --email "admin@$domain" --redirect; then
+    success "HTTPS 证书申请成功！"
+    # 设置自动续期
+    (crontab -l 2>/dev/null; echo "0 3 * * * certbot renew --quiet && systemctl reload nginx") | sudo crontab -
+    success "已设置证书自动续期（每天 3:00 检查）"
+  else
+    warning "HTTPS 证书申请失败，请手动运行：sudo certbot --nginx -d $domain"
+    warning "可能原因：域名未解析到此 IP，或 80 端口被防火墙拦截"
+  fi
+}
+
 # ── 服务安装入口 ───────────────────────────────────────────────────────────
 if [ "$OS" = "linux" ] && command -v systemctl &>/dev/null; then
   if $RUN_AS_ROOT; then
     info "配置 systemd 服务…"
     install_systemd
+    # 若指定域名，额外安装 NGINX + HTTPS
+    if [ -n "$DOMAIN" ]; then
+      install_nginx_https "$DOMAIN"
+    fi
   else
     warning "无 root 权限，跳过 systemd 注册。手动启动：$INSTALL_BIN --config $CONFIG_FILE"
-    # 将 PATH 提示写入 shell 配置
     SHELL_RC="$HOME/.bashrc"
-    if [ -n "$ZSH_VERSION" ] || echo "$SHELL" | grep -q zsh; then
-      SHELL_RC="$HOME/.zshrc"
-    fi
+    echo "$SHELL" | grep -q zsh && SHELL_RC="$HOME/.zshrc"
     if ! grep -q "$HOME/.local/bin" "$SHELL_RC" 2>/dev/null; then
       echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$SHELL_RC"
-      info "已将 ~/.local/bin 加入 $SHELL_RC PATH"
+      info "已将 ~/.local/bin 加入 PATH（$SHELL_RC）"
     fi
   fi
 elif [ "$OS" = "darwin" ] && command -v launchctl &>/dev/null; then
@@ -252,13 +341,7 @@ else
 fi
 
 # ── 获取访问地址 ───────────────────────────────────────────────────────────
-LOCAL_IP=""
-if command -v hostname &>/dev/null; then
-  LOCAL_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
-fi
-if [ -z "$LOCAL_IP" ] && command -v ifconfig &>/dev/null; then
-  LOCAL_IP=$(ifconfig 2>/dev/null | grep 'inet ' | grep -v '127\.' | awk '{print $2}' | head -1)
-fi
+LOCAL_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || true)
 PUBLIC_IP=$(curl -fsSL --max-time 4 https://api.ipify.org 2>/dev/null || true)
 
 # ── 安装完成 ───────────────────────────────────────────────────────────────
@@ -267,9 +350,15 @@ echo -e "${GREEN}╔════════════════════
 echo -e "${GREEN}║  ✅  ZyHive 安装成功！版本: $LATEST          ${NC}"
 echo -e "${GREEN}╚══════════════════════════════════════════════╝${NC}"
 echo ""
-echo -e "  📍 本地访问：  ${BLUE}http://localhost:$PORT${NC}"
-[ -n "$LOCAL_IP"  ] && echo -e "  🏠 内网访问：  ${BLUE}http://$LOCAL_IP:$PORT${NC}"
-[ -n "$PUBLIC_IP" ] && echo -e "  🌐 公网访问：  ${BLUE}http://$PUBLIC_IP:$PORT${NC}"
+if [ -n "$DOMAIN" ]; then
+  echo -e "  🌐 访问地址：  ${BLUE}https://$DOMAIN${NC}"
+else
+  echo -e "  📍 本地访问：  ${BLUE}http://localhost:$PORT${NC}"
+  [ -n "$LOCAL_IP"  ] && echo -e "  🏠 内网访问：  ${BLUE}http://$LOCAL_IP:$PORT${NC}"
+  [ -n "$PUBLIC_IP" ] && echo -e "  🌐 公网访问：  ${BLUE}http://$PUBLIC_IP:$PORT${NC}"
+fi
+echo ""
+[ -n "$SHOW_TOKEN" ] && echo -e "  🔑 管理员 Token：${GREEN}$SHOW_TOKEN${NC}"
 echo ""
 echo -e "  📄 配置文件：  $CONFIG_FILE"
 echo -e "  🗂  成员目录：  $AGENTS_DIR"
