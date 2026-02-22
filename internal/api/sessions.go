@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/agent"
@@ -57,6 +58,10 @@ func (h *globalSessionsHandler) List(c *gin.Context) {
 			continue
 		}
 		for _, s := range sessions {
+			// Skip internal sessions (skill-studio, subagent sandbox, etc.)
+			if strings.HasPrefix(s.ID, "skill-studio-") || strings.HasPrefix(s.ID, "subagent-") {
+				continue
+			}
 			all = append(all, SessionSummary{
 				SessionIndexEntry: s,
 				AgentName:         ag.Name,
