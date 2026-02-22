@@ -136,8 +136,17 @@
 
             <!-- 消息气泡（仅文字，无工具内容）-->
             <div class="msg-bubble assistant">
+              <!-- 未配置模型：友好提示卡 -->
+              <div v-if="msg.noModelError" class="no-model-card">
+                <div class="no-model-icon">🤖</div>
+                <div class="no-model-body">
+                  <div class="no-model-title">还没有配置 AI 模型</div>
+                  <div class="no-model-desc">需要先添加一个模型（如 Claude、GPT-4 等）并填写 API Key，才能开始对话。</div>
+                  <router-link to="/models" class="no-model-btn">去配置模型 →</router-link>
+                </div>
+              </div>
               <!-- 正文 -->
-              <div v-if="msg.text" class="msg-text" v-html="renderMd(msg.text)" />
+              <div v-else-if="msg.text" class="msg-text" v-html="renderMd(msg.text)" />
 
               <!-- Apply card（给 agent-creation 页用） -->
               <div v-if="msg.applyData && props.applyable" class="apply-card">
@@ -400,6 +409,8 @@ export interface ChatMsg {
   applyData?: Record<string, string>
   /** Quick-reply option chips parsed from AI response */
   options?: string[]
+  /** Special error: no model configured */
+  noModelError?: boolean
 }
 
 // ── State ─────────────────────────────────────────────────────────────────
@@ -1109,7 +1120,12 @@ function runChat(text: string, imgs: string[], silent = false) {
         if (opts.length >= 2) cur.options = opts
 
         if (ev.type === 'error') {
-          cur.text = `[错误] ${ev.error}`
+          if (ev.error?.includes('no model configured')) {
+            cur.noModelError = true
+            cur.text = ''
+          } else {
+            cur.text = `[错误] ${ev.error}`
+          }
           const tc = cur.toolCalls?.find(t => t.status === 'running')
           if (tc) tc.status = 'error'
         }
@@ -1305,7 +1321,14 @@ async function reconnectIfGenerating(sessionId: string) {
         const cur = messages.value[msgIdx]!
         cur.text = streamText.value
         cur.thinking = streamThinking.value || undefined
-        if (ev.type === 'error') cur.text = `[错误] ${ev.error}`
+        if (ev.type === 'error') {
+          if (ev.error?.includes('no model configured')) {
+            cur.noModelError = true
+            cur.text = ''
+          } else {
+            cur.text = `[错误] ${ev.error}`
+          }
+        }
         streaming.value = false
         streamText.value = ''
         streamThinking.value = ''
@@ -1418,6 +1441,48 @@ onMounted(() => {
   border-bottom-left-radius: 4px;
   box-shadow: 0 1px 4px rgba(0,0,0,.08);
 }
+
+/* ── 未配置模型提示卡 ── */
+.no-model-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 4px 2px;
+}
+.no-model-icon {
+  font-size: 28px;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.no-model-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.no-model-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #303133;
+}
+.no-model-desc {
+  font-size: 13px;
+  color: #606266;
+  line-height: 1.5;
+}
+.no-model-btn {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 6px 14px;
+  background: #409eff;
+  color: #fff;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  align-self: flex-start;
+  transition: background .2s;
+}
+.no-model-btn:hover { background: #337ecc; }
 
 /* narrow containers → full width */
 @container (max-width: 480px) {
