@@ -22,7 +22,7 @@
           GitHub
         </a>
         <a href="https://github.com/Zyling-ai/zyhive" target="_blank" class="header-star-btn" title="Star on GitHub">
-          ★ Star
+          ★ Star<template v-if="starCount !== null"> {{ starCount.toLocaleString() }}</template>
         </a>
         <el-divider direction="vertical" style="margin:0 8px;border-color:rgba(255,255,255,0.2)" />
         <span class="header-link" style="cursor:pointer" @click="logout" title="退出登录">
@@ -149,12 +149,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 const route = useRoute()
 const router = useRouter()
 const collapsed = ref(false)
+const starCount = ref<number | null>(null)
 
 const isLoginPage = computed(() => route.path === '/login')
 const isPublicPage = computed(() => !!route.meta.public)
@@ -169,6 +170,28 @@ function logout() {
   localStorage.removeItem('aipanel_token')
   router.push('/login')
 }
+
+// Fetch real-time GitHub star count (cached 10min in localStorage)
+onMounted(async () => {
+  const cacheKey = 'zyhive_gh_stars'
+  const cacheExp = 'zyhive_gh_stars_exp'
+  const now = Date.now()
+  const cached = localStorage.getItem(cacheKey)
+  const exp = parseInt(localStorage.getItem(cacheExp) || '0')
+  if (cached && now < exp) {
+    starCount.value = parseInt(cached)
+    return
+  }
+  try {
+    const res = await fetch('https://api.github.com/repos/Zyling-ai/zyhive')
+    if (res.ok) {
+      const data = await res.json()
+      starCount.value = data.stargazers_count ?? null
+      localStorage.setItem(cacheKey, String(starCount.value))
+      localStorage.setItem(cacheExp, String(now + 10 * 60 * 1000))
+    }
+  } catch { /* ignore — network error, keep null */ }
+})
 </script>
 
 <style>
