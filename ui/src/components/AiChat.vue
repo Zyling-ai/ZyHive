@@ -523,7 +523,7 @@ async function pollTasks() {
         }
         for (const m of parsed) {
           if (m.role === 'compaction') continue
-          loaded.push({ role: m.role as 'user' | 'assistant', text: m.text, toolCalls: m.toolCalls?.map((tc: any) => ({ id: tc.id, name: tc.name, input: tc.input, result: tc.result, status: 'done' as const, _expanded: false })) })
+          loaded.push({ role: m.role as 'user' | 'assistant', text: m.text, toolCalls: m.toolCalls?.map((tc: any) => ({ id: tc.id, name: tc.name, input: tc.input, result: tc.result, status: 'done' as const, _expanded: false, ...processToolResult(tc.result ?? '') })) })
         }
         messages.value = loaded
         scrollBottom()
@@ -561,7 +561,7 @@ async function reattachSessionTasks(sessionId: string) {
           }
           for (const m of parsed) {
             if (m.role === 'compaction') continue
-            loaded.push({ role: m.role as 'user' | 'assistant', text: m.text, toolCalls: m.toolCalls?.map((tc: any) => ({ id: tc.id, name: tc.name, input: tc.input, result: tc.result, status: 'done' as const, _expanded: false })) })
+            loaded.push({ role: m.role as 'user' | 'assistant', text: m.text, toolCalls: m.toolCalls?.map((tc: any) => ({ id: tc.id, name: tc.name, input: tc.input, result: tc.result, status: 'done' as const, _expanded: false, ...processToolResult(tc.result ?? '') })) })
           }
           messages.value = loaded
           scrollBottom()
@@ -623,6 +623,24 @@ function retryMsg(idx: number) {
 }
 
 function previewImg(src: string) { previewSrc.value = src }
+
+// processToolResult detects special markers in a tool result string and returns
+// extra fields to merge into the ToolCall object (mediaUrl, fileCard).
+// Used both during streaming and when loading history.
+function processToolResult(result: string): { mediaUrl?: string; fileCard?: { url: string; name: string; size: string } } {
+  const extra: { mediaUrl?: string; fileCard?: { url: string; name: string; size: string } } = {}
+  if (!result) return extra
+  const mediaMatch = result.match(/\[media:([^\]]+)\]/)
+  if (mediaMatch && mediaMatch[1]) {
+    const token = localStorage.getItem('aipanel_token') ?? ''
+    extra.mediaUrl = `/api/media?path=${encodeURIComponent(mediaMatch[1])}&token=${encodeURIComponent(token)}`
+  }
+  const fileCardMatch = result.match(/\[file_card:([^|]+)\|([^|]+)\|([^\]]+)\]/)
+  if (fileCardMatch && fileCardMatch[1] && fileCardMatch[2] && fileCardMatch[3]) {
+    extra.fileCard = { url: fileCardMatch[1], name: fileCardMatch[2], size: fileCardMatch[3] }
+  }
+  return extra
+}
 
 // ── Markdown renderer (lightweight) ──────────────────────────────────────
 function renderMd(text: string): string {
@@ -1042,19 +1060,9 @@ function runChat(text: string, imgs: string[], silent = false) {
             const ms = Date.now() - tc._startedAt
             tc.duration = ms < 1000 ? `${ms}ms` : `${(ms/1000).toFixed(1)}s`
           }
-          // show_image: detect [media:path] marker → build API URL with auth token
+          // Detect special markers ([media:path], [file_card:URL|NAME|SIZE]) in tool result
           if (ev.text) {
-            const mediaMatch = ev.text.match(/\[media:([^\]]+)\]/)
-            if (mediaMatch) {
-              const filePath = mediaMatch[1]
-              const token = localStorage.getItem('aipanel_token') ?? ''
-              tc.mediaUrl = `/api/media?path=${encodeURIComponent(filePath)}&token=${encodeURIComponent(token)}`
-            }
-            // send_file (web UI): detect [file_card:URL|NAME|SIZE] → render download card
-            const fileCardMatch = ev.text.match(/\[file_card:([^|]+)\|([^|]+)\|([^\]]+)\]/)
-            if (fileCardMatch) {
-              tc.fileCard = { url: fileCardMatch[1], name: fileCardMatch[2], size: fileCardMatch[3] }
-            }
+            Object.assign(tc, processToolResult(ev.text))
           }
           // agent_spawn: extract task ID from result and start polling
           if (tc.name === 'agent_spawn' && ev.text) {
@@ -1207,7 +1215,7 @@ async function reconnectIfGenerating(sessionId: string) {
         }
         for (const m of parsed) {
           if (m.role === 'compaction') continue
-          loaded.push({ role: m.role as 'user' | 'assistant', text: m.text, toolCalls: m.toolCalls?.map((tc: any) => ({ id: tc.id, name: tc.name, input: tc.input, result: tc.result, status: 'done' as const, _expanded: false })) })
+          loaded.push({ role: m.role as 'user' | 'assistant', text: m.text, toolCalls: m.toolCalls?.map((tc: any) => ({ id: tc.id, name: tc.name, input: tc.input, result: tc.result, status: 'done' as const, _expanded: false, ...processToolResult(tc.result ?? '') })) })
         }
         messages.value = loaded
         scrollBottom()
@@ -1279,8 +1287,9 @@ async function reconnectIfGenerating(sessionId: string) {
         if (tc) {
           tc.result = ev.text
           tc.status = 'done'
+          if (ev.text) Object.assign(tc, processToolResult(ev.text))
           const stc = streamToolCalls.value.find(t => t.id === activeToolId)
-          if (stc) { stc.result = tc.result; stc.status = 'done' }
+          if (stc) { stc.result = tc.result; stc.status = 'done'; Object.assign(stc, processToolResult(ev.text ?? '')) }
         }
         scrollBottom()
         break
