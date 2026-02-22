@@ -32,6 +32,8 @@ type Task struct {
 	SpawnedBy        string     `json:"spawnedBy,omitempty"`        // parent agent ID
 	SpawnedBySession string     `json:"spawnedBySession,omitempty"` // parent session ID
 	Model            string     `json:"model,omitempty"`   // overridden model
+	TaskType         TaskType   `json:"taskType,omitempty"` // task | report | system
+	Relation         string     `json:"relation,omitempty"` // relation type at spawn time
 	CreatedAt        int64      `json:"createdAt"`         // unix ms
 	StartedAt        int64      `json:"startedAt,omitempty"`
 	EndedAt          int64      `json:"endedAt,omitempty"`
@@ -56,12 +58,23 @@ func (t *Task) Duration() string {
 	return fmt.Sprintf("%dm%ds", int(d.Minutes()), int(d.Seconds())%60)
 }
 
+// TaskType classifies the intent of a task.
+type TaskType string
+
+const (
+	TaskTypeTask   TaskType = "task"   // superior → subordinate delegation
+	TaskTypeReport TaskType = "report" // subordinate → superior report
+	TaskTypeSystem TaskType = "system" // internal / cron-triggered
+)
+
 // SpawnOpts configures a new subagent task.
 type SpawnOpts struct {
-	AgentID          string // target agent
-	Label            string // optional human label
-	Task             string // the task prompt
-	Model            string // optional model override
-	SpawnedBy        string // parent agent ID (for attribution)
-	SpawnedBySession string // parent session ID
+	AgentID          string   // target agent
+	Label            string   // optional human label
+	Task             string   // the task prompt
+	Model            string   // optional model override
+	SpawnedBy        string   // parent agent ID (for attribution)
+	SpawnedBySession string   // parent session ID
+	TaskType         TaskType // task | report | system
+	Relation         string   // relation type at spawn time (e.g. "上下级")
 }

@@ -237,6 +237,7 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager, pool 
 		{
 			tasks.GET("", taskH.List)
 			tasks.POST("", taskH.Spawn)
+			tasks.GET("/eligible", taskH.EligibleTargets) // relationship-based eligible targets
 			tasks.GET("/:id", taskH.Get)
 			tasks.DELETE("/:id", taskH.Kill)
 		}
