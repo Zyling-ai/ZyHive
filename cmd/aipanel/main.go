@@ -5,6 +5,8 @@ package main
 import (
 	"context"
 	"embed"
+	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"io/fs"
@@ -22,8 +24,6 @@ import (
 	"github.com/sunhuihui6688-star/ai-panel/pkg/agent"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/channel"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/config"
-	"encoding/json"
-
 	"github.com/sunhuihui6688-star/ai-panel/pkg/cron"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/project"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/session"
@@ -34,10 +34,18 @@ import (
 var embeddedUI embed.FS
 
 func main() {
+	// Parse flags: --config <path> (also $AIPANEL_CONFIG env var)
+	defaultCfg := "aipanel.json"
+	if env := os.Getenv("AIPANEL_CONFIG"); env != "" {
+		defaultCfg = env
+	}
+	configPath := flag.String("config", defaultCfg, "path to aipanel.json config file")
+	flag.Parse()
+
 	// Load config
-	cfg, err := config.Load("aipanel.json")
+	cfg, err := config.Load(*configPath)
 	if err != nil {
-		log.Printf("Warning: config not found, using defaults: %v", err)
+		log.Printf("Warning: config not found at %s, using defaults: %v", *configPath, err)
 		cfg = config.Default()
 	}
 
