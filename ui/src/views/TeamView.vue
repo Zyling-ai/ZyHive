@@ -670,4 +670,24 @@ onUnmounted(() => {
 .legend-title { font-weight: 600; color: #303133; }
 .legend-item { display: flex; align-items: center; gap: 5px; }
 .legend-divider { color: #dcdfe6; }
+
+@media (max-width: 768px) {
+  /* Toolbar: wrap buttons */
+  .team-page > div:first-child { flex-wrap: wrap; gap: 8px; }
+
+  /* Connect banner: wrap text */
+  .connect-banner { flex-wrap: wrap; gap: 4px; font-size: 12px; padding: 6px 10px; }
+
+  /* Node edit panel: wrap */
+  .node-edit-panel { flex-wrap: wrap; gap: 6px; font-size: 12px; padding: 6px 8px; }
+
+  /* Graph SVG: allow horizontal scroll */
+  .graph-container { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+  /* Legend: smaller */
+  .legend { gap: 8px; font-size: 12px; }
+
+  /* Rel dialog: full width */
+  .rel-pair { flex-direction: column; }
+}
 </style>

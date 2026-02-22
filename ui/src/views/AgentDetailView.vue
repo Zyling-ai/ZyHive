@@ -2,11 +2,14 @@
   <el-container class="agent-detail">
     <el-header class="detail-header">
       <div class="header-left">
-        <el-button :icon="ArrowLeft" @click="$router.push('/agents')" circle />
-        <h2>{{ agent?.name || '...' }}</h2>
-        <el-tag :type="statusType(agent?.status)">{{ statusLabel(agent?.status) }}</el-tag>
+        <el-button :icon="ArrowLeft" @click="$router.push('/agents')" circle size="small" />
+        <div class="detail-title-block">
+          <h2 class="detail-title">{{ agent?.name || '...' }}</h2>
+          <el-text type="info" class="detail-model-mobile">{{ agent?.model }}</el-text>
+        </div>
+        <el-tag :type="statusType(agent?.status)" size="small">{{ statusLabel(agent?.status) }}</el-tag>
       </div>
-      <el-text type="info">{{ agent?.model }}</el-text>
+      <el-text type="info" class="detail-model-desktop">{{ agent?.model }}</el-text>
     </el-header>
 
     <el-main>
@@ -14,8 +17,16 @@
         <!-- Tab 1: Chat with session sidebar -->
         <el-tab-pane label="对话" name="chat">
           <div class="chat-layout">
+            <!-- Mobile: session sidebar toggle -->
+            <button class="mobile-session-toggle" @click="mobileSessionOpen = !mobileSessionOpen">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="flex-shrink:0"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg>
+              历史对话
+              <span class="session-count-badge">{{ agentSessions.length }}</span>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" style="margin-left:auto" :style="{transform: mobileSessionOpen ? 'rotate(180deg)' : ''}"><path d="M7 10l5 5 5-5z"/></svg>
+            </button>
+
             <!-- Session History Sidebar -->
-            <div class="session-sidebar">
+            <div class="session-sidebar" :class="{ 'mobile-session-open': mobileSessionOpen }">
               <div class="session-sidebar-header">
                 <span class="sidebar-title">历史对话</span>
                 <el-button size="small" type="primary" plain @click="newSession" :icon="Plus">新建</el-button>
@@ -995,6 +1006,7 @@ const route = useRoute()
 const agentId = route.params.id as string
 const agent = ref<AgentInfo | null>(null)
 const activeTab = ref('chat')
+const mobileSessionOpen = ref(false)
 
 // ── Session sidebar ────────────────────────────────────────────────────────
 const aiChatRef = ref<InstanceType<typeof AiChat>>()
@@ -2387,24 +2399,92 @@ watch(activeTab, (tab) => {
   font-size: 13px;
 }
 
+/* ─── New header elements ──────────────────────────────────────────────── */
+.detail-title-block { display: flex; flex-direction: column; gap: 0; min-width: 0; }
+.detail-title { margin: 0; font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.detail-model-mobile { display: none; font-size: 11px; color: #909399; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
+.detail-model-desktop { }
+
+/* ─── Mobile session toggle ─────────────────────────────────────────────── */
+.mobile-session-toggle { display: none; }
+.session-count-badge {
+  background: #e4e7ed;
+  color: #606266;
+  font-size: 11px;
+  border-radius: 8px;
+  padding: 0 5px;
+  margin-left: 4px;
+}
+
 /* ─── Mobile ─────────────────────────────────────────────────────────────── */
 @media (max-width: 768px) {
-  /* Tabs: horizontal scroll, no wrap */
-  :deep(.el-tabs__nav-wrap) { overflow-x: auto !important; }
-  :deep(.el-tabs__nav) { white-space: nowrap !important; }
-  :deep(.el-tabs--border-card > .el-tabs__header .el-tabs__item) {
-    padding: 0 12px;
-    font-size: 13px;
-  }
+  /* Detail header */
+  .detail-header { padding: 0 10px !important; height: 52px !important; }
+  .header-left { gap: 8px; }
+  .detail-title { font-size: 14px; max-width: 120px; }
+  .detail-model-mobile { display: block; }
+  .detail-model-desktop { display: none; }
 
-  /* Chat pane: fill screen height */
+  /* Tabs: horizontal scroll */
+  :deep(.el-tabs__nav-wrap) { overflow-x: auto !important; -webkit-overflow-scrolling: touch; }
+  :deep(.el-tabs__nav-wrap::after) { display: none !important; }
+  :deep(.el-tabs__nav) { white-space: nowrap !important; }
+  :deep(.el-tabs--border-card > .el-tabs__header .el-tabs__item) { padding: 0 10px; font-size: 13px; }
   :deep(.el-tab-pane) { padding: 0 !important; }
 
-  /* Agent header row: stack vertically */
-  .agent-header { flex-direction: column; align-items: flex-start; gap: 10px; }
-  .agent-header .el-button-group, .agent-header .el-button { width: 100%; }
+  /* Main: no horizontal padding */
+  :deep(.el-main) { padding: 0 !important; }
 
-  /* Env / cron / channel tables: scroll */
-  .el-table-wrapper { overflow-x: auto; }
+  /* Chat layout: stack vertically */
+  .chat-layout { flex-direction: column; height: calc(100vh - 108px); }
+
+  /* Mobile session toggle button */
+  .mobile-session-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 8px 12px;
+    background: #f5f7fa;
+    border: none;
+    border-bottom: 1px solid #e4e7ed;
+    font-size: 13px;
+    color: #606266;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .mobile-session-toggle:active { background: #ecf5ff; }
+
+  /* Session sidebar: hidden on mobile by default, expands when open */
+  .session-sidebar {
+    width: 100% !important;
+    border-right: none !important;
+    border-bottom: 1px solid #e4e7ed;
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.25s ease;
+    flex-shrink: 0;
+    flex: none !important;
+  }
+  .session-sidebar.mobile-session-open {
+    max-height: 220px;
+    overflow-y: auto;
+  }
+
+  /* Chat area: fill remaining space */
+  .chat-area { flex: 1; min-height: 0; overflow: hidden; }
+
+  /* Agent header row */
+  .agent-header { flex-wrap: wrap; gap: 8px; }
+
+  /* Tables scroll */
+  :deep(.el-table) { overflow-x: auto; }
+  :deep(.el-table__body-wrapper) { overflow-x: auto; }
+
+  /* Detail page el-main */
+  .agent-detail :deep(.el-main) { padding: 0 !important; overflow: hidden; }
+
+  /* Env / identity forms: reduce padding */
+  :deep(.el-form-item__label) { font-size: 13px; }
 }
 </style>

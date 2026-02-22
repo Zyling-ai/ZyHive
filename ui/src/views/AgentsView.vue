@@ -1,6 +1,6 @@
 <template>
   <div class="agents-page">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 10px">
       <h2 style="margin: 0">AI 成员</h2>
       <el-button type="primary" @click="$router.push('/agents/new')">
         <el-icon><Plus /></el-icon> 新建 Agent
@@ -8,19 +8,21 @@
     </div>
 
     <!-- Agent grid -->
-    <el-row :gutter="16">
-      <el-col :span="8" v-for="agent in store.list" :key="agent.id">
+    <el-row :gutter="14">
+      <el-col :xs="24" :sm="12" :md="8" :lg="8" v-for="agent in store.list" :key="agent.id">
         <el-card class="agent-card" shadow="hover">
-          <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px">
+          <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px">
             <div class="avatar-circle" :style="{ background: agent.avatarColor || '#409eff' }">
               {{ agent.name.charAt(0) }}
             </div>
-            <div style="flex: 1">
-              <div style="font-weight: 600; font-size: 16px">{{ agent.name }}</div>
-              <el-text type="info" size="small">{{ agent.id }}</el-text>
+            <div class="agent-card-info">
+              <div class="agent-card-name">{{ agent.name }}</div>
+              <el-text type="info" size="small" class="agent-card-id">{{ agent.id }}</el-text>
             </div>
-            <el-tag v-if="agent.system" size="small" type="warning">系统</el-tag>
-            <el-tag :type="statusType(agent.status)" size="small">{{ statusLabel(agent.status) }}</el-tag>
+            <div class="agent-card-tags">
+              <el-tag v-if="agent.system" size="small" type="warning">系统</el-tag>
+              <el-tag :type="statusType(agent.status)" size="small">{{ statusLabel(agent.status) }}</el-tag>
+            </div>
           </div>
           <div style="margin-bottom: 12px">
             <el-tag size="small" type="info" style="margin-right: 4px">
@@ -364,7 +366,32 @@ async function confirmDelete(id: string, name: string) {
 
 <style scoped>
 .agent-card {
-  margin-bottom: 16px;
+  margin-bottom: 14px;
+}
+.agent-card-info {
+  flex: 1;
+  min-width: 0;
+}
+.agent-card-name {
+  font-weight: 600;
+  font-size: 15px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.agent-card-id {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+}
+.agent-card-tags {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  align-items: flex-end;
+  flex-shrink: 0;
 }
 .avatar-circle {
   width: 44px;
