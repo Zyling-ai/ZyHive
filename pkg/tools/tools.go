@@ -344,6 +344,39 @@ var selfUninstallSkillDef = lllm.ToolDef{
 	}`),
 }
 
+var showImageDef = lllm.ToolDef{
+	Name:        "show_image",
+	Description: "在对话中显示一张图片或截图文件（支持 png/jpg/gif/webp）。调用后图片会直接展示在用户的聊天界面里。",
+	InputSchema: json.RawMessage(`{
+		"type":"object",
+		"properties":{
+			"path":{"type":"string","description":"图片文件的绝对路径，例如 /tmp/screenshot.png"}
+		},
+		"required":["path"]
+	}`),
+}
+
+func handleShowImage(_ context.Context, input json.RawMessage) (string, error) {
+	var p struct {
+		Path string `json:"path"`
+	}
+	if err := json.Unmarshal(input, &p); err != nil || p.Path == "" {
+		return "", fmt.Errorf("path required")
+	}
+	// Verify file exists and is a supported image type
+	ext := strings.ToLower(filepath.Ext(p.Path))
+	allowed := map[string]bool{".png": true, ".jpg": true, ".jpeg": true, ".gif": true, ".webp": true}
+	if !allowed[ext] {
+		return "", fmt.Errorf("unsupported file type %q; use png/jpg/gif/webp", ext)
+	}
+	info, err := os.Stat(p.Path)
+	if err != nil {
+		return "", fmt.Errorf("file not found: %v", err)
+	}
+	// Return a media marker that AiChat.vue will render as an <img>
+	return fmt.Sprintf("[media:%s] (%.1f KB)", p.Path, float64(info.Size())/1024), nil
+}
+
 var selfRenameDef = lllm.ToolDef{
 	Name:        "self_rename",
 	Description: "修改当前 Agent 的名字。",

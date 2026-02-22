@@ -238,6 +238,9 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager, pool 
 	// Logs
 	v1.GET("/logs", logsHandler)
 
+	// Media file serving (auth via header or ?token= query param)
+	r.GET("/api/media", (&mediaHandler{token: cfg.Auth.Token}).ServeMedia)
+
 	// WebSocket
 	r.GET("/ws", wsHandler)
 
