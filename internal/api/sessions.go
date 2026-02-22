@@ -194,9 +194,19 @@ func parseMessagesFromJSONL(lines []json.RawMessage) []ParsedMessage {
 			if entry.Message.Role != "user" && entry.Message.Role != "assistant" {
 				continue
 			}
+			// Skip intermediate tool-only messages (tool_use / tool_result exchanges
+			// saved in the agentic loop). They have no display text and the final
+			// assistant message already carries the ToolCalls display records.
+			if isToolOnlyContent(entry.Message.Content) {
+				continue
+			}
+			text := extractText(entry.Message.Content)
+			if text == "" && len(entry.Message.ToolCalls) == 0 {
+				continue // nothing to show
+			}
 			result = append(result, ParsedMessage{
 				Role:      entry.Message.Role,
-				Text:      extractText(entry.Message.Content),
+				Text:      text,
 				Timestamp: entry.Timestamp,
 				ToolCalls: entry.Message.ToolCalls,
 			})
@@ -245,6 +255,27 @@ func extractText(content json.RawMessage) string {
 		}
 	}
 	return string(content)
+}
+
+// isToolOnlyContent returns true when ALL content blocks are tool_use or tool_result
+// (i.e. no display text). These are intermediate agentic-loop messages and should
+// be hidden in the UI; the final assistant message carries the ToolCalls display records.
+func isToolOnlyContent(content json.RawMessage) bool {
+	if len(content) == 0 || content[0] != '[' {
+		return false // plain string → has text
+	}
+	var blocks []struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(content, &blocks); err != nil || len(blocks) == 0 {
+		return false
+	}
+	for _, b := range blocks {
+		if b.Type != "tool_use" && b.Type != "tool_result" {
+			return false
+		}
+	}
+	return true
 }
 
 func joinStrings(ss []string, sep string) string {

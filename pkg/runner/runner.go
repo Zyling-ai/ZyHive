@@ -477,12 +477,12 @@ func (r *Runner) run(ctx context.Context, userMsg string, out chan<- RunEvent) e
 			// Only persist if we have actual content (avoid saving null/empty assistant turns
 			// that would corrupt the session history and cause Anthropic 400 errors later).
 			if r.cfg.SessionID != "" && r.cfg.Session != nil && strings.TrimSpace(assistantText) != "" {
-				// When saving, strip tool_use blocks from the final assistant message.
+				// Final assistant turn: save TEXT ONLY (no tool_use). Attach accumulated
+				// tool call display records so the UI can reconstruct the tool timeline.
 				safeContent := stripToolUseBlocks(assistantContent)
 				if safeContent == nil {
 					safeContent = assistantContent
 				}
-				// Attach accumulated tool call records for UI timeline reconstruction.
 				var records []session.ToolCallRecord
 				if len(allToolCallRecords) > 0 {
 					records = allToolCallRecords
@@ -513,6 +513,16 @@ func (r *Runner) run(ctx context.Context, userMsg string, out chan<- RunEvent) e
 			Role:    "user",
 			Content: toolResultContent,
 		})
+
+		// Persist intermediate tool turns to session history so the LLM gets full context
+		// on the next request. Save both sides of the tool exchange:
+		//   assistant: content array with tool_use block(s) (+ optional text prefix)
+		//   user:      content array with tool_result block(s)
+		// This preserves the tool call / result pairs that the Anthropic API requires.
+		if r.cfg.SessionID != "" && r.cfg.Session != nil {
+			_ = r.cfg.Session.AppendMessage(r.cfg.SessionID, "assistant", assistantContent)
+			_ = r.cfg.Session.AppendMessage(r.cfg.SessionID, "user", toolResultContent)
+		}
 	}
 
 	return fmt.Errorf("exceeded max iterations (%d)", maxIter)
