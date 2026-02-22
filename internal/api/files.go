@@ -243,3 +243,43 @@ func (h *fileHandler) Delete(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
+
+// ── Download Handler ──────────────────────────────────────────────────────
+// GET /api/download?path=ABSOLUTE_PATH&token=AUTH_TOKEN
+// Serves any local file for download. Auth is via the `token` query parameter
+// so the URL can be shared as a clickable link (e.g. in Telegram messages).
+
+type downloadHandler struct {
+	authToken string
+}
+
+func (h *downloadHandler) ServeFile(c *gin.Context) {
+	// Verify token
+	token := c.Query("token")
+	if h.authToken != "" && token != h.authToken {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
+		return
+	}
+
+	filePath := c.Query("path")
+	if filePath == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "path required"})
+		return
+	}
+
+	// Must be an absolute path to prevent directory traversal ambiguity
+	if !filepath.IsAbs(filePath) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "path must be absolute"})
+		return
+	}
+
+	info, err := os.Stat(filePath)
+	if err != nil || info.IsDir() {
+		c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
+		return
+	}
+
+	baseName := filepath.Base(filePath)
+	c.Header("Content-Disposition", `attachment; filename="`+baseName+`"`)
+	c.FileAttachment(filePath, baseName)
+}

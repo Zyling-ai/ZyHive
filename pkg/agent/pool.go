@@ -54,7 +54,8 @@ func (p *Pool) SetProjectManager(mgr *project.Manager) {
 }
 
 // configureToolRegistry applies all optional middlewares to a fresh tool registry.
-func (p *Pool) configureToolRegistry(reg *tools.Registry, ag *Agent) {
+// fileSender is optional; when non-nil, the send_file tool is registered.
+func (p *Pool) configureToolRegistry(reg *tools.Registry, ag *Agent, fileSender channel.FileSenderFunc) {
 	if p.projectMgr != nil {
 		reg.WithProjectAccess(p.projectMgr)
 	}
@@ -63,6 +64,9 @@ func (p *Pool) configureToolRegistry(reg *tools.Registry, ag *Agent) {
 	}
 	if p.SubagentMgr != nil {
 		reg.WithSubagentManager(p.SubagentMgr)
+	}
+	if fileSender != nil {
+		reg.WithFileSender(fileSender, p.cfg.Gateway.BaseURL(), p.cfg.Auth.Token)
 	}
 }
 
@@ -209,7 +213,7 @@ func (p *Pool) Run(ctx context.Context, agentID, message string) (string, error)
 	// Create a fresh runner for this invocation
 	llmClient := llm.NewAnthropicClient()
 	toolRegistry := tools.New(ag.WorkspaceDir, filepath.Dir(ag.WorkspaceDir), ag.ID)
-	p.configureToolRegistry(toolRegistry, ag)
+	p.configureToolRegistry(toolRegistry, ag, nil)
 	store := session.NewStore(ag.SessionDir)
 
 	r := runner.New(runner.Config{
@@ -244,7 +248,8 @@ func (p *Pool) Run(ctx context.Context, agentID, message string) (string, error)
 // RunStreamEvents wraps RunStream output as channel.StreamEvent for the Telegram/web channel layer.
 // This avoids the channel package importing the runner package directly.
 // media is an optional list of downloaded files (images/PDFs) to pass to the LLM as base64 data URIs.
-func (p *Pool) RunStreamEvents(ctx context.Context, agentID, message string, media []channel.MediaInput) (<-chan channel.StreamEvent, error) {
+// fileSender is optional; if non-nil, the agent's send_file tool is registered and can deliver files.
+func (p *Pool) RunStreamEvents(ctx context.Context, agentID, message string, media []channel.MediaInput, fileSender channel.FileSenderFunc) (<-chan channel.StreamEvent, error) {
 	ag, ok := p.manager.Get(agentID)
 	if !ok {
 		return nil, fmt.Errorf("agent %q not found", agentID)
@@ -261,7 +266,7 @@ func (p *Pool) RunStreamEvents(ctx context.Context, agentID, message string, med
 
 	llmClient := llm.NewAnthropicClient()
 	toolRegistry := tools.New(ag.WorkspaceDir, filepath.Dir(ag.WorkspaceDir), ag.ID)
-	p.configureToolRegistry(toolRegistry, ag)
+	p.configureToolRegistry(toolRegistry, ag, fileSender)
 	store := session.NewStore(ag.SessionDir)
 
 	// Convert MediaInput to base64 data URI strings for the runner.
@@ -333,7 +338,7 @@ func (p *Pool) RunStream(ctx context.Context, agentID, message, sessionID string
 
 	llmClient := llm.NewAnthropicClient()
 	toolRegistry := tools.New(ag.WorkspaceDir, filepath.Dir(ag.WorkspaceDir), ag.ID)
-	p.configureToolRegistry(toolRegistry, ag)
+	p.configureToolRegistry(toolRegistry, ag, nil)
 	store := session.NewStore(ag.SessionDir)
 
 	r := runner.New(runner.Config{
@@ -441,7 +446,7 @@ func (p *Pool) SubagentRunFunc() subagent.RunFunc {
 			}
 			store := session.NewStore(subSessionDir)
 			toolRegistry := tools.New(ag.WorkspaceDir, filepath.Dir(ag.WorkspaceDir), ag.ID)
-			p.configureToolRegistry(toolRegistry, ag)
+			p.configureToolRegistry(toolRegistry, ag, nil)
 
 			r := runner.New(runner.Config{
 				AgentID:        ag.ID,

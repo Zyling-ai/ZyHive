@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -375,6 +376,62 @@ func handleShowImage(_ context.Context, input json.RawMessage) (string, error) {
 	}
 	// Return a media marker that AiChat.vue will render as an <img>
 	return fmt.Sprintf("[media:%s] (%.1f KB)", p.Path, float64(info.Size())/1024), nil
+}
+
+// ── Send File ────────────────────────────────────────────────────────────────
+
+const fileSizeLimit50MB = 50 * 1024 * 1024 // 50 MB
+
+var sendFileDef = lllm.ToolDef{
+	Name: "send_file",
+	Description: "将本地文件发送给用户。支持所有文件类型（图片/视频/音频/文档/压缩包等）。" +
+		"文件 ≤50 MB 直接发送；>50 MB 自动生成临时下载链接并返回。",
+	InputSchema: json.RawMessage(`{
+		"type":"object",
+		"properties":{
+			"path":{"type":"string","description":"要发送的文件的绝对路径，例如 /tmp/report.pdf"}
+		},
+		"required":["path"]
+	}`),
+}
+
+// handleSendFile implements the send_file tool.
+// The tool is only registered when r.fileSender is non-nil (i.e. there is an active chat channel).
+func (r *Registry) handleSendFile(_ context.Context, input json.RawMessage) (string, error) {
+	var p struct {
+		Path string `json:"path"`
+	}
+	if err := json.Unmarshal(input, &p); err != nil || p.Path == "" {
+		return "", fmt.Errorf("path required")
+	}
+
+	info, err := os.Stat(p.Path)
+	if err != nil {
+		return "", fmt.Errorf("file not found: %v", err)
+	}
+	if info.IsDir() {
+		return "", fmt.Errorf("path is a directory, not a file")
+	}
+
+	size := info.Size()
+	baseName := filepath.Base(p.Path)
+
+	// Files > 50 MB: generate download link instead of uploading
+	if size > fileSizeLimit50MB {
+		mb := float64(size) / (1024 * 1024)
+		if r.serverBaseURL != "" && r.authToken != "" {
+			dlURL := r.serverBaseURL + "/api/download?path=" + url.QueryEscape(p.Path) +
+				"&token=" + url.QueryEscape(r.authToken)
+			return fmt.Sprintf("⚠️ 文件 %s 过大 (%.1f MB，超过50MB限制)，无法直接发送。\n\n下载链接：%s", baseName, mb, dlURL), nil
+		}
+		return fmt.Sprintf("⚠️ 文件 %s 过大 (%.1f MB)，超过50MB限制，无法直接发送。\n文件路径：%s", baseName, mb, p.Path), nil
+	}
+
+	// Delegate to the channel's file sender (e.g. Telegram sendDocument/sendPhoto)
+	if r.fileSender == nil {
+		return "", fmt.Errorf("send_file: no active channel to deliver file")
+	}
+	return r.fileSender(p.Path)
 }
 
 var selfRenameDef = lllm.ToolDef{

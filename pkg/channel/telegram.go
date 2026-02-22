@@ -44,8 +44,13 @@ type MediaInput struct {
 // RunnerFunc executes an agent turn and returns the full text response.
 type RunnerFunc func(ctx context.Context, agentID, message string) (string, error)
 
+// FileSenderFunc sends a local file to the user (via the active channel).
+// Returns a human-readable confirmation or an error.
+type FileSenderFunc func(filePath string) (string, error)
+
 // StreamFunc executes an agent turn and returns a live StreamEvent channel.
-type StreamFunc func(ctx context.Context, agentID, message string, media []MediaInput) (<-chan StreamEvent, error)
+// fileSender is optional (may be nil); if provided, the runner's send_file tool uses it.
+type StreamFunc func(ctx context.Context, agentID, message string, media []MediaInput, fileSender FileSenderFunc) (<-chan StreamEvent, error)
 
 // ── Telegram API types ────────────────────────────────────────────────────
 
@@ -185,7 +190,7 @@ type TelegramBot struct {
 // NewTelegramBot creates a Telegram bot that supports streaming and group chats.
 func NewTelegramBot(token, agentID, agentDir string, allowFrom []int64, runner RunnerFunc, pending *PendingStore) *TelegramBot {
 	// Wrap the sync runner in a StreamFunc for backward compat when no stream func is set
-	sf := func(ctx context.Context, agentID, message string, media []MediaInput) (<-chan StreamEvent, error) {
+	sf := func(ctx context.Context, agentID, message string, media []MediaInput, _ FileSenderFunc) (<-chan StreamEvent, error) {
 		ch := make(chan StreamEvent, 1)
 		go func() {
 			defer close(ch)
@@ -732,7 +737,12 @@ func (b *TelegramBot) generateAndSend(ctx context.Context, msg *TelegramMessage,
 	defer stopTyping()
 	go b.keepTyping(typingCtx, chatID, threadID)
 
-	events, err := b.streamFunc(runCtx, b.agentID, message, media)
+	// File sender: AI can call send_file tool to deliver files to this chat.
+	fileSender := FileSenderFunc(func(filePath string) (string, error) {
+		return b.SendFileToChat(chatID, threadID, filePath)
+	})
+
+	events, err := b.streamFunc(runCtx, b.agentID, message, media, fileSender)
 	if err != nil {
 		stopTyping()
 		_, _ = b.sendPlain(chatID, "⚠️ 出错了："+err.Error(), replyToMsgID, threadID)

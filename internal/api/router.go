@@ -36,6 +36,11 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager, pool 
 	r.Use(corsMiddleware())
 	r.Use(requestLogger())
 
+	// File download endpoint — auth via ?token= query param (for shareable links).
+	// This endpoint is intentionally outside the auth middleware group.
+	dlH := &downloadHandler{authToken: cfg.Auth.Token}
+	r.GET("/api/download", dlH.ServeFile)
+
 	v1 := r.Group("/api")
 	v1.Use(authMiddleware(cfg.Auth.Token))
 
