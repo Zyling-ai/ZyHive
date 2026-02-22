@@ -3,6 +3,7 @@ package api
 
 import (
 	"bufio"
+	"context"
 	"io/fs"
 	"log"
 	"net/http"
@@ -26,8 +27,11 @@ const configFilePath = "aipanel.json"
 
 // BotControl groups the functions needed by the channel handler to manage running bots.
 type BotControl struct {
-	Start func(agentID, channelID, token string) // start or restart a bot
-	Stop  func(agentID, channelID string)         // stop a bot
+	Start  func(agentID, channelID, token string) // start or restart a bot
+	Stop   func(agentID, channelID string)         // stop a bot
+	// Notify runs the agent in the named channel's per-chat session and sends
+	// the response to the specified chat. Pass channelID="" to use the first active bot.
+	Notify func(ctx context.Context, agentID, channelID string, chatID, threadID int64, prompt string) error
 }
 
 // RegisterRoutes mounts all API handlers onto the Gin engine.
@@ -78,6 +82,9 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager, pool 
 	agents.GET("/:id/chat/status", chatH.SessionStatus)           // poll status
 	agents.GET("/:id/sessions", chatH.ListSessions)
 	agents.GET("/:id/sessions/:sid", chatH.GetSession)
+
+	notifyH := &notifyHandler{botCtrl: botCtrl}
+	agents.POST("/:id/notify", notifyH.Notify) // proactive Telegram notification with session context
 
 	// Workspace files
 	fileH := &fileHandler{manager: mgr}

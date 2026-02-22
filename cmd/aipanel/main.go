@@ -162,8 +162,8 @@ func main() {
 		cID := chID
 		pdDir := filepath.Join(agentsDir, aID, "channels-pending")
 		pending := channel.NewPendingStore(pdDir, cID)
-		sf := func(ctx2 context.Context, aid, msg string, media []channel.MediaInput, fileSender channel.FileSenderFunc) (<-chan channel.StreamEvent, error) {
-			return pool.RunStreamEvents(ctx2, aid, msg, media, fileSender)
+		sf := func(ctx2 context.Context, aid, msg, sessionID string, media []channel.MediaInput, fileSender channel.FileSenderFunc) (<-chan channel.StreamEvent, error) {
+			return pool.RunStreamEvents(ctx2, aid, msg, sessionID, media, fileSender)
 		}
 		getAllowFrom := func() []int64 { return mgr.GetAllowFrom(aID, cID) }
 		agentDir := filepath.Join(agentsDir, aID)
@@ -202,6 +202,19 @@ func main() {
 	botCtrl := api.BotControl{
 		Start: startBotForChannel,
 		Stop:  botPool.StopBot,
+		Notify: func(ctx context.Context, agentID, channelID string, chatID, threadID int64, prompt string) error {
+			var bot *channel.TelegramBot
+			var ok bool
+			if channelID != "" {
+				bot, ok = botPool.GetBot(agentID, channelID)
+			} else {
+				bot, _, ok = botPool.GetFirstBot(agentID)
+			}
+			if !ok {
+				return fmt.Errorf("no active Telegram bot found for agent %q", agentID)
+			}
+			return bot.Notify(ctx, chatID, threadID, prompt)
+		},
 	}
 	api.RegisterRoutes(r, cfg, mgr, pool, cronEngine, uiFS, runnerFunc, botCtrl, projectMgr, subagentMgr, workerPool)
 
