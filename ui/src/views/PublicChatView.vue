@@ -20,6 +20,15 @@
       </div>
     </div>
 
+    <!-- Channel closed/deleted -->
+    <div v-else-if="channelDeleted" class="closed-page">
+      <div class="closed-card">
+        <div class="closed-icon">🔒</div>
+        <h2 class="closed-title">此对话已关闭</h2>
+        <p class="closed-hint">该 Web 渠道已被停用，无法继续访问。</p>
+      </div>
+    </div>
+
     <!-- Chat UI -->
     <div v-else-if="infoLoaded" class="chat-page">
       <!-- Header -->
@@ -130,11 +139,16 @@ interface Message { role: 'user' | 'assistant'; content: string }
 
 const info = ref<ChatInfo | null>(null)
 const infoLoaded = ref(false)
+const channelDeleted = ref(false)
 const needPassword = ref(false)
 const authed = ref(false)
 const passwordInput = ref('')
 const passwordError = ref(false)
 const password = ref('')
+
+// Server-side session ID — persisted in localStorage for reconnect across page refreshes.
+const sessionIdKey = `pub-session-id-${agentId}-${channelId || 'default'}`
+const currentSessionId = ref(localStorage.getItem(sessionIdKey) ?? '')
 
 const messages = ref<Message[]>([])
 const inputText = ref('')
@@ -151,6 +165,11 @@ const pwStorageKey = `chat-pw-${agentId}-${channelId || 'default'}`
 async function loadInfo() {
   try {
     const res = await fetch(`${apiBase}/info`)
+    if (res.status === 404 || res.status === 410) {
+      channelDeleted.value = true
+      infoLoaded.value = false
+      return
+    }
     if (!res.ok) { infoLoaded.value = true; return }
     const data: ChatInfo = await res.json()
     info.value = data
@@ -158,11 +177,13 @@ async function loadInfo() {
     needPassword.value = data.hasPassword
     if (!data.hasPassword) {
       authed.value = true
+      await loadHistory()
     } else {
       const saved = sessionStorage.getItem(pwStorageKey)
       if (saved) {
         password.value = saved
         authed.value = true
+        await loadHistory()
       } else {
         authed.value = false
       }
@@ -171,6 +192,24 @@ async function loadInfo() {
   } catch {
     infoLoaded.value = true
   }
+}
+
+// Load history from server on mount (or after password auth).
+async function loadHistory() {
+  if (!sessionToken) return
+  try {
+    const params = new URLSearchParams({ sessionToken })
+    const headers: Record<string, string> = {}
+    if (password.value) headers['X-Chat-Password'] = password.value
+    const res = await fetch(`${apiBase}/history?${params}`, { headers })
+    if (!res.ok) return
+    const data = await res.json()
+    if (data.sessionId) currentSessionId.value = data.sessionId
+    if (Array.isArray(data.messages) && data.messages.length > 0) {
+      messages.value = data.messages.map((m: any) => ({ role: m.role, content: m.content }))
+      await scrollBottom()
+    }
+  } catch { /* no history yet */ }
 }
 
 async function submitPassword() {
@@ -191,6 +230,7 @@ async function submitPassword() {
   sessionStorage.setItem(pwStorageKey, pw)
   authed.value = true
   passwordError.value = false
+  await loadHistory()
 }
 
 async function sendMessage() {
@@ -201,6 +241,49 @@ async function sendMessage() {
   messages.value.push({ role: 'user', content: text })
   await scrollBottom()
   await streamResponse(text)
+}
+
+// consumeSSE reads an SSE stream and processes events.
+// Returns true if generation completed normally.
+async function consumeSSE(res: Response): Promise<boolean> {
+  if (!res.body) return false
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buf = ''
+  let done = false
+
+  while (true) {
+    const { done: streamDone, value } = await reader.read()
+    if (streamDone) break
+    buf += decoder.decode(value, { stream: true })
+    const parts = buf.split('\n\n')
+    buf = parts.pop() ?? ''
+    for (const part of parts) {
+      const line = part.startsWith('data: ') ? part.slice(6) : part
+      if (!line.trim()) continue
+      try {
+        const ev = JSON.parse(line)
+        if (ev.type === 'text_delta') {
+          streamingText.value += ev.text
+          await scrollBottom()
+        } else if (ev.type === 'done') {
+          if (ev.sessionId) {
+            currentSessionId.value = ev.sessionId
+            localStorage.setItem(sessionIdKey, ev.sessionId)
+          }
+          done = true
+          break
+        } else if (ev.type === 'idle') {
+          done = true
+          break
+        } else if (ev.type === 'error') {
+          streamingText.value += `\n[错误: ${ev.error ?? ev.text}]`
+        }
+      } catch {}
+    }
+    if (done) break
+  }
+  return done
 }
 
 async function streamResponse(message: string) {
@@ -227,35 +310,14 @@ async function streamResponse(message: string) {
       messages.value.pop()
       return
     }
-
-    if (!res.ok || !res.body) throw new Error('Request failed')
-
-    const reader = res.body.getReader()
-    const decoder = new TextDecoder()
-    let buf = ''
-
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buf += decoder.decode(value, { stream: true })
-      const parts = buf.split('\n\n')
-      buf = parts.pop() ?? ''
-      for (const part of parts) {
-        const line = part.startsWith('data: ') ? part.slice(6) : part
-        if (!line.trim()) continue
-        try {
-          const ev = JSON.parse(line)
-          if (ev.type === 'text_delta') {
-            streamingText.value += ev.text
-            await scrollBottom()
-          } else if (ev.type === 'done') {
-            break
-          } else if (ev.type === 'error') {
-            streamingText.value += `\n[错误: ${ev.text}]`
-          }
-        } catch {}
-      }
+    if (res.status === 410) {
+      channelDeleted.value = true
+      infoLoaded.value = false
+      return
     }
+    if (!res.ok) throw new Error('Request failed')
+
+    await consumeSSE(res)
   } catch {
     streamingText.value += '\n[连接错误，请重试]'
   } finally {
@@ -266,6 +328,33 @@ async function streamResponse(message: string) {
     streamingText.value = ''
     await scrollBottom()
   }
+}
+
+// reconnectIfGenerating checks if there's an in-progress generation for our session
+// and subscribes to receive its output (handles page refresh mid-generation).
+async function reconnectIfGenerating() {
+  if (!currentSessionId.value) return
+  const headers: Record<string, string> = {}
+  if (password.value) headers['X-Chat-Password'] = password.value
+  try {
+    const res = await fetch(`${apiBase}/reconnect?sessionId=${encodeURIComponent(currentSessionId.value)}`, { headers })
+    if (!res.ok) return
+    streaming.value = true
+    streamingText.value = ''
+    await consumeSSE(res)
+    if (streamingText.value) {
+      // Check if last message is the one being generated (avoid duplicate)
+      const last = messages.value[messages.value.length - 1]
+      if (!last || last.role !== 'assistant' || last.content !== streamingText.value) {
+        messages.value.push({ role: 'assistant', content: streamingText.value })
+      }
+    }
+    streaming.value = false
+    streamingText.value = ''
+    await scrollBottom()
+    // Refresh history to ensure everything is up to date
+    await loadHistory()
+  } catch { /* not generating */ }
 }
 
 async function scrollBottom() {
@@ -289,7 +378,13 @@ function renderText(text: string): string {
     .replace(/\n/g, '<br>')
 }
 
-onMounted(loadInfo)
+onMounted(async () => {
+  await loadInfo()
+  // If a generation was in progress when the page was closed, reconnect to receive it
+  if (authed.value && currentSessionId.value) {
+    await reconnectIfGenerating()
+  }
+})
 </script>
 
 <style scoped>
@@ -543,6 +638,11 @@ onMounted(loadInfo)
   animation: spin 0.8s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg) } }
+.closed-page { height: 100vh; display: flex; align-items: center; justify-content: center; background: #f5f7fa; }
+.closed-card { text-align: center; padding: 40px; background: #fff; border-radius: 16px; box-shadow: 0 4px 24px rgba(0,0,0,.08); max-width: 360px; }
+.closed-icon { font-size: 48px; margin-bottom: 16px; }
+.closed-title { margin: 0 0 8px; font-size: 20px; color: #303133; }
+.closed-hint { margin: 0; color: #909399; font-size: 14px; }
 
 /* Inline code */
 :deep(code) {

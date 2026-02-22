@@ -194,12 +194,14 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager, pool 
 	v1.POST("/config/test-key", cfgH.TestKey)
 
 	// ── Public routes (no auth — web channel) ─────────────────────────────
-	pubH := &publicChatHandler{manager: mgr, pool: pool}
+	pubH := &publicChatHandler{manager: mgr, pool: pool, workerPool: workerPool, cfg: cfg}
 	pub := r.Group("/pub")
 	{
 		// Per-channel routes (primary)
 		pub.GET("/chat/:agentId/:channelId/info", pubH.Info)
+		pub.GET("/chat/:agentId/:channelId/history", pubH.History)
 		pub.POST("/chat/:agentId/:channelId/stream", pubH.Stream)
+		pub.GET("/chat/:agentId/:channelId/reconnect", pubH.Reconnect)
 		// Legacy compat (first enabled web channel)
 		pub.GET("/chat/:agentId/info", pubH.InfoLegacy)
 		pub.POST("/chat/:agentId/stream", pubH.StreamLegacy)
