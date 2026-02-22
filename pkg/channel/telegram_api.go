@@ -14,6 +14,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/sunhuihui6688-star/ai-panel/pkg/convlog"
 )
 
 // ── Markdown → Telegram HTML ──────────────────────────────────────────────
@@ -247,6 +249,69 @@ func (b *TelegramBot) editMessage(chatID, messageID int64, text string, threadID
 func (b *TelegramBot) SendMessage(chatID int64, text string) error {
 	_, err := b.sendPlain(chatID, text, 0, 0)
 	return err
+}
+
+// Notify runs the agent with the given prompt in the per-chat session, then sends
+// the response to the Telegram chat. Both the prompt (as user turn) and the response
+// (as assistant turn) are recorded in the session for conversation continuity.
+// chatID: Telegram chat ID to send to.
+// threadID: message thread ID (0 for non-thread chats).
+// prompt: the message injected as the "user" turn (e.g. a cron trigger or system event).
+func (b *TelegramBot) Notify(ctx context.Context, chatID, threadID int64, prompt string) error {
+	if b.streamFunc == nil {
+		return fmt.Errorf("notify: no stream func registered")
+	}
+	sessionID := fmt.Sprintf("telegram-%d", chatID)
+	fileSender := FileSenderFunc(func(filePath string) (string, error) {
+		return b.SendFileToChat(chatID, threadID, filePath)
+	})
+
+	runCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+
+	events, err := b.streamFunc(runCtx, b.agentID, prompt, sessionID, nil, fileSender)
+	if err != nil {
+		return fmt.Errorf("notify: runner error: %w", err)
+	}
+
+	var accumulated strings.Builder
+	for ev := range events {
+		switch ev.Type {
+		case "text_delta":
+			accumulated.WriteString(ev.Text)
+		case "error":
+			if ev.Err != nil {
+				return fmt.Errorf("notify: runner error: %w", ev.Err)
+			}
+		}
+	}
+
+	finalText := accumulated.String()
+	if finalText == "" {
+		return nil
+	}
+
+	// Send to Telegram (try HTML first, fall back to plain)
+	_, err = b.sendHTML2(chatID, markdownToHTML(finalText), 0, threadID)
+	if err != nil {
+		_, err = b.sendPlain(chatID, finalText, 0, threadID)
+		if err != nil {
+			return fmt.Errorf("notify: send error: %w", err)
+		}
+	}
+
+	// Log to permanent conversation audit log
+	if cl := b.getConvLog(chatID); cl != nil {
+		_ = cl.Append(convlog.Entry{
+			Timestamp:   time.Now().UTC().Format(time.RFC3339),
+			Role:        "assistant",
+			Content:     finalText,
+			ChannelID:   fmt.Sprintf("telegram-%d", chatID),
+			ChannelType: "telegram",
+		})
+	}
+
+	return nil
 }
 
 // TestTelegramBot calls getMe to verify a bot token. Returns the bot username on success.

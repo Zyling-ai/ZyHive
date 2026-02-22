@@ -72,3 +72,29 @@ func (p *BotPool) IsRunning(agentID, channelID string) bool {
 	_, ok := p.bots[poolKey(agentID, channelID)]
 	return ok
 }
+
+// GetBot returns the running TelegramBot for the given (agentID, channelID), if any.
+func (p *BotPool) GetBot(agentID, channelID string) (*TelegramBot, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	e, ok := p.bots[poolKey(agentID, channelID)]
+	if !ok {
+		return nil, false
+	}
+	return e.bot, true
+}
+
+// GetFirstBot returns the first running bot for the given agentID (any channelID).
+// Useful when the caller only knows the agentID and there's typically one bot per agent.
+func (p *BotPool) GetFirstBot(agentID string) (*TelegramBot, string, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	prefix := agentID + "/"
+	for k, e := range p.bots {
+		if len(k) > len(prefix) && k[:len(prefix)] == prefix {
+			channelID := k[len(prefix):]
+			return e.bot, channelID, true
+		}
+	}
+	return nil, "", false
+}
