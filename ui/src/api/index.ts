@@ -594,19 +594,35 @@ export interface TaskInfo {
   spawnedBy?: string
   spawnedBySession?: string
   model?: string
+  taskType?: 'task' | 'report' | 'system'  // task delegation | report | internal
+  relation?: string                          // relation type at spawn time
   createdAt: number
   startedAt?: number
   endedAt?: number
   duration?: string
 }
 
+export interface EligibleTarget {
+  agentId: string
+  relation: string  // "上下级" | "平级协作"
+  mode: string      // "task" | "report"
+}
+
 export const tasks = {
   list: (params?: { agentId?: string; status?: string; sessionId?: string }) =>
     api.get<TaskInfo[]>('/tasks', { params }),
   get: (id: string) => api.get<TaskInfo>(`/tasks/${id}`),
-  spawn: (data: { agentId: string; task: string; label?: string; model?: string; spawnedBy?: string }) =>
-    api.post<TaskInfo>('/tasks', data),
+  spawn: (data: {
+    agentId: string
+    task: string
+    label?: string
+    model?: string
+    spawnedBy?: string
+    taskType?: string
+  }) => api.post<TaskInfo>('/tasks', data),
   kill: (id: string) => api.delete(`/tasks/${id}`),
+  eligibleTargets: (from: string, mode: 'task' | 'report') =>
+    api.get<EligibleTarget[]>('/tasks/eligible', { params: { from, mode } }),
 }
 
 export default api

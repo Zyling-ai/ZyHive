@@ -72,6 +72,11 @@ func (m *Manager) Spawn(opts SpawnOpts) (*Task, error) {
 	taskID := uuid.New().String()[:12] // short ID for readability
 	sessionID := "subagent-" + taskID
 
+	taskType := opts.TaskType
+	if taskType == "" {
+		taskType = TaskTypeTask
+	}
+
 	task := &Task{
 		ID:               taskID,
 		AgentID:          opts.AgentID,
@@ -82,6 +87,8 @@ func (m *Manager) Spawn(opts SpawnOpts) (*Task, error) {
 		SpawnedBy:        opts.SpawnedBy,
 		SpawnedBySession: opts.SpawnedBySession,
 		Model:            opts.Model,
+		TaskType:         taskType,
+		Relation:         opts.Relation,
 		CreatedAt:        time.Now().UnixMilli(),
 	}
 
