@@ -312,9 +312,12 @@ func menuServiceManage() {
 			systemctlAction("restart", "zyhive")
 		case "4":
 			var out string
-			if runtime.GOOS == "darwin" {
+			switch runtime.GOOS {
+			case "darwin":
 				out = runCmd("launchctl", "list", "com.zyhive.zyhive")
-			} else {
+			case "windows":
+				out = runCmd("sc", "query", "zyhive")
+			default:
 				out = runCmd("systemctl", "status", "zyhive", "--no-pager", "-l")
 			}
 			fmt.Println(ansiCyan + out + ansiReset)
@@ -990,34 +993,48 @@ func commandExists(name string) bool {
 }
 
 func isServiceRunning() bool {
-	if runtime.GOOS == "darwin" {
-		// macOS launchd：list 输出包含 "PID" 表示正在运行
+	switch runtime.GOOS {
+	case "darwin":
 		out := runCmd("launchctl", "list", "com.zyhive.zyhive")
 		return strings.Contains(out, `"PID"`)
+	case "windows":
+		out := runCmd("sc", "query", "zyhive")
+		return strings.Contains(out, "RUNNING")
+	default:
+		out := runCmd("systemctl", "is-active", "zyhive")
+		return strings.TrimSpace(out) == "active"
 	}
-	out := runCmd("systemctl", "is-active", "zyhive")
-	return strings.TrimSpace(out) == "active"
 }
 
 // svcStop / svcStart — 跨平台停止/启动（不含 pause）
 func svcStop(service string) {
-	if runtime.GOOS == "darwin" {
+	switch runtime.GOOS {
+	case "darwin":
 		runCmd("launchctl", "stop", "com.zyhive."+service)
-	} else {
+	case "windows":
+		runCmd("sc", "stop", service)
+	default:
 		runCmd("systemctl", "stop", service)
 	}
 }
 func svcStart(service string) {
-	if runtime.GOOS == "darwin" {
+	switch runtime.GOOS {
+	case "darwin":
 		runCmd("launchctl", "start", "com.zyhive."+service)
-	} else {
+	case "windows":
+		runCmd("sc", "start", service)
+	default:
 		runCmd("systemctl", "start", service)
 	}
 }
 
 func systemctlAction(action, service string) {
-	if runtime.GOOS == "darwin" {
+	switch runtime.GOOS {
+	case "darwin":
 		launchctlAction(action, service)
+		return
+	case "windows":
+		scAction(action, service)
 		return
 	}
 	out := runCmd("systemctl", action, service)
@@ -1045,6 +1062,47 @@ func systemctlAction(action, service string) {
 		printSuccess(service + " 已设置开机自启")
 	case "disable":
 		printSuccess(service + " 已取消开机自启")
+	}
+	pause()
+}
+
+// scAction — Windows SCM 服务管理（sc.exe）
+func scAction(action, service string) {
+	switch action {
+	case "start":
+		out := runCmd("sc", "start", service)
+		if out != "" {
+			fmt.Println(ansiCyan + out + ansiReset)
+		}
+		time.Sleep(2 * time.Second)
+		if isServiceRunning() {
+			printSuccess(service + " 已启动")
+		} else {
+			printError(service + " 启动失败，请检查事件查看器")
+		}
+	case "stop":
+		runCmd("sc", "stop", service)
+		time.Sleep(time.Second)
+		printSuccess(service + " 已停止")
+	case "restart":
+		runCmd("sc", "stop", service)
+		time.Sleep(2 * time.Second)
+		runCmd("sc", "start", service)
+		time.Sleep(2 * time.Second)
+		if isServiceRunning() {
+			printSuccess(service + " 已重启")
+		} else {
+			printError(service + " 重启失败")
+		}
+	case "enable":
+		runCmd("sc", "config", service, "start=", "auto")
+		printSuccess(service + " 已设置开机自启")
+	case "disable":
+		runCmd("sc", "config", service, "start=", "demand")
+		printSuccess(service + " 已取消开机自启")
+	case "status":
+		out := runCmd("sc", "query", service)
+		fmt.Println(ansiCyan + out + ansiReset)
 	}
 	pause()
 }
