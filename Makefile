@@ -27,7 +27,9 @@ release: sync-ui
 	GOOS=linux  GOARCH=amd64  go build -o bin/release/aipanel-linux-amd64   ./cmd/aipanel/
 	GOOS=linux  GOARCH=arm64  go build -o bin/release/aipanel-linux-arm64   ./cmd/aipanel/
 	GOOS=darwin GOARCH=arm64  go build -o bin/release/aipanel-darwin-arm64  ./cmd/aipanel/
-	GOOS=darwin GOARCH=amd64  go build -o bin/release/aipanel-darwin-amd64  ./cmd/aipanel/
+	GOOS=darwin  GOARCH=amd64  go build -o bin/release/aipanel-darwin-amd64   ./cmd/aipanel/
+	GOOS=windows GOARCH=amd64  go build -o bin/release/aipanel-windows-amd64.exe ./cmd/aipanel/
+	GOOS=windows GOARCH=arm64  go build -o bin/release/aipanel-windows-arm64.exe ./cmd/aipanel/
 	ls -lh bin/release/
 
 clean:
