@@ -4,6 +4,92 @@
 
 ---
 
+## [v0.9.11] — 2026-02-23 · 通用安装端点（全平台一条命令）
+
+### 新增
+- **`/install` 通用端点**：Cloudflare Worker 根据请求 User-Agent 自动分流
+  - `User-Agent` 含 `PowerShell` → 返回 `install.ps1`
+  - 其他（curl 等） → 返回 `install.sh`
+- **Git Bash / MSYS2 / Cygwin 自动适配**：`install.sh` 开头检测 `uname -s`（`MINGW*` / `MSYS*` / `CYGWIN*`），自动调用系统 `powershell.exe` 或 `pwsh` 完成安装
+- `/install.sh` 和 `/install.ps1` 作为类型固定的别名端点
+
+### 统一安装命令
+```bash
+# Windows (PowerShell)
+irm https://install.zyling.ai/install | iex
+
+# macOS / Linux / Windows Git Bash（完全相同）
+curl -sSL https://install.zyling.ai/install | bash
+```
+
+---
+
+## [v0.9.10] — 2026-02-23 · Windows 完整支持
+
+### 新增
+- **`scripts/install.ps1`** — Windows PowerShell 安装脚本
+  - 检测到非管理员 → 自动 `Start-Process powershell -Verb RunAs` 弹出 UAC 提权
+  - 管道运行（`irm | iex`）时 → 先下载到临时文件，再以管理员身份重新执行
+  - 二进制安装到 `C:\Program Files\ZyHive\zyhive.exe`
+  - `sc create zyhive` 注册 Windows 服务（自动启动 + 故障三次递增重试）
+  - 将安装目录加入系统 PATH（`Machine` 级别，对所有用户生效）
+  - 支持 `-Uninstall` 卸载、`-NoService` 只安装二进制
+- **CLI Windows 服务管理（`sc.exe`）**
+  - `isServiceRunning()` → `sc query zyhive` 检查 "RUNNING" 字段
+  - `systemctlAction()` 在 Windows 上路由到 `scAction()`
+  - `scAction()`：start / stop / restart / enable（`start= auto`） / disable（`start= demand`） / status
+  - `svcStop()` / `svcStart()` 跨平台 helper（Linux/macOS/Windows 各走对应命令）
+- **Makefile** 新增 Windows 编译目标
+  ```makefile
+  GOOS=windows GOARCH=amd64 go build -o bin/release/aipanel-windows-amd64.exe
+  GOOS=windows GOARCH=arm64 go build -o bin/release/aipanel-windows-arm64.exe
+  ```
+- **CF Worker** 新增 `/zyhive.ps1` 端点（代理 GitHub raw `scripts/install.ps1`）
+
+### Release 产物（v0.9.10+）
+| 文件 | 平台 |
+|------|------|
+| `aipanel-linux-amd64` | Linux x86_64 |
+| `aipanel-linux-arm64` | Linux ARM64 |
+| `aipanel-darwin-arm64` | macOS Apple Silicon |
+| `aipanel-darwin-amd64` | macOS Intel |
+| `aipanel-windows-amd64.exe` | Windows x86_64 |
+| `aipanel-windows-arm64.exe` | Windows ARM64 |
+
+---
+
+## [v0.9.9] — 2026-02-23 · 安装脚本自动获取 root 权限
+
+### 修复 / 改进
+- **`install.sh` 权限逻辑重写**
+  - 旧行为：`sudo -n true`（非交互），无密码 sudo 则静默降级到用户目录
+  - 新行为：非 root 时调用 `sudo -v`（**弹出密码提示**），获取后统一安装到系统目录
+  - sudo 保活：后台每 60 秒执行 `sudo -v` 刷新票据，防止长下载超时失效
+  - 支持 `--no-root` 参数强制跳过，安装到用户目录（`~/.local/bin`）
+- **CLI macOS 服务状态检测修复**
+  - 旧：`systemctl is-active zyhive` → macOS 无 systemctl → 永远返回"已停止"
+  - 新：`isServiceRunning()` switch 判断平台，macOS 用 `launchctl list com.zyhive.zyhive`，检查输出是否含 `"PID"` 字段
+- **CLI macOS 服务管理完整支持**
+  - 新增 `launchctlAction()`，覆盖 start / stop / restart / enable（load -w） / disable（unload -w）
+  - LaunchDaemon（root 安装）/ LaunchAgent（用户安装）自动区分
+  - `svcStop()` / `svcStart()` helper 替换所有硬编码 `systemctl stop/start`（在线更新、备份恢复均受益）
+
+---
+
+## [v0.9.8] — 2026-02-23 · install.zyling.ai CF 加速节点
+
+### 新增
+- **CF Workers 部署**（`zyling-website` repo，`_worker.js`）
+  - `GET /zyhive.sh` — 实时代理 GitHub raw，永不缓存
+  - `GET /zyhive.ps1` — PowerShell 脚本（v0.9.10 起）
+  - `GET /latest` — GitHub release redirect 提取版本号（5 分钟缓存，不走 GitHub API 避免限流）
+  - `GET /dl/{ver}/{file}` — 二进制下载代理（绕过 GitHub CDN 国内访问问题，24 小时缓存）
+- **自定义域名**：`zyling.ai`、`www.zyling.ai`、`install.zyling.ai` 三域均绑定同一 Worker
+- **`install.sh` 双回退逻辑**：版本查询和二进制下载均优先走 CF 镜像，失败自动回退 GitHub
+- **GitHub Actions 自动部署**：`zyling-website` push → `wrangler deploy`（`CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` secrets）
+
+---
+
 ## [v0.9.1] — 2026-02-22 · 移动端响应式 + 关系任务系统 + Telegram 持久会话
 
 ### 新增
