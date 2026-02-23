@@ -311,7 +311,12 @@ func menuServiceManage() {
 		case "3":
 			systemctlAction("restart", "zyhive")
 		case "4":
-			out := runCmd("systemctl", "status", "zyhive", "--no-pager", "-l")
+			var out string
+			if runtime.GOOS == "darwin" {
+				out = runCmd("launchctl", "list", "com.zyhive.zyhive")
+			} else {
+				out = runCmd("systemctl", "status", "zyhive", "--no-pager", "-l")
+			}
 			fmt.Println(ansiCyan + out + ansiReset)
 			pause()
 		case "5":
@@ -652,14 +657,14 @@ func menuUpdate() {
 
 	// 停服 → 替换 → 启服
 	fmt.Println("  停止服务...")
-	runCmd("systemctl", "stop", "zyhive")
+	svcStop("zyhive")
 
 	fmt.Println("  替换二进制...")
 	runCmd("cp", tmpPath, binaryPath)
 	os.Remove(tmpPath)
 
 	fmt.Println("  启动服务...")
-	runCmd("systemctl", "start", "zyhive")
+	svcStart("zyhive")
 	time.Sleep(2 * time.Second)
 
 	if isServiceRunning() {
@@ -887,12 +892,12 @@ func menuBackup() {
 				printError("备份文件不存在：" + backupFile)
 			} else if confirm("恢复会覆盖现有数据，确认继续？") {
 				fmt.Println("  停止服务...")
-				runCmd("systemctl", "stop", "zyhive")
+				svcStop("zyhive")
 				out := runCmd("tar", "-xzf", backupFile, "-C", "/")
 				if out != "" {
 					fmt.Println(out)
 				}
-				runCmd("systemctl", "start", "zyhive")
+				svcStart("zyhive")
 				printSuccess("恢复完成，服务已重启")
 			}
 			pause()
@@ -985,11 +990,36 @@ func commandExists(name string) bool {
 }
 
 func isServiceRunning() bool {
+	if runtime.GOOS == "darwin" {
+		// macOS launchd：list 输出包含 "PID" 表示正在运行
+		out := runCmd("launchctl", "list", "com.zyhive.zyhive")
+		return strings.Contains(out, `"PID"`)
+	}
 	out := runCmd("systemctl", "is-active", "zyhive")
 	return strings.TrimSpace(out) == "active"
 }
 
+// svcStop / svcStart — 跨平台停止/启动（不含 pause）
+func svcStop(service string) {
+	if runtime.GOOS == "darwin" {
+		runCmd("launchctl", "stop", "com.zyhive."+service)
+	} else {
+		runCmd("systemctl", "stop", service)
+	}
+}
+func svcStart(service string) {
+	if runtime.GOOS == "darwin" {
+		runCmd("launchctl", "start", "com.zyhive."+service)
+	} else {
+		runCmd("systemctl", "start", service)
+	}
+}
+
 func systemctlAction(action, service string) {
+	if runtime.GOOS == "darwin" {
+		launchctlAction(action, service)
+		return
+	}
 	out := runCmd("systemctl", action, service)
 	if out != "" {
 		fmt.Println(ansiCyan + out + ansiReset)
@@ -1015,6 +1045,48 @@ func systemctlAction(action, service string) {
 		printSuccess(service + " 已设置开机自启")
 	case "disable":
 		printSuccess(service + " 已取消开机自启")
+	}
+	pause()
+}
+
+// launchctlAction — macOS launchd 服务管理
+func launchctlAction(action, service string) {
+	label := "com.zyhive." + service
+	plist := filepath.Join(os.Getenv("HOME"), "Library", "LaunchAgents", label+".plist")
+	if _, err := os.Stat("/Library/LaunchDaemons/" + label + ".plist"); err == nil {
+		plist = "/Library/LaunchDaemons/" + label + ".plist"
+	}
+	switch action {
+	case "start":
+		runCmd("launchctl", "start", label)
+		time.Sleep(time.Second)
+		if isServiceRunning() {
+			printSuccess(service + " 已启动")
+		} else {
+			printError(service + " 启动失败，日志：~/Library/Logs/zyhive/")
+		}
+	case "stop":
+		runCmd("launchctl", "stop", label)
+		time.Sleep(500 * time.Millisecond)
+		printSuccess(service + " 已停止")
+	case "restart":
+		runCmd("launchctl", "stop", label)
+		time.Sleep(time.Second)
+		runCmd("launchctl", "start", label)
+		time.Sleep(time.Second)
+		if isServiceRunning() {
+			printSuccess(service + " 已重启")
+		} else {
+			printError(service + " 重启失败")
+		}
+	case "enable":
+		runCmd("launchctl", "load", "-w", plist)
+		printSuccess(service + " 已设置开机自启")
+	case "disable":
+		runCmd("launchctl", "unload", "-w", plist)
+		printSuccess(service + " 已取消开机自启")
+	case "status":
+		fmt.Println(ansiCyan + runCmd("launchctl", "list", label) + ansiReset)
 	}
 	pause()
 }
