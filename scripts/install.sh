@@ -1,14 +1,46 @@
 #!/bin/bash
-# ZyHive (引巢) — 一键安装脚本
-# 用法:
-#   curl -sSL https://install.zyling.ai/zyhive.sh | bash
-#   curl -sSL https://install.zyling.ai/zyhive.sh | bash -s -- --domain hive.example.com --port 8080
-#   curl -sSL https://install.zyling.ai/zyhive.sh | bash -s -- --no-root
+# ZyHive (引巢) — 一键安装脚本（通用版，自动识别平台）
+# ─────────────────────────────────────────────────────────────────────────
+# Linux / macOS:
+#   curl -sSL https://install.zyling.ai | bash
 #
-# 镜像节点（国内可用）：install.zyling.ai（Cloudflare 全球节点代理）
+# Windows (PowerShell):
+#   irm https://install.zyling.ai | iex
+#
+# Windows (Git Bash / MSYS2 / Cygwin): 与 Linux/macOS 命令相同，脚本会
+#   自动检测并调用系统 PowerShell 完成安装。
+# ─────────────────────────────────────────────────────────────────────────
 set -e
 
 INSTALL_BASE="https://install.zyling.ai"
+
+# ══════════════════════════════════════════════════════════════════════════
+# Windows 环境检测（Git Bash / MSYS2 / Cygwin）
+# 在这些环境里 uname -s 返回 MINGW64_NT / MSYS_NT / CYGWIN_NT 等
+# 直接把控制权交给系统 PowerShell，避免路径和权限问题
+# ══════════════════════════════════════════════════════════════════════════
+_raw_os=$(uname -s 2>/dev/null || echo "unknown")
+case "$_raw_os" in
+  MINGW*|MSYS*|CYGWIN*)
+    echo ""
+    echo "  检测到 Windows 环境（Git Bash / MSYS2 / Cygwin）"
+    echo "  自动转交 PowerShell 安装，请在弹出的 UAC 对话框中点击「是」…"
+    echo ""
+    PS1_URL="${INSTALL_BASE}/zyhive.ps1"
+    # 优先用 pwsh (PowerShell 7)，其次用 powershell.exe (Windows 内置 5.x)
+    if command -v pwsh &>/dev/null; then
+      pwsh -ExecutionPolicy Bypass -Command "irm '${PS1_URL}' | iex"
+    elif command -v powershell.exe &>/dev/null; then
+      powershell.exe -ExecutionPolicy Bypass -Command "irm '${PS1_URL}' | iex"
+    else
+      echo "  ❌ 未找到 PowerShell，请以管理员身份在 PowerShell 中运行："
+      echo "     irm ${PS1_URL} | iex"
+      exit 1
+    fi
+    exit $?
+    ;;
+esac
+
 SERVICE_NAME="zyhive"
 BINARY_NAME="zyhive"
 PORT=8080
