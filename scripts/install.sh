@@ -1,11 +1,15 @@
 #!/bin/bash
 # ZyHive (引巢) — 一键安装脚本
 # 用法:
-#   curl -sSL https://raw.githubusercontent.com/Zyling-ai/zyhive/main/scripts/install.sh | bash
-#   curl -sSL ... | bash -s -- --domain hive.example.com --port 8080
+#   curl -sSL https://install.zyling.ai/zyhive.sh | bash
+#   curl -sSL https://install.zyling.ai/zyhive.sh | bash -s -- --domain hive.example.com --port 8080
+#
+# 镜像节点（国内可用）：install.zyling.ai（Cloudflare 全球节点代理）
 set -e
 
-REPO="Zyling-ai/zyhive"
+# 下载基础地址：通过 CF Worker 代理（解决国内无法访问 GitHub 的问题）
+INSTALL_BASE="https://install.zyling.ai"
+
 SERVICE_NAME="zyhive"
 BINARY_NAME="zyhive"
 PORT=8080
@@ -83,15 +87,14 @@ echo ""
 
 # ── 获取最新版本号 ─────────────────────────────────────────────────────────
 info "查询最新版本…"
-LATEST=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" \
-  | grep '"tag_name"' | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')
+LATEST=$(curl -fsSL "$INSTALL_BASE/latest" | grep -o '"version":"[^"]*"' | sed 's/"version":"//;s/"//')
 if [ -z "$LATEST" ]; then
-  error "无法获取最新版本，请检查网络连接。"
+  error "无法获取最新版本，请检查网络连接（$INSTALL_BASE/latest）。"
 fi
 info "最新版本：$LATEST"
 
-# ── 构造下载 URL ───────────────────────────────────────────────────────────
-BINARY_URL="https://github.com/$REPO/releases/download/$LATEST/aipanel-${OS}-${ARCH}"
+# ── 构造下载 URL（走 CF 代理，国内可访问）──────────────────────────────────
+BINARY_URL="$INSTALL_BASE/dl/$LATEST/aipanel-${OS}-${ARCH}"
 
 # ── 创建目录 ───────────────────────────────────────────────────────────────
 if $RUN_AS_ROOT; then
