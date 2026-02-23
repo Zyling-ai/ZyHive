@@ -25,6 +25,9 @@ import (
 
 const configFilePath = "aipanel.json"
 
+// AppVersion is the current release version.
+const AppVersion = "0.9.7"
+
 // BotControl groups the functions needed by the channel handler to manage running bots.
 type BotControl struct {
 	Start  func(agentID, channelID, token string) // start or restart a bot
@@ -44,6 +47,11 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager, pool 
 	// This endpoint is intentionally outside the auth middleware group.
 	dlH := &downloadHandler{authToken: cfg.Auth.Token}
 	r.GET("/api/download", dlH.ServeFile)
+
+	// Public: version info (no auth required — needed for login page)
+	r.GET("/api/version", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"version": AppVersion})
+	})
 
 	v1 := r.Group("/api")
 	v1.Use(authMiddleware(cfg.Auth.Token))

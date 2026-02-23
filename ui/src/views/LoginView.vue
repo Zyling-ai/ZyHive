@@ -44,12 +44,12 @@
         </el-form-item>
       </el-form>
     </el-card>
-    <p class="login-copyright">© 2026 引巢 · ZyHive · zyling</p>
+    <p class="login-copyright">© 2026 引巢 · ZyHive · zyling<span v-if="version" class="login-version">  v{{ version }}</span></p>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import api from '../api'
@@ -57,6 +57,14 @@ import api from '../api'
 const router = useRouter()
 const token = ref('')
 const loading = ref(false)
+const version = ref('')
+
+onMounted(async () => {
+  try {
+    const res = await api.get('/version')
+    version.value = res.data.version
+  } catch {}
+})
 
 // 验证码
 const captchaA = ref(0)
@@ -107,6 +115,10 @@ async function handleLogin() {
   font-size: 12px;
   color: rgba(255,255,255,0.3);
   margin: 0;
+}
+.login-version {
+  font-family: monospace;
+  color: rgba(255,255,255,0.2);
 }
 .login-card { width: 420px; }
 .login-header { text-align: center; }
