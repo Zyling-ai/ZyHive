@@ -85,16 +85,23 @@ info "配置目录：$CONFIG_DIR"
 [ -n "$DOMAIN" ] && info "域名：$DOMAIN（将自动配置 NGINX + HTTPS）"
 echo ""
 
-# ── 获取最新版本号 ─────────────────────────────────────────────────────────
+# ── 获取最新版本号（优先走 CF 镜像，失败自动回退 GitHub API）────────────────
 info "查询最新版本…"
-LATEST=$(curl -fsSL "$INSTALL_BASE/latest" | grep -o '"version":"[^"]*"' | sed 's/"version":"//;s/"//')
+LATEST=$(curl -fsSL --max-time 8 "$INSTALL_BASE/latest" 2>/dev/null \
+  | grep -o '"version":"[^"]*"' | sed 's/"version":"//;s/"//')
 if [ -z "$LATEST" ]; then
-  error "无法获取最新版本，请检查网络连接（$INSTALL_BASE/latest）。"
+  info "CF 镜像不可用，回退到 GitHub API…"
+  LATEST=$(curl -fsSL --max-time 10 "https://api.github.com/repos/Zyling-ai/zyhive/releases/latest" \
+    | grep '"tag_name"' | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')
+fi
+if [ -z "$LATEST" ]; then
+  error "无法获取最新版本，请检查网络连接。"
 fi
 info "最新版本：$LATEST"
 
-# ── 构造下载 URL（走 CF 代理，国内可访问）──────────────────────────────────
+# ── 构造下载 URL（优先走 CF 镜像，国内可访问；失败自动回退 GitHub）──────────
 BINARY_URL="$INSTALL_BASE/dl/$LATEST/aipanel-${OS}-${ARCH}"
+BINARY_URL_FALLBACK="https://github.com/Zyling-ai/zyhive/releases/download/$LATEST/aipanel-${OS}-${ARCH}"
 
 # ── 创建目录 ───────────────────────────────────────────────────────────────
 if $RUN_AS_ROOT; then
@@ -106,9 +113,12 @@ fi
 # ── 下载二进制 ─────────────────────────────────────────────────────────────
 info "下载 $BINARY_NAME $LATEST ($OS/$ARCH)…"
 TMP_BIN=$(mktemp)
-if ! curl -fsSL --progress-bar "$BINARY_URL" -o "$TMP_BIN"; then
-  rm -f "$TMP_BIN"
-  error "下载失败，URL: $BINARY_URL"
+if ! curl -fsSL --max-time 120 --progress-bar "$BINARY_URL" -o "$TMP_BIN" 2>/dev/null; then
+  info "CF 镜像下载失败，回退到 GitHub…"
+  if ! curl -fsSL --max-time 120 --progress-bar "$BINARY_URL_FALLBACK" -o "$TMP_BIN"; then
+    rm -f "$TMP_BIN"
+    error "下载失败。\n  CF 镜像：$BINARY_URL\n  GitHub：$BINARY_URL_FALLBACK"
+  fi
 fi
 
 if $RUN_AS_ROOT; then
