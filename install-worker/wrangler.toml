@@ -1,0 +1,8 @@
+name = "zyhive-install"
+main = "worker.js"
+compatibility_date = "2024-01-01"
+
+# 绑定到 install.zyling.ai 域名（需要 zyling.ai 在 CF 托管的 zone）
+routes = [
+  { pattern = "install.zyling.ai/*", zone_name = "zyling.ai" }
+]
