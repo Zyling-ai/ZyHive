@@ -26,7 +26,7 @@ import (
 const configFilePath = "aipanel.json"
 
 // AppVersion is the current release version.
-const AppVersion = "0.9.7"
+const AppVersion = "0.9.9"
 
 // BotControl groups the functions needed by the channel handler to manage running bots.
 type BotControl struct {

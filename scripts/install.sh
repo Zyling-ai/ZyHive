@@ -3,29 +3,31 @@
 # 用法:
 #   curl -sSL https://install.zyling.ai/zyhive.sh | bash
 #   curl -sSL https://install.zyling.ai/zyhive.sh | bash -s -- --domain hive.example.com --port 8080
+#   curl -sSL https://install.zyling.ai/zyhive.sh | bash -s -- --no-root
 #
 # 镜像节点（国内可用）：install.zyling.ai（Cloudflare 全球节点代理）
 set -e
 
-# 下载基础地址：通过 CF Worker 代理（解决国内无法访问 GitHub 的问题）
 INSTALL_BASE="https://install.zyling.ai"
-
 SERVICE_NAME="zyhive"
 BINARY_NAME="zyhive"
 PORT=8080
 DOMAIN=""
+NO_ROOT=false   # --no-root 强制用户目录安装
 
 # ── 解析参数 ───────────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --domain)  DOMAIN="$2"; shift 2 ;;
-    --port)    PORT="$2";   shift 2 ;;
+    --domain)   DOMAIN="$2"; shift 2 ;;
+    --port)     PORT="$2";   shift 2 ;;
+    --no-root)  NO_ROOT=true; shift  ;;
     *) shift ;;
   esac
 done
 
 # ── 颜色输出 ───────────────────────────────────────────────────────────────
-RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
+BLUE='\033[0;34m'; BOLD='\033[1m'; NC='\033[0m'
 info()    { echo -e "${BLUE}ℹ${NC}  $*"; }
 success() { echo -e "${GREEN}✅${NC} $*"; }
 warning() { echo -e "${YELLOW}⚠${NC}  $*"; }
@@ -34,13 +36,12 @@ error()   { echo -e "${RED}❌${NC} $*"; exit 1; }
 # ── 检测架构 ───────────────────────────────────────────────────────────────
 RAW_ARCH=$(uname -m)
 case "$RAW_ARCH" in
-  x86_64)          ARCH="amd64" ;;
-  aarch64|arm64)   ARCH="arm64" ;;
-  armv7l|armv6l)   ARCH="arm"   ;;
+  x86_64)         ARCH="amd64" ;;
+  aarch64|arm64)  ARCH="arm64" ;;
+  armv7l|armv6l)  ARCH="arm"   ;;
   *) error "不支持的架构: $RAW_ARCH" ;;
 esac
 
-# ── 检测操作系统 ───────────────────────────────────────────────────────────
 RAW_OS=$(uname -s)
 case "$RAW_OS" in
   Linux)  OS="linux"  ;;
@@ -48,98 +49,116 @@ case "$RAW_OS" in
   *) error "不支持的操作系统: $RAW_OS" ;;
 esac
 
-# ── 检测 root / sudo 权限 ──────────────────────────────────────────────────
-HAVE_ROOT=false
-if [ "$(id -u)" = "0" ]; then
-  HAVE_ROOT=true
-elif sudo -n true 2>/dev/null; then
-  HAVE_ROOT=true
+# ── 自动获取 root 权限 ─────────────────────────────────────────────────────
+# 优先级：已是 root > sudo > 用户目录（--no-root 跳过前两步）
+SUDO=""
+USE_SYSTEM_PATH=false
+
+if $NO_ROOT; then
+  USE_SYSTEM_PATH=false
+elif [ "$(id -u)" = "0" ]; then
+  USE_SYSTEM_PATH=true
+elif command -v sudo &>/dev/null; then
+  echo ""
+  echo -e "${BOLD}ZyHive 需要管理员权限来安装系统服务。${NC}"
+  echo -e "  将安装到系统目录，无需 root 也可用 ${YELLOW}--no-root${NC} 参数跳过。"
+  echo ""
+  if sudo -v 2>/dev/null; then
+    SUDO="sudo"
+    USE_SYSTEM_PATH=true
+    # 保活 sudo 票据（后台每 60s 刷新一次，避免长下载后超时）
+    (while true; do sudo -v; sleep 60; done) &
+    SUDO_KEEPALIVE_PID=$!
+    trap "kill $SUDO_KEEPALIVE_PID 2>/dev/null; true" EXIT
+  else
+    warning "sudo 认证失败，降级到用户目录安装"
+    USE_SYSTEM_PATH=false
+  fi
+else
+  warning "未找到 sudo，降级到用户目录安装"
+  USE_SYSTEM_PATH=false
 fi
 
 # ── 确定安装路径 ───────────────────────────────────────────────────────────
-if $HAVE_ROOT; then
+if $USE_SYSTEM_PATH; then
   INSTALL_BIN="/usr/local/bin/$BINARY_NAME"
-  if [ "$OS" = "linux" ]; then
-    CONFIG_DIR="/etc/$SERVICE_NAME"
-  else
+  if [ "$OS" = "darwin" ]; then
     CONFIG_DIR="/usr/local/etc/$SERVICE_NAME"
+  else
+    CONFIG_DIR="/etc/$SERVICE_NAME"
   fi
   AGENTS_DIR="/var/lib/$SERVICE_NAME/agents"
-  RUN_AS_ROOT=true
 else
-  warning "无 root 权限，将安装到用户目录"
   INSTALL_BIN="$HOME/.local/bin/$BINARY_NAME"
   CONFIG_DIR="$HOME/.config/$SERVICE_NAME"
   AGENTS_DIR="$HOME/.local/share/$SERVICE_NAME/agents"
-  RUN_AS_ROOT=false
 fi
 
 CONFIG_FILE="$CONFIG_DIR/$SERVICE_NAME.json"
 
 echo ""
-echo -e "${BLUE}🚀 正在安装 ZyHive (引巢 · AI 团队操作系统)…${NC}"
+echo -e "${BLUE}${BOLD}🚀 正在安装 ZyHive (引巢 · AI 团队操作系统)…${NC}"
 echo ""
 info "操作系统：$RAW_OS / $RAW_ARCH → 下载 $OS-$ARCH"
 info "安装路径：$INSTALL_BIN"
 info "配置目录：$CONFIG_DIR"
+if $USE_SYSTEM_PATH; then
+  info "权限模式：系统安装（root）"
+else
+  info "权限模式：用户目录安装"
+fi
 [ -n "$DOMAIN" ] && info "域名：$DOMAIN（将自动配置 NGINX + HTTPS）"
 echo ""
 
-# ── 获取最新版本号（优先走 CF 镜像，失败自动回退 GitHub API）────────────────
+# ── 获取最新版本号 ─────────────────────────────────────────────────────────
 info "查询最新版本…"
 LATEST=$(curl -fsSL --max-time 8 "$INSTALL_BASE/latest" 2>/dev/null \
-  | grep -o '"version":"[^"]*"' | sed 's/"version":"//;s/"//')
+  | grep -o '"version":"[^"]*"' | sed 's/"version":"//;s/"//g')
 if [ -z "$LATEST" ]; then
   info "CF 镜像不可用，回退到 GitHub API…"
-  LATEST=$(curl -fsSL --max-time 10 "https://api.github.com/repos/Zyling-ai/zyhive/releases/latest" \
+  LATEST=$(curl -fsSL --max-time 10 \
+    "https://api.github.com/repos/Zyling-ai/zyhive/releases/latest" \
     | grep '"tag_name"' | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')
 fi
-if [ -z "$LATEST" ]; then
-  error "无法获取最新版本，请检查网络连接。"
-fi
+[ -z "$LATEST" ] && error "无法获取最新版本，请检查网络连接。"
 info "最新版本：$LATEST"
 
-# ── 构造下载 URL（优先走 CF 镜像，国内可访问；失败自动回退 GitHub）──────────
+# ── 下载二进制 ─────────────────────────────────────────────────────────────
 BINARY_URL="$INSTALL_BASE/dl/$LATEST/aipanel-${OS}-${ARCH}"
 BINARY_URL_FALLBACK="https://github.com/Zyling-ai/zyhive/releases/download/$LATEST/aipanel-${OS}-${ARCH}"
 
-# ── 创建目录 ───────────────────────────────────────────────────────────────
-if $RUN_AS_ROOT; then
-  sudo mkdir -p "$(dirname "$INSTALL_BIN")" "$CONFIG_DIR" "$AGENTS_DIR"
-else
-  mkdir -p "$(dirname "$INSTALL_BIN")" "$CONFIG_DIR" "$AGENTS_DIR"
-fi
-
-# ── 下载二进制 ─────────────────────────────────────────────────────────────
 info "下载 $BINARY_NAME $LATEST ($OS/$ARCH)…"
 TMP_BIN=$(mktemp)
-if ! curl -fsSL --max-time 120 --progress-bar "$BINARY_URL" -o "$TMP_BIN" 2>/dev/null; then
+if ! curl -fsSL --max-time 120 "$BINARY_URL" -o "$TMP_BIN" 2>/dev/null; then
   info "CF 镜像下载失败，回退到 GitHub…"
-  if ! curl -fsSL --max-time 120 --progress-bar "$BINARY_URL_FALLBACK" -o "$TMP_BIN"; then
-    rm -f "$TMP_BIN"
-    error "下载失败。\n  CF 镜像：$BINARY_URL\n  GitHub：$BINARY_URL_FALLBACK"
-  fi
+  curl -fsSL --max-time 120 "$BINARY_URL_FALLBACK" -o "$TMP_BIN" \
+    || { rm -f "$TMP_BIN"; error "下载失败。\n  CF: $BINARY_URL\n  GitHub: $BINARY_URL_FALLBACK"; }
 fi
 
-if $RUN_AS_ROOT; then
-  sudo install -m 755 "$TMP_BIN" "$INSTALL_BIN"
-else
-  install -m 755 "$TMP_BIN" "$INSTALL_BIN"
-fi
+# 创建目录并安装二进制
+$SUDO mkdir -p "$(dirname "$INSTALL_BIN")" "$CONFIG_DIR" "$AGENTS_DIR"
+$SUDO install -m 755 "$TMP_BIN" "$INSTALL_BIN"
 rm -f "$TMP_BIN"
 success "二进制已安装至 $INSTALL_BIN"
+
+# ── 确保 PATH 包含安装目录 ────────────────────────────────────────────────
+if ! echo "$PATH" | grep -q "$(dirname "$INSTALL_BIN")"; then
+  for RC in "$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.profile"; do
+    [ -f "$RC" ] || continue
+    if ! grep -q "$(dirname "$INSTALL_BIN")" "$RC" 2>/dev/null; then
+      echo "export PATH=\"$(dirname "$INSTALL_BIN"):\$PATH\"" >> "$RC"
+      info "已将 $(dirname "$INSTALL_BIN") 加入 PATH（$RC）"
+    fi
+  done
+fi
 
 # ── 生成默认配置（若不存在）────────────────────────────────────────────────
 if [ ! -f "$CONFIG_FILE" ]; then
   ADMIN_TOKEN=$(openssl rand -hex 16 2>/dev/null \
     || tr -dc 'a-f0-9' < /dev/urandom | head -c 32)
 
-  # 有域名时 bind 设为 localhost（前面挂 NGINX），否则 lan
-  if [ -n "$DOMAIN" ]; then
-    BIND_MODE="localhost"
-  else
-    BIND_MODE="lan"
-  fi
+  BIND_MODE="lan"
+  [ -n "$DOMAIN" ] && BIND_MODE="localhost"
 
   CONFIG_CONTENT="{
   \"gateway\": { \"port\": $PORT, \"bind\": \"$BIND_MODE\" },
@@ -148,25 +167,25 @@ if [ ! -f "$CONFIG_FILE" ]; then
   \"auth\":    { \"mode\": \"token\", \"token\": \"$ADMIN_TOKEN\" }
 }"
 
-  if $RUN_AS_ROOT; then
-    echo "$CONFIG_CONTENT" | sudo tee "$CONFIG_FILE" > /dev/null
-  else
-    echo "$CONFIG_CONTENT" > "$CONFIG_FILE"
-  fi
-
+  echo "$CONFIG_CONTENT" | $SUDO tee "$CONFIG_FILE" > /dev/null
   echo ""
-  echo -e "${YELLOW}🔑 管理员 Token：${NC}${GREEN}$ADMIN_TOKEN${NC}"
-  echo -e "   （已保存至 $CONFIG_FILE，请妥善保存）"
+  echo -e "  ${YELLOW}🔑 管理员 Token：${NC}${GREEN}${BOLD}$ADMIN_TOKEN${NC}"
+  echo -e "     已保存至 $CONFIG_FILE，请妥善保存"
   SHOW_TOKEN="$ADMIN_TOKEN"
 fi
 
-# ── Linux: 安装 systemd 服务 ───────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════
+# 服务安装
+# ═══════════════════════════════════════════════════════════════════════════
+
+# ── Linux systemd ──────────────────────────────────────────────────────────
 install_systemd() {
-  local SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
-  sudo tee "$SERVICE_FILE" > /dev/null << UNIT
+  local UNIT_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
+
+  $SUDO tee "$UNIT_FILE" > /dev/null << UNIT
 [Unit]
 Description=ZyHive — AI 团队操作系统
-Documentation=https://github.com/$REPO
+Documentation=https://github.com/Zyling-ai/zyhive
 After=network-online.target
 Wants=network-online.target
 
@@ -184,23 +203,24 @@ SyslogIdentifier=$SERVICE_NAME
 WantedBy=multi-user.target
 UNIT
 
-  sudo systemctl daemon-reload
-  sudo systemctl enable "$SERVICE_NAME"
-  sudo systemctl start  "$SERVICE_NAME"
-  success "systemd 服务已启动：$SERVICE_NAME"
+  $SUDO systemctl daemon-reload
+  $SUDO systemctl enable "$SERVICE_NAME"
+  $SUDO systemctl start  "$SERVICE_NAME"
+  success "systemd 服务已启动"
   info   "查看状态：sudo systemctl status $SERVICE_NAME"
+  info   "查看日志：sudo journalctl -u $SERVICE_NAME -f"
 }
 
-# ── macOS: 安装 launchd 服务 ───────────────────────────────────────────────
+# ── macOS launchd ──────────────────────────────────────────────────────────
 install_launchd() {
   local LABEL="com.zyhive.$SERVICE_NAME"
-  local LOG_DIR="$HOME/Library/Logs/$SERVICE_NAME"
-  mkdir -p "$LOG_DIR"
 
-  if $RUN_AS_ROOT; then
-    local PLIST_DIR="/Library/LaunchDaemons"
-    local PLIST_FILE="$PLIST_DIR/${LABEL}.plist"
-    sudo tee "$PLIST_FILE" > /dev/null << PLIST
+  if $USE_SYSTEM_PATH; then
+    # root 安装 → LaunchDaemons（全局，随系统启动）
+    local PLIST_FILE="/Library/LaunchDaemons/${LABEL}.plist"
+    local LOG_DIR="/var/log/$SERVICE_NAME"
+    $SUDO mkdir -p "$LOG_DIR"
+    $SUDO tee "$PLIST_FILE" > /dev/null << PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
     "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -221,12 +241,17 @@ install_launchd() {
 </dict>
 </plist>
 PLIST
-    sudo launchctl load -w "$PLIST_FILE"
-    success "LaunchDaemon 已加载：$LABEL"
+    $SUDO launchctl load -w "$PLIST_FILE"
+    success "LaunchDaemon 已加载（随系统启动）：$LABEL"
+    info   "日志目录：$LOG_DIR"
+    info   "停止服务：sudo launchctl stop $LABEL"
+    info   "查看日志：sudo tail -f $LOG_DIR/stdout.log"
   else
+    # 用户级 → LaunchAgents（登录后启动）
     local PLIST_DIR="$HOME/Library/LaunchAgents"
     local PLIST_FILE="$PLIST_DIR/${LABEL}.plist"
-    mkdir -p "$PLIST_DIR"
+    local LOG_DIR="$HOME/Library/Logs/$SERVICE_NAME"
+    mkdir -p "$PLIST_DIR" "$LOG_DIR"
     cat > "$PLIST_FILE" << PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
@@ -249,145 +274,114 @@ PLIST
 </plist>
 PLIST
     launchctl load -w "$PLIST_FILE"
-    success "LaunchAgent 已加载（用户级）：$LABEL"
+    success "LaunchAgent 已加载（用户级，登录后自启）：$LABEL"
+    info   "日志目录：$LOG_DIR"
+    info   "停止服务：launchctl stop $LABEL"
+    info   "查看日志：tail -f $LOG_DIR/stdout.log"
   fi
-  info "日志目录：$LOG_DIR"
 }
 
-# ── 配置 NGINX + HTTPS（需要 --domain 参数且有 root）──────────────────────
+# ── NGINX + HTTPS（Linux，--domain 参数） ─────────────────────────────────
 install_nginx_https() {
   local domain="$1"
 
-  # ── 安装 nginx + certbot ───────────────────────────────────────────────
   if command -v apt-get &>/dev/null; then
     info "安装 nginx + certbot（apt）…"
-    sudo apt-get update -q
-    sudo apt-get install -y -q nginx certbot python3-certbot-nginx
-    CERTBOT_CMD="certbot --nginx"
+    $SUDO apt-get update -q
+    $SUDO apt-get install -y -q nginx certbot python3-certbot-nginx
+    CERTBOT_PLUGIN="--nginx"
   elif command -v yum &>/dev/null; then
     info "安装 nginx + certbot（yum）…"
-    # 确保 epel-release 已启用
-    sudo yum install -y epel-release &>/dev/null || true
-    sudo yum install -y nginx certbot &>/dev/null
-    # CentOS 7 yum 仓库里 certbot-nginx 插件不可用，用 pip3 安装
-    if ! certbot plugins 2>/dev/null | grep -q nginx; then
-      if command -v pip3 &>/dev/null; then
-        sudo pip3 install certbot-nginx -q 2>/dev/null || true
-      elif command -v pip &>/dev/null; then
-        sudo pip install certbot-nginx -q 2>/dev/null || true
-      fi
-    fi
-    CERTBOT_CMD="certbot --nginx"
+    $SUDO yum install -y epel-release &>/dev/null || true
+    $SUDO yum install -y nginx certbot &>/dev/null
+    # CentOS 7 用 webroot 模式（certbot-nginx 插件不可靠）
+    CERTBOT_PLUGIN="--webroot -w /var/www/certbot"
   else
-    warning "无法自动安装 nginx，请手动安装后配置反向代理至 http://localhost:$PORT"
+    warning "无法自动安装 nginx，请手动配置反向代理至 http://localhost:$PORT"
     return
   fi
 
-  # ── 确定 NGINX 配置目录 ────────────────────────────────────────────────
+  # 写 nginx 配置
   if [ -d /etc/nginx/sites-available ]; then
-    # Debian/Ubuntu 风格
     NGINX_CONF="/etc/nginx/sites-available/$SERVICE_NAME"
-    sudo tee "$NGINX_CONF" > /dev/null << NGINX
-server {
-    listen 80;
-    listen [::]:80;
-    server_name $domain;
-    location /.well-known/acme-challenge/ { root /var/www/certbot; }
-    location / {
-        proxy_pass         http://127.0.0.1:$PORT;
-        proxy_http_version 1.1;
-        proxy_set_header   Upgrade \$http_upgrade;
-        proxy_set_header   Connection "upgrade";
-        proxy_set_header   Host \$host;
-        proxy_set_header   X-Real-IP \$remote_addr;
-        proxy_set_header   X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header   X-Forwarded-Proto \$scheme;
-        proxy_read_timeout 3600s;
-        proxy_send_timeout 3600s;
-        proxy_buffering    off;
-        proxy_cache        off;
-    }
-}
-NGINX
-    sudo ln -sf "$NGINX_CONF" "/etc/nginx/sites-enabled/$SERVICE_NAME"
+    NGINX_LINK="/etc/nginx/sites-enabled/$SERVICE_NAME"
   else
-    # CentOS/RHEL 风格：直接写 conf.d
     NGINX_CONF="/etc/nginx/conf.d/$SERVICE_NAME.conf"
-    sudo tee "$NGINX_CONF" > /dev/null << NGINX
-server {
-    listen 80;
-    listen [::]:80;
-    server_name $domain;
-    location /.well-known/acme-challenge/ { root /var/www/certbot; }
-    location / {
-        proxy_pass         http://127.0.0.1:$PORT;
-        proxy_http_version 1.1;
-        proxy_set_header   Upgrade \$http_upgrade;
-        proxy_set_header   Connection "upgrade";
-        proxy_set_header   Host \$host;
-        proxy_set_header   X-Real-IP \$remote_addr;
-        proxy_set_header   X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header   X-Forwarded-Proto \$scheme;
-        proxy_read_timeout 3600s;
-        proxy_send_timeout 3600s;
-        proxy_buffering    off;
-        proxy_cache        off;
-    }
-}
-NGINX
+    NGINX_LINK=""
   fi
 
-  sudo mkdir -p /var/www/certbot
-  sudo systemctl enable nginx
-  sudo systemctl restart nginx
-  success "NGINX 已启动，代理 $domain → localhost:$PORT"
+  $SUDO tee "$NGINX_CONF" > /dev/null << NGINX
+server {
+    listen 80;
+    listen [::]:80;
+    server_name $domain;
+    location /.well-known/acme-challenge/ { root /var/www/certbot; }
+    location / {
+        proxy_pass         http://127.0.0.1:$PORT;
+        proxy_http_version 1.1;
+        proxy_set_header   Upgrade \$http_upgrade;
+        proxy_set_header   Connection "upgrade";
+        proxy_set_header   Host \$host;
+        proxy_set_header   X-Real-IP \$remote_addr;
+        proxy_set_header   X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+        proxy_buffering    off;
+        proxy_cache        off;
+    }
+}
+NGINX
 
-  # ── 申请 Let's Encrypt 证书 ────────────────────────────────────────────
-  info "申请 HTTPS 证书（Let's Encrypt）…"
-  if sudo $CERTBOT_CMD -d "$domain" --non-interactive --agree-tos \
-     --email "admin@$domain" --redirect 2>&1; then
+  [ -n "$NGINX_LINK" ] && $SUDO ln -sf "$NGINX_CONF" "$NGINX_LINK"
+  $SUDO mkdir -p /var/www/certbot
+  $SUDO systemctl enable nginx
+  $SUDO systemctl restart nginx
+  success "NGINX 已启动 → http://$domain"
+
+  info "申请 Let's Encrypt 证书…"
+  if $SUDO certbot $CERTBOT_PLUGIN -d "$domain" \
+     --non-interactive --agree-tos --email "admin@$domain" --redirect 2>&1; then
     success "HTTPS 证书申请成功！"
-    (crontab -l 2>/dev/null; echo "0 3 * * * certbot renew --quiet && systemctl reload nginx") | sudo crontab -
-    success "已设置证书自动续期（每天 3:00 检查）"
+    (crontab -l 2>/dev/null; echo "0 3 * * * certbot renew --quiet && systemctl reload nginx") \
+      | $SUDO crontab -
+    success "已设置证书自动续期（每天 3:00）"
   else
-    warning "HTTPS 证书申请失败，请手动运行：sudo certbot --nginx -d $domain"
-    warning "可能原因：域名未解析到此 IP，或 80/443 端口被防火墙拦截"
+    warning "证书申请失败，请确认域名已解析到此 IP，80 端口可访问"
+    warning "手动申请：sudo certbot $CERTBOT_PLUGIN -d $domain"
   fi
 }
 
 # ── 服务安装入口 ───────────────────────────────────────────────────────────
-if [ "$OS" = "linux" ] && command -v systemctl &>/dev/null; then
-  if $RUN_AS_ROOT; then
+echo ""
+if [ "$OS" = "linux" ]; then
+  if command -v systemctl &>/dev/null; then
     info "配置 systemd 服务…"
     install_systemd
-    # 若指定域名，额外安装 NGINX + HTTPS
-    if [ -n "$DOMAIN" ]; then
-      install_nginx_https "$DOMAIN"
-    fi
+    [ -n "$DOMAIN" ] && $USE_SYSTEM_PATH && install_nginx_https "$DOMAIN"
   else
-    warning "无 root 权限，跳过 systemd 注册。手动启动：$INSTALL_BIN --config $CONFIG_FILE"
-    SHELL_RC="$HOME/.bashrc"
-    echo "$SHELL" | grep -q zsh && SHELL_RC="$HOME/.zshrc"
-    if ! grep -q "$HOME/.local/bin" "$SHELL_RC" 2>/dev/null; then
-      echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$SHELL_RC"
-      info "已将 ~/.local/bin 加入 PATH（$SHELL_RC）"
-    fi
+    warning "systemd 不可用，请手动启动：$INSTALL_BIN --config $CONFIG_FILE"
   fi
-elif [ "$OS" = "darwin" ] && command -v launchctl &>/dev/null; then
+elif [ "$OS" = "darwin" ]; then
   info "配置 launchd 服务…"
   install_launchd
-else
-  warning "无法自动配置服务，手动启动：$INSTALL_BIN --config $CONFIG_FILE"
 fi
 
 # ── 获取访问地址 ───────────────────────────────────────────────────────────
-LOCAL_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || true)
-PUBLIC_IP=$(curl -fsSL --max-time 4 https://api.ipify.org 2>/dev/null || true)
+if [ "$OS" = "linux" ]; then
+  LOCAL_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || true)
+else
+  LOCAL_IP=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || true)
+fi
+PUBLIC_IP=$(curl -fsSL --max-time 5 https://api.ipify.org 2>/dev/null || true)
 
-# ── 安装完成 ───────────────────────────────────────────────────────────────
+# 停止 sudo 保活进程
+[ -n "$SUDO_KEEPALIVE_PID" ] && kill "$SUDO_KEEPALIVE_PID" 2>/dev/null || true
+
+# ── 完成 ───────────────────────────────────────────────────────────────────
 echo ""
 echo -e "${GREEN}╔══════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║  ✅  ZyHive 安装成功！版本: $LATEST          ${NC}"
+printf  "${GREEN}║  ✅  ZyHive 安装成功！版本: %-17s║${NC}\n" "$LATEST"
 echo -e "${GREEN}╚══════════════════════════════════════════════╝${NC}"
 echo ""
 if [ -n "$DOMAIN" ]; then
@@ -397,22 +391,25 @@ else
   [ -n "$LOCAL_IP"  ] && echo -e "  🏠 内网访问：  ${BLUE}http://$LOCAL_IP:$PORT${NC}"
   [ -n "$PUBLIC_IP" ] && echo -e "  🌐 公网访问：  ${BLUE}http://$PUBLIC_IP:$PORT${NC}"
 fi
-echo ""
-[ -n "$SHOW_TOKEN" ] && echo -e "  🔑 管理员 Token：${GREEN}$SHOW_TOKEN${NC}"
+[ -n "$SHOW_TOKEN" ] && echo -e "\n  🔑 管理员 Token：${GREEN}${BOLD}$SHOW_TOKEN${NC}"
 echo ""
 echo -e "  📄 配置文件：  $CONFIG_FILE"
 echo -e "  🗂  成员目录：  $AGENTS_DIR"
 echo -e "  📦 二进制：    $INSTALL_BIN"
 echo ""
 echo -e "  ${YELLOW}常用命令：${NC}"
-if [ "$OS" = "linux" ] && $RUN_AS_ROOT; then
-  echo "    查看状态：  sudo systemctl status $SERVICE_NAME"
+if [ "$OS" = "linux" ]; then
+  echo "    停止服务：  sudo systemctl stop $SERVICE_NAME"
   echo "    查看日志：  sudo journalctl -u $SERVICE_NAME -f"
   echo "    重启服务：  sudo systemctl restart $SERVICE_NAME"
-elif [ "$OS" = "darwin" ]; then
+  echo "    CLI  管理：  sudo $BINARY_NAME"
+elif [ "$OS" = "darwin" ] && $USE_SYSTEM_PATH; then
+  echo "    停止服务：  sudo launchctl stop com.zyhive.$SERVICE_NAME"
+  echo "    查看日志：  sudo tail -f /var/log/$SERVICE_NAME/stdout.log"
+  echo "    CLI  管理：  sudo $BINARY_NAME"
+else
   echo "    停止服务：  launchctl stop com.zyhive.$SERVICE_NAME"
   echo "    查看日志：  tail -f ~/Library/Logs/$SERVICE_NAME/stdout.log"
-else
-  echo "    手动启动：  $INSTALL_BIN --config $CONFIG_FILE"
+  echo "    CLI  管理：  $BINARY_NAME"
 fi
 echo ""
