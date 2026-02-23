@@ -1,8 +1,8 @@
 # ZyHive (引巢) — Windows 一键安装脚本 (PowerShell)
 # ─────────────────────────────────────────────────────────────────────────
 # 通用安装命令（自动识别平台）：
-#   Windows:      irm https://install.zyling.ai | iex
-#   Linux/macOS:  curl -sSL https://install.zyling.ai | bash
+#   Windows:      irm https://install.zyling.ai/install | iex
+#   Linux/macOS:  curl -sSL https://install.zyling.ai/install | bash
 #
 # 直接指定 PS1：
 #   irm https://install.zyling.ai/zyhive.ps1 | iex
