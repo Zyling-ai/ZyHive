@@ -1,10 +1,15 @@
 # ZyHive (引巢) — Windows 一键安装脚本 (PowerShell)
-# 用法:
+# ─────────────────────────────────────────────────────────────────────────
+# 通用安装命令（自动识别平台）：
+#   Windows:      irm https://install.zyling.ai | iex
+#   Linux/macOS:  curl -sSL https://install.zyling.ai | bash
+#
+# 直接指定 PS1：
 #   irm https://install.zyling.ai/zyhive.ps1 | iex
-#   irm https://install.zyling.ai/zyhive.ps1 | iex; Install-ZyHive -Port 8080
 #
 # 需要 PowerShell 5.1+ 或 PowerShell 7+
 # 安装系统服务需要管理员权限（脚本会自动提权）
+# ─────────────────────────────────────────────────────────────────────────
 
 param(
     [string]$Port   = "8080",
