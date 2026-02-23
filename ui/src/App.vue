@@ -13,6 +13,7 @@
           <span class="hamburger-line" :class="{ open: mobileDrawerOpen }"></span>
         </button>
         <span class="header-title">引巢 · ZyHive</span>
+        <span v-if="appVersion" class="header-version">v{{ appVersion }}</span>
       </div>
       <div class="header-right">
         <a href="https://zyling.ai" target="_blank" class="header-link header-website-btn header-hide-xs" title="官网">
@@ -168,11 +169,13 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import api from './api'
 
 const route = useRoute()
 const router = useRouter()
 const collapsed = ref(false)
 const starCount = ref<number | null>(null)
+const appVersion = ref('')
 const isMobile = ref(false)
 const mobileDrawerOpen = ref(false)
 
@@ -227,6 +230,12 @@ function logout() {
 onMounted(async () => {
   checkMobile()
   window.addEventListener('resize', checkMobile)
+
+  // Fetch version
+  try {
+    const vRes = await api.get('/version')
+    appVersion.value = vRes.data.version
+  } catch { /* ignore */ }
 
   const cacheKey = 'zyhive_gh_stars'
   const cacheExp = 'zyhive_gh_stars_exp'
@@ -286,6 +295,7 @@ body {
 /* ─── Header ─────────────────────────────────────────────────────────────── */
 .header-left { display: flex; align-items: center; gap: 8px; }
 .header-title { color: rgba(255,255,255,0.85); font-size: 14px; font-weight: 600; white-space: nowrap; }
+.header-version { font-size: 11px; color: rgba(255,255,255,0.35); font-family: monospace; white-space: nowrap; }
 .header-right { display: flex; align-items: center; gap: 10px; }
 .header-link {
   color: rgba(255,255,255,0.55);
