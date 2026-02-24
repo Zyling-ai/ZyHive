@@ -2,6 +2,18 @@
   <div class="dashboard-page">
     <h2 style="margin: 0 0 20px">仪表盘</h2>
 
+    <!-- 未配置模型提示 -->
+    <div v-if="!modelsLoading && modelCount === 0" class="no-model-banner">
+      <div class="no-model-banner-left">
+        <span class="no-model-banner-icon">⚠️</span>
+        <div>
+          <div class="no-model-banner-title">还没有配置 AI 模型</div>
+          <div class="no-model-banner-desc">添加模型 API Key 后，AI 成员才能开始工作。支持 Claude、DeepSeek、GPT-4 等。</div>
+        </div>
+      </div>
+      <router-link to="/config/models" class="no-model-banner-btn">立即配置 →</router-link>
+    </div>
+
     <!-- Stats cards -->
     <el-row :gutter="12" style="margin-bottom: 20px">
       <el-col :xs="12" :sm="12" :md="6" :lg="6">
@@ -113,17 +125,21 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useAgentsStore } from '../stores/agents'
-import { statsApi, type StatsResult } from '../api'
+import { statsApi, models as modelsApi, type StatsResult } from '../api'
 
 const agentStore = useAgentsStore()
 const stats = ref<StatsResult | null>(null)
+const modelCount = ref<number>(-1)   // -1 = 未加载
+const modelsLoading = ref(true)
 
 onMounted(async () => {
   agentStore.fetchAll()
-  try {
-    const res = await statsApi.get()
-    stats.value = res.data
-  } catch {}
+  // 并行拉取
+  await Promise.allSettled([
+    statsApi.get().then(r => { stats.value = r.data }).catch(() => {}),
+    modelsApi.list().then(r => { modelCount.value = r.data?.length ?? 0 }).catch(() => { modelCount.value = 0 }),
+  ])
+  modelsLoading.value = false
 })
 
 function statusType(s: string) {
@@ -141,6 +157,35 @@ function formatTokens(n: number): string {
 </script>
 
 <style scoped>
+.no-model-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 20px;
+  margin-bottom: 20px;
+  background: #fff8e6;
+  border: 1px solid #f5a623;
+  border-radius: 10px;
+}
+.no-model-banner-left { display: flex; align-items: center; gap: 12px; }
+.no-model-banner-icon { font-size: 24px; flex-shrink: 0; }
+.no-model-banner-title { font-size: 14px; font-weight: 700; color: #b45309; }
+.no-model-banner-desc { font-size: 13px; color: #92400e; margin-top: 2px; line-height: 1.5; }
+.no-model-banner-btn {
+  flex-shrink: 0;
+  padding: 8px 18px;
+  background: #f59e0b;
+  color: #fff;
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background .2s;
+  white-space: nowrap;
+}
+.no-model-banner-btn:hover { background: #d97706; }
+
 .stat-card--members { border-left: 3px solid #409eff !important; }
 .stat-card--sessions { border-left: 3px solid #67c23a !important; }
 .stat-card--messages { border-left: 3px solid #e6a23c !important; }

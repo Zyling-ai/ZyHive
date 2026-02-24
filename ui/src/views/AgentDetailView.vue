@@ -121,6 +121,7 @@
                 :welcome-message="`你好！我是 **${agent?.name || 'AI'}**，有什么可以帮你的？`"
                 height="calc(100vh - 145px)"
                 :show-thinking="true"
+                :no-model="modelsLoaded && modelList.length === 0"
                 @session-change="onSessionChange"
               />
             </div>
@@ -1130,6 +1131,7 @@ const soulContent = ref('')
 
 // Model selector
 const modelList = ref<ModelEntry[]>([])
+const modelsLoaded = ref(false)
 const agentModelId = ref('')
 const agentModelSaving = ref(false)
 
@@ -1707,7 +1709,11 @@ async function loadModels() {
       const matched = modelList.value.find(m => m.provider + '/' + m.model === agent.value?.model || m.id === agent.value?.model)
       agentModelId.value = matched?.id || ''
     }
-  } catch {}
+  } catch {
+    modelList.value = []
+  } finally {
+    modelsLoaded.value = true
+  }
 }
 
 async function saveAgentModel() {
