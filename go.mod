@@ -1,4 +1,4 @@
-module github.com/sunhuihui6688-star/ai-panel
+module github.com/Zyling-ai/zyhive
 
 go 1.22
 

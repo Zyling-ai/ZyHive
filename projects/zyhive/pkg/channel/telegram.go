@@ -24,7 +24,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sunhuihui6688-star/ai-panel/pkg/convlog"
+	"github.com/Zyling-ai/zyhive/pkg/convlog"
 )
 
 // ── Event types ───────────────────────────────────────────────────────────

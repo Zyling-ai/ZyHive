@@ -18,12 +18,12 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/sunhuihui6688-star/ai-panel/internal/api"
-	"github.com/sunhuihui6688-star/ai-panel/pkg/agent"
-	"github.com/sunhuihui6688-star/ai-panel/pkg/channel"
-	"github.com/sunhuihui6688-star/ai-panel/pkg/config"
-	"github.com/sunhuihui6688-star/ai-panel/pkg/cron"
-	"github.com/sunhuihui6688-star/ai-panel/pkg/project"
+	"github.com/Zyling-ai/zyhive/internal/api"
+	"github.com/Zyling-ai/zyhive/pkg/agent"
+	"github.com/Zyling-ai/zyhive/pkg/channel"
+	"github.com/Zyling-ai/zyhive/pkg/config"
+	"github.com/Zyling-ai/zyhive/pkg/cron"
+	"github.com/Zyling-ai/zyhive/pkg/project"
 )
 
 //go:embed all:ui_dist

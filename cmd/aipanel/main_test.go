@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sunhuihui6688-star/ai-panel/pkg/agent"
-	"github.com/sunhuihui6688-star/ai-panel/pkg/config"
-	"github.com/sunhuihui6688-star/ai-panel/pkg/runner"
-	"github.com/sunhuihui6688-star/ai-panel/pkg/session"
+	"github.com/Zyling-ai/zyhive/pkg/agent"
+	"github.com/Zyling-ai/zyhive/pkg/config"
+	"github.com/Zyling-ai/zyhive/pkg/runner"
+	"github.com/Zyling-ai/zyhive/pkg/session"
 )
 
 // TestConfigLoad verifies that config loading and defaults work correctly.

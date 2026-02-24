@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sunhuihui6688-star/ai-panel/pkg/chatlog"
+	"github.com/Zyling-ai/zyhive/pkg/chatlog"
 )
 
 // CompactionThreshold is the token count that triggers compaction.

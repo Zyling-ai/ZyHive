@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/sunhuihui6688-star/ai-panel/pkg/project"
+	"github.com/Zyling-ai/zyhive/pkg/project"
 )
 
 // ─── Project CRUD ────────────────────────────────────────────────────────────

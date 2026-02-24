@@ -15,9 +15,9 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/sunhuihui6688-star/ai-panel/pkg/llm"
-	"github.com/sunhuihui6688-star/ai-panel/pkg/session"
-	"github.com/sunhuihui6688-star/ai-panel/pkg/tools"
+	"github.com/Zyling-ai/zyhive/pkg/llm"
+	"github.com/Zyling-ai/zyhive/pkg/session"
+	"github.com/Zyling-ai/zyhive/pkg/tools"
 )
 
 // Config holds all dependencies for a Runner instance.

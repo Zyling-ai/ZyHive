@@ -13,15 +13,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sunhuihui6688-star/ai-panel/pkg/channel"
-	"github.com/sunhuihui6688-star/ai-panel/pkg/config"
-	"github.com/sunhuihui6688-star/ai-panel/pkg/llm"
-	"github.com/sunhuihui6688-star/ai-panel/pkg/memory"
-	"github.com/sunhuihui6688-star/ai-panel/pkg/project"
-	"github.com/sunhuihui6688-star/ai-panel/pkg/runner"
-	"github.com/sunhuihui6688-star/ai-panel/pkg/session"
-	"github.com/sunhuihui6688-star/ai-panel/pkg/subagent"
-	"github.com/sunhuihui6688-star/ai-panel/pkg/tools"
+	"github.com/Zyling-ai/zyhive/pkg/channel"
+	"github.com/Zyling-ai/zyhive/pkg/config"
+	"github.com/Zyling-ai/zyhive/pkg/llm"
+	"github.com/Zyling-ai/zyhive/pkg/memory"
+	"github.com/Zyling-ai/zyhive/pkg/project"
+	"github.com/Zyling-ai/zyhive/pkg/runner"
+	"github.com/Zyling-ai/zyhive/pkg/session"
+	"github.com/Zyling-ai/zyhive/pkg/subagent"
+	"github.com/Zyling-ai/zyhive/pkg/tools"
 )
 
 // Pool manages multiple concurrent agent runners (one per agent).
