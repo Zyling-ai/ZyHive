@@ -4,6 +4,40 @@
 
 ---
 
+## [v0.9.12] — 2026-02-23 · 三级记忆系统
+
+### 新增
+
+#### 对话历史实时索引（`pkg/chatlog`）
+- 新包 `pkg/chatlog`：并发安全的 AI 可见对话历史管理器
+- 每条 user/assistant 消息实时写入 `workspace/conversations/{sessionId}__{channelId}.jsonl`
+- 自动维护 `workspace/conversations/index.json`（原子写入，mutex 保证并发安全）
+- 自动生成 `workspace/conversations/INDEX.md`（最近20条，注入 system prompt）
+- 支持按 session_id / channel_id 双维度筛选读取
+- Compaction 完成后自动调用 `UpdateSummary()`，给对应会话写入 AI 生成摘要
+- 接入点：Web chat（`internal/api/chat.go`）、Telegram（`pkg/channel/telegram.go` / `telegram_api.go`）
+
+#### 技能索引（`pkg/skill/index.go`）
+- `RebuildIndex(workspaceDir)` 扫描已安装技能，生成 `workspace/skills/INDEX.md`
+- 技能安装/卸载后自动重建（`self_install_skill` / `self_uninstall_skill` 工具触发）
+- INDEX.md 格式：名称 + 分类 + 描述 + 状态（启用/禁用）
+
+### 变更
+
+#### System Prompt 瘦身
+- **移除**：全量注入所有已启用技能 `SKILL.md` 内容（context 臃肿）
+- **改为**：注入轻量 `skills/INDEX.md`（只有名字+描述）
+- **新增**：注入 `conversations/INDEX.md`（历史对话摘要索引）
+- **新增**：提示 AI 可用 `read` 工具访问完整记忆和历史对话
+
+#### 三级确认机制
+AI 拿不准时可三步走：
+1. **Level 1**：当前 session 上下文（自动在 prompt 里）
+2. **Level 2**：`read memory/INDEX.md` → 具体记忆文件（记忆层）
+3. **Level 3**：`read conversations/INDEX.md` → 具体对话 JSONL（历史对话层）
+
+---
+
 ## [v0.9.11] — 2026-02-23 · 通用安装端点（全平台一条命令）
 
 ### 新增
