@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sunhuihui6688-star/ai-panel/pkg/chatlog"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/convlog"
 )
 
@@ -537,7 +538,7 @@ func (b *TelegramBot) handleUpdate(ctx context.Context, update TelegramUpdate) {
 
 	// Log inbound user message to permanent conversation log (admin-only, agent-blind)
 	// Always log, even for media-only messages (use placeholder if text empty)
-	if cl := b.getConvLog(msg.Chat.ID); cl != nil {
+	{
 		logContent := text
 		if logContent == "" {
 			// media-only message
@@ -555,14 +556,33 @@ func (b *TelegramBot) handleUpdate(ctx context.Context, update TelegramUpdate) {
 				logContent = "[媒体消息]"
 			}
 		}
-		_ = cl.Append(convlog.Entry{
-			Timestamp:   time.Now().UTC().Format(time.RFC3339),
-			Role:        "user",
-			Content:     logContent,
-			ChannelID:   fmt.Sprintf("telegram-%d", msg.Chat.ID),
-			ChannelType: "telegram",
-			Sender:      fmt.Sprintf("%s (%d)", msg.From.FirstName, msg.From.ID),
-		})
+		tsUser := time.Now().UTC().Format(time.RFC3339)
+		tgChannelID := fmt.Sprintf("telegram-%d", msg.Chat.ID)
+		tgSessionID := fmt.Sprintf("telegram-%d", msg.Chat.ID)
+		senderStr := fmt.Sprintf("%s (%d)", msg.From.FirstName, msg.From.ID)
+		if cl := b.getConvLog(msg.Chat.ID); cl != nil {
+			_ = cl.Append(convlog.Entry{
+				Timestamp:   tsUser,
+				Role:        "user",
+				Content:     logContent,
+				ChannelID:   tgChannelID,
+				ChannelType: "telegram",
+				Sender:      senderStr,
+			})
+		}
+		// Write to AI-visible chatlog
+		if b.agentDir != "" {
+			clMgr := chatlog.NewManager(b.agentDir + "/workspace")
+			_ = clMgr.Append(chatlog.Entry{
+				Ts:          tsUser,
+				SessionID:   tgSessionID,
+				ChannelID:   tgChannelID,
+				ChannelType: "telegram",
+				Role:        "user",
+				Content:     logContent,
+				Sender:      senderStr,
+			})
+		}
 	}
 
 	go b.generateAndSendWithMedia(ctx, msg, text, replyToMsgID)
@@ -816,14 +836,31 @@ done:
 	sendOrEdit(finalText, true)
 
 	// Log assistant response to permanent conversation log
-	if cl := b.getConvLog(chatID); cl != nil && finalText != "" {
-		_ = cl.Append(convlog.Entry{
-			Timestamp:   time.Now().UTC().Format(time.RFC3339),
-			Role:        "assistant",
-			Content:     finalText,
-			ChannelID:   fmt.Sprintf("telegram-%d", chatID),
-			ChannelType: "telegram",
-		})
+	if finalText != "" {
+		tsAssist := time.Now().UTC().Format(time.RFC3339)
+		tgAssistChannelID := fmt.Sprintf("telegram-%d", chatID)
+		tgAssistSessionID := fmt.Sprintf("telegram-%d", chatID)
+		if cl := b.getConvLog(chatID); cl != nil {
+			_ = cl.Append(convlog.Entry{
+				Timestamp:   tsAssist,
+				Role:        "assistant",
+				Content:     finalText,
+				ChannelID:   tgAssistChannelID,
+				ChannelType: "telegram",
+			})
+		}
+		// Write to AI-visible chatlog
+		if b.agentDir != "" {
+			clMgr := chatlog.NewManager(b.agentDir + "/workspace")
+			_ = clMgr.Append(chatlog.Entry{
+				Ts:          tsAssist,
+				SessionID:   tgAssistSessionID,
+				ChannelID:   tgAssistChannelID,
+				ChannelType: "telegram",
+				Role:        "assistant",
+				Content:     finalText,
+			})
+		}
 	}
 
 	// If nothing was sent at all (edge case), send a fallback

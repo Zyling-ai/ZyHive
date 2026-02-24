@@ -24,9 +24,11 @@ import (
 	"path/filepath"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/agent"
+	"github.com/sunhuihui6688-star/ai-panel/pkg/chatlog"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/config"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/llm"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/project"
@@ -320,12 +322,46 @@ func (h *chatHandler) execRunner(
 		AgentEnv:         agEnv,
 	})
 
+	// Chatlog: write user message entry
+	clMgr := chatlog.NewManager(workspaceDir)
+	channelID := "web"
+	if sessionID != "" {
+		channelID = "web"
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	_ = clMgr.Append(chatlog.Entry{
+		Ts:          now,
+		SessionID:   sessionID,
+		ChannelID:   channelID,
+		ChannelType: "web",
+		Role:        "user",
+		Content:     message,
+	})
+
+	// Run and collect assistant response for chatlog
+	var assistantText strings.Builder
 	for ev := range r.Run(ctx, message) {
 		bc.Publish(session.BroadcastEvent{
 			Type: ev.Type,
 			Data: runEventToJSON(ev),
 		})
+		if ev.Type == "text_delta" {
+			assistantText.WriteString(ev.Text)
+		}
 	}
+
+	// Chatlog: write assistant response entry
+	if assistantText.Len() > 0 {
+		_ = clMgr.Append(chatlog.Entry{
+			Ts:          time.Now().UTC().Format(time.RFC3339),
+			SessionID:   sessionID,
+			ChannelID:   channelID,
+			ChannelType: "web",
+			Role:        "assistant",
+			Content:     assistantText.String(),
+		})
+	}
+
 	return nil
 }
 

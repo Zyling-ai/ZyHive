@@ -677,6 +677,8 @@ func (r *Registry) handleSelfInstallSkill(_ context.Context, input json.RawMessa
 	if err := os.WriteFile(skillMdPath, []byte(promptContent), 0644); err != nil {
 		return "", fmt.Errorf("write SKILL.md: %w", err)
 	}
+	// Rebuild skills INDEX.md so system prompt injects updated summary
+	_ = skill.RebuildIndex(r.workspaceDir)
 	return fmt.Sprintf("✅ 技能 \"%s\" 已安装", p.Name), nil
 }
 
@@ -693,6 +695,8 @@ func (r *Registry) handleSelfUninstallSkill(_ context.Context, input json.RawMes
 	if err := skill.RemoveSkill(r.workspaceDir, p.ID); err != nil {
 		return "", err
 	}
+	// Rebuild skills INDEX.md so system prompt injects updated summary
+	_ = skill.RebuildIndex(r.workspaceDir)
 	return fmt.Sprintf("✅ 技能 \"%s\" 已卸载", p.ID), nil
 }
 

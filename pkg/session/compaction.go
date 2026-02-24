@@ -11,6 +11,8 @@ import (
 	"log"
 	"strings"
 	"time"
+
+	"github.com/sunhuihui6688-star/ai-panel/pkg/chatlog"
 )
 
 // CompactionThreshold is the token count that triggers compaction.
@@ -18,7 +20,8 @@ const CompactionThreshold = 80_000
 
 // CompactIfNeeded checks if a session needs compaction and runs it asynchronously.
 // Safe to call from runner after a completed turn; fires and forgets.
-func CompactIfNeeded(store *Store, sessionID string, callLLM func(ctx context.Context, systemPrompt, userMsg string) (string, error)) {
+// workspaceDir is used to update the chatlog summary after compaction.
+func CompactIfNeeded(store *Store, sessionID string, callLLM func(ctx context.Context, systemPrompt, userMsg string) (string, error), workspaceDir string) {
 	tokens := store.EstimateTokens(sessionID)
 	if tokens < CompactionThreshold {
 		return
@@ -27,7 +30,7 @@ func CompactIfNeeded(store *Store, sessionID string, callLLM func(ctx context.Co
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 		defer cancel()
-		if err := Compact(ctx, store, sessionID, callLLM); err != nil {
+		if err := Compact(ctx, store, sessionID, callLLM, workspaceDir); err != nil {
 			log.Printf("[compaction] failed for session %s: %v", sessionID, err)
 		} else {
 			log.Printf("[compaction] completed for session %s", sessionID)
@@ -41,7 +44,7 @@ func CompactIfNeeded(store *Store, sessionID string, callLLM func(ctx context.Co
 //  3. Summarizes everything before the boundary via LLM
 //  4. Writes a CompactionEntry to JSONL
 //  5. Updates tokenEstimate in sessions.json
-func Compact(ctx context.Context, store *Store, sessionID string, callLLM func(ctx context.Context, systemPrompt, userMsg string) (string, error)) error {
+func Compact(ctx context.Context, store *Store, sessionID string, callLLM func(ctx context.Context, systemPrompt, userMsg string) (string, error), workspaceDir string) error {
 	const keepTurns = 20
 
 	msgs, _, err := store.ReadHistory(sessionID)
@@ -135,6 +138,14 @@ Be factual and preserve technical details. Reply with just the summary, no pream
 
 	log.Printf("[compaction] session %s: %d → %d tokens, summary: %d chars",
 		sessionID, compEntry.TokensBefore, newEstimate, len(summary))
+
+	// Update chatlog summary so the AI-visible index reflects this session's topic
+	if workspaceDir != "" {
+		if err := chatlog.NewManager(workspaceDir).UpdateSummary(sessionID, summary); err != nil {
+			log.Printf("[compaction] chatlog UpdateSummary failed for session %s: %v", sessionID, err)
+		}
+	}
+
 	return nil
 }
 
