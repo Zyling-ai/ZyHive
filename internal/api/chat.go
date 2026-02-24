@@ -76,11 +76,13 @@ func (h *chatHandler) Chat(c *gin.Context) {
 		return
 	}
 
-	_, apiKey, model, err := h.resolveModel(ag)
+	me, apiKey, model, err := h.resolveModel(ag)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	modelProvider := me.Provider
+	modelBaseURL := me.BaseURL
 
 	store := session.NewStore(ag.SessionDir)
 	sessionID, _, err := store.GetOrCreate(body.SessionID, ag.ID)
@@ -109,6 +111,7 @@ func (h *chatHandler) Chat(c *gin.Context) {
 	// RunFn is called by the worker goroutine with ctx=context.Background()
 	runFn := func(ctx context.Context, sid string, message string, bc *session.Broadcaster) error {
 		return h.execRunner(ctx, agID, workspaceDir, sessionDir, model, apiKey,
+			modelProvider, modelBaseURL,
 			sid, message, extraContext, scenario, skillID, images, legacyHist, agEnv, bc)
 	}
 
@@ -212,6 +215,7 @@ func (h *chatHandler) execRunner(
 	ctx context.Context,
 	agentID, workspaceDir, sessionDir,
 	model, apiKey,
+	provider, baseURL,
 	sessionID, message,
 	extraContext, scenario, skillID string,
 	images []string,
@@ -222,7 +226,7 @@ func (h *chatHandler) execRunner(
 	agEnv map[string]string,
 	bc *session.Broadcaster,
 ) error {
-	llmClient := llm.NewAnthropicClient()
+	llmClient := llm.NewClient(provider, baseURL)
 	store := session.NewStore(sessionDir)
 
 	var toolRegistry *tools.Registry
