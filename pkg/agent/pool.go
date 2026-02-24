@@ -150,7 +150,7 @@ func (p *Pool) ConsolidateMemory(ctx context.Context, agentID string) (string, e
 		FocusHint: memCfg.FocusHint,
 	}
 
-	llmClient := llm.NewAnthropicClient()
+	llmClient := llm.NewClient(modelEntry.Provider, modelEntry.BaseURL)
 	callLLM := func(ctx context.Context, system, user string) (string, error) {
 		userJSON, _ := json.Marshal(user)
 		req := &llm.ChatRequest{
@@ -237,7 +237,7 @@ func (p *Pool) Run(ctx context.Context, agentID, message string) (string, error)
 	}
 
 	// Create a fresh runner for this invocation
-	llmClient := llm.NewAnthropicClient()
+	llmClient := llm.NewClient(modelEntry.Provider, modelEntry.BaseURL)
 	toolRegistry := tools.New(ag.WorkspaceDir, filepath.Dir(ag.WorkspaceDir), ag.ID)
 	p.configureToolRegistry(toolRegistry, ag, nil)
 	store := session.NewStore(ag.SessionDir)
@@ -291,7 +291,7 @@ func (p *Pool) RunStreamEvents(ctx context.Context, agentID, message, sessionID 
 		return nil, fmt.Errorf("no API key configured for model: %s", model)
 	}
 
-	llmClient := llm.NewAnthropicClient()
+	llmClient := llm.NewClient(modelEntry.Provider, modelEntry.BaseURL)
 	toolRegistry := tools.New(ag.WorkspaceDir, filepath.Dir(ag.WorkspaceDir), ag.ID)
 	p.configureToolRegistry(toolRegistry, ag, fileSender)
 	store := session.NewStore(ag.SessionDir)
@@ -364,7 +364,7 @@ func (p *Pool) RunStream(ctx context.Context, agentID, message, sessionID string
 		return nil, fmt.Errorf("no API key configured for model: %s", model)
 	}
 
-	llmClient := llm.NewAnthropicClient()
+	llmClient := llm.NewClient(modelEntry.Provider, modelEntry.BaseURL)
 	toolRegistry := tools.New(ag.WorkspaceDir, filepath.Dir(ag.WorkspaceDir), ag.ID)
 	p.configureToolRegistry(toolRegistry, ag, nil)
 	store := session.NewStore(ag.SessionDir)
@@ -465,7 +465,7 @@ func (p *Pool) SubagentRunFunc() subagent.RunFunc {
 				return
 			}
 
-			llmClient := llm.NewAnthropicClient()
+			llmClient := llm.NewClient(modelEntry.Provider, modelEntry.BaseURL)
 			// Subagent gets its own isolated session store (separate dir)
 			subSessionDir := filepath.Join(ag.SessionDir, "subagent")
 			if err := os.MkdirAll(subSessionDir, 0755); err != nil {
