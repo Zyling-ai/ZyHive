@@ -500,7 +500,7 @@ func (r *Runner) run(ctx context.Context, userMsg string, out chan<- RunEvent) e
 			}
 			// Trigger compaction asynchronously if token budget exceeded
 			if r.cfg.SessionID != "" && r.cfg.Session != nil {
-				session.CompactIfNeeded(r.cfg.Session, r.cfg.SessionID, r.makeSimpleLLMCaller())
+				session.CompactIfNeeded(r.cfg.Session, r.cfg.SessionID, r.makeSimpleLLMCaller(), r.cfg.WorkspaceDir)
 			}
 			return nil
 		}

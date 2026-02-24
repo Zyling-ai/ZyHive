@@ -12,7 +12,6 @@ import (
 
 	"github.com/sunhuihui6688-star/ai-panel/pkg/memory"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/project"
-	"github.com/sunhuihui6688-star/ai-panel/pkg/skill"
 )
 
 // BuildSystemPrompt reads IDENTITY.md, SOUL.md, and memory/INDEX.md from the
@@ -56,23 +55,25 @@ func BuildSystemPrompt(workspaceDir string) (string, error) {
 	// Memory tree hint for the agent
 	sb.WriteString("[Memory tree available. Use read tool to access: memory/core/, memory/projects/, memory/daily/, memory/topics/]\n\n")
 
+	// Conversation history hint for the agent
+	sb.WriteString("[对话历史可查。使用 read 工具访问: conversations/INDEX.md 查看索引，conversations/{sessionId}__{channelId}.jsonl 查看完整对话]\n\n")
+
 	// Inject RELATIONS.md if it exists
 	relationsContent, err := readFileIfExists(filepath.Join(workspaceDir, "RELATIONS.md"))
 	if err == nil && strings.TrimSpace(relationsContent) != "" {
 		sb.WriteString(fmt.Sprintf("--- RELATIONS.md ---\n%s\n\n", strings.TrimSpace(relationsContent)))
 	}
 
-	// Inject enabled skills' prompts
-	skills, _ := skill.ScanSkills(workspaceDir)
-	for _, s := range skills {
-		if !s.Enabled {
-			continue
-		}
-		prompt := skill.SkillPrompt(workspaceDir, s.ID)
-		if prompt == "" {
-			continue
-		}
-		sb.WriteString(fmt.Sprintf("--- Skill: %s ---\n%s\n\n", s.Name, strings.TrimSpace(prompt)))
+	// Inject skills/INDEX.md (lightweight summary instead of full SKILL.md content)
+	skillsIndexContent, _ := readFileIfExists(filepath.Join(workspaceDir, "skills", "INDEX.md"))
+	if strings.TrimSpace(skillsIndexContent) != "" {
+		sb.WriteString(fmt.Sprintf("--- skills/INDEX.md ---\n%s\n\n", strings.TrimSpace(skillsIndexContent)))
+	}
+
+	// Inject conversations/INDEX.md if it exists (AI-visible conversation history index)
+	convIndexContent, _ := readFileIfExists(filepath.Join(workspaceDir, "conversations", "INDEX.md"))
+	if strings.TrimSpace(convIndexContent) != "" {
+		sb.WriteString(fmt.Sprintf("--- conversations/INDEX.md ---\n%s\n\n", strings.TrimSpace(convIndexContent)))
 	}
 
 	// Read AGENTS.md — if it exists, also read any files it references (one per line)

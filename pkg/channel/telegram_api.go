@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sunhuihui6688-star/ai-panel/pkg/chatlog"
 	"github.com/sunhuihui6688-star/ai-panel/pkg/convlog"
 )
 
@@ -301,13 +302,28 @@ func (b *TelegramBot) Notify(ctx context.Context, chatID, threadID int64, prompt
 	}
 
 	// Log to permanent conversation audit log
+	tsChatlogNotify := time.Now().UTC().Format(time.RFC3339)
+	chatChannelID := fmt.Sprintf("telegram-%d", chatID)
 	if cl := b.getConvLog(chatID); cl != nil {
 		_ = cl.Append(convlog.Entry{
-			Timestamp:   time.Now().UTC().Format(time.RFC3339),
+			Timestamp:   tsChatlogNotify,
 			Role:        "assistant",
 			Content:     finalText,
-			ChannelID:   fmt.Sprintf("telegram-%d", chatID),
+			ChannelID:   chatChannelID,
 			ChannelType: "telegram",
+		})
+	}
+	// Also write to AI-visible chatlog
+	if b.agentDir != "" {
+		clMgr := chatlog.NewManager(b.agentDir + "/workspace")
+		sessionID := fmt.Sprintf("telegram-%d", chatID)
+		_ = clMgr.Append(chatlog.Entry{
+			Ts:          tsChatlogNotify,
+			SessionID:   sessionID,
+			ChannelID:   chatChannelID,
+			ChannelType: "telegram",
+			Role:        "assistant",
+			Content:     finalText,
 		})
 	}
 
