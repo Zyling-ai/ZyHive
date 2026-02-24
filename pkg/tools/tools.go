@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	lllm "github.com/sunhuihui6688-star/ai-panel/pkg/llm"
+	lllm "github.com/Zyling-ai/zyhive/pkg/llm"
 )
 
 // ── Read ────────────────────────────────────────────────────────────────────

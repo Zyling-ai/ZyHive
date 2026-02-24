@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sunhuihui6688-star/ai-panel/pkg/session"
+	"github.com/Zyling-ai/zyhive/pkg/session"
 )
 
 // ConsolidateConfig controls how memory consolidation works.

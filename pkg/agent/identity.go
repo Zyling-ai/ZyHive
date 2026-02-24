@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/sunhuihui6688-star/ai-panel/pkg/memory"
+	"github.com/Zyling-ai/zyhive/pkg/memory"
 )
 
 // ReadIdentity reads IDENTITY.md from the agent's workspace.

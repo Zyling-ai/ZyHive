@@ -12,10 +12,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sunhuihui6688-star/ai-panel/pkg/llm"
-	"github.com/sunhuihui6688-star/ai-panel/pkg/project"
-	"github.com/sunhuihui6688-star/ai-panel/pkg/skill"
-	"github.com/sunhuihui6688-star/ai-panel/pkg/subagent"
+	"github.com/Zyling-ai/zyhive/pkg/llm"
+	"github.com/Zyling-ai/zyhive/pkg/project"
+	"github.com/Zyling-ai/zyhive/pkg/skill"
+	"github.com/Zyling-ai/zyhive/pkg/subagent"
 )
 
 // Handler executes a tool call and returns the result string.

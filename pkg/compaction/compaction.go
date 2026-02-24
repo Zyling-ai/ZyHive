@@ -9,8 +9,8 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
-	"github.com/sunhuihui6688-star/ai-panel/pkg/llm"
-	"github.com/sunhuihui6688-star/ai-panel/pkg/session"
+	"github.com/Zyling-ai/zyhive/pkg/llm"
+	"github.com/Zyling-ai/zyhive/pkg/session"
 )
 
 const compactionPrompt = `Please provide a detailed summary of our conversation so far. Include: key decisions made, important information shared, tasks completed, current status, and what needs to happen next. Be comprehensive - this summary will replace the conversation history.`

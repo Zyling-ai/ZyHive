@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sunhuihui6688-star/ai-panel/pkg/memory"
-	"github.com/sunhuihui6688-star/ai-panel/pkg/project"
+	"github.com/Zyling-ai/zyhive/pkg/memory"
+	"github.com/Zyling-ai/zyhive/pkg/project"
 )
 
 // BuildSystemPrompt reads IDENTITY.md, SOUL.md, and memory/INDEX.md from the

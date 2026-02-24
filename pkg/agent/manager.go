@@ -16,8 +16,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/sunhuihui6688-star/ai-panel/pkg/config"
-	"github.com/sunhuihui6688-star/ai-panel/pkg/memory"
+	"github.com/Zyling-ai/zyhive/pkg/config"
+	"github.com/Zyling-ai/zyhive/pkg/memory"
 )
 
 // SystemConfigAgentID is the reserved ID for the built-in configuration assistant.

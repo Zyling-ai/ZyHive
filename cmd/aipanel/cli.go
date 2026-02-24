@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sunhuihui6688-star/ai-panel/pkg/config"
+	"github.com/Zyling-ai/zyhive/pkg/config"
 )
 
 // ── ANSI 颜色 ──────────────────────────────────────────────────────────────

@@ -18,13 +18,13 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/sunhuihui6688-star/ai-panel/pkg/agent"
-	"github.com/sunhuihui6688-star/ai-panel/pkg/config"
-	"github.com/sunhuihui6688-star/ai-panel/pkg/convlog"
-	"github.com/sunhuihui6688-star/ai-panel/pkg/llm"
-	"github.com/sunhuihui6688-star/ai-panel/pkg/runner"
-	"github.com/sunhuihui6688-star/ai-panel/pkg/session"
-	"github.com/sunhuihui6688-star/ai-panel/pkg/tools"
+	"github.com/Zyling-ai/zyhive/pkg/agent"
+	"github.com/Zyling-ai/zyhive/pkg/config"
+	"github.com/Zyling-ai/zyhive/pkg/convlog"
+	"github.com/Zyling-ai/zyhive/pkg/llm"
+	"github.com/Zyling-ai/zyhive/pkg/runner"
+	"github.com/Zyling-ai/zyhive/pkg/session"
+	"github.com/Zyling-ai/zyhive/pkg/tools"
 )
 
 var pubSSECounter atomic.Uint64

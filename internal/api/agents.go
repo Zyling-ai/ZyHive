@@ -5,9 +5,9 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/sunhuihui6688-star/ai-panel/pkg/agent"
-	"github.com/sunhuihui6688-star/ai-panel/pkg/config"
-	"github.com/sunhuihui6688-star/ai-panel/pkg/cron"
+	"github.com/Zyling-ai/zyhive/pkg/agent"
+	"github.com/Zyling-ai/zyhive/pkg/config"
+	"github.com/Zyling-ai/zyhive/pkg/cron"
 )
 
 type agentHandler struct {

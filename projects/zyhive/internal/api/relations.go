@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/sunhuihui6688-star/ai-panel/pkg/agent"
+	"github.com/Zyling-ai/zyhive/pkg/agent"
 )
 
 const relationsFilename = "RELATIONS.md"

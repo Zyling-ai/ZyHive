@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/sunhuihui6688-star/ai-panel/pkg/config"
+	"github.com/Zyling-ai/zyhive/pkg/config"
 )
 
 type channelHandler struct {

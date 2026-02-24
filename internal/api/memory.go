@@ -8,9 +8,9 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/sunhuihui6688-star/ai-panel/pkg/agent"
-	"github.com/sunhuihui6688-star/ai-panel/pkg/cron"
-	"github.com/sunhuihui6688-star/ai-panel/pkg/memory"
+	"github.com/Zyling-ai/zyhive/pkg/agent"
+	"github.com/Zyling-ai/zyhive/pkg/cron"
+	"github.com/Zyling-ai/zyhive/pkg/memory"
 )
 
 type memoryHandler struct {
