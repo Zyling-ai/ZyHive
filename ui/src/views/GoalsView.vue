@@ -1,420 +1,464 @@
 <template>
   <div class="goals-page">
-    <!-- ── 顶部标题栏 ─────────────────────────────────────────────── -->
-    <div class="page-header">
-      <h2 style="margin:0">
-        <el-icon style="vertical-align:-2px;margin-right:6px"><Flag /></el-icon>目标规划
-      </h2>
-      <div style="display:flex;gap:8px;align-items:center">
-        <el-radio-group v-model="viewMode" size="small">
-          <el-radio-button value="gantt">甘特图</el-radio-button>
-          <el-radio-button value="list">列表</el-radio-button>
-        </el-radio-group>
-        <el-button type="primary" @click="openCreate">
-          <el-icon><Plus /></el-icon> 新建目标
-        </el-button>
-      </div>
-    </div>
-
-    <!-- ── 成员过滤栏 ─────────────────────────────────────────────── -->
-    <div class="filter-bar">
-      <el-text type="info" size="small" style="margin-right:4px">筛选成员：</el-text>
-      <el-radio-group v-model="filterAgentId" size="small" @change="loadGoals">
-        <el-radio-button value="">全部</el-radio-button>
-        <el-radio-button v-for="ag in agentList" :key="ag.id" :value="ag.id">{{ ag.name }}</el-radio-button>
-      </el-radio-group>
-    </div>
-
-    <!-- ══════════ 甘特图视图 ════════════════════════════════════════ -->
-    <el-card v-if="viewMode === 'gantt'" shadow="hover" class="gantt-card">
-      <div v-if="goalsFiltered.length === 0">
-        <el-empty description="暂无目标，点击「新建目标」开始规划" />
-      </div>
-      <div v-else class="gantt-container">
-        <!-- 月份标签行 -->
-        <div class="gantt-header">
-          <div class="gantt-label-col"></div>
-          <div class="gantt-timeline-col">
-            <div class="gantt-months">
-              <div
-                v-for="m in monthLabels"
-                :key="m.label"
-                class="gantt-month-label"
-                :style="{ left: m.left }"
-              >{{ m.label }}</div>
-            </div>
-            <!-- 月份分割线 -->
-            <div class="gantt-grid-lines">
-              <div
-                v-for="m in monthLabels"
-                :key="'line-' + m.label"
-                class="gantt-grid-line"
-                :style="{ left: m.left }"
-              ></div>
-            </div>
-          </div>
-        </div>
-        <!-- 今日线 -->
-        <div class="gantt-header" style="position:relative;height:0">
-          <div class="gantt-label-col"></div>
-          <div class="gantt-timeline-col" style="position:relative">
-            <div
-              v-if="todayLeft !== null"
-              class="gantt-today-line"
-              :style="{ left: todayLeft }"
-            ></div>
-          </div>
-        </div>
-        <!-- 目标行 -->
-        <div
-          v-for="g in goalsFiltered"
-          :key="g.id"
-          class="gantt-row"
-        >
-          <!-- 左侧标签 -->
-          <div class="gantt-label-col">
-            <div class="gantt-label-inner">
-              <div class="gantt-agent-avatars">
-                <el-tooltip
-                  v-for="aid in g.agentIds.slice(0, 3)"
-                  :key="aid"
-                  :content="agentNameMap[aid] || aid"
-                  placement="top"
-                >
-                  <div
-                    class="gantt-avatar"
-                    :style="{ background: agentColorMap[aid] || '#409eff' }"
-                  >{{ (agentNameMap[aid] || aid).slice(0, 1) }}</div>
-                </el-tooltip>
-                <div v-if="g.agentIds.length > 3" class="gantt-avatar gantt-avatar-more">
-                  +{{ g.agentIds.length - 3 }}
-                </div>
-              </div>
-              <el-tooltip :content="g.title" placement="top" :show-after="300">
-                <span class="gantt-title-text">{{ g.title }}</span>
-              </el-tooltip>
-            </div>
-          </div>
-          <!-- 时间轴 -->
-          <div class="gantt-timeline-col">
-            <div
-              v-if="isValidBar(g)"
-              class="gantt-bar"
-              :style="ganttBarStyle(g)"
-              @click="openEdit(g)"
-              :title="g.title"
-            >
-              <!-- 进度覆盖层 -->
-              <div class="gantt-bar-progress" :style="{ width: g.progress + '%' }"></div>
-              <!-- 进度文字 -->
-              <span v-if="calcBarWidth(g) > 8" class="gantt-bar-label">
-                <span v-if="g.status === 'active'" class="bar-breathe-dot"></span>
-                {{ g.title }}
-                <span style="opacity:0.7;font-size:10px">{{ g.progress }}%</span>
-              </span>
-            </div>
-            <!-- 里程碑钻石 -->
-            <template v-if="isValidBar(g)">
-              <el-tooltip
-                v-for="ms in g.milestones"
-                :key="ms.id"
-                :content="`${ms.title}${ms.done ? ' ✓' : ''}`"
-                placement="top"
-              >
-                <div
-                  class="gantt-milestone"
-                  :class="{ 'gantt-milestone-done': ms.done }"
-                  :style="{ left: milestoneLeft(ms) }"
-                ></div>
-              </el-tooltip>
-            </template>
-          </div>
-          <!-- 右侧状态 -->
-          <div class="gantt-status-col">
-            <el-tag :type="statusTagType(g.status)" size="small" :class="{ 'status-active': g.status === 'active' }">
-              {{ statusLabel(g.status) }}
-            </el-tag>
-          </div>
-        </div>
-      </div>
-    </el-card>
-
-    <!-- ══════════ 列表视图 ════════════════════════════════════════ -->
-    <el-card v-else shadow="hover">
-      <el-table :data="goalsFiltered" stripe>
-        <el-table-column prop="title" label="目标" min-width="160" />
-        <el-table-column label="类型" width="80">
-          <template #default="{ row }">
-            <el-tag size="small" :type="row.type === 'team' ? 'warning' : 'info'">
-              {{ row.type === 'team' ? '团队' : '个人' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="参与成员" min-width="140">
-          <template #default="{ row }">
-            <el-tag
-              v-for="aid in row.agentIds"
-              :key="aid"
-              size="small"
-              style="margin:1px"
-            >{{ agentNameMap[aid] || aid }}</el-tag>
-            <span v-if="!row.agentIds.length" style="color:#c0c4cc;font-size:12px">—</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="状态" width="90">
-          <template #default="{ row }">
-            <el-tag :type="statusTagType(row.status)" size="small" :class="{ 'status-active': row.status === 'active' }">
-              {{ statusLabel(row.status) }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="进度" width="120">
-          <template #default="{ row }">
-            <div style="display:flex;align-items:center;gap:6px">
-              <el-progress :percentage="row.progress" :stroke-width="6" style="flex:1;min-width:60px" />
-            </div>
-          </template>
-        </el-table-column>
-        <el-table-column label="时间范围" min-width="180">
-          <template #default="{ row }">
-            <span style="font-size:12px;color:#606266">
-              {{ formatDate(row.startAt) }} ~ {{ formatDate(row.endAt) }}
-            </span>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="120">
-          <template #default="{ row }">
-            <el-button size="small" @click="openEdit(row)">编辑</el-button>
-            <el-button size="small" type="danger" @click="deleteGoal(row)">删除</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-      <el-empty v-if="goalsFiltered.length === 0" description="暂无目标" />
-    </el-card>
-
-    <!-- ══════════ 编辑/新建抽屉 ══════════════════════════════════ -->
-    <el-drawer
-      v-model="drawerVisible"
-      :title="editingGoal ? '编辑目标' : '新建目标'"
-      size="580px"
-      destroy-on-close
-    >
-      <el-tabs v-model="drawerTab">
-        <!-- ── Tab 1: 基本信息 ── -->
-        <el-tab-pane label="基本信息" name="basic">
-          <el-form :model="form" label-width="100px">
-            <el-form-item label="标题" required>
-              <el-input v-model="form.title" placeholder="目标标题" />
-            </el-form-item>
-            <el-form-item label="描述">
-              <el-input v-model="form.description" type="textarea" :rows="2" placeholder="（可选）" />
-            </el-form-item>
-            <el-form-item label="类型">
-              <el-radio-group v-model="form.type">
-                <el-radio-button value="personal">个人</el-radio-button>
-                <el-radio-button value="team">团队</el-radio-button>
-              </el-radio-group>
-            </el-form-item>
-            <el-form-item label="参与成员">
-              <el-select v-model="form.agentIds" multiple placeholder="选择成员" style="width:100%">
-                <el-option v-for="ag in agentList" :key="ag.id" :label="ag.name" :value="ag.id" />
-              </el-select>
-            </el-form-item>
-            <el-form-item label="状态">
-              <el-select v-model="form.status" style="width:100%">
-                <el-option label="草稿" value="draft" />
-                <el-option label="进行中" value="active" />
-                <el-option label="已完成" value="completed" />
-                <el-option label="已取消" value="cancelled" />
-              </el-select>
-            </el-form-item>
-            <el-form-item label="开始时间">
-              <el-date-picker
-                v-model="form.startAt"
-                type="datetime"
-                placeholder="选择开始时间"
-                style="width:100%"
-                value-format="YYYY-MM-DDTHH:mm:ssZ"
-              />
-            </el-form-item>
-            <el-form-item label="结束时间">
-              <el-date-picker
-                v-model="form.endAt"
-                type="datetime"
-                placeholder="选择结束时间"
-                style="width:100%"
-                value-format="YYYY-MM-DDTHH:mm:ssZ"
-              />
-            </el-form-item>
-            <el-form-item v-if="editingGoal" label="进度">
-              <el-slider v-model="form.progress" :min="0" :max="100" show-input />
-            </el-form-item>
-
-            <!-- 里程碑 -->
-            <el-form-item label="里程碑">
-              <div style="width:100%">
-                <div
-                  v-for="(ms, idx) in form.milestones"
-                  :key="idx"
-                  class="milestone-row"
-                >
-                  <el-checkbox v-model="ms.done" />
-                  <el-input
-                    v-model="ms.title"
-                    placeholder="里程碑标题"
-                    size="small"
-                    style="flex:1"
-                  />
-                  <el-date-picker
-                    v-model="ms.dueAt"
-                    type="date"
-                    placeholder="截止日"
-                    size="small"
-                    style="width:130px"
-                    value-format="YYYY-MM-DDTHH:mm:ssZ"
-                  />
-                  <el-button
-                    type="danger"
-                    size="small"
-                    circle
-                    @click="form.milestones.splice(idx, 1)"
-                  ><el-icon><Delete /></el-icon></el-button>
-                </div>
-                <el-button size="small" @click="addMilestone" style="margin-top:4px">
-                  <el-icon><Plus /></el-icon> 添加里程碑
-                </el-button>
-              </div>
-            </el-form-item>
-          </el-form>
-          <div style="text-align:right;margin-top:16px">
-            <el-button @click="drawerVisible = false">取消</el-button>
-            <el-button type="primary" @click="saveGoal">{{ editingGoal ? '保存' : '创建' }}</el-button>
-          </div>
-        </el-tab-pane>
-
-        <!-- ── Tab 2: 定期检查（仅编辑时显示） ── -->
-        <el-tab-pane v-if="editingGoal" label="定期检查" name="checks">
-          <div style="text-align:right;margin-bottom:12px">
-            <el-button type="primary" size="small" @click="openAddCheckDialog">
-              <el-icon><Plus /></el-icon> 添加检查
+    <div class="goals-layout">
+      <!-- ══════════ 左侧主区域 ════════════════════════════════════════ -->
+      <div class="goals-main">
+        <!-- ── 顶部标题栏 ─────────────────────────────────────────────── -->
+        <div class="page-header">
+          <h2 style="margin:0">
+            <el-icon style="vertical-align:-2px;margin-right:6px"><Flag /></el-icon>目标规划
+          </h2>
+          <div style="display:flex;gap:8px;align-items:center">
+            <el-radio-group v-model="viewMode" size="small">
+              <el-radio-button value="gantt">甘特图</el-radio-button>
+              <el-radio-button value="list">列表</el-radio-button>
+            </el-radio-group>
+            <el-button type="primary" @click="openCreate">
+              <el-icon><Plus /></el-icon> 新建目标
             </el-button>
           </div>
-          <el-table :data="editingGoal.checks" size="small" stripe>
-            <el-table-column prop="name" label="名称" min-width="120" />
-            <el-table-column label="频率" min-width="140">
+        </div>
+
+        <!-- ── 成员过滤栏 ─────────────────────────────────────────────── -->
+        <div class="filter-bar">
+          <el-text type="info" size="small" style="margin-right:4px">筛选成员：</el-text>
+          <el-radio-group v-model="filterAgentId" size="small" @change="loadGoals">
+            <el-radio-button value="">全部</el-radio-button>
+            <el-radio-button v-for="ag in agentList" :key="ag.id" :value="ag.id">{{ ag.name }}</el-radio-button>
+          </el-radio-group>
+        </div>
+
+        <!-- ══════════ 甘特图视图 ════════════════════════════════════════ -->
+        <el-card v-if="viewMode === 'gantt'" shadow="hover" class="gantt-card">
+          <div v-if="goalsFiltered.length === 0">
+            <el-empty description="暂无目标，点击「新建目标」开始规划" />
+          </div>
+          <div v-else class="gantt-container">
+            <!-- 月份标签行 -->
+            <div class="gantt-header">
+              <div class="gantt-label-col"></div>
+              <div class="gantt-timeline-col">
+                <div class="gantt-months">
+                  <div
+                    v-for="m in monthLabels"
+                    :key="m.label"
+                    class="gantt-month-label"
+                    :style="{ left: m.left }"
+                  >{{ m.label }}</div>
+                </div>
+                <!-- 月份分割线 -->
+                <div class="gantt-grid-lines">
+                  <div
+                    v-for="m in monthLabels"
+                    :key="'line-' + m.label"
+                    class="gantt-grid-line"
+                    :style="{ left: m.left }"
+                  ></div>
+                </div>
+              </div>
+            </div>
+            <!-- 今日线 -->
+            <div class="gantt-header" style="position:relative;height:0">
+              <div class="gantt-label-col"></div>
+              <div class="gantt-timeline-col" style="position:relative">
+                <div
+                  v-if="todayLeft !== null"
+                  class="gantt-today-line"
+                  :style="{ left: todayLeft }"
+                ></div>
+              </div>
+            </div>
+            <!-- 目标行 -->
+            <div
+              v-for="g in goalsFiltered"
+              :key="g.id"
+              class="gantt-row"
+            >
+              <!-- 左侧标签 -->
+              <div class="gantt-label-col">
+                <div class="gantt-label-inner">
+                  <div class="gantt-agent-avatars">
+                    <el-tooltip
+                      v-for="aid in g.agentIds.slice(0, 3)"
+                      :key="aid"
+                      :content="agentNameMap[aid] || aid"
+                      placement="top"
+                    >
+                      <div
+                        class="gantt-avatar"
+                        :style="{ background: agentColorMap[aid] || '#409eff' }"
+                      >{{ (agentNameMap[aid] || aid).slice(0, 1) }}</div>
+                    </el-tooltip>
+                    <div v-if="g.agentIds.length > 3" class="gantt-avatar gantt-avatar-more">
+                      +{{ g.agentIds.length - 3 }}
+                    </div>
+                  </div>
+                  <el-tooltip :content="g.title" placement="top" :show-after="300">
+                    <span class="gantt-title-text">{{ g.title }}</span>
+                  </el-tooltip>
+                </div>
+              </div>
+              <!-- 时间轴 -->
+              <div class="gantt-timeline-col">
+                <div
+                  v-if="isValidBar(g)"
+                  class="gantt-bar"
+                  :style="ganttBarStyle(g)"
+                  @click="openEdit(g)"
+                  :title="g.title"
+                >
+                  <!-- 进度覆盖层 -->
+                  <div class="gantt-bar-progress" :style="{ width: g.progress + '%' }"></div>
+                  <!-- 进度文字 -->
+                  <span v-if="calcBarWidth(g) > 8" class="gantt-bar-label">
+                    <span v-if="g.status === 'active'" class="bar-breathe-dot"></span>
+                    {{ g.title }}
+                    <span style="opacity:0.7;font-size:10px">{{ g.progress }}%</span>
+                  </span>
+                </div>
+                <!-- 里程碑钻石 -->
+                <template v-if="isValidBar(g)">
+                  <el-tooltip
+                    v-for="ms in g.milestones"
+                    :key="ms.id"
+                    :content="`${ms.title}${ms.done ? ' ✓' : ''}`"
+                    placement="top"
+                  >
+                    <div
+                      class="gantt-milestone"
+                      :class="{ 'gantt-milestone-done': ms.done }"
+                      :style="{ left: milestoneLeft(ms) }"
+                    ></div>
+                  </el-tooltip>
+                </template>
+              </div>
+              <!-- 右侧状态 -->
+              <div class="gantt-status-col">
+                <el-tag :type="statusTagType(g.status)" size="small" :class="{ 'status-active': g.status === 'active' }">
+                  {{ statusLabel(g.status) }}
+                </el-tag>
+              </div>
+            </div>
+          </div>
+        </el-card>
+
+        <!-- ══════════ 列表视图 ════════════════════════════════════════ -->
+        <el-card v-else shadow="hover">
+          <el-table :data="goalsFiltered" stripe>
+            <el-table-column prop="title" label="目标" min-width="160" />
+            <el-table-column label="类型" width="80">
               <template #default="{ row }">
-                <span style="font-family:monospace;font-size:12px">{{ row.schedule }}</span>
-                <el-text type="info" size="small" style="margin-left:4px">({{ row.tz || 'Asia/Shanghai' }})</el-text>
+                <el-tag size="small" :type="row.type === 'team' ? 'warning' : 'info'">
+                  {{ row.type === 'team' ? '团队' : '个人' }}
+                </el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="执行成员" width="100">
+            <el-table-column label="参与成员" min-width="140">
               <template #default="{ row }">
-                <span>{{ agentNameMap[row.agentId] || row.agentId }}</span>
+                <el-tag
+                  v-for="aid in row.agentIds"
+                  :key="aid"
+                  size="small"
+                  style="margin:1px"
+                >{{ agentNameMap[aid] || aid }}</el-tag>
+                <span v-if="!row.agentIds.length" style="color:#c0c4cc;font-size:12px">—</span>
               </template>
             </el-table-column>
-            <el-table-column label="启用" width="70">
+            <el-table-column label="状态" width="90">
               <template #default="{ row }">
-                <el-switch v-model="row.enabled" size="small" @change="toggleCheck(row)" />
+                <el-tag :type="statusTagType(row.status)" size="small" :class="{ 'status-active': row.status === 'active' }">
+                  {{ statusLabel(row.status) }}
+                </el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="140">
+            <el-table-column label="进度" width="120">
               <template #default="{ row }">
-                <el-button size="small" @click="runCheckNow(row)">立即运行</el-button>
-                <el-button size="small" type="danger" @click="removeCheck(row)">删除</el-button>
+                <div style="display:flex;align-items:center;gap:6px">
+                  <el-progress :percentage="row.progress" :stroke-width="6" style="flex:1;min-width:60px" />
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column label="时间范围" min-width="180">
+              <template #default="{ row }">
+                <span style="font-size:12px;color:#606266">
+                  {{ formatDate(row.startAt) }} ~ {{ formatDate(row.endAt) }}
+                </span>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="120">
+              <template #default="{ row }">
+                <el-button size="small" @click="openEdit(row)">编辑</el-button>
+                <el-button size="small" type="danger" @click="deleteGoal(row)">删除</el-button>
               </template>
             </el-table-column>
           </el-table>
-          <el-empty v-if="!editingGoal.checks.length" description="暂无检查计划" />
-        </el-tab-pane>
+          <el-empty v-if="goalsFiltered.length === 0" description="暂无目标" />
+        </el-card>
 
-        <!-- ── Tab 3: 检查记录（仅编辑时显示） ── -->
-        <el-tab-pane v-if="editingGoal" label="检查记录" name="records">
-          <div v-if="checkRecordsLoading" style="text-align:center;padding:20px">
-            <el-icon class="is-loading"><Loading /></el-icon>
-          </div>
-          <el-timeline v-else-if="checkRecords.length">
-            <el-timeline-item
-              v-for="rec in checkRecords"
-              :key="rec.id"
-              :timestamp="formatDateTime(rec.runAt)"
-              :type="rec.status === 'ok' ? 'success' : 'danger'"
-              placement="top"
-            >
-              <el-card shadow="never" style="padding:0">
-                <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-                  <div
-                    class="gantt-avatar"
-                    :style="{ background: agentColorMap[rec.agentId] || '#409eff' }"
-                  >{{ (agentNameMap[rec.agentId] || rec.agentId || '?').slice(0, 1) }}</div>
-                  <span style="font-size:13px;font-weight:500">{{ agentNameMap[rec.agentId] || rec.agentId }}</span>
-                  <el-tag :type="rec.status === 'ok' ? 'success' : 'danger'" size="small">{{ rec.status }}</el-tag>
-                </div>
-                <el-text style="font-size:12px;white-space:pre-wrap">{{ rec.output || '（无输出）' }}</el-text>
-              </el-card>
-            </el-timeline-item>
-          </el-timeline>
-          <el-empty v-else description="暂无检查记录" />
-        </el-tab-pane>
-      </el-tabs>
-    </el-drawer>
+        <!-- ══════════ 编辑/新建抽屉 ══════════════════════════════════ -->
+        <el-drawer
+          v-model="drawerVisible"
+          :title="editingGoal ? '编辑目标' : '新建目标'"
+          size="580px"
+          destroy-on-close
+        >
+          <el-tabs v-model="drawerTab">
+            <!-- ── Tab 1: 基本信息 ── -->
+            <el-tab-pane label="基本信息" name="basic">
+              <el-form :model="form" label-width="100px">
+                <el-form-item label="标题" required>
+                  <el-input v-model="form.title" placeholder="目标标题" />
+                </el-form-item>
+                <el-form-item label="描述">
+                  <el-input v-model="form.description" type="textarea" :rows="2" placeholder="（可选）" />
+                </el-form-item>
+                <el-form-item label="类型">
+                  <el-radio-group v-model="form.type">
+                    <el-radio-button value="personal">个人</el-radio-button>
+                    <el-radio-button value="team">团队</el-radio-button>
+                  </el-radio-group>
+                </el-form-item>
+                <el-form-item label="参与成员">
+                  <el-select v-model="form.agentIds" multiple placeholder="选择成员" style="width:100%">
+                    <el-option v-for="ag in agentList" :key="ag.id" :label="ag.name" :value="ag.id" />
+                  </el-select>
+                </el-form-item>
+                <el-form-item label="状态">
+                  <el-select v-model="form.status" style="width:100%">
+                    <el-option label="草稿" value="draft" />
+                    <el-option label="进行中" value="active" />
+                    <el-option label="已完成" value="completed" />
+                    <el-option label="已取消" value="cancelled" />
+                  </el-select>
+                </el-form-item>
+                <el-form-item label="开始时间">
+                  <el-date-picker
+                    v-model="form.startAt"
+                    type="datetime"
+                    placeholder="选择开始时间"
+                    style="width:100%"
+                    value-format="YYYY-MM-DDTHH:mm:ssZ"
+                  />
+                </el-form-item>
+                <el-form-item label="结束时间">
+                  <el-date-picker
+                    v-model="form.endAt"
+                    type="datetime"
+                    placeholder="选择结束时间"
+                    style="width:100%"
+                    value-format="YYYY-MM-DDTHH:mm:ssZ"
+                  />
+                </el-form-item>
+                <el-form-item v-if="editingGoal" label="进度">
+                  <el-slider v-model="form.progress" :min="0" :max="100" show-input />
+                </el-form-item>
 
-    <!-- ══════════ 添加检查 Dialog ══════════════════════════════════ -->
-    <el-dialog v-model="checkDialogVisible" title="添加定期检查" width="500px">
-      <el-form :model="checkForm" label-width="100px">
-        <el-form-item label="名称" required>
-          <el-input v-model="checkForm.name" placeholder="如：每周进度检查" />
-        </el-form-item>
-        <el-form-item label="执行成员" required>
-          <el-select v-model="checkForm.agentId" style="width:100%">
+                <!-- 里程碑 -->
+                <el-form-item label="里程碑">
+                  <div style="width:100%">
+                    <div
+                      v-for="(ms, idx) in form.milestones"
+                      :key="idx"
+                      class="milestone-row"
+                    >
+                      <el-checkbox v-model="ms.done" />
+                      <el-input
+                        v-model="ms.title"
+                        placeholder="里程碑标题"
+                        size="small"
+                        style="flex:1"
+                      />
+                      <el-date-picker
+                        v-model="ms.dueAt"
+                        type="date"
+                        placeholder="截止日"
+                        size="small"
+                        style="width:130px"
+                        value-format="YYYY-MM-DDTHH:mm:ssZ"
+                      />
+                      <el-button
+                        type="danger"
+                        size="small"
+                        circle
+                        @click="form.milestones.splice(idx, 1)"
+                      ><el-icon><Delete /></el-icon></el-button>
+                    </div>
+                    <el-button size="small" @click="addMilestone" style="margin-top:4px">
+                      <el-icon><Plus /></el-icon> 添加里程碑
+                    </el-button>
+                  </div>
+                </el-form-item>
+              </el-form>
+              <div style="text-align:right;margin-top:16px">
+                <el-button @click="drawerVisible = false">取消</el-button>
+                <el-button type="primary" @click="saveGoal">{{ editingGoal ? '保存' : '创建' }}</el-button>
+              </div>
+            </el-tab-pane>
+
+            <!-- ── Tab 2: 定期检查（仅编辑时显示） ── -->
+            <el-tab-pane v-if="editingGoal" label="定期检查" name="checks">
+              <div style="text-align:right;margin-bottom:12px">
+                <el-button type="primary" size="small" @click="openAddCheckDialog">
+                  <el-icon><Plus /></el-icon> 添加检查
+                </el-button>
+              </div>
+              <el-table :data="editingGoal.checks" size="small" stripe>
+                <el-table-column prop="name" label="名称" min-width="120" />
+                <el-table-column label="频率" min-width="140">
+                  <template #default="{ row }">
+                    <span style="font-family:monospace;font-size:12px">{{ row.schedule }}</span>
+                    <el-text type="info" size="small" style="margin-left:4px">({{ row.tz || 'Asia/Shanghai' }})</el-text>
+                  </template>
+                </el-table-column>
+                <el-table-column label="执行成员" width="100">
+                  <template #default="{ row }">
+                    <span>{{ agentNameMap[row.agentId] || row.agentId }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="启用" width="70">
+                  <template #default="{ row }">
+                    <el-switch v-model="row.enabled" size="small" @change="toggleCheck(row)" />
+                  </template>
+                </el-table-column>
+                <el-table-column label="操作" width="140">
+                  <template #default="{ row }">
+                    <el-button size="small" @click="runCheckNow(row)">立即运行</el-button>
+                    <el-button size="small" type="danger" @click="removeCheck(row)">删除</el-button>
+                  </template>
+                </el-table-column>
+              </el-table>
+              <el-empty v-if="!editingGoal.checks.length" description="暂无检查计划" />
+            </el-tab-pane>
+
+            <!-- ── Tab 3: 检查记录（仅编辑时显示） ── -->
+            <el-tab-pane v-if="editingGoal" label="检查记录" name="records">
+              <div v-if="checkRecordsLoading" style="text-align:center;padding:20px">
+                <el-icon class="is-loading"><Loading /></el-icon>
+              </div>
+              <el-timeline v-else-if="checkRecords.length">
+                <el-timeline-item
+                  v-for="rec in checkRecords"
+                  :key="rec.id"
+                  :timestamp="formatDateTime(rec.runAt)"
+                  :type="rec.status === 'ok' ? 'success' : 'danger'"
+                  placement="top"
+                >
+                  <el-card shadow="never" style="padding:0">
+                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                      <div
+                        class="gantt-avatar"
+                        :style="{ background: agentColorMap[rec.agentId] || '#409eff' }"
+                      >{{ (agentNameMap[rec.agentId] || rec.agentId || '?').slice(0, 1) }}</div>
+                      <span style="font-size:13px;font-weight:500">{{ agentNameMap[rec.agentId] || rec.agentId }}</span>
+                      <el-tag :type="rec.status === 'ok' ? 'success' : 'danger'" size="small">{{ rec.status }}</el-tag>
+                    </div>
+                    <el-text style="font-size:12px;white-space:pre-wrap">{{ rec.output || '（无输出）' }}</el-text>
+                  </el-card>
+                </el-timeline-item>
+              </el-timeline>
+              <el-empty v-else description="暂无检查记录" />
+            </el-tab-pane>
+          </el-tabs>
+        </el-drawer>
+
+        <!-- ══════════ 添加检查 Dialog ══════════════════════════════════ -->
+        <el-dialog v-model="checkDialogVisible" title="添加定期检查" width="500px">
+          <el-form :model="checkForm" label-width="100px">
+            <el-form-item label="名称" required>
+              <el-input v-model="checkForm.name" placeholder="如：每周进度检查" />
+            </el-form-item>
+            <el-form-item label="执行成员" required>
+              <el-select v-model="checkForm.agentId" style="width:100%">
+                <el-option v-for="ag in agentList" :key="ag.id" :label="ag.name" :value="ag.id" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="检查频率">
+              <el-select v-model="checkFreqPreset" style="width:100%" @change="onPresetChange">
+                <el-option label="每天上午9点" value="0 9 * * *" />
+                <el-option label="每周一上午9点" value="0 9 * * 1" />
+                <el-option label="每周五下午5点" value="0 17 * * 5" />
+                <el-option label="每月1日上午9点" value="0 9 1 * *" />
+                <el-option label="自定义" value="custom" />
+              </el-select>
+            </el-form-item>
+            <el-form-item v-if="checkFreqPreset === 'custom'" label="Cron 表达式">
+              <el-input v-model="checkForm.schedule" placeholder="0 9 * * 1" />
+            </el-form-item>
+            <el-form-item label="时区">
+              <el-select v-model="checkForm.tz" style="width:100%">
+                <el-option label="Asia/Shanghai" value="Asia/Shanghai" />
+                <el-option label="UTC" value="UTC" />
+                <el-option label="America/New_York" value="America/New_York" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="检查提示词">
+              <el-input
+                v-model="checkForm.prompt"
+                type="textarea"
+                :rows="4"
+                placeholder="可用变量：{goal.title} {goal.progress} {goal.endAt}"
+              />
+              <el-text type="info" size="small" style="display:block;margin-top:4px">
+                可用变量：{goal.title} {goal.progress} {goal.endAt} {goal.startAt} {goal.status}
+              </el-text>
+            </el-form-item>
+            <el-form-item label="启用">
+              <el-switch v-model="checkForm.enabled" />
+            </el-form-item>
+          </el-form>
+          <template #footer>
+            <el-button @click="checkDialogVisible = false">取消</el-button>
+            <el-button type="primary" @click="submitAddCheck">添加</el-button>
+          </template>
+        </el-dialog>
+      </div><!-- /goals-main -->
+
+      <!-- ── 拖拽手柄 ── -->
+      <div class="ss-handle" @mousedown="startResize" :class="{ dragging: isDragging }">
+        <div class="ss-handle-bar" />
+      </div>
+
+      <!-- ══════════ 右侧 AI 对话面板 ════════════════════════════════════ -->
+      <div class="goals-chat" :style="{ width: chatW + 'px' }">
+        <!-- header -->
+        <div class="chat-panel-head">
+          <el-icon><ChatLineRound /></el-icon>
+          AI 目标助手
+          <el-select
+            v-model="selectedChatAgentId"
+            size="small"
+            style="margin-left:auto;width:120px"
+            placeholder="选择成员"
+          >
             <el-option v-for="ag in agentList" :key="ag.id" :label="ag.name" :value="ag.id" />
           </el-select>
-        </el-form-item>
-        <el-form-item label="检查频率">
-          <el-select v-model="checkFreqPreset" style="width:100%" @change="onPresetChange">
-            <el-option label="每天上午9点" value="0 9 * * *" />
-            <el-option label="每周一上午9点" value="0 9 * * 1" />
-            <el-option label="每周五下午5点" value="0 17 * * 5" />
-            <el-option label="每月1日上午9点" value="0 9 1 * *" />
-            <el-option label="自定义" value="custom" />
-          </el-select>
-        </el-form-item>
-        <el-form-item v-if="checkFreqPreset === 'custom'" label="Cron 表达式">
-          <el-input v-model="checkForm.schedule" placeholder="0 9 * * 1" />
-        </el-form-item>
-        <el-form-item label="时区">
-          <el-select v-model="checkForm.tz" style="width:100%">
-            <el-option label="Asia/Shanghai" value="Asia/Shanghai" />
-            <el-option label="UTC" value="UTC" />
-            <el-option label="America/New_York" value="America/New_York" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="检查提示词">
-          <el-input
-            v-model="checkForm.prompt"
-            type="textarea"
-            :rows="4"
-            placeholder="可用变量：{goal.title} {goal.progress} {goal.endAt}"
-          />
-          <el-text type="info" size="small" style="display:block;margin-top:4px">
-            可用变量：{goal.title} {goal.progress} {goal.endAt} {goal.startAt} {goal.status}
-          </el-text>
-        </el-form-item>
-        <el-form-item label="启用">
-          <el-switch v-model="checkForm.enabled" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="checkDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="submitAddCheck">添加</el-button>
-      </template>
-    </el-dialog>
+        </div>
+        <!-- AiChat -->
+        <AiChat
+          v-if="selectedChatAgentId"
+          :key="selectedChatAgentId"
+          :agent-id="selectedChatAgentId"
+          :context="goalChatContext"
+          welcome-message="你好！我可以帮你创建和管理目标。比如：「帮我创建一个Q2增长目标，让引引负责，3月到6月，每周检查一次」"
+          :examples="[
+            '帮我创建一个团队目标：Q2用户增长，3月1日到6月30日',
+            '给「产品发布」目标添加3个里程碑',
+            '查看当前所有进行中的目标',
+            '帮我设置每周一检查「增长目标」的进度',
+          ]"
+          style="flex:1;min-height:0;"
+          @response="onAiResponse"
+        />
+      </div>
+
+    </div><!-- /goals-layout -->
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, reactive, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Delete, Flag, Loading } from '@element-plus/icons-vue'
+import { Plus, Delete, Flag, Loading, ChatLineRound } from '@element-plus/icons-vue'
 import {
   goalsApi,
   agents as agentsApi,
@@ -424,6 +468,7 @@ import {
   type CheckRecord,
   type Milestone,
 } from '../api'
+import AiChat from '../components/AiChat.vue'
 
 // ── 状态 ────────────────────────────────────────────────────────────────────
 
@@ -440,6 +485,97 @@ const checkDialogVisible = ref(false)
 const checkRecords = ref<CheckRecord[]>([])
 const checkRecordsLoading = ref(false)
 const checkFreqPreset = ref('0 9 * * 1')
+
+// ── 右侧 AI 对话面板 ─────────────────────────────────────────────────────────
+
+const chatW = ref(340)
+const isDragging = ref(false)
+const selectedChatAgentId = ref('')
+
+function startResize(e: MouseEvent) {
+  const startX = e.clientX
+  const startW = chatW.value
+  isDragging.value = true
+  const onMove = (ev: MouseEvent) => {
+    chatW.value = Math.max(240, Math.min(600, startW - (ev.clientX - startX)))
+  }
+  const onUp = () => {
+    isDragging.value = false
+    window.removeEventListener('mousemove', onMove)
+    window.removeEventListener('mouseup', onUp)
+    document.body.style.cursor = ''
+    document.body.style.userSelect = ''
+  }
+  window.addEventListener('mousemove', onMove)
+  window.addEventListener('mouseup', onUp)
+  document.body.style.cssText += 'cursor:col-resize;user-select:none;'
+}
+
+// AI 回复后 2 秒自动刷新目标列表
+function onAiResponse() {
+  setTimeout(() => loadGoals(), 2000)
+}
+
+// 构建成员列表上下文
+const agentListContext = computed(() =>
+  agentList.value.map(a => `- ${a.id}: ${a.name}${a.system ? ' (系统)' : ''}`).join('\n')
+)
+
+// 注入给 AI 的目标助手上下文
+const goalChatContext = computed(() => {
+  const token = localStorage.getItem('aipanel_token') || 'TOKEN'
+  const base = `${window.location.protocol}//${window.location.host}`
+  return `## 目标规划助手
+
+你是团队的目标规划助手。你可以通过调用 API 来帮用户创建和管理目标。
+
+### 可用操作（通过 bash 工具调用）
+
+**创建目标：**
+\`\`\`bash
+curl -s -X POST ${base}/api/goals \\
+  -H "Authorization: Bearer ${token}" \\
+  -H "Content-Type: application/json" \\
+  -d '{"title":"目标名","type":"team","agentIds":["agentId"],"startAt":"2026-03-01T00:00:00Z","endAt":"2026-06-30T00:00:00Z","status":"active"}'
+\`\`\`
+
+**列出目标：**
+\`\`\`bash
+curl -s ${base}/api/goals -H "Authorization: Bearer ${token}"
+\`\`\`
+
+**更新进度：**
+\`\`\`bash
+curl -s -X PATCH ${base}/api/goals/{id}/progress \\
+  -H "Authorization: Bearer ${token}" \\
+  -H "Content-Type: application/json" \\
+  -d '{"progress": 50}'
+\`\`\`
+
+**更新目标（标题/里程碑等）：**
+\`\`\`bash
+curl -s -X PATCH ${base}/api/goals/{id} \\
+  -H "Authorization: Bearer ${token}" \\
+  -H "Content-Type: application/json" \\
+  -d '{"milestones":[{"id":"ms-1","title":"里程碑名","dueAt":"2026-04-01T00:00:00Z","done":false,"agentIds":[]}]}'
+\`\`\`
+
+**添加定期检查：**
+\`\`\`bash
+curl -s -X POST ${base}/api/goals/{id}/checks \\
+  -H "Authorization: Bearer ${token}" \\
+  -H "Content-Type: application/json" \\
+  -d '{"name":"每周检查","schedule":"0 9 * * 1","agentId":"agentId","tz":"Asia/Shanghai","prompt":"请检查目标「{goal.title}」本周进展（当前{goal.progress}）","enabled":true}'
+\`\`\`
+
+### 当前团队成员
+${agentListContext.value}
+
+### 当前目标列表
+需要时可先调用列出目标 API 查询再操作。
+
+创建完成后告诉用户「目标已创建，页面会自动刷新」。`.trim()
+})
 
 // ── 表单 ────────────────────────────────────────────────────────────────────
 
@@ -522,6 +658,9 @@ onMounted(async () => {
     agentsApi.list().catch(() => ({ data: [] as AgentInfo[] })),
   ])
   agentList.value = agRes.data || []
+  // 默认选取第一个非系统成员作为对话 Agent
+  const nonSystem = agentList.value.filter(a => !a.system)
+  selectedChatAgentId.value = nonSystem[0]?.id || agentList.value[0]?.id || ''
   await loadGoals()
 })
 
@@ -827,8 +966,76 @@ function formatDateTime(val: string | undefined): string {
 </script>
 
 <style scoped>
-.goals-page { padding: 20px; }
+/* ── 页面根容器 ─────────────────────────────────────────────────────────── */
+.goals-page {
+  height: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
 
+/* ── 两栏布局 ───────────────────────────────────────────────────────────── */
+.goals-layout {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ── 左侧主区域 ─────────────────────────────────────────────────────────── */
+.goals-main {
+  flex: 1;
+  min-width: 500px;
+  overflow-y: auto;
+  padding: 20px 16px 20px 20px;
+}
+
+/* ── 右侧 AI 对话面板 ────────────────────────────────────────────────────── */
+.goals-chat {
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--el-border-color-light);
+  background: var(--el-bg-color);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.chat-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--el-border-color-light);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--el-text-color-primary);
+  flex-shrink: 0;
+  background: var(--el-fill-color-extra-light);
+}
+
+/* ── 拖拽手柄（复用 SkillStudio 样式）──────────────────────────────────── */
+.ss-handle {
+  width: 4px;
+  background: var(--el-border-color-light);
+  cursor: col-resize;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background .15s;
+  position: relative;
+  z-index: 10;
+}
+.ss-handle:hover,
+.ss-handle.dragging { background: #409eff; }
+.ss-handle-bar {
+  width: 2px;
+  height: 28px;
+  background: rgba(255, 255, 255, .6);
+  border-radius: 2px;
+}
+
+/* ── 顶部标题栏 ─────────────────────────────────────────────────────────── */
 .page-header {
   display: flex;
   justify-content: space-between;
