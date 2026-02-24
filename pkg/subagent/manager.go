@@ -22,8 +22,8 @@ type RunEvent struct {
 }
 
 // RunFunc executes a task for the given agent and streams events.
-// agentID, model (empty = default), sessionID, taskPrompt.
-type RunFunc func(ctx context.Context, agentID, model, sessionID, task string) <-chan RunEvent
+// agentID, model (empty = default), sessionID, parentSessionID, taskPrompt.
+type RunFunc func(ctx context.Context, agentID, model, sessionID, parentSessionID, task string) <-chan RunEvent
 
 // NotifyFunc is called when a task completes. It can inject a system message
 // back into the parent session / send a Telegram notification.
@@ -35,18 +35,27 @@ type Manager struct {
 	tasks    map[string]*Task
 	cancels  map[string]context.CancelFunc
 	run      RunFunc
-	notify   NotifyFunc // optional
-	storeDir string     // for persistence (optional)
+	notify   NotifyFunc   // optional
+	storeDir string       // for persistence (optional)
+
+	// Dispatch panel broadcasting
+	broadcastFn   BroadcastFn  // optional: publishes subagent events to parent session broadcaster
+	agentInfoFn   AgentInfoFn  // optional: fetches agent name/avatarColor
+
+	// In-memory event history per parent session (for page-reload recovery)
+	eventsMu      sync.RWMutex
+	eventHistory  map[string][]SubagentEvent // parentSessionID → []SubagentEvent
 }
 
 // New creates a new Manager.
 // storeDir: if non-empty, tasks are persisted to this directory.
 func New(runFunc RunFunc, storeDir string) *Manager {
 	m := &Manager{
-		tasks:    make(map[string]*Task),
-		cancels:  make(map[string]context.CancelFunc),
-		run:      runFunc,
-		storeDir: storeDir,
+		tasks:        make(map[string]*Task),
+		cancels:      make(map[string]context.CancelFunc),
+		run:          runFunc,
+		storeDir:     storeDir,
+		eventHistory: make(map[string][]SubagentEvent),
 	}
 	if storeDir != "" {
 		if err := os.MkdirAll(storeDir, 0755); err == nil {
@@ -59,6 +68,50 @@ func New(runFunc RunFunc, storeDir string) *Manager {
 // SetNotify registers a completion callback.
 func (m *Manager) SetNotify(fn NotifyFunc) {
 	m.notify = fn
+}
+
+// SetBroadcaster registers a function that publishes subagent lifecycle events
+// to the parent session's broadcaster so the UI DispatchPanel gets live updates.
+func (m *Manager) SetBroadcaster(fn BroadcastFn) {
+	m.broadcastFn = fn
+}
+
+// SetAgentInfoFn registers a function that fetches an agent's display name and avatar color.
+func (m *Manager) SetAgentInfoFn(fn AgentInfoFn) {
+	m.agentInfoFn = fn
+}
+
+// ListEvents returns stored subagent events for the given parent session ID.
+// Used by the frontend to restore dispatch panel state after a page reload.
+func (m *Manager) ListEvents(parentSessionID string) []SubagentEvent {
+	m.eventsMu.RLock()
+	defer m.eventsMu.RUnlock()
+	evs := m.eventHistory[parentSessionID]
+	if evs == nil {
+		return []SubagentEvent{}
+	}
+	result := make([]SubagentEvent, len(evs))
+	copy(result, evs)
+	return result
+}
+
+// publishEvent broadcasts an event and appends it to the in-memory history.
+func (m *Manager) publishEvent(parentSessionID string, ev SubagentEvent) {
+	if parentSessionID == "" {
+		return
+	}
+	// Store in history
+	m.eventsMu.Lock()
+	m.eventHistory[parentSessionID] = append(m.eventHistory[parentSessionID], ev)
+	m.eventsMu.Unlock()
+
+	// Broadcast to live subscribers (SSE)
+	if m.broadcastFn != nil {
+		data, err := json.Marshal(ev)
+		if err == nil {
+			m.broadcastFn(parentSessionID, "subagent_"+ev.Type, data)
+		}
+	}
 }
 
 // Spawn creates and starts a new background task. Returns the task immediately.
@@ -100,6 +153,27 @@ func (m *Manager) Spawn(opts SpawnOpts) (*Task, error) {
 	m.mu.Unlock()
 
 	m.persist(task)
+
+	// Broadcast spawn event to parent session
+	agentName := task.AgentID
+	avatarColor := "#6366f1"
+	if m.agentInfoFn != nil {
+		n, c := m.agentInfoFn(task.AgentID)
+		if n != "" {
+			agentName = n
+		}
+		if c != "" {
+			avatarColor = c
+		}
+	}
+	m.publishEvent(task.SpawnedBySession, SubagentEvent{
+		Type:              "spawn",
+		SubagentSessionID: sessionID,
+		AgentID:           task.AgentID,
+		AgentName:         agentName,
+		AvatarColor:       avatarColor,
+		Timestamp:         time.Now().UnixMilli(),
+	})
 
 	go m.runTask(ctx, task)
 	return task, nil
@@ -183,7 +257,7 @@ func (m *Manager) runTask(ctx context.Context, task *Task) {
 
 	log.Printf("[subagent] task %s started: agent=%s label=%q", task.ID, task.AgentID, task.Label)
 
-	events := m.run(ctx, task.AgentID, task.Model, task.SessionID, task.Description)
+	events := m.run(ctx, task.AgentID, task.Model, task.SessionID, task.SpawnedBySession, task.Description)
 
 	var outputBuf string
 	var taskErr error
@@ -216,6 +290,27 @@ func (m *Manager) runTask(ctx context.Context, task *Task) {
 
 	m.persist(task)
 	log.Printf("[subagent] task %s finished: status=%s duration=%s", task.ID, task.Status, task.Duration())
+
+	// Broadcast completion event to parent session
+	agentName := task.AgentID
+	avatarColor := "#6366f1"
+	if m.agentInfoFn != nil {
+		n, c := m.agentInfoFn(task.AgentID)
+		if n != "" { agentName = n }
+		if c != "" { avatarColor = c }
+	}
+	evType := "done"
+	if task.Status == TaskError || task.Status == TaskKilled {
+		evType = "error"
+	}
+	m.publishEvent(task.SpawnedBySession, SubagentEvent{
+		Type:              evType,
+		SubagentSessionID: task.SessionID,
+		AgentID:           task.AgentID,
+		AgentName:         agentName,
+		AvatarColor:       avatarColor,
+		Timestamp:         time.Now().UnixMilli(),
+	})
 
 	// Notify parent
 	if m.notify != nil && task.SpawnedBy != "" {

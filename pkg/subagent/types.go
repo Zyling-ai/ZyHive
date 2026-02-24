@@ -8,6 +8,27 @@ import (
 	"time"
 )
 
+// BroadcastFn is a function that publishes an event to a session's broadcaster.
+// sessionID is the target session; eventType is the SSE event name; data is JSON payload.
+type BroadcastFn func(sessionID string, eventType string, data []byte)
+
+// AgentInfoFn fetches minimal agent info (name, avatarColor) by agentID.
+// Returns empty strings if the agent is not found.
+type AgentInfoFn func(agentID string) (name, avatarColor string)
+
+// SubagentEvent is the unified SSE event format sent to the parent session's broadcaster.
+type SubagentEvent struct {
+	Type              string `json:"type"`              // "spawn"|"report"|"done"|"error"
+	SubagentSessionID string `json:"subagentSessionId"`
+	AgentID           string `json:"agentId"`
+	AgentName         string `json:"agentName"`
+	AvatarColor       string `json:"avatarColor"`
+	Content           string `json:"content,omitempty"`
+	Status            string `json:"status,omitempty"`
+	Progress          int    `json:"progress,omitempty"`
+	Timestamp         int64  `json:"timestamp"`
+}
+
 // TaskStatus represents the lifecycle state of a subagent task.
 type TaskStatus string
 

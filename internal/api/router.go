@@ -275,6 +275,8 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager, pool 
 			tasks.GET("/:id", taskH.Get)
 			tasks.DELETE("/:id", taskH.Kill)
 		}
+		// Dispatch panel: subagent lifecycle events per parent session
+		v1.GET("/subagent-events", taskH.ListEvents)
 	}
 
 	// Health & Stats

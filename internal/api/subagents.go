@@ -131,6 +131,19 @@ func (h *subagentHandler) Spawn(c *gin.Context) {
 	c.JSON(http.StatusCreated, task)
 }
 
+// ListEvents GET /api/subagent-events?sessionId=xxx
+// Returns stored subagent lifecycle events for a given parent session ID.
+// Used by the frontend to restore dispatch panel state after a page reload.
+func (h *subagentHandler) ListEvents(c *gin.Context) {
+	sessionID := c.Query("sessionId")
+	if sessionID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "sessionId is required"})
+		return
+	}
+	events := h.mgr.ListEvents(sessionID)
+	c.JSON(http.StatusOK, events)
+}
+
 // EligibleTargets GET /api/tasks/eligible?from={agentId}&mode={task|report}
 // Returns list of agents the caller can interact with + their relation type.
 func (h *subagentHandler) EligibleTargets(c *gin.Context) {
