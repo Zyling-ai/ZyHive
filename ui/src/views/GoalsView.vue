@@ -30,7 +30,16 @@
 
       <!-- 目标列表 -->
       <div class="goal-list">
-        <div v-if="filteredGoals.length === 0" class="list-empty">暂无目标</div>
+        <!-- 新建占位条目 -->
+        <div v-if="creating" class="goal-item goal-item-new active">
+          <div class="gi-top">
+            <span class="gi-title gi-title-new">{{ form.title.trim() || '新目标…' }}</span>
+            <el-tag type="info" size="small" effect="plain">草稿</el-tag>
+          </div>
+          <div class="gi-new-hint">尚未保存</div>
+        </div>
+
+        <div v-if="filteredGoals.length === 0 && !creating" class="list-empty">暂无目标</div>
         <div
           v-for="g in filteredGoals" :key="g.id"
           :class="['goal-item', { active: selectedGoal?.id === g.id }]"
@@ -995,6 +1004,22 @@ function formatDateTime(val?: string) {
 }
 .goal-item:hover { background: #f5f7fa; }
 .goal-item.active { background: #ecf5ff; border-left-color: #409eff; }
+
+/* 新建占位条目 */
+.goal-item-new {
+  border-left-color: #409eff;
+  background: #ecf5ff;
+  border-bottom: 1px dashed #c6e2ff;
+}
+.gi-title-new {
+  color: #409eff;
+  font-style: italic;
+}
+.gi-new-hint {
+  font-size: 11px;
+  color: #a0cfff;
+  margin-top: 4px;
+}
 
 .gi-top {
   display: flex;
