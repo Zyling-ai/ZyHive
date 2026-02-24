@@ -241,6 +241,9 @@ func main() {
 		return ag.Name, ag.AvatarColor
 	})
 
+	// Inject build version into API layer
+	api.AppVersion = Version
+
 	// Setup router
 	r := gin.Default()
 	botCtrl := api.BotControl{

@@ -723,4 +723,29 @@ export interface SubagentEvent {
 export const getSubagentEvents = (sessionId: string) =>
   api.get<SubagentEvent[]>('/subagent-events', { params: { sessionId } })
 
+// ── Update ────────────────────────────────────────────────────────────────────
+
+export interface UpdateCheckResult {
+  current: string
+  latest: string
+  hasUpdate: boolean
+  releaseUrl: string
+}
+
+export interface UpdateStatus {
+  stage: 'idle' | 'downloading' | 'verifying' | 'applying' | 'done' | 'failed' | 'rolledback'
+  progress: number   // 0-100
+  message: string
+  oldVersion: string
+  newVersion: string
+  updatedAt: string
+}
+
+export const updateApi = {
+  check: () => api.get<UpdateCheckResult>('/update/check'),
+  apply: (version?: string) => api.post('/update/apply', version ? { version } : {}),
+  // status 是 public endpoint，无需 auth token（服务重启后前端仍可轮询）
+  status: () => axios.get<UpdateStatus>('/api/update/status'),
+}
+
 export default api
