@@ -368,59 +368,51 @@ watch(selected, async (sk) => {
 // ── AI Chat context ────────────────────────────────────────────────────────
 const chatContext = computed(() => {
   if (!selected.value) return '你是一个技能配置助手，帮助用户设计和优化 AI 技能的系统提示词。'
-  const skillJsonTemplate = JSON.stringify({
-    id: selected.value.id,
-    name: selected.value.name,
-    icon: selected.value.icon || '',
-    category: selected.value.category || '',
-    description: selected.value.description || '',
-    version: selected.value.version || '1.0.0',
-    enabled: selected.value.enabled,
-    source: 'local',
-    installedAt: ''
-  }, null, 2)
-  return `你是一个技能配置助手，正在帮助用户配置技能（ID: ${selected.value.id}）。
+  return `你是一个技能配置助手，正在帮助用户配置技能「${selected.value.name || selected.value.id}」（ID: ${selected.value.id}）。
 
-## ⚠️ 文件路径规则（必须遵守）
-所有文件必须在 skills/${selected.value.id}/ 目录下：
-- ✅ skills/${selected.value.id}/SKILL.md
-- ✅ skills/${selected.value.id}/skill.json
-- ✅ skills/${selected.value.id}/tools/helper.py
-- ❌ 任何其他路径
+## 🎯 核心能力：自动填充表单（优先使用）
 
-## ⚠️ 创建或更新技能时，必须同时写两个文件
+当用户描述技能需求时，**直接输出以下 JSON，页面会自动填充所有字段**：
 
-### 1. skills/${selected.value.id}/skill.json（技能元数据）
-格式如下，修改 name/icon/category/description 字段：
 \`\`\`json
-${skillJsonTemplate}
+{"action":"fill_skill","data":{"name":"技能名称","icon":"🔧","category":"分类","description":"简要描述","enabled":true,"prompt":"# 技能名称\\n\\n## 角色\\n你是...\\n\\n## 能力\\n..."}}
 \`\`\`
 
-### 2. skills/${selected.value.id}/SKILL.md（系统提示词）
-当前内容：
+字段说明：
+- name: 技能显示名称
+- icon: emoji 图标（如 🌐 📝 🔍）
+- category: 分类（如 语言、代码、创意）
+- description: 一句话描述功能
+- enabled: true/false
+- prompt: 完整的 SKILL.md 内容（Markdown，支持换行 \\n）
+
+输出 JSON 后页面自动填充，用户确认后点保存即可。
+
+## 当前技能信息
+- 名称：${selected.value.name || '（未命名）'}
+- 分类：${selected.value.category || '（未设置）'}
+- 当前 SKILL.md：
 \`\`\`markdown
 ${promptContent.value || '（空）'}
 \`\`\`
 
-## 你可以帮助：
-- 创建/优化技能：同时写 skill.json（名称、分类、描述）和 SKILL.md（提示词）
-- 在技能目录下创建工具文件（Python 等）
-- 测试技能效果（直接对话即可测试）`
+## 高级：创建工具文件（仅需要外部工具时使用）
+文件路径必须在 skills/${selected.value.id}/ 目录下，如 skills/${selected.value.id}/tools/helper.py`
 })
 
 const chatWelcome = computed(() => {
-  if (!selected.value) return '选择一个技能后，我可以帮你优化配置、写 SKILL.md、测试效果。'
-  if (isNewSkill.value) return `新技能已创建（ID: ${selected.value.id}）。告诉我你想要什么功能，我来帮你生成完整的 SKILL.md 内容，生成后直接点保存即可。`
-  return `当前编辑「${selected.value.name}」。你可以让我优化 SKILL.md、测试效果，或者直接对话体验当前技能。`
+  if (!selected.value) return '选择一个技能后，我可以帮你生成配置，自动填写所有字段。'
+  if (isNewSkill.value) return `新技能已创建（ID: ${selected.value.id}）。告诉我你想要什么功能，我会自动填写名称、描述和完整的 SKILL.md 提示词，确认后点保存即可。`
+  return `当前编辑「${selected.value.name}」。告诉我需要如何调整，我会直接填写表单，或者你也可以直接对话测试当前技能效果。`
 })
 
 const chatExamples = computed(() => {
-  if (!selected.value) return ['帮我设计一个代码审查技能', '帮我写一个翻译助手的 SKILL.md']
-  if (isNewSkill.value) return []  // AI 会自动推荐，不用静态按钮
+  if (!selected.value) return ['帮我设计一个代码审查技能', '帮我写一个翻译助手']
+  if (isNewSkill.value) return ['帮我生成这个技能的完整配置', '这个技能用于什么场景？']
   return [
-    `帮我优化「${selected.value.name}」的 SKILL.md`,
-    '这个技能怎么写效果更好？',
-    '用中文回答一道历史题，测试当前技能效果',
+    `帮我优化「${selected.value.name}」的提示词`,
+    '重新生成更好的 SKILL.md',
+    '直接测试：用中文介绍一下你的功能',
   ]
 })
 
@@ -622,21 +614,57 @@ async function openNew() {
 }
 
 // ── AI response hook ──────────────────────────────────────────────────────
-// skillId: 哪个 skill 的 AI 刚生成完（可能是后台 skill，不一定是当前选中的）
-async function onAiResponse(skillId: string, _text: string) {
-  // 清除新建状态
+async function onAiResponse(skillId: string, text: string) {
   if (skillId === selected.value?.id) isNewSkill.value = false
 
-  // 刷新该 skill 的元数据 + 目录（AI 可能创建了新文件）
-  await loadList()
+  // 尝试解析 fill_skill JSON
+  if (skillId === selected.value?.id && tryFillSkill(text)) {
+    return  // 已自动填充，不需要刷新文件
+  }
 
-  // 只有当前选中的 skill 响应时，才刷新编辑器
+  // 刷新该 skill 的元数据 + 目录（AI 可能用 bash 工具写了文件）
+  await loadList()
   if (skillId === selected.value?.id) {
     await Promise.all([loadDirFiles(), reloadPrompt()])
     if (activeFile.value !== 'meta' && activeFile.value !== 'prompt') {
       await reloadGenericFile()
     }
   }
+}
+
+// 解析并应用 fill_skill JSON
+function tryFillSkill(text: string): boolean {
+  const tryApply = (jsonStr: string): boolean => {
+    try {
+      const obj = JSON.parse(jsonStr)
+      if (obj.action === 'fill_skill' && obj.data) {
+        const d = obj.data
+        if (d.name)        metaForm.value.name        = d.name
+        if (d.icon)        metaForm.value.icon        = d.icon
+        if (d.category)    metaForm.value.category    = d.category
+        if (d.description) metaForm.value.description = d.description
+        if (typeof d.enabled === 'boolean') metaForm.value.enabled = d.enabled
+        if (d.prompt) {
+          promptContent.value = d.prompt
+          promptDirty.value = true
+          activeFile.value = 'prompt'  // 自动切到 SKILL.md 编辑器
+        }
+        ElMessage.success('AI 已填写技能信息，确认后点击保存')
+        return true
+      }
+    } catch {}
+    return false
+  }
+
+  // 代码块内
+  const codeBlock = text.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/)
+  if (codeBlock?.[1] && tryApply(codeBlock[1])) return true
+
+  // 裸 JSON
+  const bare = text.match(/(\{"action"\s*:\s*"fill_skill"[\s\S]*?\})/)
+  if (bare?.[1] && tryApply(bare[1])) return true
+
+  return false
 }
 
 async function reloadPrompt() {
