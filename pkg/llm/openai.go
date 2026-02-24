@@ -13,12 +13,15 @@ import (
 	"strings"
 )
 
-// 各 provider 的默认 base URL
+// 各 provider 的默认 base URL（OpenAI-compatible）
 var providerBaseURLs = map[string]string{
 	"openai":     "https://api.openai.com/v1",
 	"deepseek":   "https://api.deepseek.com/v1",
 	"openrouter": "https://openrouter.ai/api/v1",
 	"qwen":       "https://dashscope.aliyuncs.com/compatible-mode/v1",
+	"moonshot":   "https://api.moonshot.cn/v1",           // Kimi
+	"zhipu":      "https://open.bigmodel.cn/api/paas/v4", // 智谱 GLM
+	"minimax":    "https://api.minimax.chat/v1",           // MiniMax
 }
 
 // OpenAIClient implements Client for the OpenAI-compatible Chat Completions API.
