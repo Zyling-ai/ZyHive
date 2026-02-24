@@ -69,14 +69,18 @@
           class="sidebar-menu"
           @select="onMenuSelect"
         >
+          <!-- 仪表盘 -->
           <el-menu-item index="/">
             <el-icon><HomeFilled /></el-icon>
             <template #title>仪表盘</template>
           </el-menu-item>
 
+          <el-divider style="margin: 6px 0" />
+
+          <!-- 团队 -->
           <el-menu-item index="/agents">
             <el-icon><User /></el-icon>
-            <template #title>AI 成员</template>
+            <template #title>成员</template>
           </el-menu-item>
 
           <el-menu-item index="/team">
@@ -84,11 +88,19 @@
             <template #title>团队</template>
           </el-menu-item>
 
+          <el-menu-item index="/goals">
+            <el-icon><Flag /></el-icon>
+            <template #title>规划</template>
+          </el-menu-item>
+
           <el-menu-item index="/projects">
             <el-icon><Folder /></el-icon>
             <template #title>项目</template>
           </el-menu-item>
 
+          <el-divider style="margin: 6px 0" />
+
+          <!-- 工作 -->
           <el-menu-item index="/chats">
             <el-icon><ChatLineRound /></el-icon>
             <template #title>对话管理</template>
@@ -96,42 +108,8 @@
 
           <el-menu-item index="/skills">
             <el-icon><MagicStick /></el-icon>
-            <template #title>技能</template>
+            <template #title>技能管理</template>
           </el-menu-item>
-
-          <el-sub-menu index="config" v-if="!collapsed || isMobile">
-            <template #title>
-              <el-icon><Setting /></el-icon>
-              <span>全局配置</span>
-            </template>
-            <el-menu-item index="/config/models">
-              <el-icon><Cpu /></el-icon>
-              <template #title>模型</template>
-            </el-menu-item>
-            <el-menu-item index="/config/tools">
-              <el-icon><SetUp /></el-icon>
-              <template #title>能力</template>
-            </el-menu-item>
-          </el-sub-menu>
-
-          <!-- Collapsed desktop: show config sub-items flat -->
-          <template v-if="collapsed && !isMobile">
-            <el-menu-item index="/config/models">
-              <el-icon><Cpu /></el-icon>
-              <template #title>模型</template>
-            </el-menu-item>
-            <el-menu-item index="/config/tools">
-              <el-icon><SetUp /></el-icon>
-              <template #title>能力</template>
-            </el-menu-item>
-          </template>
-
-          <el-menu-item index="/goals">
-            <el-icon><Flag /></el-icon>
-            <template #title>目标规划</template>
-          </el-menu-item>
-
-          <el-divider style="margin: 8px 0" />
 
           <el-menu-item index="/cron">
             <el-icon><Timer /></el-icon>
@@ -143,6 +121,19 @@
             <template #title>后台任务</template>
           </el-menu-item>
 
+          <el-divider style="margin: 6px 0" />
+
+          <!-- 系统 -->
+          <el-menu-item index="/config/models">
+            <el-icon><Cpu /></el-icon>
+            <template #title>模型配置</template>
+          </el-menu-item>
+
+          <el-menu-item index="/config/tools">
+            <el-icon><SetUp /></el-icon>
+            <template #title>密钥管理</template>
+          </el-menu-item>
+
           <el-menu-item index="/logs">
             <el-icon><Document /></el-icon>
             <template #title>日志</template>
@@ -150,7 +141,7 @@
 
           <el-menu-item index="/settings">
             <el-icon><Tools /></el-icon>
-            <template #title>设置</template>
+            <template #title>系统设置</template>
           </el-menu-item>
         </el-menu>
 
