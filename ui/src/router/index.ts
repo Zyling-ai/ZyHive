@@ -68,6 +68,12 @@ const router = createRouter({
       meta: { requiresAuth: true }
     },
     {
+      path: '/goals',
+      name: 'goals',
+      component: () => import('../views/GoalsView.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
       path: '/cron',
       name: 'cron',
       component: () => import('../views/CronView.vue'),

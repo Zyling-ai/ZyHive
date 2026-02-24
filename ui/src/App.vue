@@ -126,6 +126,11 @@
             </el-menu-item>
           </template>
 
+          <el-menu-item index="/goals">
+            <el-icon><Flag /></el-icon>
+            <template #title>目标规划</template>
+          </el-menu-item>
+
           <el-divider style="margin: 8px 0" />
 
           <el-menu-item index="/cron">
