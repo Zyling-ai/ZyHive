@@ -609,9 +609,9 @@ func menuUpdate() {
 	clearScreen()
 	printSectionTitle("在线更新")
 
-	fmt.Println("  当前安装的版本信息：")
 	binaryPath, _ := os.Executable()
 	printKV("二进制路径", binaryPath)
+	printKV("当前版本", ansiBold+Version+ansiReset)
 
 	fmt.Println()
 	fmt.Println("  检查最新版本...")
@@ -624,33 +624,44 @@ func menuUpdate() {
 	}
 	printKV("最新版本", ansiGreen+latest+ansiReset)
 
-	fmt.Println()
-	if !confirm("确认更新到 " + latest + "？服务将短暂中断") {
+	// 版本对比：相同则提示已是最新
+	if latest == Version {
+		fmt.Println()
+		printSuccess("当前已是最新版本（" + Version + "），无需更新")
+		pause()
 		return
 	}
 
-	// 确定下载 URL
-	osName := "linux"
-	arch := "amd64"
-	switch runtime.GOARCH {
-	case "arm64":
-		arch = "arm64"
-	case "arm":
-		arch = "arm"
+	fmt.Println()
+	if !confirm("确认从 " + Version + " 更新到 " + latest + "？服务将短暂中断") {
+		return
 	}
-	url := fmt.Sprintf("https://github.com/Zyling-ai/zyhive/releases/download/%s/aipanel-%s-%s",
-		latest, osName, arch)
 
-	fmt.Printf("  下载 %s...\n", url)
+	// 确定下载 URL（跨平台）
+	osName := runtime.GOOS  // linux / darwin / windows
+	arch := runtime.GOARCH  // amd64 / arm64
+	suffix := ""
+	if osName == "windows" {
+		suffix = ".exe"
+	}
+	url := fmt.Sprintf(
+		"https://github.com/Zyling-ai/zyhive/releases/download/%s/aipanel-%s-%s%s",
+		latest, osName, arch, suffix,
+	)
+
+	fmt.Printf("  下载 %s%s%s...\n", ansiCyan, url, ansiReset)
 
 	tmpPath := "/tmp/zyhive-update"
+	if osName == "windows" {
+		tmpPath = os.TempDir() + "\\zyhive-update.exe"
+	}
 	out := runCmd("curl", "-fsSL", "--progress-bar", url, "-o", tmpPath)
 	if out != "" {
 		fmt.Println(out)
 	}
 
 	if _, err := os.Stat(tmpPath); os.IsNotExist(err) {
-		printError("下载失败")
+		printError("下载失败，请确认该版本已发布到 GitHub Releases")
 		pause()
 		return
 	}
@@ -658,11 +669,17 @@ func menuUpdate() {
 	// 赋权
 	os.Chmod(tmpPath, 0755)
 
-	// 停服 → 替换 → 启服
+	// 备份旧二进制
+	backupPath := binaryPath + ".bak"
+	runCmd("cp", binaryPath, backupPath)
+	fmt.Printf("  已备份旧版本至 %s\n", backupPath)
+
+	// 停服 → 先 rm -f 再 cp（避免 Text file busy）→ 启服
 	fmt.Println("  停止服务...")
 	svcStop("zyhive")
 
 	fmt.Println("  替换二进制...")
+	os.Remove(binaryPath) // rm -f，防止 Text file busy
 	runCmd("cp", tmpPath, binaryPath)
 	os.Remove(tmpPath)
 
@@ -671,9 +688,18 @@ func menuUpdate() {
 	time.Sleep(2 * time.Second)
 
 	if isServiceRunning() {
-		printSuccess("更新成功！服务已重启")
+		printSuccess("更新成功！已从 " + Version + " 升级到 " + latest)
 	} else {
-		printError("服务启动失败，请检查日志：journalctl -u zyhive -n 50")
+		printError("服务启动失败，正在回滚...")
+		os.Remove(binaryPath)
+		runCmd("cp", backupPath, binaryPath)
+		svcStart("zyhive")
+		time.Sleep(time.Second)
+		if isServiceRunning() {
+			printWarn("已回滚到旧版本 " + Version + "，请检查日志：journalctl -u zyhive -n 50")
+		} else {
+			printError("回滚也失败了，请手动处理：cp " + backupPath + " " + binaryPath)
+		}
 	}
 	pause()
 }

@@ -30,6 +30,10 @@ import (
 	"github.com/Zyling-ai/zyhive/pkg/subagent"
 )
 
+// Version 由 Makefile ldflags 在编译时注入：-X main.Version=v0.9.12
+// 未注入时默认显示 "dev"
+var Version = "dev"
+
 //go:embed all:ui_dist
 var embeddedUI embed.FS
 
@@ -41,7 +45,13 @@ func main() {
 	}
 	configPath := flag.String("config", defaultCfg, "path to aipanel.json config file")
 	serveMode := flag.Bool("serve", false, "直接启动服务（跳过 CLI 菜单）")
+	showVersion := flag.Bool("version", false, "打印版本号并退出")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Println("ZyHive " + Version)
+		os.Exit(0)
+	}
 
 	// 无参数 且 无环境变量 → 进入 CLI 管理面板
 	// 判断：config 是默认值 且 没有 --serve 且 没有 AIPANEL_CONFIG 环境变量
