@@ -26,8 +26,9 @@ import (
 
 const configFilePath = "aipanel.json"
 
-// AppVersion is the current release version.
-const AppVersion = "0.9.12"
+// AppVersion is set at startup from main.Version (injected via ldflags).
+// Default "dev" is used when running without a proper build.
+var AppVersion = "dev"
 
 // BotControl groups the functions needed by the channel handler to manage running bots.
 type BotControl struct {
@@ -54,8 +55,16 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager, pool 
 		c.JSON(http.StatusOK, gin.H{"version": AppVersion})
 	})
 
+	// Public: update status (no auth — frontend polls during restart)
+	r.GET("/api/update/status", (&updateHandler{}).Status)
+
 	v1 := r.Group("/api")
 	v1.Use(authMiddleware(cfg.Auth.Token))
+
+	// Update (check + apply)
+	updH := &updateHandler{}
+	v1.GET("/update/check", updH.Check)
+	v1.POST("/update/apply", updH.Apply)
 
 	// Agents
 	agentH := &agentHandler{cfg: cfg, manager: mgr, pool: pool, botCtrl: botCtrl, cronEngine: cronEngine}
