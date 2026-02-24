@@ -262,7 +262,7 @@ func (h *publicChatHandler) runPublic(
 		return fmt.Errorf("no API key for model %s", me.ProviderModel())
 	}
 
-	llmClient := llm.NewAnthropicClient()
+	llmClient := llm.NewClient(me.Provider, me.BaseURL)
 	store := session.NewStore(sessionDir)
 	toolRegistry := tools.New(workspaceDir, filepath.Dir(workspaceDir), agentID)
 	if h.pool != nil {
