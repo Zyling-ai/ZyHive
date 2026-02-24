@@ -5,6 +5,7 @@ package llm
 import (
 	"context"
 	"encoding/json"
+	"strings"
 )
 
 // ---- Request types --------------------------------------------------------
@@ -98,4 +99,17 @@ type Client interface {
 	// Stream sends a request and returns a channel of events.
 	// The channel is closed when the response is complete or an error occurs.
 	Stream(ctx context.Context, req *ChatRequest) (<-chan StreamEvent, error)
+}
+
+// NewClient returns the appropriate Client for the given provider.
+// provider: "anthropic" | "openai" | "deepseek" | "openrouter" | "qwen" | "custom" | ...
+// baseURL: custom API base URL; empty = provider default
+func NewClient(provider, baseURL string) Client {
+	switch strings.ToLower(provider) {
+	case "anthropic":
+		return NewAnthropicClient()
+	default:
+		// DeepSeek, OpenAI, OpenRouter, Qwen, custom — all OpenAI-compatible
+		return NewOpenAIClient(provider, baseURL)
+	}
 }
