@@ -107,6 +107,17 @@ func (p *Pool) buildProjectContext(agentID string) string {
 
 // resolveModel finds the model entry for an agent, falling back to default.
 func (p *Pool) resolveModel(ag *Agent) (*config.ModelEntry, error) {
+	// 系统 config agent 始终跟随当前默认模型，避免创建后模型不更新
+	if ag.System && ag.ID == "__config__" {
+		if m := p.cfg.DefaultModel(); m != nil {
+			return m, nil
+		}
+		if len(p.cfg.Models) > 0 {
+			return &p.cfg.Models[0], nil
+		}
+		return nil, fmt.Errorf("no model configured")
+	}
+
 	// Agent may store a modelId reference
 	if ag.ModelID != "" {
 		if m := p.cfg.FindModel(ag.ModelID); m != nil {

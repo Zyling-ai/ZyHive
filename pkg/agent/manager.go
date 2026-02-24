@@ -509,19 +509,30 @@ func (m *Manager) GetAllowFrom(agentID, channelID string) []int64 {
 	return nil
 }
 
-// EnsureSystemConfigAgent creates the built-in configuration assistant if it doesn't exist.
-// It uses the first available model in cfg as the LLM backend.
+// EnsureSystemConfigAgent creates or updates the built-in configuration assistant.
+// It always syncs to the current default model so the config agent stays up to date.
 func (m *Manager) EnsureSystemConfigAgent(cfg *config.Config) error {
-	if _, exists := m.Get(SystemConfigAgentID); exists {
-		return nil
-	}
-
-	// Resolve model: use first available model
+	// Resolve model: prefer default, fall back to first
 	modelID := ""
 	model := ""
-	if len(cfg.Models) > 0 {
+	if dm := cfg.DefaultModel(); dm != nil {
+		modelID = dm.ID
+		model = dm.ProviderModel()
+	} else if len(cfg.Models) > 0 {
 		modelID = cfg.Models[0].ID
 		model = cfg.Models[0].ProviderModel()
+	}
+
+	// If already exists, sync model to current default and return
+	if existing, exists := m.Get(SystemConfigAgentID); exists {
+		if existing.ModelID != modelID || existing.Model != model {
+			_ = m.UpdateAgent(SystemConfigAgentID, UpdateOpts{
+				Model:   &model,
+				ModelID: &modelID,
+			})
+			log.Printf("[manager] synced system config agent model → %s", model)
+		}
+		return nil
 	}
 
 	a, err := m.CreateWithOpts(CreateOpts{
