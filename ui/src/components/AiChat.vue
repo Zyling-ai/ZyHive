@@ -45,8 +45,20 @@
         <div class="history-loading-text">加载历史对话…</div>
       </div>
 
+      <!-- 未配置模型时的引导空态 -->
+      <div v-if="!messages.length && !historyLoading && props.noModel" class="no-model-onboard">
+        <div class="no-model-onboard-icon">🔑</div>
+        <div class="no-model-onboard-title">还没有配置 AI 模型</div>
+        <div class="no-model-onboard-desc">
+          需要先添加一个 AI 模型（如 Claude、DeepSeek、GPT-4 等）并填写 API Key，才能开始对话。
+        </div>
+        <router-link to="/config/models" class="no-model-onboard-btn">
+          前往配置模型 →
+        </router-link>
+      </div>
+
       <!-- 欢迎语 / 空状态 -->
-      <div v-if="!messages.length && !historyLoading" class="chat-empty">
+      <div v-else-if="!messages.length && !historyLoading" class="chat-empty">
         <div v-if="welcomeMessage" class="welcome-msg">{{ welcomeMessage }}</div>
         <div v-if="examples.length" class="examples">
           <div v-for="(ex, i) in examples" :key="i"
@@ -303,8 +315,8 @@
           <textarea
             ref="inputRef"
             v-model="inputText"
-            :placeholder="placeholder || '输入消息… 支持拖拽图片或文件 (Ctrl+Enter 发送)'"
-            :disabled="streaming || historyLoading"
+            :placeholder="props.noModel ? '请先配置 AI 模型才能开始对话…' : (placeholder || '输入消息… 支持拖拽图片或文件 (Ctrl+Enter 发送)')"
+            :disabled="streaming || historyLoading || props.noModel"
             rows="1"
             class="chat-textarea"
             @keydown.enter.ctrl.prevent="send"
@@ -320,7 +332,7 @@
             <input type="file" multiple hidden @change="handleFileSelect" />
           </label>
           <!-- 发送 -->
-          <button class="send-btn" :disabled="streaming || historyLoading || (!inputText.trim() && !pendingImages.length && !pendingFiles.length)"
+          <button class="send-btn" :disabled="streaming || historyLoading || props.noModel || (!inputText.trim() && !pendingImages.length && !pendingFiles.length)"
             @click="send">
             <span v-if="streaming" class="spinner" />
             <span v-else>↑</span>
@@ -366,6 +378,8 @@ interface Props {
   initialMessages?: ChatMsg[]
   /** 是否允许在 apply card 上显示「应用」按钮 */
   applyable?: boolean
+  /** 未配置模型时传 true，显示引导并禁用输入 */
+  noModel?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -1508,6 +1522,43 @@ onMounted(() => {
   transition: background .2s;
 }
 .no-model-btn:hover { background: #337ecc; }
+
+/* ── 未配置模型引导（空态全屏） ── */
+.no-model-onboard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex: 1;
+  padding: 40px 24px;
+  text-align: center;
+}
+.no-model-onboard-icon { font-size: 48px; line-height: 1; }
+.no-model-onboard-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #303133;
+}
+.no-model-onboard-desc {
+  font-size: 14px;
+  color: #606266;
+  line-height: 1.7;
+  max-width: 340px;
+}
+.no-model-onboard-btn {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 10px 24px;
+  background: #409eff;
+  color: #fff;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background .2s;
+}
+.no-model-onboard-btn:hover { background: #337ecc; }
 
 /* narrow containers → full width */
 @container (max-width: 480px) {
