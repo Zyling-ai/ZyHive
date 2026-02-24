@@ -15,6 +15,52 @@ set -e
 INSTALL_BASE="https://install.zyling.ai"
 
 # ══════════════════════════════════════════════════════════════════════════
+# 依赖检查：自动安装 curl（若缺失则尝试 apt/yum/apk/brew）
+# ══════════════════════════════════════════════════════════════════════════
+_ensure_curl() {
+  if command -v curl &>/dev/null; then return 0; fi
+  echo "  ⚙  未检测到 curl，尝试自动安装..."
+  if command -v apt-get &>/dev/null; then
+    sudo apt-get install -y -q curl
+  elif command -v apt &>/dev/null; then
+    sudo apt install -y -q curl
+  elif command -v yum &>/dev/null; then
+    sudo yum install -y -q curl
+  elif command -v dnf &>/dev/null; then
+    sudo dnf install -y -q curl
+  elif command -v apk &>/dev/null; then
+    sudo apk add --no-cache -q curl
+  elif command -v brew &>/dev/null; then
+    brew install curl
+  else
+    echo "❌ 未找到 curl 且无法自动安装，请手动安装后重试："
+    echo "   Ubuntu/Debian:  sudo apt-get install -y curl"
+    echo "   CentOS/RHEL:    sudo yum install -y curl"
+    echo "   Alpine:         sudo apk add curl"
+    exit 1
+  fi
+  command -v curl &>/dev/null || { echo "❌ curl 安装失败，请手动安装"; exit 1; }
+  echo "  ✅ curl 安装完成"
+}
+_ensure_curl
+
+# 下载辅助函数：优先 curl，回退 wget
+_dl() {
+  local url="$1" dest="$2" max="${3:-120}"
+  if command -v curl &>/dev/null; then
+    curl -fsSL --max-time "$max" "$url" ${dest:+-o "$dest"}
+  elif command -v wget &>/dev/null; then
+    if [ -n "$dest" ]; then
+      wget -q --timeout="$max" -O "$dest" "$url"
+    else
+      wget -qO- --timeout="$max" "$url"
+    fi
+  else
+    echo "❌ 未找到 curl 或 wget"; exit 1
+  fi
+}
+
+# ══════════════════════════════════════════════════════════════════════════
 # Windows 环境检测（Git Bash / MSYS2 / Cygwin）
 # 在这些环境里 uname -s 返回 MINGW64_NT / MSYS_NT / CYGWIN_NT 等
 # 直接把控制权交给系统 PowerShell，避免路径和权限问题
@@ -144,12 +190,11 @@ echo ""
 
 # ── 获取最新版本号 ─────────────────────────────────────────────────────────
 info "查询最新版本…"
-LATEST=$(curl -fsSL --max-time 8 "$INSTALL_BASE/latest" 2>/dev/null \
+LATEST=$(_dl "$INSTALL_BASE/latest" "" 8 2>/dev/null \
   | grep -o '"version":"[^"]*"' | sed 's/"version":"//;s/"//g')
 if [ -z "$LATEST" ]; then
   info "CF 镜像不可用，回退到 GitHub API…"
-  LATEST=$(curl -fsSL --max-time 10 \
-    "https://api.github.com/repos/Zyling-ai/zyhive/releases/latest" \
+  LATEST=$(_dl "https://api.github.com/repos/Zyling-ai/zyhive/releases/latest" "" 10 \
     | grep '"tag_name"' | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')
 fi
 [ -z "$LATEST" ] && error "无法获取最新版本，请检查网络连接。"
@@ -161,9 +206,9 @@ BINARY_URL_FALLBACK="https://github.com/Zyling-ai/zyhive/releases/download/$LATE
 
 info "下载 $BINARY_NAME $LATEST ($OS/$ARCH)…"
 TMP_BIN=$(mktemp)
-if ! curl -fsSL --max-time 120 "$BINARY_URL" -o "$TMP_BIN" 2>/dev/null; then
+if ! _dl "$BINARY_URL" "$TMP_BIN" 120 2>/dev/null; then
   info "CF 镜像下载失败，回退到 GitHub…"
-  curl -fsSL --max-time 120 "$BINARY_URL_FALLBACK" -o "$TMP_BIN" \
+  _dl "$BINARY_URL_FALLBACK" "$TMP_BIN" 120 \
     || { rm -f "$TMP_BIN"; error "下载失败。\n  CF: $BINARY_URL\n  GitHub: $BINARY_URL_FALLBACK"; }
 fi
 
@@ -405,7 +450,7 @@ if [ "$OS" = "linux" ]; then
 else
   LOCAL_IP=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || true)
 fi
-PUBLIC_IP=$(curl -fsSL --max-time 5 https://api.ipify.org 2>/dev/null || true)
+PUBLIC_IP=$(_dl "https://api.ipify.org" "" 5 2>/dev/null || true)
 
 # 停止 sudo 保活进程
 [ -n "$SUDO_KEEPALIVE_PID" ] && kill "$SUDO_KEEPALIVE_PID" 2>/dev/null || true
