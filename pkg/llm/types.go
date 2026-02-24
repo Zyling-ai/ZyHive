@@ -101,15 +101,28 @@ type Client interface {
 	Stream(ctx context.Context, req *ChatRequest) (<-chan StreamEvent, error)
 }
 
-// NewClient returns the appropriate Client for the given provider.
-// provider: "anthropic" | "openai" | "deepseek" | "openrouter" | "qwen" | "custom" | ...
-// baseURL: custom API base URL; empty = provider default
+// NewClient 根据 provider 返回对应的专用客户端。
+// baseURL 为空时使用各 provider 默认地址。
 func NewClient(provider, baseURL string) Client {
 	switch strings.ToLower(provider) {
 	case "anthropic":
 		return NewAnthropicClient()
+	case "openai":
+		return NewOpenAIClient(baseURL)
+	case "deepseek":
+		return NewDeepSeekClient(baseURL)
+	case "moonshot", "kimi":
+		return NewMoonshotClient(baseURL)
+	case "zhipu", "glm":
+		return NewZhipuClient(baseURL)
+	case "minimax":
+		return NewMinimaxClient(baseURL)
+	case "qwen", "dashscope":
+		return NewQwenClient(baseURL)
+	case "openrouter":
+		return NewOpenRouterClient(baseURL)
 	default:
-		// DeepSeek, OpenAI, OpenRouter, Qwen, custom — all OpenAI-compatible
-		return NewOpenAIClient(provider, baseURL)
+		// 自定义或未知 provider → 通用 OpenAI-compatible 客户端
+		return NewCustomClient(baseURL)
 	}
 }
