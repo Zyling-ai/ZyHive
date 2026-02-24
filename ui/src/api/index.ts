@@ -625,4 +625,80 @@ export const tasks = {
     api.get<EligibleTarget[]>('/tasks/eligible', { params: { from, mode } }),
 }
 
+// ── Goals & Planning ──────────────────────────────────────────────────────────
+
+export interface Milestone {
+  id: string
+  title: string
+  dueAt: string  // ISO 8601
+  done: boolean
+  agentIds?: string[]
+}
+
+export interface GoalCheck {
+  id: string
+  goalId: string
+  name: string
+  schedule: string
+  tz?: string
+  agentId: string
+  prompt: string
+  cronJobId: string
+  enabled: boolean
+  createdAt: string
+}
+
+export interface CheckRecord {
+  id: string
+  goalId: string
+  checkId: string
+  agentId: string
+  runAt: string
+  output: string
+  status: 'ok' | 'error'
+}
+
+export interface GoalInfo {
+  id: string
+  title: string
+  description?: string
+  type: 'personal' | 'team'
+  agentIds: string[]
+  status: 'draft' | 'active' | 'completed' | 'cancelled'
+  progress: number
+  startAt: string
+  endAt: string
+  startCronId?: string
+  endCronId?: string
+  milestones: Milestone[]
+  checks: GoalCheck[]
+  createdAt: string
+  updatedAt: string
+}
+
+export const goalsApi = {
+  list: (agentId?: string) =>
+    api.get<GoalInfo[]>('/goals', { params: agentId ? { agentId } : undefined }),
+  create: (data: Partial<GoalInfo>) => api.post<GoalInfo>('/goals', data),
+  get: (id: string) => api.get<GoalInfo>(`/goals/${id}`),
+  update: (id: string, data: Partial<GoalInfo>) => api.patch(`/goals/${id}`, data),
+  delete: (id: string) => api.delete(`/goals/${id}`),
+  updateProgress: (id: string, progress: number) =>
+    api.patch(`/goals/${id}/progress`, { progress }),
+  setMilestoneDone: (goalId: string, milestoneId: string, done: boolean) =>
+    api.patch(`/goals/${goalId}/milestones/${milestoneId}`, { done }),
+  // Checks
+  listChecks: (goalId: string) => api.get<GoalCheck[]>(`/goals/${goalId}/checks`),
+  addCheck: (goalId: string, data: Partial<GoalCheck>) =>
+    api.post<GoalCheck>(`/goals/${goalId}/checks`, data),
+  updateCheck: (goalId: string, checkId: string, data: Partial<GoalCheck>) =>
+    api.patch(`/goals/${goalId}/checks/${checkId}`, data),
+  removeCheck: (goalId: string, checkId: string) =>
+    api.delete(`/goals/${goalId}/checks/${checkId}`),
+  runCheck: (goalId: string, checkId: string) =>
+    api.post(`/goals/${goalId}/checks/${checkId}/run`),
+  listCheckRecords: (goalId: string) =>
+    api.get<CheckRecord[]>(`/goals/${goalId}/check-records`),
+}
+
 export default api

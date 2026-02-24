@@ -18,6 +18,7 @@ import (
 	"github.com/Zyling-ai/zyhive/pkg/channel"
 	"github.com/Zyling-ai/zyhive/pkg/config"
 	"github.com/Zyling-ai/zyhive/pkg/cron"
+	"github.com/Zyling-ai/zyhive/pkg/goal"
 	"github.com/Zyling-ai/zyhive/pkg/project"
 	"github.com/Zyling-ai/zyhive/pkg/session"
 	"github.com/Zyling-ai/zyhive/pkg/subagent"
@@ -200,6 +201,31 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager, pool 
 		cronGroup.DELETE("/:jobId", cronH.Delete)
 		cronGroup.POST("/:jobId/run", cronH.Run)
 		cronGroup.GET("/:jobId/runs", cronH.Runs)
+	}
+
+	// Goals & Planning
+	goalDataDir := "cron" // same directory as cron, goals.json lives alongside jobs.json
+	goalMgr := goal.NewManager(goalDataDir, cronEngine)
+	if err := goalMgr.Load(); err != nil {
+		log.Printf("Warning: failed to load goals: %v", err)
+	}
+	goalH := &goalHandler{mgr: goalMgr}
+	goalsGroup := v1.Group("/goals")
+	{
+		goalsGroup.GET("", goalH.List)
+		goalsGroup.POST("", goalH.Create)
+		goalsGroup.GET("/:id", goalH.Get)
+		goalsGroup.PATCH("/:id", goalH.Update)
+		goalsGroup.DELETE("/:id", goalH.Delete)
+		goalsGroup.PATCH("/:id/progress", goalH.UpdateProgress)
+		goalsGroup.PATCH("/:id/milestones/:mid", goalH.SetMilestoneDone)
+		// Checks
+		goalsGroup.GET("/:id/checks", goalH.ListChecks)
+		goalsGroup.POST("/:id/checks", goalH.AddCheck)
+		goalsGroup.PATCH("/:id/checks/:checkId", goalH.UpdateCheck)
+		goalsGroup.DELETE("/:id/checks/:checkId", goalH.RemoveCheck)
+		goalsGroup.POST("/:id/checks/:checkId/run", goalH.RunCheckNow)
+		goalsGroup.GET("/:id/check-records", goalH.ListCheckRecords)
 	}
 
 	// Config (legacy)
