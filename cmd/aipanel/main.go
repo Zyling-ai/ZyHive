@@ -263,7 +263,7 @@ func main() {
 			return bot.Notify(ctx, chatID, threadID, prompt)
 		},
 	}
-	api.RegisterRoutes(r, cfg, mgr, pool, cronEngine, uiFS, runnerFunc, botCtrl, projectMgr, subagentMgr, workerPool)
+	api.RegisterRoutes(r, cfg, *configPath, mgr, pool, cronEngine, uiFS, runnerFunc, botCtrl, projectMgr, subagentMgr, workerPool)
 
 	// Print access URLs
 	port := cfg.Gateway.Port

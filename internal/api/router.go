@@ -24,7 +24,9 @@ import (
 	"github.com/Zyling-ai/zyhive/pkg/subagent"
 )
 
-const configFilePath = "aipanel.json"
+// configFilePath is the active config file path; set at startup from --config flag.
+// All API writes go to this file so config changes survive restarts.
+var configFilePath = "aipanel.json"
 
 // AppVersion is set at startup from main.Version (injected via ldflags).
 // Default "dev" is used when running without a proper build.
@@ -40,7 +42,9 @@ type BotControl struct {
 }
 
 // RegisterRoutes mounts all API handlers onto the Gin engine.
-func RegisterRoutes(r *gin.Engine, cfg *config.Config, mgr *agent.Manager, pool *agent.Pool, cronEngine *cron.Engine, uiFS fs.FS, runnerFunc channel.RunnerFunc, botCtrl BotControl, projectMgr *project.Manager, subagentMgr *subagent.Manager, workerPool *session.WorkerPool) {
+// cfgPath is the active config file path (--config flag value); all writes go there.
+func RegisterRoutes(r *gin.Engine, cfg *config.Config, cfgPath string, mgr *agent.Manager, pool *agent.Pool, cronEngine *cron.Engine, uiFS fs.FS, runnerFunc channel.RunnerFunc, botCtrl BotControl, projectMgr *project.Manager, subagentMgr *subagent.Manager, workerPool *session.WorkerPool) {
+	configFilePath = cfgPath // wire the active config path for all API handlers
 	rf := runnerFunc
 	r.Use(corsMiddleware())
 	r.Use(requestLogger())
