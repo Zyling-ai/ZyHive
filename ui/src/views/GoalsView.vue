@@ -90,7 +90,7 @@
           <p>暂无目标，点击新建开始规划</p>
         </div>
 
-        <div v-else class="gantt-container">
+        <div v-else class="gantt-wrap">
           <!-- 月份标签行 -->
           <div class="gantt-header">
             <div class="gantt-label-col"></div>
@@ -100,52 +100,50 @@
                   {{ m.label }}
                 </div>
               </div>
-              <div class="gantt-grid-lines">
-                <div v-for="m in monthLabels" :key="'l-' + m.label" class="gantt-grid-line" :style="{ left: m.left }" />
-              </div>
             </div>
           </div>
-          <!-- 今日线 -->
-          <div style="position:relative;height:0;display:flex">
-            <div class="gantt-label-col"></div>
-            <div class="gantt-timeline-col" style="position:relative">
-              <div v-if="todayLeft !== null" class="gantt-today-line" :style="{ left: todayLeft }" />
-            </div>
-          </div>
-          <!-- 目标行 -->
-          <div v-for="g in filteredGoals" :key="g.id" class="gantt-row" @click="selectGoal(g)">
-            <div class="gantt-label-col">
-              <div class="gantt-label-inner">
-                <div class="gantt-agent-avatars">
-                  <div
-                    v-for="id in (g.agentIds || []).slice(0, 2)" :key="id"
-                    class="gantt-avatar" :style="{ background: agentColorMap[id] || '#409eff' }"
-                  >{{ (agentNameMap[id] || id).slice(0, 1) }}</div>
-                </div>
-                <span class="gantt-goal-name">{{ g.title }}</span>
-                <el-tag :type="statusTagType(g.status)" size="small" effect="plain" style="margin-left:4px;font-size:10px">
-                  {{ g.progress }}%
-                </el-tag>
+          <!-- 目标行区域（含网格线+今日线覆盖） -->
+          <div class="gantt-body">
+            <!-- 网格+今日线覆盖层（绝对定位，不遮点击） -->
+            <div class="gantt-overlay" aria-hidden="true">
+              <div class="gantt-label-col" />
+              <div class="gantt-timeline-col" style="position:relative">
+                <div v-for="m in monthLabels" :key="'gv-' + m.label" class="gantt-grid-line" :style="{ left: m.left }" />
+                <div v-if="todayLeft !== null" class="gantt-today-line" :style="{ left: todayLeft }" />
               </div>
             </div>
-            <div class="gantt-timeline-col">
-              <template v-if="isValidBar(g)">
-                <div class="gantt-bar" :style="ganttBarStyle(g)">
-                  <div class="gantt-bar-progress" :style="{ width: g.progress + '%' }" />
-                  <span v-if="calcBarWidth(g) > 8" class="gantt-bar-label">{{ g.title }}</span>
+            <!-- 目标行 -->
+            <div v-for="g in filteredGoals" :key="g.id" class="gantt-row" @click="selectGoal(g)">
+              <div class="gantt-label-col">
+                <div class="gantt-label-inner">
+                  <div class="gantt-agent-avatars">
+                    <div
+                      v-for="id in (g.agentIds || []).slice(0, 2)" :key="id"
+                      class="gantt-avatar" :style="{ background: agentColorMap[id] || '#409eff' }"
+                    >{{ (agentNameMap[id] || id).slice(0, 1) }}</div>
+                  </div>
+                  <span class="gantt-goal-name">{{ g.title }}</span>
+                  <span class="gantt-pct" :class="'s-' + g.status">{{ g.progress }}%</span>
                 </div>
-                <!-- 里程碑菱形 -->
-                <div v-for="ms in g.milestones" :key="ms.id">
-                  <div
-                    v-if="isValidDate(ms.dueAt)"
-                    class="gantt-milestone"
-                    :class="{ done: ms.done }"
-                    :style="{ left: milestoneLeft(ms) }"
-                    :title="ms.title"
-                  />
-                </div>
-              </template>
-              <div v-else class="gantt-no-date">未设置时间范围</div>
+              </div>
+              <div class="gantt-timeline-col">
+                <template v-if="isValidBar(g)">
+                  <div class="gantt-bar" :style="ganttBarStyle(g)">
+                    <div class="gantt-bar-progress" :style="{ width: g.progress + '%' }" />
+                    <span v-if="calcBarWidth(g) > 8" class="gantt-bar-label">{{ g.title }}</span>
+                  </div>
+                  <template v-for="ms in (g.milestones || [])" :key="ms.id">
+                    <div
+                      v-if="isValidDate(ms.dueAt)"
+                      class="gantt-milestone"
+                      :class="{ done: ms.done }"
+                      :style="{ left: milestoneLeft(ms) }"
+                      :title="ms.title"
+                    />
+                  </template>
+                </template>
+                <div v-else class="gantt-no-date">未设置时间范围</div>
+              </div>
             </div>
           </div>
         </div>
@@ -399,11 +397,16 @@
       <div class="chat-wrap">
         <AiChat
           v-if="selectedChatAgentId"
-          :key="selectedChatAgentId"
+          :key="goalChatSessionId"
           :agent-id="selectedChatAgentId"
+          :session-id="goalChatSessionId"
           :context="goalChatContext"
-          welcome-message="你好！我可以帮你创建和管理目标。比如：「帮我创建一个Q2增长目标，让引引负责，3月到6月，每周检查一次」"
-          :examples="['帮我创建一个团队目标：Q2用户增长，3月1日到6月30日', '给当前目标添加3个里程碑', '设置每周一检查进度']"
+          :welcome-message="selectedGoal
+            ? `正在查看目标「${selectedGoal.title}」，我可以帮你修改目标信息、添加里程碑或设置定期检查。`
+            : '你好！我可以帮你创建目标，说一下需求即可，我会自动填写表单。'"
+          :examples="selectedGoal
+            ? ['帮我把进度更新到 60%', '添加3个里程碑', '每周一检查这个目标']
+            : ['帮我创建一个团队目标：Q2用户增长，3月1日到6月30日', '个人目标：学习 Go 语言，本月完成']"
           height="100%"
           @response="onAiResponse"
         />
@@ -579,20 +582,30 @@ const todayLeft   = computed(() => {
 const goalChatContext = computed(() => {
   const token = localStorage.getItem('aipanel_token') || 'TOKEN'
   const base  = `${window.location.protocol}//${window.location.host}`
-  const agentCtx = agentList.value.map(a => `- ${a.id}: ${a.name}${a.system ? ' (系统)' : ''}`).join('\n')
+  const agentCtx = agentList.value.map(a => `- ${a.id}: ${a.name}`).join('\n')
+  const currentGoalCtx = selectedGoal.value
+    ? `\n### 当前选中目标\nID: ${selectedGoal.value.id}\n标题: ${selectedGoal.value.title}\n状态: ${selectedGoal.value.status}\n进度: ${selectedGoal.value.progress}%\n开始: ${selectedGoal.value.startAt || '未设置'}\n结束: ${selectedGoal.value.endAt || '未设置'}`
+    : ''
+
   return `## 目标规划助手
 
-你是团队的目标规划助手，可通过 API 帮用户创建和管理目标。
+你是团队的目标规划助手。
 
-**创建目标：**
-\`\`\`bash
-curl -s -X POST ${base}/api/goals -H "Authorization: Bearer ${token}" -H "Content-Type: application/json" -d '{"title":"目标名","type":"team","agentIds":["agentId"],"startAt":"2026-03-01T00:00:00Z","endAt":"2026-06-30T00:00:00Z","status":"active"}'
+### 🎯 核心能力：填写表单（优先使用）
+
+当用户描述目标信息时，**直接输出 JSON 填充表单**，格式如下：
+
+\`\`\`json
+{"action":"fill_goal","data":{"title":"目标标题","description":"描述（可选）","type":"team","agentIds":["agentId1"],"status":"active","startAt":"2026-03-01T00:00:00Z","endAt":"2026-06-30T00:00:00Z","progress":0,"milestones":[{"title":"里程碑1","dueAt":"2026-04-01T00:00:00Z","done":false}]}}
 \`\`\`
 
-**列出目标：**
-\`\`\`bash
-curl -s ${base}/api/goals -H "Authorization: Bearer ${token}"
-\`\`\`
+- type: "personal"（个人）或 "team"（团队）
+- status: "draft" / "active" / "completed" / "cancelled"
+- agentIds: 参与成员的 ID 列表
+- 时间格式：ISO 8601（如 "2026-03-01T00:00:00Z"）
+- 输出 JSON 后，页面会自动填充表单，用户确认后保存
+
+### API 操作（如需直接更新已有目标）
 
 **更新进度：**
 \`\`\`bash
@@ -606,8 +619,12 @@ curl -s -X POST ${base}/api/goals/{id}/checks -H "Authorization: Bearer ${token}
 
 ### 当前团队成员
 ${agentCtx}
+${currentGoalCtx}
 
-创建完成后告诉用户「目标已创建，页面会自动刷新」。`.trim()
+**工作流程：**
+1. 用户描述目标 → 你输出 fill_goal JSON → 页面自动填表
+2. 用户确认内容后自行点击「创建」或「保存」按钮
+3. 如需更新已存在目标的进度/检查，使用 API 操作`.trim()
 })
 
 // ── 生命周期 ─────────────────────────────────────────────────────────────
@@ -696,12 +713,16 @@ async function saveGoal() {
     if (selectedGoal.value) {
       await goalsApi.update(selectedGoal.value.id, payload)
       ElMessage.success('保存成功')
+      await loadGoals()
     } else {
-      await goalsApi.create(payload)
+      const res = await goalsApi.create(payload)
       ElMessage.success('创建成功')
       creating.value = false
+      await loadGoals()
+      // 自动选中刚创建的目标
+      const newGoal = goals.value.find(g => g.id === res.data.id) || res.data
+      selectGoal(newGoal)
     }
-    await loadGoals()
   } catch (e: any) {
     ElMessage.error(e.response?.data?.error || '操作失败')
   } finally {
@@ -783,8 +804,64 @@ async function removeCheck(check: GoalCheck) {
   } catch (e: any) { if (e !== 'cancel') ElMessage.error('删除失败') }
 }
 
-function onAiResponse() {
+// 每个目标独立的对话 session（切换目标自动切换历史）
+const goalChatSessionId = computed(() => {
+  if (!selectedChatAgentId.value) return ''
+  if (selectedGoal.value) return `goal-${selectedGoal.value.id}-${selectedChatAgentId.value}`
+  return `goals-new-${selectedChatAgentId.value}`
+})
+
+// AI 输出 JSON 后自动填充表单
+function onAiResponse(text: string) {
+  // 刷新目标列表
   setTimeout(() => loadGoals(), 2000)
+  // 尝试解析 JSON fill 指令
+  // 支持两种格式：
+  //   {"action":"fill_goal","data":{...}}
+  //   ```json\n{"action":"fill_goal",...}\n```
+  const tryFill = (jsonStr: string) => {
+    try {
+      const obj = JSON.parse(jsonStr)
+      if (obj.action === 'fill_goal' && obj.data) {
+        applyFormFill(obj.data)
+        return true
+      }
+    } catch {}
+    return false
+  }
+
+  // 先尝试代码块内
+  const codeBlock = text.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/)
+  if (codeBlock?.[1] && tryFill(codeBlock[1])) return
+
+  // 再尝试裸 JSON
+  const bare = text.match(/(\{"action"\s*:\s*"fill_goal"[\s\S]*?\})/)
+  if (bare?.[1] && tryFill(bare[1])) return
+}
+
+function applyFormFill(data: any) {
+  if (!creating.value && !selectedGoal.value) {
+    // 先进入新建状态
+    openCreate()
+  }
+  if (data.title)       form.title       = data.title
+  if (data.description) form.description = data.description
+  if (data.type)        form.type        = data.type as any
+  if (data.status)      form.status      = data.status as any
+  if (typeof data.progress === 'number') form.progress = data.progress
+  if (data.agentIds && Array.isArray(data.agentIds)) form.agentIds = data.agentIds
+  if (data.startAt)     form.startAt     = data.startAt
+  if (data.endAt)       form.endAt       = data.endAt
+  if (data.milestones && Array.isArray(data.milestones)) {
+    form.milestones = data.milestones.map((m: any) => ({
+      id: m.id || 'ms-' + Math.random().toString(36).slice(2, 10),
+      title: m.title || '',
+      dueAt: m.dueAt || '',
+      done: !!m.done,
+      agentIds: m.agentIds || [],
+    }))
+  }
+  ElMessage.success('AI 已填写表单，确认后点击保存')
 }
 
 // ── 甘特图辅助 ────────────────────────────────────────────────────────────
@@ -1142,11 +1219,37 @@ function formatDateTime(val?: string) {
   font-size: 13px;
 }
 
-.gantt-container {
+/* gantt-wrap：可滚动区域 */
+.gantt-wrap {
   flex: 1;
   overflow: auto;
-  padding: 8px 12px;
-  min-width: 500px;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* gantt-body：行容器，相对定位供覆盖层使用 */
+.gantt-body {
+  position: relative;
+  flex: 1;
+}
+
+/* 网格线+今日线覆盖层：绝对铺满 gantt-body，pointer-events:none 不挡点击 */
+.gantt-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  pointer-events: none;
+  z-index: 0;
+}
+.gantt-overlay .gantt-label-col {
+  border: none;
+  background: transparent;
+}
+.gantt-overlay .gantt-timeline-col {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
 }
 
 .gantt-header {
@@ -1173,13 +1276,12 @@ function formatDateTime(val?: string) {
   transform: translateX(-50%);
   white-space: nowrap;
 }
-.gantt-grid-lines { position: absolute; inset: 0; }
 .gantt-grid-line {
   position: absolute;
   top: 0;
   bottom: 0;
   width: 1px;
-  background: rgba(0,0,0,0.06);
+  background: rgba(0,0,0,0.07);
 }
 .gantt-today-line {
   position: absolute;
@@ -1193,13 +1295,38 @@ function formatDateTime(val?: string) {
 
 .gantt-row {
   display: flex;
-  align-items: center;
-  height: 40px;
-  border-bottom: 1px solid #f5f5f5;
+  align-items: stretch;
+  height: 44px;
+  border-bottom: 1px solid #f0f0f0;
   cursor: pointer;
-  transition: background 0.1s;
+  transition: background 0.15s;
+  position: relative;
+  z-index: 1;
 }
-.gantt-row:hover { background: #f5f7fa; }
+.gantt-row:hover { background: rgba(64,158,255,0.04); }
+.gantt-row .gantt-label-col {
+  display: flex;
+  align-items: center;
+}
+.gantt-row .gantt-timeline-col {
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* 进度百分比标签 */
+.gantt-pct {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 8px;
+  flex-shrink: 0;
+  margin-left: 3px;
+}
+.gantt-pct.s-active    { background: #ecf5ff; color: #409eff; }
+.gantt-pct.s-completed { background: #f0f9eb; color: #67c23a; }
+.gantt-pct.s-draft     { background: #f4f4f5; color: #909399; }
+.gantt-pct.s-cancelled { background: #fef0f0; color: #f56c6c; }
 
 .gantt-label-inner {
   display: flex;
@@ -1230,33 +1357,39 @@ function formatDateTime(val?: string) {
 
 .gantt-bar {
   position: absolute;
-  height: 22px;
-  border-radius: 4px;
+  height: 24px;
+  border-radius: 6px;
   top: 50%;
   transform: translateY(-50%);
   overflow: hidden;
-  min-width: 4px;
-  opacity: 0.85;
-  transition: opacity 0.15s;
+  min-width: 6px;
+  opacity: 0.9;
+  transition: opacity 0.15s, box-shadow 0.15s;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.12);
 }
-.gantt-bar:hover { opacity: 1; }
+.gantt-bar:hover {
+  opacity: 1;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+}
 .gantt-bar-progress {
   height: 100%;
-  background: rgba(255,255,255,0.3);
-  border-radius: 4px;
+  background: rgba(255,255,255,0.25);
+  border-radius: 6px;
   transition: width 0.4s;
 }
 .gantt-bar-label {
   position: absolute;
-  left: 6px;
+  left: 8px;
   top: 50%;
   transform: translateY(-50%);
   font-size: 11px;
   color: #fff;
+  font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: calc(100% - 12px);
+  max-width: calc(100% - 16px);
+  text-shadow: 0 1px 2px rgba(0,0,0,0.3);
 }
 .gantt-milestone {
   position: absolute;
