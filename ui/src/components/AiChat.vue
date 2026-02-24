@@ -16,6 +16,13 @@
       </div>
     </Transition>
 
+    <!-- ── 派遣面板（子成员实时汇报）── -->
+    <DispatchPanel
+      v-if="currentSessionId"
+      :session-id="currentSessionId"
+      ref="dispatchPanelRef"
+    />
+
     <!-- ── 消息列表 ── -->
     <!-- 后台任务运行中 banner -->
     <div v-if="runningTaskCount > 0" class="running-tasks-banner">
@@ -330,6 +337,7 @@
 <script setup lang="ts">
 import { ref, computed, reactive, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { chatSSE, resumeSSE, getSessionStatus, sessions as sessionsApi, tasks as tasksApi, type ChatParams } from '../api'
+import DispatchPanel from './DispatchPanel.vue'
 
 // ── Props ─────────────────────────────────────────────────────────────────
 interface Props {
@@ -453,6 +461,7 @@ const historyLoading = ref(false)
 
 const msgListRef = ref<HTMLElement>()
 const inputRef = ref<HTMLTextAreaElement>()
+const dispatchPanelRef = ref<InstanceType<typeof DispatchPanel> | null>(null)
 
 // ── Computed ──────────────────────────────────────────────────────────────
 const rootStyle = computed(() => ({
@@ -1093,6 +1102,14 @@ function runChat(text: string, imgs: string[], silent = false) {
         break
       }
 
+      // ── 派遣面板事件：透传给 DispatchPanel ──────────────────────────────────
+      case 'subagent_spawn':
+      case 'subagent_report':
+      case 'subagent_done':
+      case 'subagent_error':
+        dispatchPanelRef.value?.handleEvent(ev)
+        break
+
       case 'done':
       case 'error': {
         // Capture server-side sessionId for subsequent requests
@@ -1310,6 +1327,14 @@ async function reconnectIfGenerating(sessionId: string) {
         scrollBottom()
         break
       }
+
+      // ── 派遣面板事件（reconnect 时）────────────────────────────────────────
+      case 'subagent_spawn':
+      case 'subagent_report':
+      case 'subagent_done':
+      case 'subagent_error':
+        dispatchPanelRef.value?.handleEvent(ev)
+        break
 
       case 'done':
       case 'error': {

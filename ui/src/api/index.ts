@@ -701,4 +701,26 @@ export const goalsApi = {
     api.get<CheckRecord[]>(`/goals/${goalId}/check-records`),
 }
 
+// ── Subagent Events (Dispatch Panel) ─────────────────────────────────────────
+
+export interface SubagentEvent {
+  type: 'spawn' | 'report' | 'done' | 'error'
+  subagentSessionId: string
+  agentId: string
+  agentName: string
+  avatarColor: string
+  content?: string
+  status?: string
+  progress?: number
+  timestamp: number
+}
+
+/**
+ * GET /api/subagent-events?sessionId=xxx
+ * Returns stored subagent lifecycle events for a parent session.
+ * Used by DispatchPanel to restore state after a page reload.
+ */
+export const getSubagentEvents = (sessionId: string) =>
+  api.get<SubagentEvent[]>('/subagent-events', { params: { sessionId } })
+
 export default api

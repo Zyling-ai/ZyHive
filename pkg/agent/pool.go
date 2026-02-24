@@ -30,6 +30,7 @@ type Pool struct {
 	cfg          *config.Config
 	projectMgr   *project.Manager // shared project workspace (may be nil)
 	SubagentMgr  *subagent.Manager // background task manager (set after NewPool)
+	workerPool   *session.WorkerPool // session worker pool for subagent broadcast (may be nil)
 	runners      map[string]*runner.Runner
 	mu           sync.Mutex
 }
@@ -46,6 +47,21 @@ func NewPool(cfg *config.Config, mgr *Manager) *Pool {
 // SetSubagentManager attaches the subagent manager to the pool.
 func (p *Pool) SetSubagentManager(mgr *subagent.Manager) {
 	p.SubagentMgr = mgr
+}
+
+// SetWorkerPool attaches the session worker pool so subagent events can be broadcast
+// to the parent session's SSE subscribers in real time.
+func (p *Pool) SetWorkerPool(wp *session.WorkerPool) {
+	p.workerPool = wp
+	if p.SubagentMgr != nil && wp != nil {
+		p.SubagentMgr.SetBroadcaster(func(sessionID, eventType string, data []byte) {
+			w := wp.Get(sessionID)
+			if w == nil {
+				return
+			}
+			w.Broadcaster.Publish(session.BroadcastEvent{Type: eventType, Data: data})
+		})
+	}
 }
 
 // SetProjectManager attaches the shared project manager so agents can access projects via tools.
@@ -423,7 +439,7 @@ func normalizeVisionContentType(ct, fileName string) string {
 // SubagentRunFunc returns a RunFunc compatible with subagent.Manager.
 // This lets the Pool serve as the execution backend for background tasks.
 func (p *Pool) SubagentRunFunc() subagent.RunFunc {
-	return func(ctx context.Context, agentID, model, sessionID, task string) <-chan subagent.RunEvent {
+	return func(ctx context.Context, agentID, model, sessionID, parentSessionID, task string) <-chan subagent.RunEvent {
 		out := make(chan subagent.RunEvent, 32)
 
 		go func() {
@@ -460,17 +476,30 @@ func (p *Pool) SubagentRunFunc() subagent.RunFunc {
 			toolRegistry := tools.New(ag.WorkspaceDir, filepath.Dir(ag.WorkspaceDir), ag.ID)
 			p.configureToolRegistry(toolRegistry, ag, nil)
 
+			// Wire report_to_parent if this is a subagent with a known parent session
+			if parentSessionID != "" && p.workerPool != nil {
+				broadcastFn := func(sid, evType string, data []byte) {
+					w := p.workerPool.Get(sid)
+					if w == nil {
+						return
+					}
+					w.Broadcaster.Publish(session.BroadcastEvent{Type: evType, Data: data})
+				}
+				toolRegistry.WithParentSession(parentSessionID, broadcastFn)
+			}
+
 			r := runner.New(runner.Config{
-				AgentID:        ag.ID,
-				WorkspaceDir:   ag.WorkspaceDir,
-				Model:          resolvedModel,
-				APIKey:         apiKey,
-				SessionID:      sessionID,
-				LLM:            llmClient,
-				Tools:          toolRegistry,
-				Session:        store,
-				ProjectContext: p.buildProjectContext(ag.ID),
-				AgentEnv:       ag.Env,
+				AgentID:         ag.ID,
+				WorkspaceDir:    ag.WorkspaceDir,
+				Model:           resolvedModel,
+				APIKey:          apiKey,
+				SessionID:       sessionID,
+				ParentSessionID: parentSessionID,
+				LLM:             llmClient,
+				Tools:           toolRegistry,
+				Session:         store,
+				ProjectContext:  p.buildProjectContext(ag.ID),
+				AgentEnv:        ag.Env,
 			})
 
 			for ev := range r.Run(ctx, task) {

@@ -43,6 +43,9 @@ type Config struct {
 	PreloadedHistory []llm.ChatMessage
 	// Optional: per-agent env vars — tells the agent which credentials/env vars are available
 	AgentEnv map[string]string
+	// Optional: parent session ID — when set, the agent is running as a subagent.
+	// Enables the report_to_parent tool and injects task-reporting instructions.
+	ParentSessionID string
 }
 
 // Runner drives a single agent's conversation lifecycle.
@@ -422,6 +425,9 @@ func (r *Runner) run(ctx context.Context, userMsg string, out chan<- RunEvent) e
 		"\n\n## Runtime\nModel: %s | Agent: %s | Workspace: %s",
 		r.cfg.Model, r.cfg.AgentID, r.cfg.WorkspaceDir,
 	)
+	if r.cfg.ParentSessionID != "" {
+		systemPrompt += "\n\n## 任务汇报\n你正在作为子成员执行上级委派的任务。请在完成重要步骤时调用 report_to_parent 工具汇报进展（20-100字，附上进度百分比）。任务全部完成时 status=done, progress=100。"
+	}
 
 	// 3. Agentic loop — call LLM, handle tools, repeat
 	const maxIter = 30

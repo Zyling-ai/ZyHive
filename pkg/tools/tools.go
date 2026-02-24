@@ -500,6 +500,22 @@ func (r *Registry) handleSelfDeleteEnv(_ context.Context, input json.RawMessage)
 	return fmt.Sprintf("✅ 已删除环境变量 %s", p.Key), nil
 }
 
+// ── Report to Parent ─────────────────────────────────────────────────────────
+
+var reportToParentDef = lllm.ToolDef{
+	Name:        "report_to_parent",
+	Description: "向上级汇报当前执行进展。在完成重要步骤、遇到阻碍或任务完成时调用。上级会实时收到汇报内容显示在面板中。",
+	InputSchema: json.RawMessage(`{
+		"type":"object",
+		"properties":{
+			"content":{"type":"string","description":"汇报内容，20-100字"},
+			"progress":{"type":"integer","minimum":0,"maximum":100,"description":"完成进度 0-100"},
+			"status":{"type":"string","enum":["running","blocked","done"],"description":"running/blocked/done"}
+		},
+		"required":["content","status"]
+	}`),
+}
+
 var selfRenameDef = lllm.ToolDef{
 	Name:        "self_rename",
 	Description: "修改当前 Agent 的名字。",

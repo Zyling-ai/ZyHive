@@ -18,6 +18,8 @@ import (
 	"github.com/Zyling-ai/zyhive/pkg/subagent"
 )
 
+
+
 // Handler executes a tool call and returns the result string.
 type Handler func(ctx context.Context, input json.RawMessage) (string, error)
 
@@ -37,6 +39,10 @@ type Registry struct {
 	serverBaseURL string                                         // base URL for generating download links (files > 50 MB)
 	authToken     string                                         // auth token for download link generation
 	envUpdater    func(key, value string, remove bool) error     // optional: lets the agent update its own env vars
+
+	// Dispatch panel: report_to_parent support
+	parentSessionID string                  // non-empty when this agent was spawned by a parent session
+	broadcastFn     subagent.BroadcastFn   // optional: publish subagent events to parent broadcaster
 }
 
 // AgentSummary is the minimal agent info exposed through the agent_list tool.
@@ -154,6 +160,52 @@ func (r *Registry) WithEnvUpdater(updater func(key, value string, remove bool) e
 	r.register(selfDeleteEnvDef, func(ctx context.Context, input json.RawMessage) (string, error) {
 		return r.handleSelfDeleteEnv(ctx, input)
 	})
+}
+
+// WithParentSession registers the report_to_parent tool so a subagent can send
+// live progress updates back to its parent session's DispatchPanel.
+// parentSessionID is the session ID of the spawning agent; fn broadcasts events.
+func (r *Registry) WithParentSession(parentSessionID string, fn subagent.BroadcastFn) {
+	if parentSessionID == "" || fn == nil {
+		return
+	}
+	r.parentSessionID = parentSessionID
+	r.broadcastFn = fn
+	r.register(reportToParentDef, r.handleReportToParent)
+}
+
+// handleReportToParent publishes a report event to the parent session's broadcaster.
+func (r *Registry) handleReportToParent(_ context.Context, input json.RawMessage) (string, error) {
+	var p struct {
+		Content  string `json:"content"`
+		Status   string `json:"status"`
+		Progress int    `json:"progress"`
+	}
+	if err := json.Unmarshal(input, &p); err != nil {
+		return "", err
+	}
+	if r.parentSessionID == "" {
+		return "（当前未在派遣任务中，无需汇报）", nil
+	}
+
+	ev := subagent.SubagentEvent{
+		Type:              "report",
+		SubagentSessionID: r.sessionID,
+		AgentID:           r.agentID,
+		AgentName:         r.agentID,
+		AvatarColor:       "#6366f1",
+		Content:           p.Content,
+		Status:            p.Status,
+		Progress:          p.Progress,
+		Timestamp:         time.Now().UnixMilli(),
+	}
+
+	data, err := json.Marshal(ev)
+	if err != nil {
+		return "", err
+	}
+	r.broadcastFn(r.parentSessionID, "subagent_report", data)
+	return "汇报已发送给上级", nil
 }
 
 // WithFileSender registers the send_file tool backed by the given sender function.

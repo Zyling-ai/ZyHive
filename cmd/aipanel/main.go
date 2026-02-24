@@ -219,6 +219,18 @@ func main() {
 	// Workers run in background goroutines; closing the browser does not stop generation.
 	workerPool := session.NewWorkerPool()
 
+	// Wire pool ↔ worker pool so subagent events can be broadcast to parent SSE subscribers.
+	pool.SetWorkerPool(workerPool)
+
+	// Wire agent info function so dispatch panel shows real names and avatar colors.
+	subagentMgr.SetAgentInfoFn(func(agentID string) (name, avatarColor string) {
+		ag, ok := mgr.Get(agentID)
+		if !ok {
+			return "", ""
+		}
+		return ag.Name, ag.AvatarColor
+	})
+
 	// Setup router
 	r := gin.Default()
 	botCtrl := api.BotControl{
