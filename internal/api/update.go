@@ -14,7 +14,6 @@ import (
 	"runtime"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -228,7 +227,7 @@ func runUpdate(targetVersion string) {
 
 	// 短暂等待让 HTTP 响应先返回
 	time.Sleep(500 * time.Millisecond)
-	syscall.Kill(syscall.Getpid(), syscall.SIGTERM)
+	selfRestart() // 平台适配：unix=SIGTERM，windows=os.Exit(0)
 }
 
 // ── 工具函数 ──────────────────────────────────────────────────────────────────
