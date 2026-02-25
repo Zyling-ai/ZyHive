@@ -85,7 +85,7 @@
               :class="{ active: form.provider === p.key }"
               @click="setProvider(p.key)"
             >
-              <span class="provider-icon">{{ p.icon }}</span>
+              <img :src="p.logo" :alt="p.label" class="provider-logo" />
               <span class="provider-label">{{ p.label }}</span>
             </button>
           </div>
@@ -194,11 +194,23 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh, Plus, Key, Connection, CircleCheck, Search } from '@element-plus/icons-vue'
 import { models as modelsApi, type ModelEntry, type ProbeModelInfo } from '../api'
 
+// ── Provider logo imports ──────────────────────────────────────────────────────
+import iconAnthropic from '../assets/providers/anthropic.svg'
+import iconOpenAI from '../assets/providers/openai.png'
+import iconDeepSeek from '../assets/providers/deepseek.png'
+import iconKimi from '../assets/providers/kimi.png'
+import iconZhipu from '../assets/providers/zhipu.png'
+import iconMiniMax from '../assets/providers/minimax.png'
+import iconQwen from '../assets/providers/qwen.png'
+import iconOpenRouter from '../assets/providers/openrouter.svg'
+import iconCustom from '../assets/providers/custom.svg'
+
 // ── 提供商元数据 ──────────────────────────────────────────────────────────────
 interface ProviderMeta {
   key: string
   label: string
-  icon: string
+  icon: string   // emoji fallback (unused when logo available)
+  logo: string   // imported asset URL
   baseUrl: string
   website: string
   apiKeyUrl: string
@@ -213,6 +225,7 @@ const providerMetaList: ProviderMeta[] = [
     key: 'anthropic',
     label: 'Anthropic',
     icon: '🔮',
+    logo: iconAnthropic,
     baseUrl: 'https://api.anthropic.com/v1',
     website: 'https://anthropic.com',
     apiKeyUrl: 'https://console.anthropic.com/settings/keys',
@@ -225,6 +238,7 @@ const providerMetaList: ProviderMeta[] = [
     key: 'openai',
     label: 'OpenAI',
     icon: '🤖',
+    logo: iconOpenAI,
     baseUrl: 'https://api.openai.com/v1',
     website: 'https://openai.com',
     apiKeyUrl: 'https://platform.openai.com/api-keys',
@@ -237,6 +251,7 @@ const providerMetaList: ProviderMeta[] = [
     key: 'deepseek',
     label: 'DeepSeek',
     icon: '🌊',
+    logo: iconDeepSeek,
     baseUrl: 'https://api.deepseek.com/v1',
     website: 'https://deepseek.com',
     apiKeyUrl: 'https://platform.deepseek.com/api_keys',
@@ -249,6 +264,7 @@ const providerMetaList: ProviderMeta[] = [
     key: 'moonshot',
     label: 'Kimi',
     icon: '🌙',
+    logo: iconKimi,
     baseUrl: 'https://api.moonshot.cn/v1',
     website: 'https://kimi.moonshot.cn',
     apiKeyUrl: 'https://platform.moonshot.cn/console/api-keys',
@@ -261,6 +277,7 @@ const providerMetaList: ProviderMeta[] = [
     key: 'zhipu',
     label: '智谱 GLM',
     icon: '🧠',
+    logo: iconZhipu,
     baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
     website: 'https://open.bigmodel.cn',
     apiKeyUrl: 'https://open.bigmodel.cn/usercenter/apikeys',
@@ -273,6 +290,7 @@ const providerMetaList: ProviderMeta[] = [
     key: 'minimax',
     label: 'MiniMax',
     icon: '✨',
+    logo: iconMiniMax,
     baseUrl: 'https://api.minimax.chat/v1',
     website: 'https://minimax.io',
     apiKeyUrl: 'https://platform.minimax.io/user-center/basic-information/interface-key',
@@ -285,6 +303,7 @@ const providerMetaList: ProviderMeta[] = [
     key: 'qwen',
     label: '通义千问',
     icon: '☁️',
+    logo: iconQwen,
     baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     website: 'https://tongyi.aliyun.com',
     apiKeyUrl: 'https://dashscope.console.aliyun.com/apiKey',
@@ -297,6 +316,7 @@ const providerMetaList: ProviderMeta[] = [
     key: 'openrouter',
     label: 'OpenRouter',
     icon: '🔀',
+    logo: iconOpenRouter,
     baseUrl: 'https://openrouter.ai/api/v1',
     website: 'https://openrouter.ai',
     apiKeyUrl: 'https://openrouter.ai/keys',
@@ -309,6 +329,7 @@ const providerMetaList: ProviderMeta[] = [
     key: 'custom',
     label: '自定义',
     icon: '⚙️',
+    logo: iconCustom,
     baseUrl: '',
     website: '',
     apiKeyUrl: '',
@@ -563,7 +584,13 @@ async function deleteModel(row: ModelEntry) {
   font-weight: 600;
   box-shadow: 0 0 0 2px rgba(64,158,255,.15);
 }
-.provider-icon { font-size: 20px; line-height: 1; }
+.provider-logo {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  border-radius: 6px;
+  display: block;
+}
 .provider-label { white-space: nowrap; }
 
 /* ── 引导信息 ── */
