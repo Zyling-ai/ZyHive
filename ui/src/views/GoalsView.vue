@@ -99,14 +99,23 @@
           <p>暂无目标，点击新建开始规划</p>
         </div>
 
-        <div v-else class="gantt-wrap">
-          <!-- 月份标签行 -->
+        <div v-else class="gantt-wrap" @wheel.prevent="handleGanttWheel">
+          <!-- 时间刻度行（双层：年份 + 月/周） -->
           <div class="gantt-header">
-            <div class="gantt-label-col"></div>
+            <div class="gantt-label-col">
+              <span class="gantt-scale-hint">{{ { quarter:'季', month:'月', biweek:'双周', week:'周' }[ganttScale] }} ↕滚轮</span>
+            </div>
             <div class="gantt-timeline-col">
+              <!-- 年份标记层 -->
+              <div class="gantt-years">
+                <div v-for="t in gridTicks.filter(t => t.yearMark)" :key="'yr-' + t.left" class="gantt-year-label" :style="{ left: t.left }">
+                  {{ t.yearMark }}
+                </div>
+              </div>
+              <!-- 月/周刻度层 -->
               <div class="gantt-months">
-                <div v-for="m in monthLabels" :key="m.label" class="gantt-month-label" :style="{ left: m.left }">
-                  {{ m.label }}
+                <div v-for="t in gridTicks" :key="t.label + t.left" class="gantt-month-label" :style="{ left: t.left }">
+                  {{ t.label }}
                 </div>
               </div>
             </div>
@@ -579,7 +588,25 @@ const ganttRange = computed(() => {
   const pad = (maxE - minS) * 0.05
   return { start: new Date(minS - pad), end: new Date(maxE + pad) }
 })
-const monthLabels = computed(() => calcMonthLabels(ganttRange.value.start, ganttRange.value.end))
+// 甘特图时间颗粒度：季度 → 月 → 双周 → 周
+const SCALES = ['quarter', 'month', 'biweek', 'week'] as const
+type GanttScale = typeof SCALES[number]
+const ganttScale = ref<GanttScale>('month')
+
+interface GridTick { label: string; yearMark?: string; left: string }
+
+const gridTicks = computed<GridTick[]>(() =>
+  calcGridTicks(ganttRange.value.start, ganttRange.value.end, ganttScale.value))
+
+// backward compat alias — grid lines still iterate over gridTicks
+const monthLabels = gridTicks
+
+function handleGanttWheel(e: WheelEvent) {
+  e.preventDefault()
+  const idx = SCALES.indexOf(ganttScale.value)
+  if (e.deltaY < 0 && idx < SCALES.length - 1) ganttScale.value = SCALES[idx + 1] as GanttScale
+  else if (e.deltaY > 0 && idx > 0) ganttScale.value = SCALES[idx - 1] as GanttScale
+}
 const todayLeft   = computed(() => {
   const { start, end } = ganttRange.value
   const now = Date.now()
@@ -903,16 +930,47 @@ function milestoneLeft(ms: Milestone) {
   if (!isValidDate(ms.dueAt)) return '-100%'
   return `${((new Date(ms.dueAt).getTime() - start.getTime()) / (end.getTime() - start.getTime())) * 100}%`
 }
-function calcMonthLabels(rangeStart: Date, rangeEnd: Date) {
-  const months: Array<{ label: string; left: string }> = []
-  const cur = new Date(rangeStart.getFullYear(), rangeStart.getMonth(), 1)
+function calcGridTicks(rangeStart: Date, rangeEnd: Date, scale: GanttScale): GridTick[] {
+  const ticks: GridTick[] = []
   const total = rangeEnd.getTime() - rangeStart.getTime()
-  while (cur <= rangeEnd) {
-    const left = ((cur.getTime() - rangeStart.getTime()) / total) * 100
-    if (left >= 0 && left <= 100) months.push({ label: `${cur.getFullYear()}/${cur.getMonth() + 1}`, left: `${left}%` })
-    cur.setMonth(cur.getMonth() + 1)
+  if (total <= 0) return ticks
+  let seenYear = -1
+
+  if (scale === 'quarter' || scale === 'month') {
+    const step = scale === 'quarter' ? 3 : 1
+    const cur = new Date(rangeStart.getFullYear(), rangeStart.getMonth(), 1)
+    while (cur <= rangeEnd) {
+      const left = ((cur.getTime() - rangeStart.getTime()) / total) * 100
+      if (left >= -0.01 && left <= 100.01) {
+        const yr = cur.getFullYear()
+        const mo = cur.getMonth() + 1
+        const yearMark = yr !== seenYear ? String(yr) : undefined
+        if (yearMark) seenYear = yr
+        ticks.push({ label: String(mo), yearMark, left: `${left}%` })
+      }
+      cur.setMonth(cur.getMonth() + step)
+    }
+  } else {
+    // week (7d) or biweek (14d)
+    const step = scale === 'week' ? 7 : 14
+    // align to nearest Monday on/before rangeStart
+    const cur = new Date(rangeStart)
+    const dow = cur.getDay() // 0=Sun
+    cur.setDate(cur.getDate() - (dow === 0 ? 6 : dow - 1))
+    while (cur <= rangeEnd) {
+      const left = ((cur.getTime() - rangeStart.getTime()) / total) * 100
+      if (left >= -0.01 && left <= 100.01) {
+        const yr = cur.getFullYear()
+        const mo = cur.getMonth() + 1
+        const d = cur.getDate()
+        const yearMark = yr !== seenYear ? String(yr) : undefined
+        if (yearMark) seenYear = yr
+        ticks.push({ label: `${mo}/${d}`, yearMark, left: `${left}%` })
+      }
+      cur.setDate(cur.getDate() + step)
+    }
   }
-  return months
+  return ticks
 }
 function progressColor(g: GoalInfo) {
   if (g.status === 'completed') return '#67c23a'
@@ -1279,27 +1337,51 @@ function formatDateTime(val?: string) {
 
 .gantt-header {
   display: flex;
-  align-items: flex-end;
-  height: 28px;
+  align-items: stretch;
+  height: 42px;
   margin-bottom: 0;
+  border-bottom: 1px solid #e4e7ed;
 }
 .gantt-label-col {
   width: 200px;
   flex-shrink: 0;
   border-right: 1px solid #e4e7ed;
+  display: flex;
+  align-items: center;
+}
+.gantt-scale-hint {
+  font-size: 10px;
+  color: #c0c4cc;
+  padding-left: 8px;
+  user-select: none;
 }
 .gantt-timeline-col {
   flex: 1;
   position: relative;
   overflow: hidden;
 }
-.gantt-months { position: relative; height: 20px; }
+/* 年份行（顶层，较小字体） */
+.gantt-years { position: relative; height: 16px; }
+.gantt-year-label {
+  position: absolute;
+  font-size: 10px;
+  font-weight: 600;
+  color: #c0c4cc;
+  transform: translateX(2px);
+  white-space: nowrap;
+  top: 1px;
+  letter-spacing: 0.3px;
+}
+/* 月/周刻度行（主标签） */
+.gantt-months { position: relative; height: 22px; }
 .gantt-month-label {
   position: absolute;
-  font-size: 11px;
-  color: #909399;
+  font-size: 12px;
+  color: #606266;
   transform: translateX(-50%);
   white-space: nowrap;
+  font-weight: 500;
+  top: 3px;
 }
 .gantt-grid-line {
   position: absolute;
