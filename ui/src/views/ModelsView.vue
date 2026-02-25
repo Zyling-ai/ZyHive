@@ -31,7 +31,9 @@
                 <div class="pitem-name">{{ p.name }}</div>
                 <div class="pitem-sub">{{ p.apiKey }}</div>
               </div>
+              <el-icon v-if="providerTestingIds.has(p.id)" class="pitem-status is-loading" style="color:#909399"><Loading /></el-icon>
               <el-tag
+                v-else
                 :type="p.status === 'ok' ? 'success' : p.status === 'error' ? 'danger' : 'info'"
                 size="small"
                 class="pitem-status"
@@ -103,7 +105,7 @@
                 <el-button @click="cancelProviderForm">取消</el-button>
                 <el-button type="primary" @click="saveProvider" :loading="providerSaving">保存</el-button>
                 <el-button type="success" @click="testProvider" :loading="providerTesting" :disabled="!selectedProvider && providerForm.mode !== 'add'">
-                  <el-icon><CircleCheck /></el-icon> 测试连通
+                  <el-icon><CircleCheck /></el-icon> 保存并测试
                 </el-button>
               </div>
 
@@ -132,7 +134,7 @@
               <div class="form-actions">
                 <el-button @click="openEditProvider(selectedProvider)">编辑</el-button>
                 <el-button type="success" @click="testProviderById(selectedProvider.id)" :loading="providerTesting">
-                  <el-icon><CircleCheck /></el-icon> 测试连通
+                  <el-icon><Refresh /></el-icon> 重新测试
                 </el-button>
                 <el-button type="danger" plain @click="deleteProvider(selectedProvider)">删除</el-button>
               </div>
@@ -326,7 +328,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Key, CircleCheck, Search } from '@element-plus/icons-vue'
+import { Plus, Key, CircleCheck, Search, Refresh, Loading } from '@element-plus/icons-vue'
 import { models as modelsApi, providers as providersApi, type ModelEntry, type ProviderEntry, type ProbeModelInfo } from '../api'
 
 // ── Provider logo imports ─────────────────────────────────────────────────────
@@ -377,8 +379,9 @@ const activeTab = ref('providers')
 // Providers
 const providerList = ref<ProviderEntry[]>([])
 const selectedProvider = ref<ProviderEntry | null>(null)
-const providerSaving   = ref(false)
-const providerTesting  = ref(false)
+const providerSaving     = ref(false)
+const providerTesting    = ref(false)
+const providerTestingIds = ref<Set<string>>(new Set())
 const providerTestResult = ref<{ ok: boolean; msg: string } | null>(null)
 const providerForm = reactive({
   mode: 'idle' as 'idle' | 'add' | 'edit',
@@ -410,7 +413,38 @@ const currentProviderMeta = computed<ProviderMeta | null>(() =>
 )
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
-onMounted(() => { loadProviders(); loadModels() })
+onMounted(async () => {
+  await loadProviders()
+  loadModels()
+  // 页面加载后异步测试所有 provider
+  autoTestAllProviders()
+})
+
+async function autoTestAllProviders() {
+  const ids = providerList.value.map(p => p.id)
+  if (!ids.length) return
+  // 并发测试，每个完成后立即刷新列表
+  await Promise.allSettled(ids.map(async id => {
+    await testProviderSilent(id)
+    await loadProviders()
+    if (selectedProvider.value?.id === id) {
+      const updated = providerList.value.find(p => p.id === id)
+      if (updated) selectedProvider.value = updated
+    }
+  }))
+}
+
+async function testProviderSilent(id: string) {
+  providerTestingIds.value = new Set([...providerTestingIds.value, id])
+  try {
+    await providersApi.test(id)
+  } catch {}
+  finally {
+    const s = new Set(providerTestingIds.value)
+    s.delete(id)
+    providerTestingIds.value = s
+  }
+}
 
 // ── Provider 操作 ─────────────────────────────────────────────────────────────
 async function loadProviders() {
