@@ -575,24 +575,51 @@ const filteredGoals = computed(() => {
   return list
 })
 
-// 甘特图范围
-const ganttRange = computed(() => {
-  const valid = filteredGoals.value.filter(g => isValidDate(g.startAt) && isValidDate(g.endAt))
-  if (!valid.length) {
-    const now = new Date()
-    return { start: new Date(now.getFullYear(), now.getMonth(), 1), end: new Date(now.getFullYear(), now.getMonth() + 3, 1) }
-  }
-  const starts = valid.map(g => new Date(g.startAt).getTime())
-  const ends   = valid.map(g => new Date(g.endAt).getTime())
-  const minS = Math.min(...starts), maxE = Math.max(...ends)
-  // 固定 14 天留白，避免因百分比 padding 导致范围延伸到下一年
-  const pad = 14 * 24 * 60 * 60 * 1000
-  return { start: new Date(minS - pad), end: new Date(maxE + pad) }
-})
 // 甘特图时间颗粒度：季度 → 月 → 双周 → 周
 const SCALES = ['quarter', 'month', 'biweek', 'week'] as const
 type GanttScale = typeof SCALES[number]
 const ganttScale = ref<GanttScale>('month')
+
+// 甘特图范围：随颗粒度变化，start/end 吸附到日历边界，保证刻度从整齐位置开始
+const ganttRange = computed(() => {
+  const valid = filteredGoals.value.filter(g => isValidDate(g.startAt) && isValidDate(g.endAt))
+  const now = new Date()
+  let minS: number, maxE: number
+  if (!valid.length) {
+    minS = now.getTime()
+    maxE = now.getTime() + 90 * 86400_000
+  } else {
+    minS = Math.min(...valid.map(g => new Date(g.startAt).getTime()))
+    maxE = Math.max(...valid.map(g => new Date(g.endAt).getTime()))
+  }
+  // 颗粒度决定 padding 大小（越细粒度留白越小）
+  const padMs = { quarter: 30, month: 14, biweek: 7, week: 7 }[ganttScale.value] * 86400_000
+  const sd = new Date(minS - padMs)
+  const ed = new Date(maxE + padMs)
+  let start: Date, end: Date
+  if (ganttScale.value === 'quarter') {
+    // 吸附到季度边界（1月/4月/7月/10月）
+    const qm = Math.floor(sd.getMonth() / 3) * 3
+    start = new Date(sd.getFullYear(), qm, 1)
+    const eqm = Math.ceil((ed.getMonth() + 1) / 3) * 3
+    end = eqm >= 12
+      ? new Date(ed.getFullYear() + 1, 0, 1)
+      : new Date(ed.getFullYear(), eqm, 1)
+  } else if (ganttScale.value === 'month' || ganttScale.value === 'biweek') {
+    // 吸附到月份边界
+    start = new Date(sd.getFullYear(), sd.getMonth(), 1)
+    end   = new Date(ed.getFullYear(), ed.getMonth() + 1, 1)
+  } else {
+    // week：吸附到最近的周一
+    start = new Date(sd)
+    const sdow = start.getDay()
+    start.setDate(start.getDate() - (sdow === 0 ? 6 : sdow - 1))
+    end = new Date(ed)
+    const edow = end.getDay()
+    if (edow !== 0) end.setDate(end.getDate() + (7 - edow))
+  }
+  return { start, end }
+})
 
 interface GridTick { label: string; yearMark?: string; left: string }
 
@@ -971,37 +998,31 @@ function calcGridTicks(rangeStart: Date, rangeEnd: Date, scale: GanttScale): Gri
   if (total <= 0) return ticks
   let seenYear = -1
 
+  // rangeStart 已由 ganttRange 吸附到日历边界，直接从它开始迭代
   if (scale === 'quarter' || scale === 'month') {
     const step = scale === 'quarter' ? 3 : 1
     const cur = new Date(rangeStart.getFullYear(), rangeStart.getMonth(), 1)
-    while (cur <= rangeEnd) {
+    while (cur.getTime() <= rangeEnd.getTime()) {
       const left = ((cur.getTime() - rangeStart.getTime()) / total) * 100
-      if (left >= -0.01 && left <= 100.01) {
-        const yr = cur.getFullYear()
-        const mo = cur.getMonth() + 1
-        const yearMark = yr !== seenYear ? String(yr) : undefined
-        if (yearMark) seenYear = yr
-        ticks.push({ label: String(mo), yearMark, left: `${left}%` })
-      }
+      const yr = cur.getFullYear()
+      const mo = cur.getMonth() + 1
+      const yearMark = yr !== seenYear ? String(yr) : undefined
+      if (yearMark) seenYear = yr
+      ticks.push({ label: String(mo), yearMark, left: `${left.toFixed(2)}%` })
       cur.setMonth(cur.getMonth() + step)
     }
   } else {
-    // week (7d) or biweek (14d)
+    // week (7d) / biweek (14d) — rangeStart 已是周一
     const step = scale === 'week' ? 7 : 14
-    // align to nearest Monday on/before rangeStart
     const cur = new Date(rangeStart)
-    const dow = cur.getDay() // 0=Sun
-    cur.setDate(cur.getDate() - (dow === 0 ? 6 : dow - 1))
-    while (cur <= rangeEnd) {
+    while (cur.getTime() <= rangeEnd.getTime()) {
       const left = ((cur.getTime() - rangeStart.getTime()) / total) * 100
-      if (left >= -0.01 && left <= 100.01) {
-        const yr = cur.getFullYear()
-        const mo = cur.getMonth() + 1
-        const d = cur.getDate()
-        const yearMark = yr !== seenYear ? String(yr) : undefined
-        if (yearMark) seenYear = yr
-        ticks.push({ label: `${mo}/${d}`, yearMark, left: `${left}%` })
-      }
+      const yr = cur.getFullYear()
+      const mo = cur.getMonth() + 1
+      const d  = cur.getDate()
+      const yearMark = yr !== seenYear ? String(yr) : undefined
+      if (yearMark) seenYear = yr
+      ticks.push({ label: `${mo}/${d}`, yearMark, left: `${left.toFixed(2)}%` })
       cur.setDate(cur.getDate() + step)
     }
   }
