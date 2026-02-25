@@ -123,9 +123,22 @@ func (h *modelHandler) Delete(c *gin.Context) {
 // resolveKey returns the effective API key for a model:
 // uses the stored key if non-empty, otherwise falls back to the env var for that provider.
 func resolveKey(m *config.ModelEntry) string {
+	return resolveKeyWithProviders(m, nil)
+}
+
+func resolveKeyWithProviders(m *config.ModelEntry, providers []config.ProviderEntry) string {
+	// 优先从关联 ProviderEntry 取 key
+	if m.ProviderID != "" && len(providers) > 0 {
+		apiKey, _ := config.ResolveCredentials(m, providers)
+		if apiKey != "" && !ismasked(apiKey) {
+			return apiKey
+		}
+	}
+	// 向后兼容：model 自带 apiKey
 	if m.APIKey != "" && !ismasked(m.APIKey) {
 		return m.APIKey
 	}
+	// 兜底：环境变量
 	if envVar, ok := envVarForProvider[m.Provider]; ok {
 		return os.Getenv(envVar)
 	}
@@ -140,7 +153,7 @@ func (h *modelHandler) Test(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "model not found"})
 		return
 	}
-	key := resolveKey(m)
+	key := resolveKeyWithProviders(m, h.cfg.Providers)
 	if key == "" {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"valid": false,
@@ -148,22 +161,23 @@ func (h *modelHandler) Test(c *gin.Context) {
 		})
 		return
 	}
+	_, resolvedBase := config.ResolveCredentials(m, h.cfg.Providers)
 	var valid bool
 	var errMsg string
 	switch m.Provider {
 	case "anthropic":
-		valid, errMsg = testAnthropicKey(key, m.BaseURL)
+		valid, errMsg = testAnthropicKey(key, resolvedBase)
 	case "openai":
 		valid, errMsg = testOpenAIKey(key)
 	case "deepseek", "moonshot", "kimi", "zhipu", "glm", "minimax", "qwen", "dashscope", "openrouter", "custom":
-		baseURL := m.BaseURL
+		baseURL := resolvedBase
 		if baseURL == "" {
 			baseURL = defaultBaseURLForProvider(m.Provider)
 		}
 		valid, errMsg = testOpenAICompatKey(key, baseURL)
 	default:
 		// 通用 OpenAI-compatible 尝试
-		valid, errMsg = testOpenAICompatKey(key, m.BaseURL)
+		valid, errMsg = testOpenAICompatKey(key, resolvedBase)
 	}
 	if valid {
 		m.Status = "ok"

@@ -149,6 +149,17 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, cfgPath string, mgr *agen
 		models.GET("/env-keys", modelH.EnvKeys)    // GET /api/models/env-keys — detect system env API keys
 	}
 
+	// Provider API key registry
+	providerH := &providerHandler{cfg: cfg, configPath: configFilePath}
+	providers := v1.Group("/providers")
+	{
+		providers.GET("", providerH.List)
+		providers.POST("", providerH.Create)
+		providers.PUT("/:id", providerH.Update)
+		providers.DELETE("/:id", providerH.Delete)
+		providers.POST("/:id/test", providerH.Test)
+	}
+
 	// Channel registry
 	channelH := &channelHandler{cfg: cfg, configPath: configFilePath}
 	channels := v1.Group("/channels")
