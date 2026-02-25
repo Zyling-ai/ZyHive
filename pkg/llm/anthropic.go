@@ -19,17 +19,28 @@ import (
 	"strings"
 )
 
-const anthropicAPIBase = "https://api.anthropic.com/v1"
+const anthropicAPIBaseDefault = "https://api.anthropic.com/v1"
 const anthropicVersion = "2023-06-01"
 
 // AnthropicClient implements Client for the Anthropic Messages API.
 type AnthropicClient struct {
 	httpClient *http.Client
+	baseURL    string // 自定义转发地址，空则用官方默认
 }
 
 // NewAnthropicClient creates a new Anthropic streaming client.
-func NewAnthropicClient() *AnthropicClient {
-	return &AnthropicClient{httpClient: &http.Client{}}
+// baseURL 为空时使用官方地址 https://api.anthropic.com/v1
+// 支持自定义转发地址（国内用户可配置代理，解决 403 地区限制问题）
+func NewAnthropicClient(baseURL string) *AnthropicClient {
+	if baseURL == "" {
+		baseURL = anthropicAPIBaseDefault
+	}
+	baseURL = strings.TrimRight(baseURL, "/")
+	// 兼容用户填 https://api.anthropic.com（缺少 /v1）的情况
+	if !strings.HasSuffix(baseURL, "/v1") && !strings.Contains(baseURL, "/v1/") {
+		baseURL = baseURL + "/v1"
+	}
+	return &AnthropicClient{httpClient: &http.Client{}, baseURL: baseURL}
 }
 
 // Stream sends a streaming Messages API request and emits events.
@@ -41,7 +52,7 @@ func (c *AnthropicClient) Stream(ctx context.Context, req *ChatRequest) (<-chan 
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, "POST",
-		anthropicAPIBase+"/messages", bytes.NewReader(body))
+		c.baseURL+"/messages", bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
