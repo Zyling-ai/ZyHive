@@ -142,24 +142,41 @@ func runUpdate(targetVersion string) {
 		return
 	}
 
-	// 2. 构建下载 URL
+	// 2. 构建下载 URL（支持国内镜像）
 	osName := runtime.GOOS   // linux / darwin / windows
 	arch := runtime.GOARCH   // amd64 / arm64
 	suffix := ""
 	if osName == "windows" {
 		suffix = ".exe"
 	}
-	url := fmt.Sprintf(
-		"https://github.com/Zyling-ai/zyhive/releases/download/%s/aipanel-%s-%s%s",
-		targetVersion, osName, arch, suffix,
+	filename := fmt.Sprintf("zyhive-%s-%s%s", osName, arch, suffix)
+	directURL := fmt.Sprintf(
+		"https://github.com/Zyling-ai/zyhive/releases/download/%s/%s",
+		targetVersion, filename,
 	)
+	// 国内镜像代理：直连失败或 404 时自动切换
+	mirrorURL := fmt.Sprintf(
+		"https://mirror.ghproxy.com/https://github.com/Zyling-ai/zyhive/releases/download/%s/%s",
+		targetVersion, filename,
+	)
+
+	// 优先直连，超时或失败则走镜像
+	url := directURL
+	if !isURLReachable(directURL) {
+		log.Printf("[update] direct GitHub unreachable, switching to mirror")
+		url = mirrorURL
+	}
 
 	// 3. 下载到临时文件
 	tmpPath := fmt.Sprintf("/tmp/zyhive-new-%s%s", targetVersion, suffix)
 	if osName == "windows" {
 		tmpPath = os.TempDir() + "\\zyhive-new-" + targetVersion + suffix
 	}
-	s.set(StageDownloading, 10, "正在下载 "+url)
+	source := "GitHub"
+	if url == mirrorURL {
+		source = "国内镜像"
+	}
+	s.set(StageDownloading, 10, fmt.Sprintf("正在从 %s 下载…", source))
 	log.Printf("[update] downloading %s → %s", url, tmpPath)
 
 	if err := downloadFile(url, tmpPath, func(pct int) {
@@ -298,6 +315,22 @@ func downloadFile(url, dest string, progress func(int)) error {
 		progress(100)
 	}
 	return nil
+}
+
+// isURLReachable 快速探测 URL 是否可访问（HEAD 请求，3s 超时）
+func isURLReachable(url string) bool {
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return nil // 允许重定向
+		},
+	}
+	resp, err := client.Head(url)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode < 500
 }
 
 // copyFile 复制文件（用于备份旧二进制 & 替换）
