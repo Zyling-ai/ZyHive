@@ -14,6 +14,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -422,10 +423,23 @@ func (r *Runner) run(ctx context.Context, userMsg string, out chan<- RunEvent) e
 			"以下环境变量已配置，exec 工具运行时自动可用（无需手动导出）：\n" +
 			"- " + strings.Join(keys, "\n- ") + "\n"
 	}
-	systemPrompt = systemPrompt + fmt.Sprintf(
-		"\n\n## Runtime\nModel: %s | Agent: %s | Workspace: %s",
-		r.cfg.Model, r.cfg.AgentID, r.cfg.WorkspaceDir,
-	)
+	// Runtime 紧凑行（借鉴 OpenClaw）：给 Agent 完整的运行时自我感知，Token 极少。
+	toolsFlag := "on"
+	if !r.cfg.SupportsTools {
+		toolsFlag = "off(model not supported)"
+	}
+	hostname, _ := os.Hostname()
+	runtimeParts := []string{
+		"agent=" + r.cfg.AgentID,
+		"host=" + hostname,
+		"model=" + r.cfg.Model,
+		"workspace=" + r.cfg.WorkspaceDir,
+		"tools=" + toolsFlag,
+	}
+	if r.cfg.ParentSessionID != "" {
+		runtimeParts = append(runtimeParts, "subagent=true")
+	}
+	systemPrompt = systemPrompt + "\n\nRuntime: " + strings.Join(runtimeParts, " | ")
 	if r.cfg.ParentSessionID != "" {
 		systemPrompt += "\n\n## 任务汇报\n你正在作为子成员执行上级委派的任务。请在完成重要步骤时调用 report_to_parent 工具汇报进展（20-100字，附上进度百分比）。任务全部完成时 status=done, progress=100。"
 	}

@@ -14,6 +14,30 @@ import (
 	"github.com/Zyling-ai/zyhive/pkg/project"
 )
 
+// ── 加载时截断保护 ────────────────────────────────────────────────────────────
+// 每个工作区文件注入系统提示词时限制最大字符数，超出则保留头尾，中间插入截断标记。
+// 策略：保留头部 70%（最重要的指令）+ 尾部 20%（最新内容），共 90% 可用空间。
+const (
+	promptFileMaxChars  = 20_000 // 单文件注入上限（字符数，约 5K token）
+	promptFileHeadRatio = 0.70
+	promptFileTailRatio = 0.20
+)
+
+// truncateForPrompt 对注入系统提示词的文件内容按 promptFileMaxChars 截断。
+// 如未超限则原样返回。
+func truncateForPrompt(content, filename string) string {
+	if len(content) <= promptFileMaxChars {
+		return content
+	}
+	headLen := int(float64(promptFileMaxChars) * promptFileHeadRatio)
+	tailLen := int(float64(promptFileMaxChars) * promptFileTailRatio)
+	head := content[:headLen]
+	tail := content[len(content)-tailLen:]
+	marker := fmt.Sprintf("\n\n[...内容已截断（原文件 %d 字符），完整内容请用 read 工具读取: %s...]\n\n",
+		len(content), filename)
+	return head + marker + tail
+}
+
 // BuildSystemPrompt reads IDENTITY.md, SOUL.md, and memory/INDEX.md from the
 // workspace directory, and returns the full system prompt.
 // Only INDEX.md is injected (lightweight). Full memory tree is accessible via tools.
@@ -28,28 +52,32 @@ func BuildSystemPrompt(workspaceDir string) (string, error) {
 	now := time.Now().In(loc)
 	sb.WriteString(fmt.Sprintf("Current date and time: %s\n\n", now.Format("2006-01-02 15:04:05 MST")))
 
+	// injectFile 是内部辅助：读取文件并以截断保护注入到系统提示词。
+	injectFile := func(path, label string) {
+		content, err := readFileIfExists(path)
+		if err != nil || strings.TrimSpace(content) == "" {
+			return
+		}
+		content = truncateForPrompt(strings.TrimSpace(content), label)
+		sb.WriteString(fmt.Sprintf("--- %s ---\n%s\n\n", label, content))
+	}
+
 	// Read IDENTITY.md and SOUL.md
 	for _, filename := range []string{"IDENTITY.md", "SOUL.md"} {
-		content, err := readFileIfExists(filepath.Join(workspaceDir, filename))
-		if err != nil || content == "" {
-			continue
-		}
-		sb.WriteString(fmt.Sprintf("--- %s ---\n%s\n\n", filename, strings.TrimSpace(content)))
+		injectFile(filepath.Join(workspaceDir, filename), filename)
 	}
 
 	// Read memory/INDEX.md (lightweight, always injected)
 	mt := memory.NewMemoryTree(workspaceDir)
 	indexContent, err := mt.GetIndex()
 	if err == nil && strings.TrimSpace(indexContent) != "" {
-		sb.WriteString(fmt.Sprintf("--- memory/INDEX.md ---\n%s\n\n", strings.TrimSpace(indexContent)))
+		content := truncateForPrompt(strings.TrimSpace(indexContent), "memory/INDEX.md")
+		sb.WriteString(fmt.Sprintf("--- memory/INDEX.md ---\n%s\n\n", content))
 	}
 
 	// Legacy: if MEMORY.md still exists and no INDEX.md, include it
 	if strings.TrimSpace(indexContent) == "" {
-		memContent, err := readFileIfExists(filepath.Join(workspaceDir, "MEMORY.md"))
-		if err == nil && strings.TrimSpace(memContent) != "" {
-			sb.WriteString(fmt.Sprintf("--- MEMORY.md ---\n%s\n\n", strings.TrimSpace(memContent)))
-		}
+		injectFile(filepath.Join(workspaceDir, "MEMORY.md"), "MEMORY.md")
 	}
 
 	// Memory tree hint for the agent
@@ -59,27 +87,19 @@ func BuildSystemPrompt(workspaceDir string) (string, error) {
 	sb.WriteString("[对话历史可查。使用 read 工具访问: conversations/INDEX.md 查看索引，conversations/{sessionId}__{channelId}.jsonl 查看完整对话]\n\n")
 
 	// Inject RELATIONS.md if it exists
-	relationsContent, err := readFileIfExists(filepath.Join(workspaceDir, "RELATIONS.md"))
-	if err == nil && strings.TrimSpace(relationsContent) != "" {
-		sb.WriteString(fmt.Sprintf("--- RELATIONS.md ---\n%s\n\n", strings.TrimSpace(relationsContent)))
-	}
+	injectFile(filepath.Join(workspaceDir, "RELATIONS.md"), "RELATIONS.md")
 
 	// Inject skills/INDEX.md (lightweight summary instead of full SKILL.md content)
-	skillsIndexContent, _ := readFileIfExists(filepath.Join(workspaceDir, "skills", "INDEX.md"))
-	if strings.TrimSpace(skillsIndexContent) != "" {
-		sb.WriteString(fmt.Sprintf("--- skills/INDEX.md ---\n%s\n\n", strings.TrimSpace(skillsIndexContent)))
-	}
+	injectFile(filepath.Join(workspaceDir, "skills", "INDEX.md"), "skills/INDEX.md")
 
-	// Inject conversations/INDEX.md if it exists (AI-visible conversation history index)
-	convIndexContent, _ := readFileIfExists(filepath.Join(workspaceDir, "conversations", "INDEX.md"))
-	if strings.TrimSpace(convIndexContent) != "" {
-		sb.WriteString(fmt.Sprintf("--- conversations/INDEX.md ---\n%s\n\n", strings.TrimSpace(convIndexContent)))
-	}
+	// Inject conversations/INDEX.md if it exists
+	injectFile(filepath.Join(workspaceDir, "conversations", "INDEX.md"), "conversations/INDEX.md")
 
 	// Read AGENTS.md — if it exists, also read any files it references (one per line)
 	agentsContent, err := readFileIfExists(filepath.Join(workspaceDir, "AGENTS.md"))
 	if err == nil && agentsContent != "" {
-		sb.WriteString(fmt.Sprintf("--- AGENTS.md ---\n%s\n\n", strings.TrimSpace(agentsContent)))
+		content := truncateForPrompt(strings.TrimSpace(agentsContent), "AGENTS.md")
+		sb.WriteString(fmt.Sprintf("--- AGENTS.md ---\n%s\n\n", content))
 
 		// Parse referenced files from AGENTS.md (lines that look like file paths)
 		scanner := bufio.NewScanner(strings.NewReader(agentsContent))
@@ -93,8 +113,9 @@ func BuildSystemPrompt(workspaceDir string) (string, error) {
 				refPath = filepath.Join(workspaceDir, refPath)
 			}
 			refContent, err := readFileIfExists(refPath)
-			if err == nil && refContent != "" {
-				sb.WriteString(fmt.Sprintf("--- %s ---\n%s\n\n", line, strings.TrimSpace(refContent)))
+			if err == nil && strings.TrimSpace(refContent) != "" {
+				refContent = truncateForPrompt(strings.TrimSpace(refContent), line)
+				sb.WriteString(fmt.Sprintf("--- %s ---\n%s\n\n", line, refContent))
 			}
 		}
 	}
