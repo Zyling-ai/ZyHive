@@ -45,14 +45,38 @@ type AgentsConfig struct {
 
 // ModelEntry — one configured LLM provider/model
 type ModelEntry struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Provider  string `json:"provider"` // "anthropic" | "openai" | "deepseek" | "openrouter" | "custom"
-	Model     string `json:"model"`    // "claude-sonnet-4-6"
-	APIKey    string `json:"apiKey"`
-	BaseURL   string `json:"baseUrl,omitempty"` // API base URL; empty = provider default
-	IsDefault bool   `json:"isDefault"`
-	Status    string `json:"status"` // "ok" | "error" | "untested"
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	Provider     string `json:"provider"` // "anthropic" | "openai" | "deepseek" | "openrouter" | "custom"
+	Model        string `json:"model"`    // "claude-sonnet-4-6"
+	APIKey       string `json:"apiKey"`
+	BaseURL      string `json:"baseUrl,omitempty"` // API base URL; empty = provider default
+	IsDefault    bool   `json:"isDefault"`
+	Status       string `json:"status"`                // "ok" | "error" | "untested"
+	SupportsTools *bool `json:"supportsTools,omitempty"` // nil=自动判断; true/false=手动指定
+}
+
+// noToolPatterns 是已知不支持工具调用的模型名称关键词（子串匹配，忽略大小写）。
+var noToolPatterns = []string{
+	"reasoner",    // deepseek-reasoner
+	"o1-mini",     // openai o1-mini
+	"o1-preview",  // openai o1-preview
+	"o1-2024",     // openai o1 系列
+}
+
+// ModelSupportsTools 判断某个 ModelEntry 是否支持工具调用。
+// 优先使用手动配置，其次按模型名自动判断。
+func ModelSupportsTools(m *ModelEntry) bool {
+	if m.SupportsTools != nil {
+		return *m.SupportsTools
+	}
+	name := strings.ToLower(m.Model)
+	for _, p := range noToolPatterns {
+		if strings.Contains(name, p) {
+			return false
+		}
+	}
+	return true
 }
 
 // ChannelEntry — one messaging channel

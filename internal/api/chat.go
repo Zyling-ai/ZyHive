@@ -109,10 +109,12 @@ func (h *chatHandler) Chat(c *gin.Context) {
 	extraContext := body.Context
 
 	// RunFn is called by the worker goroutine with ctx=context.Background()
+	modelSupportsTools := config.ModelSupportsTools(me)
 	runFn := func(ctx context.Context, sid string, message string, bc *session.Broadcaster) error {
 		return h.execRunner(ctx, agID, workspaceDir, sessionDir, model, apiKey,
 			modelProvider, modelBaseURL,
-			sid, message, extraContext, scenario, skillID, images, legacyHist, agEnv, bc)
+			sid, message, extraContext, scenario, skillID, images, legacyHist, agEnv, bc,
+			modelSupportsTools)
 	}
 
 	worker := h.workerPool.GetOrCreate(sessionID)
@@ -225,6 +227,7 @@ func (h *chatHandler) execRunner(
 	},
 	agEnv map[string]string,
 	bc *session.Broadcaster,
+	supportsTools bool,
 ) error {
 	llmClient := llm.NewClient(provider, baseURL)
 	store := session.NewStore(sessionDir)
@@ -318,6 +321,7 @@ func (h *chatHandler) execRunner(
 		SessionID:        sessionID,
 		LLM:              llmClient,
 		Tools:            toolRegistry,
+		SupportsTools:    supportsTools,
 		Session:          store,
 		ExtraContext:     extraContext,
 		Images:           images,

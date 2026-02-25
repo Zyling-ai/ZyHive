@@ -25,14 +25,15 @@ import (
 
 // Config holds all dependencies for a Runner instance.
 type Config struct {
-	AgentID      string
-	WorkspaceDir string
-	Model        string
-	APIKey       string
-	SessionID    string // persistent session ID; if set, history is loaded from/saved to JSONL
-	LLM          llm.Client
-	Tools        *tools.Registry
-	Session      *session.Store
+	AgentID       string
+	WorkspaceDir  string
+	Model         string
+	APIKey        string
+	SessionID     string // persistent session ID; if set, history is loaded from/saved to JSONL
+	LLM           llm.Client
+	Tools         *tools.Registry
+	SupportsTools bool // false = 模型不支持工具调用，发送请求时不附带 tools
+	Session       *session.Store
 	// Optional: shared project list injected into the system prompt
 	ProjectContext string
 	// Optional: extra context injected before the user message (e.g. page context, scenario)
@@ -433,12 +434,16 @@ func (r *Runner) run(ctx context.Context, userMsg string, out chan<- RunEvent) e
 	const maxIter = 30
 	for i := 0; i < maxIter; i++ {
 
+		var toolDefs []llm.ToolDef
+		if r.cfg.SupportsTools {
+			toolDefs = r.cfg.Tools.Definitions()
+		}
 		req := &llm.ChatRequest{
 			Model:    r.cfg.Model,
 			APIKey:   r.cfg.APIKey,
 			System:   systemPrompt,
 			Messages: r.history,
-			Tools:    r.cfg.Tools.Definitions(),
+			Tools:    toolDefs,
 		}
 
 		events, err := r.cfg.LLM.Stream(ctx, req)

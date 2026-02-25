@@ -25,11 +25,16 @@ func (h *modelHandler) List(c *gin.Context) {
 	if models == nil {
 		models = []config.ModelEntry{}
 	}
-	// Mask keys in response
+	// Mask keys in response + 注入 supportsTools 计算结果
 	result := make([]config.ModelEntry, len(models))
 	copy(result, models)
 	for i := range result {
 		result[i].APIKey = maskKey(result[i].APIKey)
+		// 如果未手动指定，注入自动判断结果（让前端拿到确定的 bool 值）
+		if result[i].SupportsTools == nil {
+			v := config.ModelSupportsTools(&result[i])
+			result[i].SupportsTools = &v
+		}
 	}
 	c.JSON(http.StatusOK, result)
 }

@@ -145,32 +145,57 @@
             </template>
             <el-form label-width="80px" size="default">
               <el-form-item label="使用模型">
-                <el-select
-                  v-model="agentModelId"
-                  placeholder="选择模型"
-                  style="width: 280px; margin-right: 10px"
-                >
-                  <el-option
-                    v-for="m in modelList"
-                    :key="m.id"
-                    :label="m.name || m.model"
-                    :value="m.id"
+                <div style="display:flex; flex-direction:column; gap:8px">
+                  <div style="display:flex; align-items:center; gap:10px">
+                    <el-select
+                      v-model="agentModelId"
+                      placeholder="选择模型"
+                      style="width: 300px"
+                    >
+                      <el-option
+                        v-for="m in modelList"
+                        :key="m.id"
+                        :label="m.name || m.model"
+                        :value="m.id"
+                      >
+                        <div style="display:flex; justify-content:space-between; align-items:center; width:100%">
+                          <span :style="m.supportsTools === false ? 'color:#999' : ''">
+                            {{ m.name || m.model }}
+                          </span>
+                          <div style="display:flex; align-items:center; gap:6px">
+                            <el-tag
+                              v-if="m.supportsTools === false"
+                              size="small"
+                              type="warning"
+                              style="font-size:10px; padding:0 4px; height:16px; line-height:16px"
+                            >无工具</el-tag>
+                            <span style="color:#bbb; font-size:12px">{{ m.provider }}</span>
+                          </div>
+                        </div>
+                      </el-option>
+                    </el-select>
+                    <el-button
+                      type="primary"
+                      :loading="agentModelSaving"
+                      @click="saveAgentModel"
+                      :disabled="!agentModelId"
+                    >保存</el-button>
+                  </div>
+                  <!-- 选中了不支持工具的模型时显示警告 -->
+                  <el-alert
+                    v-if="selectedModelNoTools"
+                    type="warning"
+                    :closable="false"
+                    show-icon
+                    style="padding:6px 12px"
                   >
-                    <div style="display:flex; justify-content:space-between; width:100%">
-                      <span>{{ m.name || m.model }}</span>
-                      <span style="color:#999; font-size:12px">{{ m.provider }}</span>
-                    </div>
-                  </el-option>
-                </el-select>
-                <el-button
-                  type="primary"
-                  :loading="agentModelSaving"
-                  @click="saveAgentModel"
-                  :disabled="!agentModelId"
-                >保存</el-button>
-                <el-text v-if="agent?.model" type="info" style="margin-left:12px; font-size:12px">
-                  当前：{{ agent.model }}
-                </el-text>
+                    <template #title>
+                      <span style="font-size:13px">
+                        当前模型 <b>不支持工具调用</b>，文件读写、代码执行等功能将无法使用。如需完整能力，请切换到支持工具的模型。
+                      </span>
+                    </template>
+                  </el-alert>
+                </div>
               </el-form-item>
             </el-form>
           </el-card>
@@ -1134,6 +1159,11 @@ const modelList = ref<ModelEntry[]>([])
 const modelsLoaded = ref(false)
 const agentModelId = ref('')
 const agentModelSaving = ref(false)
+// 当前选中的模型是否不支持工具调用
+const selectedModelNoTools = computed(() => {
+  const m = modelList.value.find(m => m.id === agentModelId.value)
+  return m ? m.supportsTools === false : false
+})
 
 // ── Env Vars ──────────────────────────────────────────────────────────────────
 const envVarsList = ref<{ key: string; value: string }[]>([])
