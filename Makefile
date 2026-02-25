@@ -28,12 +28,12 @@ run:
 # 交叉编译所有平台（需先 make ui sync-ui）
 release: sync-ui
 	mkdir -p bin/release
-	GOOS=linux  GOARCH=amd64  go build -ldflags "$(LDFLAGS)" -o bin/release/aipanel-linux-amd64   ./cmd/aipanel/
-	GOOS=linux  GOARCH=arm64  go build -ldflags "$(LDFLAGS)" -o bin/release/aipanel-linux-arm64   ./cmd/aipanel/
-	GOOS=darwin GOARCH=arm64  go build -ldflags "$(LDFLAGS)" -o bin/release/aipanel-darwin-arm64  ./cmd/aipanel/
-	GOOS=darwin GOARCH=amd64  go build -ldflags "$(LDFLAGS)" -o bin/release/aipanel-darwin-amd64  ./cmd/aipanel/
-	GOOS=windows GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o bin/release/aipanel-windows-amd64.exe ./cmd/aipanel/
-	GOOS=windows GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o bin/release/aipanel-windows-arm64.exe ./cmd/aipanel/
+	GOOS=linux  GOARCH=amd64  go build -ldflags "$(LDFLAGS)" -o bin/release/zyhive-linux-amd64   ./cmd/aipanel/
+	GOOS=linux  GOARCH=arm64  go build -ldflags "$(LDFLAGS)" -o bin/release/zyhive-linux-arm64   ./cmd/aipanel/
+	GOOS=darwin GOARCH=arm64  go build -ldflags "$(LDFLAGS)" -o bin/release/zyhive-darwin-arm64  ./cmd/aipanel/
+	GOOS=darwin GOARCH=amd64  go build -ldflags "$(LDFLAGS)" -o bin/release/zyhive-darwin-amd64  ./cmd/aipanel/
+	GOOS=windows GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o bin/release/zyhive-windows-amd64.exe ./cmd/aipanel/
+	GOOS=windows GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o bin/release/zyhive-windows-arm64.exe ./cmd/aipanel/
 	ls -lh bin/release/
 
 clean:
