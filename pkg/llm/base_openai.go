@@ -327,10 +327,10 @@ func convertAnthropicMessageToOpenAI(m ChatMessage) []map[string]any {
 
 	// 如果有 tool_use，构建 assistant 消息（带 tool_calls）
 	if len(toolCalls) > 0 {
-		var content any = nil
-		if len(textParts) > 0 {
-			content = strings.Join(textParts, "")
-		}
+		// 注意：content 必须用空字符串而非 null。
+		// 部分 provider（如 MiniMax）不接受 content:null，会导致该消息被忽略，
+		// 后续 role:"tool" 消息找不到前驱 tool_calls，触发 400 错误。
+		content := strings.Join(textParts, "")
 		return []map[string]any{{
 			"role":       "assistant",
 			"content":    content,
