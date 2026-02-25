@@ -155,8 +155,10 @@ func runUpdate(targetVersion string) {
 		targetVersion, filename,
 	)
 	// 国内镜像代理：直连失败或 404 时自动切换
+	// 国内镜像：用自建 CF Worker 代理（install.zyling.ai/dl/VERSION/FILE）
+	// 比 ghproxy 更稳定，完全自控
 	mirrorURL := fmt.Sprintf(
-		"https://mirror.ghproxy.com/https://github.com/Zyling-ai/zyhive/releases/download/%s/%s",
+		"https://install.zyling.ai/dl/%s/%s",
 		targetVersion, filename,
 	)
 
