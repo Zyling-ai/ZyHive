@@ -105,16 +105,16 @@
             <div class="gantt-label-col">
               <span class="gantt-scale-hint">{{ { quarter:'季', month:'月', biweek:'双周', week:'周' }[ganttScale] }} ↕滚轮</span>
             </div>
-            <div class="gantt-timeline-col">
-              <!-- 年份标记层 -->
+            <div class="gantt-timeline-col" ref="ganttTimelineRef">
+              <!-- 年份标记层：只在 labelTicks 里有 yearMark 的位置显示 -->
               <div class="gantt-years">
-                <div v-for="t in gridTicks.filter(t => t.yearMark)" :key="'yr-' + t.left" class="gantt-year-label" :style="{ left: t.left }">
+                <div v-for="t in labelTicks.filter(t => t.yearMark)" :key="'yr-' + t.left" class="gantt-year-label" :style="{ left: t.left }">
                   {{ t.yearMark }}
                 </div>
               </div>
-              <!-- 月/周刻度层 -->
+              <!-- 月/周刻度层：稀疏化后的标签 -->
               <div class="gantt-months">
-                <div v-for="t in gridTicks" :key="t.label + t.left" class="gantt-month-label" :style="{ left: t.left }">
+                <div v-for="t in labelTicks" :key="t.label + t.left" class="gantt-month-label" :style="{ left: t.left }">
                   {{ t.label }}
                 </div>
               </div>
@@ -595,10 +595,27 @@ const ganttScale = ref<GanttScale>('month')
 
 interface GridTick { label: string; yearMark?: string; left: string }
 
+// 所有刻度（用于网格线）
 const gridTicks = computed<GridTick[]>(() =>
   calcGridTicks(ganttRange.value.start, ganttRange.value.end, ganttScale.value))
 
-// backward compat alias — grid lines still iterate over gridTicks
+// 追踪时间轴容器宽度，用于动态过滤标签密度
+const ganttTimelineW = ref(700)
+const ganttTimelineRef = ref<HTMLElement | null>(null)
+
+// 过滤后的标签刻度：保证相邻标签间距 ≥ minPx 像素，防止重叠
+const labelTicks = computed<GridTick[]>(() => {
+  const ticks = gridTicks.value
+  const w = ganttTimelineW.value
+  if (!ticks.length || !w) return ticks
+  const minPx = 48 // 标签最小间距（px）
+  const maxLabels = Math.max(1, Math.floor(w / minPx))
+  if (ticks.length <= maxLabels) return ticks
+  const step = Math.ceil(ticks.length / maxLabels)
+  return ticks.filter((_, i) => i % step === 0)
+})
+
+// backward compat alias — grid lines still use all gridTicks
 const monthLabels = gridTicks
 
 function handleGanttWheel(e: WheelEvent) {
@@ -669,6 +686,13 @@ onMounted(async () => {
   agentList.value = (res.data || []).filter(a => !a.system)
   selectedChatAgentId.value = agentList.value[0]?.id || ''
   await loadGoals()
+  // 监听时间轴列宽度变化，用于动态计算标签密度
+  if (ganttTimelineRef.value) {
+    const ro = new ResizeObserver(entries => {
+      if (entries[0]) ganttTimelineW.value = entries[0].contentRect.width
+    })
+    ro.observe(ganttTimelineRef.value)
+  }
 })
 
 watch(editorTab, async (tab) => {
