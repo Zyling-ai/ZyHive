@@ -83,7 +83,7 @@ func buildOpenAIRequestBody(req *ChatRequest) ([]byte, error) {
 		model = model[idx+1:]
 	}
 
-	messages := make([]map[string]any, 0, len(req.Messages)+1)
+	messages := make([]map[string]any, 0, len(req.Messages)+2)
 	if req.System != "" {
 		messages = append(messages, map[string]any{
 			"role":    "system",
@@ -91,10 +91,8 @@ func buildOpenAIRequestBody(req *ChatRequest) ([]byte, error) {
 		})
 	}
 	for _, m := range req.Messages {
-		messages = append(messages, map[string]any{
-			"role":    m.Role,
-			"content": m.Content,
-		})
+		converted := convertAnthropicMessageToOpenAI(m)
+		messages = append(messages, converted...)
 	}
 
 	payload := map[string]any{
@@ -229,4 +227,122 @@ func flushTools(toolMap map[int]*partialTool, out chan<- StreamEvent) {
 			},
 		}
 	}
+}
+
+// ── Anthropic → OpenAI 格式消息转换 ────────────────────────────────────────
+// Anthropic 格式的 Content 是 json.RawMessage，可能是：
+//   - 字符串 "hello"
+//   - 文本块数组 [{"type":"text","text":"..."}]
+//   - 工具调用块（assistant）[{"type":"tool_use","id":"...","name":"...","input":{}}]
+//   - 工具结果块（user）[{"type":"tool_result","tool_use_id":"...","content":"..."}]
+// OpenAI 格式要求：
+//   - tool_use → assistant 消息中的 tool_calls 数组
+//   - tool_result → role:"tool" 独立消息（每个结果一条）
+
+type anthropicBlock struct {
+	Type      string          `json:"type"`
+	Text      string          `json:"text,omitempty"`
+	ID        string          `json:"id,omitempty"`
+	Name      string          `json:"name,omitempty"`
+	Input     json.RawMessage `json:"input,omitempty"`
+	ToolUseID string          `json:"tool_use_id,omitempty"`
+	Content   json.RawMessage `json:"content,omitempty"`
+}
+
+// convertAnthropicMessageToOpenAI 将单条 Anthropic 格式消息转为 0~N 条 OpenAI 格式消息。
+// 一条 Anthropic user 消息可能包含多个 tool_result，需拆分成多条 role:"tool" 消息。
+func convertAnthropicMessageToOpenAI(m ChatMessage) []map[string]any {
+	raw := m.Content
+
+	// 尝试解析为数组
+	var blocks []anthropicBlock
+	if err := json.Unmarshal(raw, &blocks); err != nil {
+		// 不是数组（可能是字符串），直接使用原始内容
+		var s string
+		if err2 := json.Unmarshal(raw, &s); err2 == nil {
+			return []map[string]any{{"role": m.Role, "content": s}}
+		}
+		// 无法识别，原样发送
+		return []map[string]any{{"role": m.Role, "content": raw}}
+	}
+
+	// 分析 blocks 类型
+	var textParts []string
+	var toolCalls []map[string]any
+	var toolResults []map[string]any
+
+	for _, b := range blocks {
+		switch b.Type {
+		case "text":
+			if b.Text != "" {
+				textParts = append(textParts, b.Text)
+			}
+		case "tool_use":
+			// assistant tool call → OpenAI tool_calls 格式
+			argsStr := "{}"
+			if len(b.Input) > 0 {
+				argsStr = string(b.Input)
+			}
+			toolCalls = append(toolCalls, map[string]any{
+				"id":   b.ID,
+				"type": "function",
+				"function": map[string]any{
+					"name":      b.Name,
+					"arguments": argsStr,
+				},
+			})
+		case "tool_result":
+			// user tool result → OpenAI role:"tool" 消息
+			var resultContent string
+			// content 可能是字符串或 [{type:text,text:...}]
+			if len(b.Content) > 0 {
+				var s string
+				if err := json.Unmarshal(b.Content, &s); err == nil {
+					resultContent = s
+				} else {
+					var innerBlocks []anthropicBlock
+					if err2 := json.Unmarshal(b.Content, &innerBlocks); err2 == nil {
+						for _, ib := range innerBlocks {
+							if ib.Type == "text" {
+								resultContent += ib.Text
+							}
+						}
+					} else {
+						resultContent = string(b.Content)
+					}
+				}
+			}
+			toolResults = append(toolResults, map[string]any{
+				"role":         "tool",
+				"tool_call_id": b.ToolUseID,
+				"content":      resultContent,
+			})
+		}
+	}
+
+	// 如果有 tool_result，拆成独立消息（忽略 role，直接用 "tool"）
+	if len(toolResults) > 0 {
+		return toolResults
+	}
+
+	// 如果有 tool_use，构建 assistant 消息（带 tool_calls）
+	if len(toolCalls) > 0 {
+		var content any = nil
+		if len(textParts) > 0 {
+			content = strings.Join(textParts, "")
+		}
+		return []map[string]any{{
+			"role":       "assistant",
+			"content":    content,
+			"tool_calls": toolCalls,
+		}}
+	}
+
+	// 纯文本
+	content := strings.Join(textParts, "")
+	if content == "" {
+		// 空消息，原样发送（可能是 null 或空字符串）
+		return []map[string]any{{"role": m.Role, "content": ""}}
+	}
+	return []map[string]any{{"role": m.Role, "content": content}}
 }
