@@ -436,3 +436,10 @@ curl -sSL https://install.zyling.ai/install | bash
 ### Changed
 - 模型提供商卡片 logo 换用 GitHub 官方 org 头像（真实品牌标识，统一 48×48 PNG）
 - 修复 kimi/minimax logo 格式问题（JPEG→PNG），确保所有浏览器正确渲染
+
+## [v0.9.17] - 2026-02-25
+
+### Fixed
+- 版本更新下载 404：文件名从 `aipanel-*` 修正为 `zyhive-*`
+- 国内网络无法连接 GitHub 时自动切换 ghproxy 镜像下载
+- 下载进度提示显示当前使用的下载源（GitHub / 国内镜像）
