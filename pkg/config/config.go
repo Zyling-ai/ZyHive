@@ -2,15 +2,23 @@
 package config
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"strings"
 )
 
+// CurrentConfigVersion is the latest config schema version.
+// Bump this when the config format changes; add a migration in applyMigrations().
+const CurrentConfigVersion = 1
+
 // Config is the top-level configuration.
 // Models/Channels/Tools/Skills are global registries; agents reference them by ID.
 type Config struct {
+	ConfigVersion int            `json:"configVersion,omitempty"` // schema version; 0 = pre-versioning
 	Gateway  GatewayConfig  `json:"gateway"`
 	Agents   AgentsConfig   `json:"agents"`
 	Models   []ModelEntry   `json:"models"`   // global model registry
@@ -154,6 +162,90 @@ type legacyTelegramConfig struct {
 	AllowedFrom  []int64 `json:"allowedFrom,omitempty"`
 }
 
+// ── Config Migration System ────────────────────────────────────────────────────
+//
+// How to add a new migration:
+//   1. Bump CurrentConfigVersion (e.g. 1 → 2)
+//   2. Add a case in applyMigrations() for the new version
+//   3. Write migration logic; set cfg.ConfigVersion = <new version> at the end
+//
+// Migrations run at startup (Load) after binary update, and are safe to run repeatedly.
+
+func applyMigrations(cfg *Config, path string) {
+	if cfg.ConfigVersion >= CurrentConfigVersion {
+		return
+	}
+	migrated := false
+
+	// ── v0 → v1 ──────────────────────────────────────────────────────────────
+	// Changes: ensure every ModelEntry/ChannelEntry/ToolEntry/SkillEntry has a
+	// non-empty ID; fill in missing default values introduced in v0.9.x.
+	if cfg.ConfigVersion < 1 {
+		log.Printf("[config] migrating v%d → v1", cfg.ConfigVersion)
+
+		// Ensure all ModelEntry IDs are non-empty
+		for i := range cfg.Models {
+			if cfg.Models[i].ID == "" {
+				cfg.Models[i].ID = randID()
+				log.Printf("[config]   auto-assigned model ID: %s (%s)", cfg.Models[i].ID, cfg.Models[i].Name)
+			}
+			// Ensure Status has a value
+			if cfg.Models[i].Status == "" {
+				cfg.Models[i].Status = "untested"
+			}
+		}
+
+		// Ensure all ChannelEntry IDs are non-empty
+		for i := range cfg.Channels {
+			if cfg.Channels[i].ID == "" {
+				cfg.Channels[i].ID = randID()
+				log.Printf("[config]   auto-assigned channel ID: %s (%s)", cfg.Channels[i].ID, cfg.Channels[i].Name)
+			}
+			if cfg.Channels[i].Status == "" {
+				cfg.Channels[i].Status = "untested"
+			}
+		}
+
+		// Ensure all ToolEntry IDs are non-empty
+		for i := range cfg.Tools {
+			if cfg.Tools[i].ID == "" {
+				cfg.Tools[i].ID = randID()
+				log.Printf("[config]   auto-assigned tool ID: %s (%s)", cfg.Tools[i].ID, cfg.Tools[i].Name)
+			}
+		}
+
+		// Ensure gateway.bind default
+		if cfg.Gateway.Bind == "" {
+			cfg.Gateway.Bind = "lan"
+		}
+
+		// Ensure auth.mode default
+		if cfg.Auth.Mode == "" {
+			cfg.Auth.Mode = "token"
+		}
+
+		cfg.ConfigVersion = 1
+		migrated = true
+	}
+
+	// ── future migrations go here ─────────────────────────────────────────────
+	// if cfg.ConfigVersion < 2 { ... cfg.ConfigVersion = 2; migrated = true }
+
+	if migrated {
+		log.Printf("[config] migration complete → v%d, saving", cfg.ConfigVersion)
+		if err := Save(path, cfg); err != nil {
+			log.Printf("[config] warning: failed to save migrated config: %v", err)
+		}
+	}
+}
+
+// randID generates a short random hex ID (8 bytes = 16 hex chars).
+func randID() string {
+	b := make([]byte, 6)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
 // Load reads aipanel.json from disk, auto-migrating legacy format.
 func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
@@ -184,6 +276,10 @@ func Load(path string) (*Config, error) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, err
 	}
+
+	// Apply any pending schema migrations and persist if changed
+	applyMigrations(&cfg, path)
+
 	return &cfg, nil
 }
 
