@@ -721,6 +721,7 @@ function openCreate() {
   selectedGoal.value = null
   creating.value = true
   editorTab.value = 'basic'
+  createSessionStamp.value = Date.now() // 每次新建都刷新 session
   Object.assign(form, {
     title: '', description: '', type: 'team', agentIds: [],
     status: 'draft', progress: 0, startAt: '', endAt: '', milestones: [],
@@ -840,11 +841,15 @@ async function removeCheck(check: GoalCheck) {
   } catch (e: any) { if (e !== 'cancel') ElMessage.error('删除失败') }
 }
 
+// 每次打开"新建目标"时生成独立 session，防止复用历史对话
+const createSessionStamp = ref(0)
+
 // 每个目标独立的对话 session（切换目标自动切换历史）
 const goalChatSessionId = computed(() => {
   if (!selectedChatAgentId.value) return ''
   if (selectedGoal.value) return `goal-${selectedGoal.value.id}-${selectedChatAgentId.value}`
-  return `goals-new-${selectedChatAgentId.value}`
+  // 新建目标：每次 openCreate() 都会更新 stamp，保证 session 全新
+  return `goals-new-${createSessionStamp.value}-${selectedChatAgentId.value}`
 })
 
 // AI 输出 JSON 后自动填充表单
@@ -1001,7 +1006,9 @@ function formatDateTime(val?: string) {
 /* ── 三栏容器 ────────────────────────────────────────────────────────── */
 .goals-studio {
   display: flex;
-  height: 100%;
+  /* 逃脱 app-main 的 padding(20px 24px)，撑满视口高度 */
+  height: calc(100vh - 44px);
+  margin: -20px -24px;
   overflow: hidden;
   background: #f5f7fa;
   user-select: none;
