@@ -585,7 +585,8 @@ const ganttRange = computed(() => {
   const starts = valid.map(g => new Date(g.startAt).getTime())
   const ends   = valid.map(g => new Date(g.endAt).getTime())
   const minS = Math.min(...starts), maxE = Math.max(...ends)
-  const pad = (maxE - minS) * 0.05
+  // 固定 14 天留白，避免因百分比 padding 导致范围延伸到下一年
+  const pad = 14 * 24 * 60 * 60 * 1000
   return { start: new Date(minS - pad), end: new Date(maxE + pad) }
 })
 // 甘特图时间颗粒度：季度 → 月 → 双周 → 周
@@ -686,14 +687,19 @@ onMounted(async () => {
   agentList.value = (res.data || []).filter(a => !a.system)
   selectedChatAgentId.value = agentList.value[0]?.id || ''
   await loadGoals()
-  // 监听时间轴列宽度变化，用于动态计算标签密度
-  if (ganttTimelineRef.value) {
-    const ro = new ResizeObserver(entries => {
-      if (entries[0]) ganttTimelineW.value = entries[0].contentRect.width
-    })
-    ro.observe(ganttTimelineRef.value)
-  }
 })
+
+// ganttTimelineRef 在 v-else 条件块内，DOM 渲染后才会挂载
+// 用 watch 监听 ref 变化，避免 onMounted 时 ref 为 null
+watch(ganttTimelineRef, (el) => {
+  if (!el) return
+  const ro = new ResizeObserver(entries => {
+    if (entries[0]) ganttTimelineW.value = entries[0].contentRect.width
+  })
+  ro.observe(el)
+  // 立即读取一次当前宽度
+  ganttTimelineW.value = el.getBoundingClientRect().width
+}, { immediate: true })
 
 watch(editorTab, async (tab) => {
   if (tab === 'records' && selectedGoal.value) {
