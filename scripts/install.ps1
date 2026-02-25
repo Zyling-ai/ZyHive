@@ -120,9 +120,9 @@ if (-not $Latest) {
 if (-not $Latest) { Write-Err "无法获取最新版本，请检查网络连接" }
 Write-Info "最新版本：$Latest"
 
-$FileName   = "aipanel-windows-$Arch.exe"
+$FileName   = "zyhive-windows-$Arch.exe"
 $DownloadCF = "$InstallBase/dl/$Latest/$FileName"
-$DownloadGH = "$GithubBase/$Latest/$FileName"
+$DownloadGH = "https://mirror.ghproxy.com/https://github.com/Zyling-ai/zyhive/releases/download/$Latest/$FileName"
 $TmpBin     = Join-Path $env:TEMP $FileName
 
 # ── 检测是否已安装（更新流程）─────────────────────────────────────────────
