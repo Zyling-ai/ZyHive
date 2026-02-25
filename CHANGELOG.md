@@ -4,6 +4,31 @@
 
 ---
 
+## [v0.9.20] — 2026-02-25 · zyling.ai 官网提交次数柱状图 + 镜像替换
+
+### 新增 / 修复
+- **官网柱状图显示具体次数**：zyling.ai 近 14 天 Commits 柱状图每根柱子顶部显示实际提交次数（0 提交天留空）
+- **国内更新镜像替换**：`mirror.ghproxy.com`（已失效）→ `install.zyling.ai/dl`（自控 CF Worker，稳定可靠）
+- **MiniMax 等 provider 模型列表兜底**：`/v1/models` 返回非 200 时自动回退内置模型列表（MiniMax / Zhipu / Kimi / Qwen）
+
+---
+
+## [v0.9.19] — 2026-02-25 · MiniMax 工具调用 400 修复
+
+### 修复
+- **OpenAI-compatible assistant 消息 `content: null` → `""`**：部分 provider（MiniMax 等）不接受 `content: null`，导致工具调用后续请求报 400「Messages with role tool must be a response to a preceding message with tool_calls」
+
+---
+
+## [v0.9.18] — 2026-02-25 · Config 迁移系统 + 工具调用模型标注
+
+### 新增
+- **Config 版本化迁移系统**：启动时自动执行 `applyMigrations()`，v0→v1 补全所有 ID/Status/默认值，v1→v2 自动标记不支持工具调用模型（`deepseek-reasoner` 等）并确保有默认模型
+- **不支持工具调用模型前端警告**：模型选择器灰显 + 选中时显示警告提示
+- **OpenAI-compatible 工具消息格式修复**：`tool_use` → `tool_calls`，`tool_result` → `role:"tool"` 独立消息，解决 DeepSeek 400 错误
+
+---
+
 ## [v0.9.15] — 2026-02-25 · 修复升级后 Anthropic 403 导致所有功能报错
 
 ### 修复
