@@ -89,9 +89,14 @@
                 :placeholder="currentProviderMeta?.keyFormat || 'sk-...'"
               />
 
-              <!-- 转发地址 -->
-              <div class="field-label">转发地址 <span class="hint">（可选，国内绕过限制）</span></div>
-              <el-input v-model="providerForm.baseUrl" placeholder="留空使用默认地址，或填写中转地址" clearable />
+              <!-- 转发地址（折叠） -->
+              <div class="relay-toggle" @click="providerForm.showRelay = !providerForm.showRelay">
+                <el-switch :model-value="providerForm.showRelay" size="small" style="pointer-events:none" />
+                <span class="relay-toggle-label">使用转发地址 <span class="hint">（国内绕过限制）</span></span>
+              </div>
+              <template v-if="providerForm.showRelay">
+                <el-input v-model="providerForm.baseUrl" placeholder="填写中转地址，如 https://your-relay.com" clearable style="margin-top:6px" />
+              </template>
 
               <!-- 操作按钮 -->
               <div class="form-actions">
@@ -381,6 +386,7 @@ const providerForm = reactive({
   name: '',
   apiKey: '',
   baseUrl: '',
+  showRelay: false,
 })
 
 // Models
@@ -417,13 +423,13 @@ async function loadProviders() {
 function openAddProvider() {
   selectedProvider.value = null
   providerTestResult.value = null
-  Object.assign(providerForm, { mode: 'add', provider: 'anthropic', name: '', apiKey: '', baseUrl: '' })
+  Object.assign(providerForm, { mode: 'add', provider: 'anthropic', name: '', apiKey: '', baseUrl: '', showRelay: false })
 }
 
 function openEditProvider(p: ProviderEntry) {
   selectedProvider.value = p
   providerTestResult.value = null
-  Object.assign(providerForm, { mode: 'edit', provider: p.provider, name: p.name, apiKey: '', baseUrl: p.baseUrl || '' })
+  Object.assign(providerForm, { mode: 'edit', provider: p.provider, name: p.name, apiKey: '', baseUrl: p.baseUrl || '', showRelay: !!p.baseUrl })
 }
 
 function selectProvider(p: ProviderEntry) {
@@ -779,4 +785,14 @@ async function deleteModel(row: ModelEntry) {
 .guide-row code { background: var(--el-fill-color); padding: 1px 5px; border-radius: 3px; font-size: 12px; }
 
 .field-hint { font-size: 12px; color: var(--el-text-color-placeholder); margin-top: 4px; }
+
+.relay-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  cursor: pointer;
+  user-select: none;
+}
+.relay-toggle-label { font-size: 13px; color: #606266; font-weight: 500; }
 </style>
