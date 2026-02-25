@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"strings"
 	"io/fs"
 	"log"
 	"net"
@@ -272,6 +273,9 @@ func main() {
 	}
 	addr := fmt.Sprintf(":%d", port)
 
+	// 启动后台模型连通性检测（首次启动 / 升级后状态为 untested 时自动测试）
+	go checkDefaultModelOnStartup(cfg, *configPath)
+
 	fmt.Println("")
 	fmt.Println("✅ 引巢 · ZyHive 启动成功！")
 	fmt.Println("")
@@ -336,4 +340,141 @@ func getPublicIP() string {
 		return os.Getenv("PUBLIC_IP")
 	}
 	return string(body)
+}
+
+// checkDefaultModelOnStartup 在服务启动后后台自动检测默认模型连通性。
+// 若默认模型状态为 "untested"，则发起一次真实请求判断是否可达，
+// 并将结果写回配置（"ok" 或 "error"）。
+// 这解决了用户升级后从未手动测试、status 永远为 untested、仪表盘警告不触发的问题。
+func checkDefaultModelOnStartup(cfg *config.Config, cfgPath string) {
+	// 等待服务完全就绪
+	time.Sleep(5 * time.Second)
+
+	def := cfg.DefaultModel()
+	if def == nil || def.Status != "untested" {
+		return // 无模型 或 已测过，跳过
+	}
+
+	key := def.APIKey
+	if key == "" {
+		key = os.Getenv(envVarName(def.Provider))
+	}
+	if key == "" {
+		return // 无 key，无法测试
+	}
+
+	log.Printf("[startup-check] 检测默认模型 %s/%s 连通性...", def.Provider, def.Model)
+
+	var ok bool
+	var errMsg string
+
+	switch def.Provider {
+	case "anthropic":
+		ok, errMsg = startupTestAnthropic(key, def.BaseURL)
+	default:
+		// OpenAI-compatible providers
+		baseURL := def.BaseURL
+		if baseURL == "" {
+			baseURL = startupDefaultBaseURL(def.Provider)
+		}
+		ok, errMsg = startupTestOpenAICompat(key, baseURL)
+	}
+
+	for i := range cfg.Models {
+		if cfg.Models[i].ID == def.ID {
+			if ok {
+				cfg.Models[i].Status = "ok"
+				log.Printf("[startup-check] ✅ 默认模型 %s 连通正常", def.ProviderModel())
+			} else {
+				cfg.Models[i].Status = "error"
+				log.Printf("[startup-check] ❌ 默认模型 %s 连接失败: %s", def.ProviderModel(), errMsg)
+			}
+			break
+		}
+	}
+	if err := config.Save(cfgPath, cfg); err != nil {
+		log.Printf("[startup-check] 保存配置失败: %v", err)
+	}
+}
+
+func envVarName(provider string) string {
+	switch provider {
+	case "anthropic":
+		return "ANTHROPIC_API_KEY"
+	case "openai":
+		return "OPENAI_API_KEY"
+	case "deepseek":
+		return "DEEPSEEK_API_KEY"
+	default:
+		return ""
+	}
+}
+
+func startupTestAnthropic(key, baseURL string) (bool, string) {
+	if baseURL == "" {
+		baseURL = "https://api.anthropic.com/v1"
+	}
+	baseURL = strings.TrimSuffix(baseURL, "/")
+	if !strings.HasSuffix(baseURL, "/v1") {
+		baseURL += "/v1"
+	}
+	payload := `{"model":"claude-sonnet-4-20250514","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}`
+	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, "POST", baseURL+"/messages", strings.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-api-key", key)
+	req.Header.Set("anthropic-version", "2023-06-01")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return false, err.Error()
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == 200 {
+		return true, ""
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
+	return false, fmt.Sprintf("status %d: %s", resp.StatusCode, body)
+}
+
+func startupTestOpenAICompat(key, baseURL string) (bool, string) {
+	if baseURL == "" {
+		return false, "no baseURL"
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, "GET",
+		strings.TrimSuffix(baseURL, "/")+"/models", nil)
+	req.Header.Set("Authorization", "Bearer "+key)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return false, err.Error()
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == 200 {
+		return true, ""
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
+	return false, fmt.Sprintf("status %d: %s", resp.StatusCode, body)
+}
+
+func startupDefaultBaseURL(provider string) string {
+	switch provider {
+	case "openai":
+		return "https://api.openai.com/v1"
+	case "deepseek":
+		return "https://api.deepseek.com/v1"
+	case "moonshot", "kimi":
+		return "https://api.moonshot.cn/v1"
+	case "zhipu", "glm":
+		return "https://open.bigmodel.cn/api/paas/v4"
+	case "minimax":
+		return "https://api.minimax.chat/v1"
+	case "qwen", "dashscope":
+		return "https://dashscope.aliyuncs.com/compatible-mode/v1"
+	case "openrouter":
+		return "https://openrouter.ai/api/v1"
+	default:
+		return ""
+	}
 }
