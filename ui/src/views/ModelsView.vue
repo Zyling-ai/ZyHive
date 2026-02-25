@@ -488,9 +488,27 @@ async function testModel(row: ModelEntry) {
   testing.value = row.id
   try {
     const res = await modelsApi.test(row.id)
-    if (res.data.valid) ElMessage.success('连接成功！')
-    else ElMessage.error('连接失败: ' + (res.data.error || ''))
-    loadList()
+    if (res.data.valid) {
+      ElMessage.success('连接成功！')
+      await loadList()
+      // 如果当前默认模型连接失败，提示切换
+      const currentList = list.value
+      const def = currentList.find(m => m.isDefault)
+      if (def && def.id !== row.id && def.status === 'error') {
+        ElMessageBox.confirm(
+          `当前默认模型「${def.name || def.provider}」连接失败，是否将「${row.name || row.provider}」设为默认模型？`,
+          '切换默认模型',
+          { confirmButtonText: '设为默认', cancelButtonText: '稍后再说', type: 'warning' }
+        ).then(async () => {
+          await modelsApi.update(row.id, { ...row, isDefault: true } as any)
+          await loadList()
+          ElMessage.success('已设为默认模型')
+        }).catch(() => {})
+      }
+    } else {
+      ElMessage.error('连接失败: ' + (res.data.error || ''))
+      await loadList()
+    }
   } catch {
     ElMessage.error('测试请求失败')
   } finally {
