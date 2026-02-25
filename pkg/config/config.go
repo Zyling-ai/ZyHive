@@ -13,7 +13,7 @@ import (
 
 // CurrentConfigVersion is the latest config schema version.
 // Bump this when the config format changes; add a migration in applyMigrations().
-const CurrentConfigVersion = 1
+const CurrentConfigVersion = 2
 
 // Config is the top-level configuration.
 // Models/Channels/Tools/Skills are global registries; agents reference them by ID.
@@ -228,8 +228,53 @@ func applyMigrations(cfg *Config, path string) {
 		migrated = true
 	}
 
+	// ── v1 → v2 ──────────────────────────────────────────────────────────────
+	// Changes (v0.9.18+):
+	//   - Auto-set supportsTools=false for models matching noToolPatterns
+	//   - Ensure at least one model has isDefault=true (auto-pick first if none)
+	//   - Normalize baseUrl: strip trailing /v1 duplicate if present
+	if cfg.ConfigVersion < 2 {
+		log.Printf("[config] migrating v1 → v2")
+
+		// 标记不支持工具调用的模型
+		for i := range cfg.Models {
+			if cfg.Models[i].SupportsTools == nil {
+				supports := ModelSupportsTools(&cfg.Models[i])
+				if !supports {
+					f := false
+					cfg.Models[i].SupportsTools = &f
+					log.Printf("[config]   marked supportsTools=false: %s", cfg.Models[i].Name)
+				}
+			}
+		}
+
+		// 确保至少有一个默认模型
+		hasDefault := false
+		for _, m := range cfg.Models {
+			if m.IsDefault {
+				hasDefault = true
+				break
+			}
+		}
+		if !hasDefault && len(cfg.Models) > 0 {
+			// 优先选第一个 Anthropic 模型，否则第一个
+			chosen := 0
+			for i, m := range cfg.Models {
+				if m.Provider == "anthropic" {
+					chosen = i
+					break
+				}
+			}
+			cfg.Models[chosen].IsDefault = true
+			log.Printf("[config]   auto-set default model: %s", cfg.Models[chosen].Name)
+		}
+
+		cfg.ConfigVersion = 2
+		migrated = true
+	}
+
 	// ── future migrations go here ─────────────────────────────────────────────
-	// if cfg.ConfigVersion < 2 { ... cfg.ConfigVersion = 2; migrated = true }
+	// if cfg.ConfigVersion < 3 { ... cfg.ConfigVersion = 3; migrated = true }
 
 	if migrated {
 		log.Printf("[config] migration complete → v%d, saving", cfg.ConfigVersion)
