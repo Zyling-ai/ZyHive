@@ -46,6 +46,7 @@ export interface ModelEntry {
   baseUrl?: string
   isDefault: boolean
   status: string // "ok" | "error" | "untested"
+  supportsTools?: boolean // false = 不支持工具调用（如 deepseek-reasoner）
 }
 
 export interface ProbeModelInfo {

@@ -50,11 +50,20 @@
             <code v-else style="font-size: 12px; color: #909399">{{ row.apiKey }}</code>
           </template>
         </el-table-column>
-        <el-table-column label="状态" width="90">
+        <el-table-column label="状态" width="140">
           <template #default="{ row }">
-            <el-tag :type="row.status === 'ok' ? 'success' : row.status === 'error' ? 'danger' : 'info'" size="small">
-              {{ row.status === 'ok' ? '✓ 有效' : row.status === 'error' ? '✗ 无效' : '? 未测' }}
-            </el-tag>
+            <div style="display:flex; gap:4px; flex-wrap:wrap; align-items:center">
+              <el-tag :type="row.status === 'ok' ? 'success' : row.status === 'error' ? 'danger' : 'info'" size="small">
+                {{ row.status === 'ok' ? '✓ 有效' : row.status === 'error' ? '✗ 无效' : '? 未测' }}
+              </el-tag>
+              <el-tooltip
+                v-if="row.supportsTools === false"
+                content="该模型不支持工具调用（文件读写、代码执行等功能不可用）"
+                placement="top"
+              >
+                <el-tag type="warning" size="small" style="cursor:help">⚠ 无工具</el-tag>
+              </el-tooltip>
+            </div>
           </template>
         </el-table-column>
         <el-table-column label="默认" width="60">
@@ -178,6 +187,16 @@
         <!-- 设为默认 -->
         <el-form-item label="设为默认">
           <el-switch v-model="form.isDefault" />
+        </el-form-item>
+
+        <!-- 工具调用支持 -->
+        <el-form-item label="工具调用">
+          <el-select v-model="form.supportsTools" style="width: 180px">
+            <el-option :value="null" label="🔍 自动判断（推荐）" />
+            <el-option :value="true" label="✅ 支持工具调用" />
+            <el-option :value="false" label="⚠️ 不支持（禁用工具）" />
+          </el-select>
+          <el-text type="info" style="margin-left:8px; font-size:12px">留空将按模型名自动判断</el-text>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -367,6 +386,7 @@ const form = reactive({
   apiKey: '',
   baseUrl: 'https://api.anthropic.com',
   isDefault: false,
+  supportsTools: null as boolean | null,
 })
 
 // ── Computed ──────────────────────────────────────────────────────────────────
@@ -468,7 +488,7 @@ function openAdd() {
   editingId.value = ''
   probedModels.value = []
   probeError.value = ''
-  Object.assign(form, { id: '', name: '', provider: 'anthropic', model: '', apiKey: '', baseUrl: defaultBaseUrl('anthropic'), isDefault: false })
+  Object.assign(form, { id: '', name: '', provider: 'anthropic', model: '', apiKey: '', baseUrl: defaultBaseUrl('anthropic'), isDefault: false, supportsTools: null })
   dialogVisible.value = true
 }
 
@@ -479,6 +499,7 @@ function openEdit(row: ModelEntry) {
   Object.assign(form, {
     id: row.id, name: row.name, provider: row.provider, model: row.model,
     apiKey: row.apiKey, baseUrl: row.baseUrl || defaultBaseUrl(row.provider), isDefault: row.isDefault,
+    supportsTools: row.supportsTools ?? null,
   })
   dialogVisible.value = true
 }
