@@ -222,6 +222,36 @@ var envVarForProvider = map[string]string{
 	"openrouter": "OPENROUTER_API_KEY",
 }
 
+// providerHardcodedModels 为不支持 /v1/models 端点的 provider 提供兜底模型列表。
+// 当 API 返回 404/405/501 时自动回退到此列表。
+var providerHardcodedModels = map[string][]string{
+	"minimax": {
+		"MiniMax-Text-01",
+		"abab6.5s-chat",
+		"abab6.5-chat",
+		"abab5.5s-chat",
+		"abab5.5-chat",
+	},
+	"zhipu": {
+		"glm-4-plus",
+		"glm-4-air",
+		"glm-4-flash",
+		"glm-4",
+		"glm-3-turbo",
+	},
+	"kimi": {
+		"moonshot-v1-8k",
+		"moonshot-v1-32k",
+		"moonshot-v1-128k",
+	},
+	"qwen": {
+		"qwen-max",
+		"qwen-plus",
+		"qwen-turbo",
+		"qwen-long",
+	},
+}
+
 // FetchModels GET /api/models/probe?baseUrl=...&apiKey=...&provider=...
 // Proxies to {baseUrl}/v1/models and returns a unified model list.
 // If apiKey is empty, falls back to environment variable for the given provider.
@@ -291,6 +321,19 @@ func (h *modelHandler) FetchModels(c *gin.Context) {
 
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != 200 {
+		// 尝试硬编码兜底（适合 MiniMax/Kimi 等不支持 /v1/models 的 provider）
+		if hardcoded, ok := providerHardcodedModels[provider]; ok {
+			type ModelInfo struct {
+				ID   string `json:"id"`
+				Name string `json:"name"`
+			}
+			models := make([]ModelInfo, 0, len(hardcoded))
+			for _, id := range hardcoded {
+				models = append(models, ModelInfo{ID: id, Name: id})
+			}
+			c.JSON(http.StatusOK, gin.H{"models": models, "source": "builtin"})
+			return
+		}
 		c.JSON(http.StatusBadGateway, gin.H{
 			"error": fmt.Sprintf("provider returned %d: %s", resp.StatusCode, truncate(string(body), 300)),
 		})

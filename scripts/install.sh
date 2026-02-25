@@ -188,7 +188,7 @@ info "最新版本：$LATEST"
 
 BINARY_FILENAME="zyhive-${OS}-${ARCH}"
 BINARY_URL="$INSTALL_BASE/dl/$LATEST/$BINARY_FILENAME"
-BINARY_URL_FALLBACK="https://mirror.ghproxy.com/https://github.com/Zyling-ai/zyhive/releases/download/$LATEST/$BINARY_FILENAME"
+BINARY_URL_FALLBACK="https://install.zyling.ai/dl/$LATEST/$BINARY_FILENAME"
 
 # ── 检测是否已安装（更新流程）─────────────────────────────────────────────
 if [ -f "$INSTALL_BIN" ]; then
