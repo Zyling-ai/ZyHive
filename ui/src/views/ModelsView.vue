@@ -213,7 +213,7 @@ const providerMetaList: ProviderMeta[] = [
     key: 'anthropic',
     label: 'Anthropic',
     icon: '🔮',
-    baseUrl: 'https://api.anthropic.com',
+    baseUrl: 'https://api.anthropic.com/v1',
     website: 'https://anthropic.com',
     apiKeyUrl: 'https://console.anthropic.com/settings/keys',
     apiKeyHint: '在 Anthropic Console 创建 API Key',

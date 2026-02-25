@@ -106,7 +106,7 @@ type Client interface {
 func NewClient(provider, baseURL string) Client {
 	switch strings.ToLower(provider) {
 	case "anthropic":
-		return NewAnthropicClient()
+		return NewAnthropicClient(baseURL)
 	case "openai":
 		return NewOpenAIClient(baseURL)
 	case "deepseek":
