@@ -426,3 +426,13 @@ curl -sSL https://install.zyling.ai/install | bash
 - Agent 管理器（多 Agent 目录结构，config.json）
 - Chat SSE API（`POST /api/agents/:id/chat`）
 - 全局配置（模型、工具、Skills 注册表）
+
+## [v0.9.16] - 2026-02-25
+
+### Fixed
+- FetchModels `/v1` 重复拼接导致 DeepSeek/Kimi 等 OpenAI-compatible 接口 404
+- Anthropic 客户端支持自定义转发地址，解决国内 IP 403 forbidden 问题
+
+### Changed
+- 模型提供商卡片 logo 换用 GitHub 官方 org 头像（真实品牌标识，统一 48×48 PNG）
+- 修复 kimi/minimax logo 格式问题（JPEG→PNG），确保所有浏览器正确渲染
