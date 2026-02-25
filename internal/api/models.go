@@ -266,14 +266,31 @@ var providerHardcodedModels = map[string][]string{
 	},
 }
 
-// FetchModels GET /api/models/probe?baseUrl=...&apiKey=...&provider=...
+// FetchModels GET /api/models/probe?baseUrl=...&apiKey=...&provider=...&providerId=...
 // Proxies to {baseUrl}/v1/models and returns a unified model list.
+// If providerId is set, looks up apiKey and baseUrl from cfg.Providers.
 // If apiKey is empty, falls back to environment variable for the given provider.
 // OpenRouter public endpoint works without any apiKey.
 func (h *modelHandler) FetchModels(c *gin.Context) {
 	baseURL := strings.TrimRight(c.Query("baseUrl"), "/")
 	apiKey := c.Query("apiKey")
 	provider := c.Query("provider")
+	providerID := c.Query("providerId")
+
+	// 优先从 ProviderEntry 取 key 和 baseURL
+	if providerID != "" {
+		if p := h.cfg.FindProvider(providerID); p != nil {
+			if apiKey == "" {
+				apiKey = p.APIKey
+			}
+			if baseURL == "" && p.BaseURL != "" {
+				baseURL = strings.TrimRight(p.BaseURL, "/")
+			}
+			if provider == "" {
+				provider = p.Provider
+			}
+		}
+	}
 
 	// Fallback to env var if no key provided
 	if apiKey == "" && provider != "" {

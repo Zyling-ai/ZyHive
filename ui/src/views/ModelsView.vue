@@ -406,7 +406,7 @@ async function fetchModelsForProvider() {
   try {
     const p = selectedProvider.value
     const baseUrl = p.baseUrl || providerMetaMap[p.provider]?.baseUrl || ''
-    const res = await modelsApi.probe(baseUrl, undefined, p.provider)
+    const res = await modelsApi.probe(baseUrl, undefined, p.provider, p.id)
     probedModels.value = res.data.models || []
     if (!probedModels.value.length) probeError.value = '未获取到模型列表（接口返回为空）'
   } catch (e: any) {
