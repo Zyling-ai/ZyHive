@@ -238,7 +238,13 @@ func (h *modelHandler) FetchModels(c *gin.Context) {
 		return
 	}
 
-	target := baseURL + "/v1/models"
+	// baseURL may already include /v1 (e.g. https://api.deepseek.com/v1)
+	var target string
+	if strings.HasSuffix(baseURL, "/v1") {
+		target = baseURL + "/models"
+	} else {
+		target = baseURL + "/v1/models"
+	}
 	req, err := http.NewRequestWithContext(c.Request.Context(), "GET", target, nil)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid url: " + err.Error()})
