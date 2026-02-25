@@ -147,14 +147,18 @@ func (h *modelHandler) Test(c *gin.Context) {
 	var errMsg string
 	switch m.Provider {
 	case "anthropic":
-		valid, errMsg = testAnthropicKey(key)
+		valid, errMsg = testAnthropicKey(key, m.BaseURL)
 	case "openai":
 		valid, errMsg = testOpenAIKey(key)
-	case "deepseek":
-		valid, errMsg = testDeepSeekKey(key)
+	case "deepseek", "moonshot", "kimi", "zhipu", "glm", "minimax", "qwen", "dashscope", "openrouter", "custom":
+		baseURL := m.BaseURL
+		if baseURL == "" {
+			baseURL = defaultBaseURLForProvider(m.Provider)
+		}
+		valid, errMsg = testOpenAICompatKey(key, baseURL)
 	default:
-		c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported provider"})
-		return
+		// 通用 OpenAI-compatible 尝试
+		valid, errMsg = testOpenAICompatKey(key, m.BaseURL)
 	}
 	if valid {
 		m.Status = "ok"

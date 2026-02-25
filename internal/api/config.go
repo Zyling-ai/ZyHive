@@ -119,7 +119,7 @@ func (h *configHandler) TestKey(c *gin.Context) {
 
 	switch strings.ToLower(req.Provider) {
 	case "anthropic":
-		valid, errMsg = testAnthropicKey(req.Key)
+		valid, errMsg = testAnthropicKey(req.Key, "") // 无 model baseURL，用默认地址
 	case "openai":
 		valid, errMsg = testOpenAIKey(req.Key)
 	case "deepseek":
@@ -136,7 +136,14 @@ func (h *configHandler) TestKey(c *gin.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
-func testAnthropicKey(key string) (bool, string) {
+func testAnthropicKey(key, baseURL string) (bool, string) {
+	if baseURL == "" {
+		baseURL = "https://api.anthropic.com/v1"
+	}
+	baseURL = strings.TrimRight(baseURL, "/")
+	if !strings.HasSuffix(baseURL, "/v1") && !strings.Contains(baseURL, "/v1/") {
+		baseURL += "/v1"
+	}
 	payload := map[string]any{
 		"model":      "claude-sonnet-4-20250514",
 		"max_tokens": 1,
@@ -145,7 +152,7 @@ func testAnthropicKey(key string) (bool, string) {
 	body, _ := json.Marshal(payload)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	req, _ := http.NewRequestWithContext(ctx, "POST", "https://api.anthropic.com/v1/messages", bytes.NewReader(body))
+	req, _ := http.NewRequestWithContext(ctx, "POST", baseURL+"/messages", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("x-api-key", key)
 	req.Header.Set("anthropic-version", "2023-06-01")
@@ -159,7 +166,11 @@ func testAnthropicKey(key string) (bool, string) {
 		return true, ""
 	}
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-	return false, fmt.Sprintf("status %d: %s", resp.StatusCode, string(respBody))
+	msg := fmt.Sprintf("status %d: %s", resp.StatusCode, string(respBody))
+	if resp.StatusCode == 403 {
+		msg = "403 地区限制（当前 IP 被 Anthropic 屏蔽），请配置转发地址或切换到其他模型"
+	}
+	return false, msg
 }
 
 func testOpenAIKey(key string) (bool, string) {
@@ -196,4 +207,49 @@ func testDeepSeekKey(key string) (bool, string) {
 	}
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
 	return false, fmt.Sprintf("status %d: %s", resp.StatusCode, string(respBody))
+}
+
+// testOpenAICompatKey tests any OpenAI-compatible provider by calling /models.
+func testOpenAICompatKey(key, baseURL string) (bool, string) {
+	if baseURL == "" {
+		return false, "未配置调用地址"
+	}
+	baseURL = strings.TrimRight(baseURL, "/")
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, "GET", baseURL+"/models", nil)
+	req.Header.Set("Authorization", "Bearer "+key)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return false, fmt.Sprintf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == 200 {
+		return true, ""
+	}
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+	return false, fmt.Sprintf("status %d: %s", resp.StatusCode, string(respBody))
+}
+
+// defaultBaseURLForProvider returns the default API base URL for a known provider.
+func defaultBaseURLForProvider(provider string) string {
+	switch strings.ToLower(provider) {
+	case "openai":
+		return "https://api.openai.com/v1"
+	case "deepseek":
+		return "https://api.deepseek.com/v1"
+	case "moonshot", "kimi":
+		return "https://api.moonshot.cn/v1"
+	case "zhipu", "glm":
+		return "https://open.bigmodel.cn/api/paas/v4"
+	case "minimax":
+		return "https://api.minimax.chat/v1"
+	case "qwen", "dashscope":
+		return "https://dashscope.aliyuncs.com/compatible-mode/v1"
+	case "openrouter":
+		return "https://openrouter.ai/api/v1"
+	default:
+		return ""
+	}
 }

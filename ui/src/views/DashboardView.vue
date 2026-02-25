@@ -3,6 +3,18 @@
     <h2 style="margin: 0 0 20px">仪表盘</h2>
 
     <!-- 未配置模型提示 -->
+    <!-- 默认模型连接失败警告 -->
+    <div v-if="!modelsLoading && defaultModelFailed" class="no-model-banner warn-model-banner">
+      <div class="no-model-banner-left">
+        <span class="no-model-banner-icon">🚫</span>
+        <div>
+          <div class="no-model-banner-title">默认模型「{{ defaultModelName }}」连接失败</div>
+          <div class="no-model-banner-desc">当前 IP 可能被该模型提供商屏蔽（如 Anthropic 限制国内 IP）。请切换默认模型，或为 Anthropic 配置转发地址。</div>
+        </div>
+      </div>
+      <router-link to="/config/models" class="no-model-banner-btn">去设置 →</router-link>
+    </div>
+
     <div v-if="!modelsLoading && modelCount === 0" class="no-model-banner">
       <div class="no-model-banner-left">
         <span class="no-model-banner-icon">⚠️</span>
@@ -131,13 +143,23 @@ const agentStore = useAgentsStore()
 const stats = ref<StatsResult | null>(null)
 const modelCount = ref<number>(-1)   // -1 = 未加载
 const modelsLoading = ref(true)
+const defaultModelFailed = ref(false)  // 默认模型连接失败（403 / error）
+const defaultModelName = ref('')
 
 onMounted(async () => {
   agentStore.fetchAll()
   // 并行拉取
   await Promise.allSettled([
     statsApi.get().then(r => { stats.value = r.data }).catch(() => {}),
-    modelsApi.list().then(r => { modelCount.value = r.data?.length ?? 0 }).catch(() => { modelCount.value = 0 }),
+    modelsApi.list().then(r => {
+      const list = r.data ?? []
+      modelCount.value = list.length
+      const def = list.find((m: any) => m.isDefault) ?? list[0]
+      if (def && def.status === 'error') {
+        defaultModelFailed.value = true
+        defaultModelName.value = def.name || def.provider
+      }
+    }).catch(() => { modelCount.value = 0 }),
   ])
   modelsLoading.value = false
 })
@@ -157,6 +179,12 @@ function formatTokens(n: number): string {
 </script>
 
 <style scoped>
+.warn-model-banner { background: #fef2f2; border-color: #fca5a5; }
+.warn-model-banner .no-model-banner-title { color: #991b1b; }
+.warn-model-banner .no-model-banner-desc { color: #7f1d1d; }
+.warn-model-banner .no-model-banner-btn { background: #ef4444; }
+.warn-model-banner .no-model-banner-btn:hover { background: #dc2626; }
+
 .no-model-banner {
   display: flex;
   align-items: center;
