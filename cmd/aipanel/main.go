@@ -30,7 +30,7 @@ import (
 	"github.com/Zyling-ai/zyhive/pkg/subagent"
 )
 
-// Version 由 Makefile ldflags 在编译时注入：-X main.Version=v0.9.12
+// Version 由 Makefile ldflags 在编译时注入：-X main.Version=v0.9.14
 // 未注入时默认显示 "dev"
 var Version = "dev"
 

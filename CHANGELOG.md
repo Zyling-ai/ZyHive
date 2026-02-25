@@ -4,6 +4,43 @@
 
 ---
 
+## [v0.9.14] — 2026-02-25 · 多模型支持 + 安装命令升级检测
+
+### 新增
+
+#### 多 Provider 模型支持
+- 新增 Kimi（月之暗面）、智谱 GLM、MiniMax、通义千问 四大国产模型
+- ModelsView 重构为提供商卡片网格 + API Key 引导，告别纯表单输入
+- LLM 客户端按 provider 独立拆分：`anthropic.go / openai.go / deepseek.go / moonshot.go / zhipu.go / minimax.go / qwen.go / openrouter.go / custom.go`
+- 工厂函数 `NewClient(provider, baseURL)` 统一路由，新增 provider 只需加文件
+
+#### 一键安装命令升级检测
+- 执行安装命令时自动检测是否已安装
+- 已安装且为最新版本：显示"已是最新版本"并退出
+- 发现新版本：提示 `是否更新 vX → vY？[Y/n]`，确认后自动停服务 → 下载 → 替换 → 重启
+- 支持 Linux/macOS（bash）和 Windows（PowerShell）双脚本
+
+#### Web 面板在线升级
+- 设置页新增版本检查卡片，支持一键升级（进度条 + 自动回滚）
+- 新建 `update.go / update_unix.go / update_windows.go`，跨平台 SIGTERM/os.Exit 重启
+
+#### CLI 在线更新
+- `--version` flag 显示当前版本
+- 更新前版本对比；已是最新版本时提示；备份 `.bak`；下载失败自动回滚
+
+### 修复
+
+- **Web UI DeepSeek 401**：`chat.go / public_chat.go` execRunner() 修复硬编码 `NewAnthropicClient`，改为 `llm.NewClient(provider, baseURL)`
+- **配置文件路径双轨**：`configFilePath` 从硬编码 `"aipanel.json"` 改为 var，`RegisterRoutes(cfgPath)` 传入，UI 写入与服务读取始终同一文件
+- **配置助手跟随默认模型**：`__config__` 系统 agent 直接取当前默认模型，不再固化 Anthropic
+
+### 变更
+
+- 未配置模型时仪表盘顶部橙色 banner 引导 + AiChat 空态提示
+- 版本号通过 ldflags `-X main.Version=$(VERSION)` 注入，`git describe --tags` 自动计算
+
+---
+
 ## [v0.9.12] — 2026-02-23 · 三级记忆系统
 
 ### 新增
