@@ -37,12 +37,23 @@ export interface AgentInfo {
   env?: Record<string, string>  // per-agent env vars for exec tool
 }
 
+export interface ProviderEntry {
+  id: string
+  name: string
+  provider: string
+  apiKey: string   // 脱敏显示
+  baseUrl?: string
+  status: string   // "ok" | "error" | "untested"
+  modelCount: number
+}
+
 export interface ModelEntry {
   id: string
   name: string
   provider: string
   model: string
-  apiKey: string
+  providerId?: string  // 引用 ProviderEntry.id
+  apiKey?: string      // 兼容旧配置
   baseUrl?: string
   isDefault: boolean
   status: string // "ok" | "error" | "untested"
@@ -133,6 +144,14 @@ export const agents = {
   /** Agent 间通信：向目标 Agent 发消息，同步等待回复 */
   message: (targetId: string, message: string, fromAgentId?: string) =>
     api.post<{ response: string }>(`/agents/${targetId}/message`, { message, fromAgentId }),
+}
+
+export const providers = {
+  list: () => api.get<{ providers: ProviderEntry[] }>('/providers'),
+  create: (data: Partial<ProviderEntry>) => api.post<{ provider: ProviderEntry }>('/providers', data),
+  update: (id: string, data: Partial<ProviderEntry>) => api.put<{ provider: ProviderEntry }>(`/providers/${id}`, data),
+  delete: (id: string) => api.delete(`/providers/${id}`),
+  test: (id: string) => api.post<{ status: string; message: string }>(`/providers/${id}/test`),
 }
 
 export const models = {

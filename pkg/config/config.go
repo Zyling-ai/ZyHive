@@ -13,19 +13,31 @@ import (
 
 // CurrentConfigVersion is the latest config schema version.
 // Bump this when the config format changes; add a migration in applyMigrations().
-const CurrentConfigVersion = 2
+const CurrentConfigVersion = 3
 
 // Config is the top-level configuration.
 // Models/Channels/Tools/Skills are global registries; agents reference them by ID.
 type Config struct {
-	ConfigVersion int            `json:"configVersion,omitempty"` // schema version; 0 = pre-versioning
-	Gateway  GatewayConfig  `json:"gateway"`
-	Agents   AgentsConfig   `json:"agents"`
-	Models   []ModelEntry   `json:"models"`   // global model registry
-	Channels []ChannelEntry `json:"channels"` // global channel registry
-	Tools    []ToolEntry    `json:"tools"`    // global capability registry
-	Skills   []SkillEntry   `json:"skills"`   // installed skills
-	Auth     AuthConfig     `json:"auth"`
+	ConfigVersion int              `json:"configVersion,omitempty"` // schema version; 0 = pre-versioning
+	Gateway   GatewayConfig    `json:"gateway"`
+	Agents    AgentsConfig     `json:"agents"`
+	Providers []ProviderEntry  `json:"providers,omitempty"` // API Key 注册表（每个厂商一条）
+	Models    []ModelEntry     `json:"models"`              // global model registry
+	Channels  []ChannelEntry   `json:"channels"`            // global channel registry
+	Tools     []ToolEntry      `json:"tools"`               // global capability registry
+	Skills    []SkillEntry     `json:"skills"`              // installed skills
+	Auth      AuthConfig       `json:"auth"`
+}
+
+// ProviderEntry 代表一个大模型服务商的凭据配置。
+// 一个厂商只需配置一次 APIKey，旗下所有模型共享使用。
+type ProviderEntry struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`              // 用户自定义名称，如"我的 DeepSeek"
+	Provider string `json:"provider"`          // "anthropic" | "openai" | "deepseek" | ...
+	APIKey   string `json:"apiKey"`
+	BaseURL  string `json:"baseUrl,omitempty"` // 留空 = 使用 provider 默认地址
+	Status   string `json:"status"`            // "ok" | "error" | "untested"
 }
 
 type GatewayConfig struct {
@@ -55,13 +67,34 @@ type AgentsConfig struct {
 type ModelEntry struct {
 	ID           string `json:"id"`
 	Name         string `json:"name"`
-	Provider     string `json:"provider"` // "anthropic" | "openai" | "deepseek" | "openrouter" | "custom"
-	Model        string `json:"model"`    // "claude-sonnet-4-6"
-	APIKey       string `json:"apiKey"`
-	BaseURL      string `json:"baseUrl,omitempty"` // API base URL; empty = provider default
+	Provider     string `json:"provider"`              // "anthropic" | "openai" | "deepseek" | "openrouter" | "custom"
+	Model        string `json:"model"`                 // "claude-sonnet-4-6"
+	ProviderID   string `json:"providerId,omitempty"`  // 引用 ProviderEntry.ID（优先使用 provider 的 apiKey）
+	APIKey       string `json:"apiKey,omitempty"`      // 兼容旧配置；新建模型用 ProviderID
+	BaseURL      string `json:"baseUrl,omitempty"`     // API base URL；空 = 用 provider/default
 	IsDefault    bool   `json:"isDefault"`
-	Status       string `json:"status"`                // "ok" | "error" | "untested"
+	Status       string `json:"status"`                  // "ok" | "error" | "untested"
 	SupportsTools *bool `json:"supportsTools,omitempty"` // nil=自动判断; true/false=手动指定
+}
+
+// ResolveCredentials 从模型或关联 provider 中取出 (apiKey, baseURL)。
+// 优先级：model.ProviderID → model.APIKey（向后兼容）。
+func ResolveCredentials(m *ModelEntry, providers []ProviderEntry) (apiKey, baseURL string) {
+	if m.ProviderID != "" {
+		for _, p := range providers {
+			if p.ID == m.ProviderID {
+				return p.APIKey, firstNonEmpty(m.BaseURL, p.BaseURL)
+			}
+		}
+	}
+	return m.APIKey, m.BaseURL
+}
+
+func firstNonEmpty(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
 }
 
 // noToolPatterns 是已知不支持工具调用的模型名称关键词（子串匹配，忽略大小写）。
@@ -273,6 +306,56 @@ func applyMigrations(cfg *Config, path string) {
 		migrated = true
 	}
 
+	// ── v2 → v3 ──────────────────────────────────────────────────────────────
+	// Changes (v0.9.21+):
+	//   - Extract apiKey from ModelEntry into shared ProviderEntry
+	//   - Set model.ProviderID; clear model.APIKey (key now lives on provider)
+	if cfg.ConfigVersion < 3 {
+		log.Printf("[config] migrating v2 → v3: extracting provider API keys")
+
+		// 为每个唯一的 (provider, apiKey, baseURL) 组合创建 ProviderEntry
+		type provKey struct{ provider, apiKey, baseURL string }
+		providerMap := map[provKey]string{} // provKey → provider ID
+
+		// 先对现有 ProviderEntry 建索引（防止重复创建）
+		for _, p := range cfg.Providers {
+			k := provKey{p.Provider, p.APIKey, p.BaseURL}
+			if _, exists := providerMap[k]; !exists {
+				providerMap[k] = p.ID
+			}
+		}
+
+		for i := range cfg.Models {
+			m := &cfg.Models[i]
+			if m.APIKey == "" || m.ProviderID != "" {
+				continue // 无 apiKey 或已有 ProviderID，跳过
+			}
+			k := provKey{m.Provider, m.APIKey, m.BaseURL}
+			pid, exists := providerMap[k]
+			if !exists {
+				// 新建 ProviderEntry
+				pid = randID()
+				providerName := providerDisplayName(m.Provider)
+				cfg.Providers = append(cfg.Providers, ProviderEntry{
+					ID:      pid,
+					Name:    providerName,
+					Provider: m.Provider,
+					APIKey:  m.APIKey,
+					BaseURL: m.BaseURL,
+					Status:  "untested",
+				})
+				providerMap[k] = pid
+				log.Printf("[config]   created provider: %s (%s)", providerName, m.Provider)
+			}
+			m.ProviderID = pid
+			m.APIKey = ""  // key 已迁移到 ProviderEntry
+			log.Printf("[config]   model %q linked to provider %s", m.Name, pid)
+		}
+
+		cfg.ConfigVersion = 3
+		migrated = true
+	}
+
 	// ── future migrations go here ─────────────────────────────────────────────
 	// if cfg.ConfigVersion < 3 { ... cfg.ConfigVersion = 3; migrated = true }
 
@@ -285,7 +368,10 @@ func applyMigrations(cfg *Config, path string) {
 }
 
 // randID generates a short random hex ID (8 bytes = 16 hex chars).
-func randID() string {
+func randID() string { return RandID() }
+
+// RandID generates a random hex ID (exported for use by other packages).
+func RandID() string {
 	b := make([]byte, 6)
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
@@ -448,4 +534,33 @@ func (c *Config) DefaultModel() *ModelEntry {
 // This is used by the chat/runner system to construct the LLM client.
 func (m *ModelEntry) ProviderModel() string {
 	return m.Provider + "/" + m.Model
+}
+
+// FindProvider returns the ProviderEntry for the given ID.
+func (c *Config) FindProvider(id string) *ProviderEntry {
+	for i := range c.Providers {
+		if c.Providers[i].ID == id {
+			return &c.Providers[i]
+		}
+	}
+	return nil
+}
+
+// providerDisplayName returns a human-friendly name for a provider type.
+func providerDisplayName(provider string) string {
+	names := map[string]string{
+		"anthropic":  "Anthropic",
+		"openai":     "OpenAI",
+		"deepseek":   "DeepSeek",
+		"openrouter": "OpenRouter",
+		"zhipu":      "智谱 AI",
+		"kimi":       "月之暗面 (Kimi)",
+		"minimax":    "MiniMax",
+		"qwen":       "阿里通义千问",
+		"custom":     "自定义",
+	}
+	if n, ok := names[provider]; ok {
+		return n
+	}
+	return provider
 }

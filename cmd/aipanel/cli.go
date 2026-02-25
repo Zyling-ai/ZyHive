@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -365,6 +366,7 @@ func menuConfigManage() {
 		printMenuItem("4", "修改绑定模式（lan / localhost / all）")
 		printMenuItem("5", "修改成员目录")
 		printMenuItem("6", "用编辑器编辑原始 JSON")
+		printMenuItem("7", "模型 API Key 管理（Providers）")
 		printMenuItem("0", "返回主菜单")
 		fmt.Println()
 
@@ -444,6 +446,8 @@ func menuConfigManage() {
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
 			cmd.Run()
+		case "7":
+			menuProviderConfig()
 		case "0", "q":
 			return
 		}
@@ -451,6 +455,333 @@ func menuConfigManage() {
 			pause()
 		}
 	}
+}
+
+// ── 模型 API Key 管理 ──────────────────────────────────────────────────────
+func menuProviderConfig() {
+	for {
+		clearScreen()
+		printSectionTitle("模型 API Key 管理")
+
+		cfg := loadConfigQuiet()
+		configPath := findConfigPath()
+
+		if cfg == nil {
+			printError("无法读取配置文件")
+			pause()
+			return
+		}
+
+		// 列出已配置的 providers
+		if len(cfg.Providers) == 0 {
+			fmt.Println("  " + ansiYellow + "尚未配置任何 API Key" + ansiReset)
+		} else {
+			fmt.Printf("  %-4s %-20s %-14s %-30s %s\n", "编号", "名称", "提供商", "API Key", "状态")
+			fmt.Println("  " + strings.Repeat("─", 78))
+			for i, p := range cfg.Providers {
+				masked := p.APIKey
+				if len(masked) > 12 {
+					masked = masked[:4] + strings.Repeat("*", len(masked)-8) + masked[len(masked)-4:]
+				}
+				statusColor := ansiYellow
+				statusLabel := "未测"
+				if p.Status == "ok" {
+					statusColor = ansiGreen
+					statusLabel = "✓ 有效"
+				} else if p.Status == "error" {
+					statusColor = ansiRed
+					statusLabel = "✗ 无效"
+				}
+				// 引用计数
+				cnt := 0
+				for _, m := range cfg.Models {
+					if m.ProviderID == p.ID {
+						cnt++
+					}
+				}
+				fmt.Printf("  %-4d %-20s %-14s %-30s %s%s%s  (%d 个模型)\n",
+					i+1, truncStr(p.Name, 18), p.Provider,
+					truncStr(masked, 28), statusColor, statusLabel, ansiReset, cnt)
+			}
+		}
+		fmt.Println()
+
+		printMenuItem("1", "添加 API Key（新 Provider）")
+		printMenuItem("2", "测试 API Key 连通性")
+		printMenuItem("3", "删除 Provider")
+		printMenuItem("0", "返回")
+		fmt.Println()
+
+		choice := readInput("请输入选项")
+		switch strings.TrimSpace(choice) {
+		case "1":
+			menuProviderAdd(cfg, configPath)
+		case "2":
+			menuProviderTest(cfg, configPath)
+		case "3":
+			menuProviderDelete(cfg, configPath)
+		case "0", "q":
+			return
+		}
+	}
+}
+
+var providerChoices = []struct{ key, label string }{
+	{"anthropic",  "Anthropic (Claude)"},
+	{"openai",     "OpenAI (GPT)"},
+	{"deepseek",   "DeepSeek"},
+	{"openrouter", "OpenRouter"},
+	{"zhipu",      "智谱 AI (GLM)"},
+	{"kimi",       "月之暗面 (Kimi)"},
+	{"minimax",    "MiniMax"},
+	{"qwen",       "阿里通义千问"},
+	{"custom",     "自定义"},
+}
+
+func menuProviderAdd(cfg *config.Config, configPath string) {
+	clearScreen()
+	printSectionTitle("添加模型 API Key")
+
+	fmt.Println("  选择提供商：")
+	for i, p := range providerChoices {
+		fmt.Printf("    %d. %s\n", i+1, p.label)
+	}
+	fmt.Println()
+	sel := readInput("选择提供商编号")
+	sel = strings.TrimSpace(sel)
+	idx, err := strconv.Atoi(sel)
+	if err != nil || idx < 1 || idx > len(providerChoices) {
+		printError("无效选择")
+		pause()
+		return
+	}
+	chosen := providerChoices[idx-1]
+
+	defaultName := chosen.label
+	nameInput := readInput(fmt.Sprintf("名称（直接回车使用默认 \"%s\"）", defaultName))
+	if strings.TrimSpace(nameInput) != "" {
+		defaultName = strings.TrimSpace(nameInput)
+	}
+
+	apiKey := readInput("粘贴 API Key")
+	apiKey = strings.TrimSpace(apiKey)
+	if apiKey == "" {
+		printError("API Key 不能为空")
+		pause()
+		return
+	}
+
+	baseURL := ""
+	if chosen.key == "anthropic" || chosen.key == "custom" {
+		baseURLInput := readInput("转发地址（可选，直接回车跳过，用于国内绕过限制）")
+		baseURL = strings.TrimSpace(baseURLInput)
+	}
+
+	// 写入配置
+	entry := config.ProviderEntry{
+		ID:       config.RandID(),
+		Name:     defaultName,
+		Provider: chosen.key,
+		APIKey:   apiKey,
+		BaseURL:  baseURL,
+		Status:   "untested",
+	}
+	cfg.Providers = append(cfg.Providers, entry)
+	if err := config.Save(configPath, cfg); err != nil {
+		printError("保存失败：" + err.Error())
+		pause()
+		return
+	}
+	printSuccess(fmt.Sprintf("已添加 %s，ID: %s", entry.Name, entry.ID))
+
+	// 询问是否立即测试
+	if confirm("立即测试连通性？") {
+		menuProviderTestOne(cfg, configPath, &cfg.Providers[len(cfg.Providers)-1])
+	}
+	pause()
+}
+
+func menuProviderTest(cfg *config.Config, configPath string) {
+	if len(cfg.Providers) == 0 {
+		printWarn("没有可测试的 Provider")
+		pause()
+		return
+	}
+	fmt.Println()
+	for i, p := range cfg.Providers {
+		fmt.Printf("    %d. %s (%s)\n", i+1, p.Name, p.Provider)
+	}
+	sel := readInput("选择要测试的编号（0=全部测试）")
+	sel = strings.TrimSpace(sel)
+	if sel == "0" {
+		for i := range cfg.Providers {
+			menuProviderTestOne(cfg, configPath, &cfg.Providers[i])
+		}
+	} else {
+		idx, err := strconv.Atoi(sel)
+		if err != nil || idx < 1 || idx > len(cfg.Providers) {
+			printError("无效选择")
+		} else {
+			menuProviderTestOne(cfg, configPath, &cfg.Providers[idx-1])
+		}
+	}
+	pause()
+}
+
+func menuProviderTestOne(cfg *config.Config, configPath string, p *config.ProviderEntry) {
+	fmt.Printf("  正在测试 %s%s%s ...\n", ansiBold, p.Name, ansiReset)
+	var ok bool
+	var msg string
+
+	apiKey := p.APIKey
+	baseURL := p.BaseURL
+
+	switch p.Provider {
+	case "anthropic":
+		ok, msg = testAPIKey("anthropic", apiKey, baseURL)
+	default:
+		ok, msg = testAPIKey(p.Provider, apiKey, baseURL)
+	}
+
+	if ok {
+		p.Status = "ok"
+		printSuccess(fmt.Sprintf("  ✓ %s", msg))
+	} else {
+		p.Status = "error"
+		printError(fmt.Sprintf("  ✗ %s", msg))
+	}
+	_ = config.Save(configPath, cfg)
+}
+
+func menuProviderDelete(cfg *config.Config, configPath string) {
+	if len(cfg.Providers) == 0 {
+		printWarn("没有可删除的 Provider")
+		pause()
+		return
+	}
+	fmt.Println()
+	for i, p := range cfg.Providers {
+		cnt := 0
+		for _, m := range cfg.Models {
+			if m.ProviderID == p.ID {
+				cnt++
+			}
+		}
+		fmt.Printf("    %d. %s (%s)  [%d 个模型使用]\n", i+1, p.Name, p.Provider, cnt)
+	}
+	sel := readInput("选择要删除的编号")
+	idx, err := strconv.Atoi(strings.TrimSpace(sel))
+	if err != nil || idx < 1 || idx > len(cfg.Providers) {
+		printError("无效选择")
+		pause()
+		return
+	}
+	p := cfg.Providers[idx-1]
+	// 检查引用
+	cnt := 0
+	for _, m := range cfg.Models {
+		if m.ProviderID == p.ID {
+			cnt++
+		}
+	}
+	if cnt > 0 {
+		printError(fmt.Sprintf("该 API Key 被 %d 个模型使用，请先删除这些模型或重新分配", cnt))
+		pause()
+		return
+	}
+	if !confirm(fmt.Sprintf("确认删除 \"%s\"？", p.Name)) {
+		return
+	}
+	newList := cfg.Providers[:0]
+	for _, pp := range cfg.Providers {
+		if pp.ID != p.ID {
+			newList = append(newList, pp)
+		}
+	}
+	cfg.Providers = newList
+	if err := config.Save(configPath, cfg); err != nil {
+		printError("保存失败：" + err.Error())
+	} else {
+		printSuccess("已删除")
+	}
+	pause()
+}
+
+func testAPIKey(provider, apiKey, baseURL string) (bool, string) {
+	// 复用 HTTP 测试逻辑（直接实现，不依赖 api 包）
+	defaults := map[string]string{
+		"anthropic":  "https://api.anthropic.com",
+		"openai":     "https://api.openai.com",
+		"deepseek":   "https://api.deepseek.com",
+		"kimi":       "https://api.moonshot.cn",
+		"zhipu":      "https://open.bigmodel.cn",
+		"minimax":    "https://api.minimax.chat",
+		"qwen":       "https://dashscope.aliyuncs.com",
+		"openrouter": "https://openrouter.ai",
+	}
+	base := baseURL
+	if base == "" {
+		if d, ok := defaults[provider]; ok {
+			base = d
+		}
+	}
+	base = strings.TrimRight(base, "/")
+
+	var target string
+	var headers map[string]string
+	if provider == "anthropic" {
+		target = base + "/v1/models"
+		headers = map[string]string{
+			"x-api-key":         apiKey,
+			"anthropic-version": "2023-06-01",
+		}
+	} else {
+		if !strings.HasSuffix(base, "/v1") {
+			target = base + "/v1/models"
+		} else {
+			target = base + "/models"
+		}
+		headers = map[string]string{"Authorization": "Bearer " + apiKey}
+	}
+
+	req, err := http.NewRequest("GET", target, nil)
+	if err != nil {
+		return false, "请求构建失败: " + err.Error()
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	req.Header.Set("User-Agent", "ZyHive/0.9")
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, "连接失败: " + err.Error()
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case 200:
+		return true, "连接成功 (200)"
+	case 401:
+		return false, "API Key 无效 (401)"
+	case 403:
+		if provider == "anthropic" {
+			return false, "当前 IP 被 Anthropic 屏蔽，请配置转发地址"
+		}
+		return false, "访问被拒绝 (403)"
+	case 404, 405:
+		// /models 端点不存在，但 key 格式可能正确
+		return true, "Key 格式正确（该 provider 不支持 /models 端点）"
+	default:
+		return false, fmt.Sprintf("provider 返回 %d", resp.StatusCode)
+	}
+}
+
+func truncStr(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max-1] + "…"
 }
 
 // ── 4. 成员管理 ────────────────────────────────────────────────────────────

@@ -82,7 +82,8 @@ func (h *chatHandler) Chat(c *gin.Context) {
 		return
 	}
 	modelProvider := me.Provider
-	modelBaseURL := me.BaseURL
+	_, resolvedBaseURL := config.ResolveCredentials(me, h.cfg.Providers)
+	modelBaseURL := resolvedBaseURL
 
 	store := session.NewStore(ag.SessionDir)
 	sessionID, _, err := store.GetOrCreate(body.SessionID, ag.ID)
@@ -413,7 +414,7 @@ func (h *chatHandler) resolveModel(ag *agent.Agent) (*config.ModelEntry, string,
 	if me == nil {
 		return nil, "", "", fmt.Errorf("no model configured")
 	}
-	key := resolveKey(me)
+	key := resolveKeyWithProviders(me, h.cfg.Providers)
 	if key == "" {
 		return nil, "", "", fmt.Errorf("no API key configured (set %s env var or add key in model settings)", envVarForProvider[me.Provider])
 	}
