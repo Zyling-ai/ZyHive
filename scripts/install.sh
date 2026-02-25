@@ -174,6 +174,105 @@ fi
 
 CONFIG_FILE="$CONFIG_DIR/$SERVICE_NAME.json"
 
+# ── 获取最新版本号 ─────────────────────────────────────────────────────────
+info "查询最新版本…"
+LATEST=$(_dl "$INSTALL_BASE/latest" "" 8 2>/dev/null \
+  | grep -o '"version":"[^"]*"' | sed 's/"version":"//;s/"//g')
+if [ -z "$LATEST" ]; then
+  info "CF 镜像不可用，回退到 GitHub API…"
+  LATEST=$(_dl "https://api.github.com/repos/Zyling-ai/zyhive/releases/latest" "" 10 \
+    | grep '"tag_name"' | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')
+fi
+[ -z "$LATEST" ] && error "无法获取最新版本，请检查网络连接。"
+info "最新版本：$LATEST"
+
+BINARY_URL="$INSTALL_BASE/dl/$LATEST/aipanel-${OS}-${ARCH}"
+BINARY_URL_FALLBACK="https://github.com/Zyling-ai/zyhive/releases/download/$LATEST/aipanel-${OS}-${ARCH}"
+
+# ── 检测是否已安装（更新流程）─────────────────────────────────────────────
+if [ -f "$INSTALL_BIN" ]; then
+  CURRENT=$("$INSTALL_BIN" --version 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+  [ -z "$CURRENT" ] && CURRENT="（未知版本）"
+
+  echo ""
+  echo -e "  ${YELLOW}检测到已安装的 ZyHive：${BOLD}$CURRENT${NC}"
+  echo -e "  ${BLUE}最新版本：${BOLD}$LATEST${NC}"
+  echo ""
+
+  if [ "$CURRENT" = "$LATEST" ]; then
+    echo -e "  ${GREEN}✅ 已是最新版本，无需更新。${NC}"
+    echo ""
+    exit 0
+  fi
+
+  printf "  是否更新 %s → %s？[Y/n] " "$CURRENT" "$LATEST"
+  read -r CONFIRM </dev/tty
+  CONFIRM="${CONFIRM:-Y}"
+  if [[ ! "$CONFIRM" =~ ^[Yy]$ ]]; then
+    echo ""
+    info "已取消，当前版本 $CURRENT 保持不变。"
+    exit 0
+  fi
+
+  echo ""
+  info "开始更新 $CURRENT → $LATEST…"
+
+  # 停止服务
+  if [ "$OS" = "linux" ] && command -v systemctl &>/dev/null; then
+    $SUDO systemctl stop "$SERVICE_NAME" 2>/dev/null || true
+    info "服务已停止"
+  elif [ "$OS" = "darwin" ]; then
+    _LABEL="com.zyhive.$SERVICE_NAME"
+    if $USE_SYSTEM_PATH; then
+      $SUDO launchctl stop "$_LABEL" 2>/dev/null || true
+    else
+      launchctl stop "$_LABEL" 2>/dev/null || true
+    fi
+    info "服务已停止"
+  fi
+
+  # 下载新版本
+  info "下载 $BINARY_NAME $LATEST ($OS/$ARCH)…"
+  TMP_BIN=$(mktemp)
+  if ! _dl "$BINARY_URL" "$TMP_BIN" 120 2>/dev/null; then
+    info "CF 镜像下载失败，回退到 GitHub…"
+    _dl "$BINARY_URL_FALLBACK" "$TMP_BIN" 120 \
+      || { rm -f "$TMP_BIN"; error "下载失败。\n  CF: $BINARY_URL\n  GitHub: $BINARY_URL_FALLBACK"; }
+  fi
+
+  # 替换二进制（先 rm 避免 Text file busy）
+  $SUDO rm -f "$INSTALL_BIN"
+  $SUDO install -m 755 "$TMP_BIN" "$INSTALL_BIN"
+  rm -f "$TMP_BIN"
+  success "二进制已更新至 $INSTALL_BIN"
+
+  # 重启服务
+  if [ "$OS" = "linux" ] && command -v systemctl &>/dev/null; then
+    $SUDO systemctl start "$SERVICE_NAME"
+    success "服务已重启"
+    info "查看日志：sudo journalctl -u $SERVICE_NAME -f"
+  elif [ "$OS" = "darwin" ]; then
+    _LABEL="com.zyhive.$SERVICE_NAME"
+    if $USE_SYSTEM_PATH; then
+      $SUDO launchctl start "$_LABEL" 2>/dev/null || true
+    else
+      launchctl start "$_LABEL" 2>/dev/null || true
+    fi
+    success "服务已重启"
+  fi
+
+  # 停止 sudo 保活进程
+  [ -n "$SUDO_KEEPALIVE_PID" ] && kill "$SUDO_KEEPALIVE_PID" 2>/dev/null || true
+
+  echo ""
+  echo -e "${GREEN}╔══════════════════════════════════════════════╗${NC}"
+  printf  "${GREEN}║  ✅  ZyHive 更新成功！%-22s║${NC}\n" "$CURRENT → $LATEST"
+  echo -e "${GREEN}╚══════════════════════════════════════════════╝${NC}"
+  echo ""
+  exit 0
+fi
+
+# ── 以下为全新安装流程 ─────────────────────────────────────────────────────
 echo ""
 echo -e "${BLUE}${BOLD}🚀 正在安装 ZyHive (引巢 · AI 团队操作系统)…${NC}"
 echo ""
@@ -188,22 +287,7 @@ fi
 [ -n "$DOMAIN" ] && info "域名：$DOMAIN（将自动配置 NGINX + HTTPS）"
 echo ""
 
-# ── 获取最新版本号 ─────────────────────────────────────────────────────────
-info "查询最新版本…"
-LATEST=$(_dl "$INSTALL_BASE/latest" "" 8 2>/dev/null \
-  | grep -o '"version":"[^"]*"' | sed 's/"version":"//;s/"//g')
-if [ -z "$LATEST" ]; then
-  info "CF 镜像不可用，回退到 GitHub API…"
-  LATEST=$(_dl "https://api.github.com/repos/Zyling-ai/zyhive/releases/latest" "" 10 \
-    | grep '"tag_name"' | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')
-fi
-[ -z "$LATEST" ] && error "无法获取最新版本，请检查网络连接。"
-info "最新版本：$LATEST"
-
 # ── 下载二进制 ─────────────────────────────────────────────────────────────
-BINARY_URL="$INSTALL_BASE/dl/$LATEST/aipanel-${OS}-${ARCH}"
-BINARY_URL_FALLBACK="https://github.com/Zyling-ai/zyhive/releases/download/$LATEST/aipanel-${OS}-${ARCH}"
-
 info "下载 $BINARY_NAME $LATEST ($OS/$ARCH)…"
 TMP_BIN=$(mktemp)
 if ! _dl "$BINARY_URL" "$TMP_BIN" 120 2>/dev/null; then

@@ -120,15 +120,90 @@ if (-not $Latest) {
 if (-not $Latest) { Write-Err "无法获取最新版本，请检查网络连接" }
 Write-Info "最新版本：$Latest"
 
-# ── 创建目录 ───────────────────────────────────────────────────────────────
-New-Item -ItemType Directory -Path $InstallDir, $ConfigDir, $AgentsDir -Force | Out-Null
-
-# ── 下载二进制 ─────────────────────────────────────────────────────────────
 $FileName   = "aipanel-windows-$Arch.exe"
 $DownloadCF = "$InstallBase/dl/$Latest/$FileName"
 $DownloadGH = "$GithubBase/$Latest/$FileName"
 $TmpBin     = Join-Path $env:TEMP $FileName
 
+# ── 检测是否已安装（更新流程）─────────────────────────────────────────────
+if (Test-Path $BinaryPath) {
+    $Current = $null
+    try { $Current = (& "$BinaryPath" --version 2>$null) -replace '.*?(v[\d.]+).*','$1' } catch {}
+    if (-not $Current) { $Current = "（未知版本）" }
+
+    Write-Host ""
+    Write-Host "  检测到已安装的 ZyHive：" -NoNewline -ForegroundColor Yellow
+    Write-Host $Current -ForegroundColor White
+    Write-Host "  最新版本：" -NoNewline -ForegroundColor Cyan
+    Write-Host $Latest -ForegroundColor White
+    Write-Host ""
+
+    if ($Current -eq $Latest) {
+        Write-Host "  ✅ 已是最新版本，无需更新。" -ForegroundColor Green
+        Write-Host ""
+        exit 0
+    }
+
+    $Confirm = Read-Host "  是否更新 $Current → $Latest？[Y/n]"
+    if ($Confirm -eq "" ) { $Confirm = "Y" }
+    if ($Confirm -notmatch "^[Yy]$") {
+        Write-Host ""
+        Write-Info "已取消，当前版本 $Current 保持不变。"
+        exit 0
+    }
+
+    Write-Host ""
+    Write-Info "开始更新 $Current → $Latest…"
+
+    # 停止服务
+    $OldSvc = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+    if ($OldSvc -and $OldSvc.Status -eq "Running") {
+        Stop-Service $ServiceName -Force
+        Start-Sleep 2
+        Write-Info "服务已停止"
+    }
+
+    # 下载
+    Write-Info "下载 $FileName…"
+    $Downloaded = $false
+    try {
+        Invoke-WebRequest -Uri $DownloadCF -OutFile $TmpBin -UseBasicParsing -TimeoutSec 120
+        $Downloaded = $true
+    } catch { Write-Info "CF 镜像下载失败，回退到 GitHub…" }
+    if (-not $Downloaded) {
+        try {
+            Invoke-WebRequest -Uri $DownloadGH -OutFile $TmpBin -UseBasicParsing -TimeoutSec 120
+            $Downloaded = $true
+        } catch {}
+    }
+    if (-not $Downloaded) { Write-Err "下载失败。" }
+
+    # 替换二进制
+    Remove-Item $BinaryPath -Force -ErrorAction SilentlyContinue
+    Copy-Item $TmpBin $BinaryPath -Force
+    Remove-Item $TmpBin -Force -ErrorAction SilentlyContinue
+    Write-Ok "二进制已更新至 $BinaryPath"
+
+    # 重启服务
+    if ($OldSvc) {
+        Start-Service $ServiceName -ErrorAction SilentlyContinue
+        Write-Ok "服务已重启"
+    }
+
+    Write-Host ""
+    Write-Host "╔══════════════════════════════════════════════╗" -ForegroundColor Green
+    Write-Host "║  ✅  ZyHive 更新成功！$Current → $Latest" -ForegroundColor Green
+    Write-Host "╚══════════════════════════════════════════════╝" -ForegroundColor Green
+    Write-Host ""
+    exit 0
+}
+
+# ── 以下为全新安装流程 ─────────────────────────────────────────────────────
+
+# ── 创建目录 ───────────────────────────────────────────────────────────────
+New-Item -ItemType Directory -Path $InstallDir, $ConfigDir, $AgentsDir -Force | Out-Null
+
+# ── 下载二进制 ─────────────────────────────────────────────────────────────
 Write-Info "下载 zyhive $Latest (windows/$Arch)…"
 $Downloaded = $false
 try {
