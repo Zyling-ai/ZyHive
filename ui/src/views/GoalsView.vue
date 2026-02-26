@@ -116,13 +116,13 @@
             <div class="gantt-timeline-col" ref="ganttTimelineRef">
               <!-- 年份标记层：只在 labelTicks 里有 yearMark 的位置显示 -->
               <div class="gantt-years">
-                <div v-for="t in labelTicks.filter(t => t.yearMark)" :key="'yr-' + t.left" class="gantt-year-label" :style="{ left: t.left }">
+                <div v-for="t in labelTicks.filter(t => t.yearMark)" :key="'yr-' + t.ts" class="gantt-year-label" :style="{ left: t.left }">
                   {{ t.yearMark }}
                 </div>
               </div>
               <!-- 月/周刻度层：稀疏化后的标签 -->
               <div class="gantt-months">
-                <div v-for="t in labelTicks" :key="t.label + t.left" class="gantt-month-label" :style="{ left: t.left }">
+                <div v-for="t in labelTicks" :key="'lbl-' + t.ts" class="gantt-month-label" :style="{ left: t.left }">
                   {{ t.label }}
                 </div>
               </div>
@@ -134,7 +134,7 @@
             <div class="gantt-overlay" aria-hidden="true">
               <div class="gantt-label-col" />
               <div class="gantt-timeline-col" style="position:relative">
-                <div v-for="m in monthLabels" :key="'gv-' + m.label" class="gantt-grid-line" :style="{ left: m.left }" />
+                <div v-for="m in monthLabels" :key="'gv-' + m.ts" class="gantt-grid-line" :style="{ left: m.left }" />
                 <div v-if="todayLeft !== null" class="gantt-today-line" :style="{ left: todayLeft }" />
               </div>
             </div>
@@ -683,7 +683,7 @@ const ganttRange = computed(() => ({
   end:   new Date(viewCenterMs.value + ganttDuration.value / 2),
 }))
 
-interface GridTick { label: string; yearMark?: string; left: string }
+interface GridTick { label: string; yearMark?: string; left: string; ts: number }
 const gridTicks = computed<GridTick[]>(() =>
   calcGridTicks(ganttRange.value.start, ganttRange.value.end, tickStep.value))
 
@@ -1175,7 +1175,7 @@ function calcGridTicks(rangeStart: Date, rangeEnd: Date, tick: TickStep): GridTi
     else if (tick.kind === 'month')  label = `${mo}月`
     else                             label = String(yr)
 
-    ticks.push({ label, yearMark, left: pct(cur) })
+    ticks.push({ label, yearMark, left: pct(cur), ts: cur.getTime() })
 
     // 步进到下一刻度
     if      (tick.kind === 'minute') cur.setMinutes(cur.getMinutes() + tick.step)
