@@ -1531,10 +1531,11 @@ function formatDateTime(val?: string) {
   font-size: 13px;
 }
 
-/* gantt-wrap：可滚动区域 */
+/* gantt-wrap：可滚动区域（overflow-x hidden 防止超长 bar 撑宽容器） */
 .gantt-wrap {
   flex: 1;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -1543,10 +1544,11 @@ function formatDateTime(val?: string) {
 }
 .gantt-wrap.is-dragging { cursor: grabbing; }
 
-/* gantt-body：行容器，相对定位供覆盖层使用 */
+/* gantt-body：行容器，相对定位供覆盖层使用；overflow:hidden 防止 overlay 随超宽内容扩张 */
 .gantt-body {
   position: relative;
   flex: 1;
+  overflow: hidden;
 }
 
 /* 网格线+今日线覆盖层：绝对铺满 gantt-body，pointer-events:none 不挡点击 */
