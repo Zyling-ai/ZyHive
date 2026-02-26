@@ -152,13 +152,13 @@
                     >{{ (agentNameMap[id] || id).slice(0, 1) }}</div>
                   </div>
                   <span class="gantt-goal-name">{{ g.title }}</span>
-                  <span class="gantt-pct" :class="'s-' + g.status">{{ g.progress }}%</span>
+                  <span class="gantt-pct" :class="'s-' + g.status">{{ timeProgress(g) }}%</span>
                 </div>
               </div>
               <div class="gantt-timeline-col">
                 <template v-if="isValidBar(g)">
                   <div class="gantt-bar" :style="ganttBarStyle(g)">
-                    <div class="gantt-bar-progress" :style="{ width: g.progress + '%' }" />
+                    <div class="gantt-bar-progress" :style="{ width: timeProgress(g) + '%' }" />
                     <span v-if="calcBarWidth(g) > 8" class="gantt-bar-label">{{ g.title }}</span>
                   </div>
                   <template v-for="ms in (g.milestones || [])" :key="ms.id">
@@ -200,11 +200,11 @@
             </div>
             <div class="gsp-body">
               <div class="gsp-stat">
-                <span class="gsp-stat-label">进度</span>
-                <el-progress :percentage="ganttSelectedGoal.progress"
+                <span class="gsp-stat-label">时间进度</span>
+                <el-progress :percentage="timeProgress(ganttSelectedGoal)"
                   :color="progressColor(ganttSelectedGoal)" :stroke-width="8"
                   style="flex:1;margin:0 10px" />
-                <span class="gsp-stat-val">{{ ganttSelectedGoal.progress }}%</span>
+                <span class="gsp-stat-val">{{ timeProgress(ganttSelectedGoal) }}%</span>
               </div>
               <div class="gsp-stat">
                 <span class="gsp-stat-label">时间</span>
@@ -1169,10 +1169,22 @@ function calcGridTicks(rangeStart: Date, rangeEnd: Date, tick: TickStep): GridTi
   }
   return ticks
 }
+// 时间进度：(今天 - 开始日) / (结束日 - 开始日) × 100，夹在 0~100
+function timeProgress(g: GoalInfo): number {
+  if (g.status === 'completed') return 100
+  if (!isValidDate(g.startAt) || !isValidDate(g.endAt)) return g.progress
+  const now   = Date.now()
+  const start = new Date(g.startAt).getTime()
+  const end   = new Date(g.endAt).getTime()
+  if (end <= start) return g.progress
+  return Math.min(100, Math.max(0, Math.round((now - start) / (end - start) * 100)))
+}
+
 function progressColor(g: GoalInfo) {
   if (g.status === 'completed') return '#67c23a'
-  if (g.progress >= 80) return '#409eff'
-  if (g.progress >= 40) return '#e6a23c'
+  const tp = timeProgress(g)
+  if (tp >= 80) return '#409eff'
+  if (tp >= 40) return '#e6a23c'
   return '#909399'
 }
 
