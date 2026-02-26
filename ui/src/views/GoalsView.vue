@@ -637,7 +637,7 @@ const filteredGoals = computed(() => {
 // ── 甘特图：连续缩放 + 惯性平移（地图式操作）────────────────────────────
 const GANTT_MIN_MS  = 2   * 60_000               // 最小可见时长：2 分钟
 const GANTT_MAX_MS  = 20  * 365 * 86400_000       // 最大可见时长：20 年
-const GANTT_INIT_MS = (6  * 30.44 * 86400_000) | 0  // 默认：6 个月
+const GANTT_INIT_MS = 30  * 86400_000             // 默认：30 天（天级别，避免 |0 溢出）
 
 // 可见时长（连续值，取代离散 scale）
 const ganttDuration = ref(GANTT_INIT_MS)
@@ -645,26 +645,28 @@ const ganttDuration = ref(GANTT_INIT_MS)
 const viewCenterMs  = ref(Date.now() + GANTT_INIT_MS * 0.4)
 
 // 刻度步长表（由可见时长自动决定，不需要手动切换）
+// ⚠️ 不要对大数字用 | 0 (32-bit 截断会溢出导致负数)，直接用浮点即可
 interface TickStep {
   ms: number; kind: 'minute' | 'hour' | 'day' | 'week' | 'month' | 'year'
   step: number; label: string
 }
+const MS_MONTH = Math.round(30.44 * 86400_000)  // ~2,630,016,000 — 浮点安全
 const TICK_STEPS: TickStep[] = [
-  { ms: 60_000,                          kind:'minute', step:1,  label:'1分钟' },
-  { ms: 5   * 60_000,                    kind:'minute', step:5,  label:'5分钟' },
-  { ms: 15  * 60_000,                    kind:'minute', step:15, label:'15分钟' },
-  { ms: 30  * 60_000,                    kind:'minute', step:30, label:'30分钟' },
-  { ms: 3600_000,                        kind:'hour',   step:1,  label:'1小时' },
-  { ms: 6   * 3600_000,                  kind:'hour',   step:6,  label:'6小时' },
-  { ms: 12  * 3600_000,                  kind:'hour',   step:12, label:'12小时' },
-  { ms: 86400_000,                       kind:'day',    step:1,  label:'1天' },
-  { ms: 7   * 86400_000,                 kind:'week',   step:7,  label:'1周' },
-  { ms: (30.44 * 86400_000) | 0,         kind:'month',  step:1,  label:'1月' },
-  { ms: 3   * ((30.44 * 86400_000) | 0), kind:'month',  step:3,  label:'3月' },
-  { ms: 6   * ((30.44 * 86400_000) | 0), kind:'month',  step:6,  label:'6月' },
-  { ms: 365 * 86400_000,                 kind:'year',   step:1,  label:'1年' },
-  { ms: 2   * 365 * 86400_000,           kind:'year',   step:2,  label:'2年' },
-  { ms: 5   * 365 * 86400_000,           kind:'year',   step:5,  label:'5年' },
+  { ms: 60_000,           kind:'minute', step:1,  label:'1分钟' },
+  { ms: 5   * 60_000,     kind:'minute', step:5,  label:'5分钟' },
+  { ms: 15  * 60_000,     kind:'minute', step:15, label:'15分钟' },
+  { ms: 30  * 60_000,     kind:'minute', step:30, label:'30分钟' },
+  { ms: 3600_000,         kind:'hour',   step:1,  label:'1小时' },
+  { ms: 6   * 3600_000,   kind:'hour',   step:6,  label:'6小时' },
+  { ms: 12  * 3600_000,   kind:'hour',   step:12, label:'12小时' },
+  { ms: 86400_000,        kind:'day',    step:1,  label:'1天' },
+  { ms: 7   * 86400_000,  kind:'week',   step:7,  label:'1周' },
+  { ms: MS_MONTH,         kind:'month',  step:1,  label:'1月' },
+  { ms: 3   * MS_MONTH,   kind:'month',  step:3,  label:'3月' },
+  { ms: 6   * MS_MONTH,   kind:'month',  step:6,  label:'6月' },
+  { ms: 365 * 86400_000,  kind:'year',   step:1,  label:'1年' },
+  { ms: 2   * 365 * 86400_000, kind:'year', step:2, label:'2年' },
+  { ms: 5   * 365 * 86400_000, kind:'year', step:5, label:'5年' },
 ]
 // 自动选最近似「目标 8 格」的步长
 const tickStep = computed<TickStep>(() => {
