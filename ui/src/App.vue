@@ -13,7 +13,7 @@
           <span class="hamburger-line" :class="{ open: mobileDrawerOpen }"></span>
         </button>
         <span class="header-title">引巢 · ZyHive</span>
-        <span v-if="appVersion" class="header-version">v{{ appVersion }}</span>
+        <span v-if="appVersion" class="header-version">{{ appVersion }}</span>
       </div>
       <div class="header-right">
         <a href="https://zyling.ai" target="_blank" class="header-link header-website-btn header-hide-xs" title="官网">
@@ -243,7 +243,7 @@ onMounted(async () => {
     return
   }
   try {
-    const res = await fetch('https://api.github.com/repos/Zyling-ai/zyhive')
+    const res = await fetch('https://api.github.com/repos/Zyling-ai/ZyHive')
     if (res.ok) {
       const data = await res.json()
       starCount.value = data.stargazers_count ?? null
@@ -305,18 +305,23 @@ body {
 }
 .header-link:hover { color: #fff; }
 .header-star-btn {
-  background: rgba(255,215,0,0.12);
-  color: #ffd700;
-  border: 1px solid rgba(255,215,0,0.3);
+  background: transparent;
+  color: rgba(255,255,255,0.45);
+  border: 1px solid rgba(255,255,255,0.12);
   border-radius: 4px;
   padding: 2px 8px;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 400;
   white-space: nowrap;
   display: flex;
   align-items: center;
   gap: 3px;
   user-select: none;
+  transition: color 0.15s, border-color 0.15s;
+}
+.header-star-btn:hover {
+  color: rgba(255,255,255,0.75);
+  border-color: rgba(255,255,255,0.25);
 }
 .header-website-btn {
   background: rgba(99,102,241,0.12);
