@@ -303,8 +303,11 @@
       <template v-else-if="selectedGoal">
         <div class="editor-toolbar">
           <div class="editor-breadcrumb">
+            <el-button size="small" text @click="selectedGoal = null" class="crumb-back" title="返回甘特图">
+              <el-icon><ArrowLeft /></el-icon> 甘特图
+            </el-button>
+            <span class="crumb-sep">/</span>
             <el-icon style="color:#909399"><Flag /></el-icon>
-            <span class="crumb-sep">目标</span>
             <span class="crumb-name">{{ selectedGoal.title }}</span>
           </div>
           <div class="toolbar-acts">
@@ -543,7 +546,7 @@
 <script setup lang="ts">
 import { ref, computed, reactive, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Refresh, Delete, Flag, Loading, ChatLineRound, DocumentChecked, Close } from '@element-plus/icons-vue'
+import { Plus, Refresh, Delete, Flag, Loading, ChatLineRound, DocumentChecked, Close, ArrowLeft } from '@element-plus/icons-vue'
 import {
   goalsApi, agents as agentsApi,
   type GoalInfo, type AgentInfo, type GoalCheck, type CheckRecord, type Milestone,
@@ -1396,8 +1399,9 @@ function formatDateTime(val?: string) {
   font-size: 13px;
   overflow: hidden;
 }
-.crumb-sep  { color: #909399; }
+.crumb-sep  { color: #c0c4cc; }
 .crumb-name { font-weight: 600; color: #303133; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.crumb-back { padding: 0 6px !important; color: #409eff !important; font-size: 12px !important; flex-shrink: 0; }
 .toolbar-acts { display: flex; gap: 6px; flex-shrink: 0; }
 
 /* 表单 */
