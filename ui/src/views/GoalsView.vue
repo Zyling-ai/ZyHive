@@ -111,7 +111,7 @@
           <!-- 时间刻度行（双层：年份 + 月/周） -->
           <div class="gantt-header">
             <div class="gantt-label-col">
-              <span class="gantt-scale-hint">{{ { year:'年', quarter:'季', month:'月', week:'周', day:'日', hour:'时', minute:'分' }[ganttScale] }} ↕滚轮</span>
+              <span class="gantt-scale-hint">{{ tickStep.label }}/格 ↕缩放</span>
             </div>
             <div class="gantt-timeline-col" ref="ganttTimelineRef">
               <!-- 年份标记层：只在 labelTicks 里有 yearMark 的位置显示 -->
@@ -634,125 +634,58 @@ const filteredGoals = computed(() => {
   return list
 })
 
-// ── 甘特图颗粒度（7级，粗→细）────────────────────────────────────────────
-const SCALES = ['year', 'quarter', 'month', 'week', 'day', 'hour', 'minute'] as const
-type GanttScale = typeof SCALES[number]
-const ganttScale = ref<GanttScale>('month')
+// ── 甘特图：连续缩放 + 惯性平移（地图式操作）────────────────────────────
+const GANTT_MIN_MS  = 2   * 60_000               // 最小可见时长：2 分钟
+const GANTT_MAX_MS  = 20  * 365 * 86400_000       // 最大可见时长：20 年
+const GANTT_INIT_MS = (6  * 30.44 * 86400_000) | 0  // 默认：6 个月
 
-// 各颗粒度可见窗口时长（ms）
-const SCALE_DURATION: Record<GanttScale, number> = {
-  year:    3  * 365 * 86400_000,        // 3 年
-  quarter: 18 * 30.44 * 86400_000 | 0, // 18 个月
-  month:   6  * 30.44 * 86400_000 | 0, // 6 个月
-  week:    56 * 86400_000,              // 8 周
-  day:     30 * 86400_000,              // 30 天
-  hour:    3  * 24 * 3600_000,          // 3 天
-  minute:  4  * 3600_000,               // 4 小时
+// 可见时长（连续值，取代离散 scale）
+const ganttDuration = ref(GANTT_INIT_MS)
+// 视口中心时刻：初始让今天出现在左侧约 10% 处
+const viewCenterMs  = ref(Date.now() + GANTT_INIT_MS * 0.4)
+
+// 刻度步长表（由可见时长自动决定，不需要手动切换）
+interface TickStep {
+  ms: number; kind: 'minute' | 'hour' | 'day' | 'week' | 'month' | 'year'
+  step: number; label: string
 }
-
-// ── 甘特图平移（拖拽左右）────────────────────────────────────────────────
-const ganttPanOffset  = ref(0)   // ms 偏移量，向右拖 = 负（看过去），向左拖 = 正（看未来）
-const ganttDragging   = ref(false)
-const ganttDragged    = ref(false) // 是否真的发生了拖拽位移（区分 click 和 drag）
-const ganttDragStartX = ref(0)
-const ganttDragStartOff = ref(0)
-
-function onGanttMouseDown(e: MouseEvent) {
-  ganttDragging.value = true
-  ganttDragged.value  = false
-  ganttDragStartX.value   = e.clientX
-  ganttDragStartOff.value = ganttPanOffset.value
-}
-function onGanttMouseMove(e: MouseEvent) {
-  if (!ganttDragging.value) return
-  const dx = e.clientX - ganttDragStartX.value
-  if (Math.abs(dx) > 5) ganttDragged.value = true
-  if (ganttDragged.value) {
-    const dur = SCALE_DURATION[ganttScale.value]
-    const w   = ganttTimelineW.value || 700
-    ganttPanOffset.value = ganttDragStartOff.value - Math.round((dx / w) * dur)
-  }
-}
-function onGanttMouseUp() { ganttDragging.value = false }
-
-// 切换颗粒度时重置平移
-watch(ganttScale, () => { ganttPanOffset.value = 0 })
-
-// ── 甘特图摘要选中 ──────────────────────────────────────────────────────
-const ganttSelectedGoal = ref<GoalInfo | null>(null)
-
-function onGanttBarClick(g: GoalInfo) {
-  if (ganttDragged.value) return // 拖拽过程中的 mouseup 不触发选中
-  ganttSelectedGoal.value = ganttSelectedGoal.value?.id === g.id ? null : g
-}
-
-// ── 甘特图可见范围：粗粒度以目标中心为锚；细粒度以今天为锚，今天在左 5% 处 ──
-const ganttRange = computed(() => {
-  const valid = filteredGoals.value.filter(g => isValidDate(g.startAt) && isValidDate(g.endAt))
-  const now = new Date()
-  let goalMin = now.getTime(), goalMax = now.getTime()
-  if (valid.length) {
-    goalMin = Math.min(...valid.map(g => new Date(g.startAt).getTime()))
-    goalMax = Math.max(...valid.map(g => new Date(g.endAt).getTime()))
-  }
-  const dur = SCALE_DURATION[ganttScale.value]
-  const coarse = ['year', 'quarter', 'month'].includes(ganttScale.value)
-  // 粗粒度：目标跨度中心；细粒度：今天 = 左侧 5% 位置（+ 平移偏移）
-  const baseStart = coarse
-    ? (goalMin + goalMax) / 2 - dur / 2
-    : now.getTime() - dur * 0.05
-  const rawStart = baseStart + ganttPanOffset.value
-  const rawEnd   = rawStart + dur
-  const sd = new Date(rawStart), ed = new Date(rawEnd)
-  let start: Date, end: Date
-  if (ganttScale.value === 'year') {
-    start = new Date(sd.getFullYear(), 0, 1)
-    end   = new Date(ed.getFullYear() + 1, 0, 1)
-  } else if (ganttScale.value === 'quarter') {
-    const qm = Math.floor(sd.getMonth() / 3) * 3
-    start = new Date(sd.getFullYear(), qm, 1)
-    const eqm = Math.ceil((ed.getMonth() + 1) / 3) * 3
-    end = eqm >= 12 ? new Date(ed.getFullYear() + 1, 0, 1) : new Date(ed.getFullYear(), eqm, 1)
-  } else if (ganttScale.value === 'month') {
-    start = new Date(sd.getFullYear(), sd.getMonth(), 1)
-    end   = new Date(ed.getFullYear(), ed.getMonth() + 1, 1)
-  } else if (ganttScale.value === 'week') {
-    const dow = sd.getDay()
-    sd.setDate(sd.getDate() - (dow === 0 ? 6 : dow - 1))
-    start = new Date(sd.getFullYear(), sd.getMonth(), sd.getDate())
-    const edow = ed.getDay()
-    if (edow !== 0) ed.setDate(ed.getDate() + (7 - edow))
-    end = new Date(ed.getFullYear(), ed.getMonth(), ed.getDate())
-  } else if (ganttScale.value === 'day') {
-    start = new Date(sd.getFullYear(), sd.getMonth(), sd.getDate())
-    end   = new Date(ed.getFullYear(), ed.getMonth(), ed.getDate() + 1)
-  } else if (ganttScale.value === 'hour') {
-    const sh = Math.floor(sd.getHours() / 6) * 6
-    start = new Date(sd.getFullYear(), sd.getMonth(), sd.getDate(), sh)
-    const eh = Math.ceil((ed.getHours() + 1) / 6) * 6
-    if (eh >= 24) end = new Date(ed.getFullYear(), ed.getMonth(), ed.getDate() + 1, 0)
-    else end = new Date(ed.getFullYear(), ed.getMonth(), ed.getDate(), eh)
-  } else { // minute
-    const sm = Math.floor(sd.getMinutes() / 30) * 30
-    start = new Date(sd.getFullYear(), sd.getMonth(), sd.getDate(), sd.getHours(), sm)
-    const em = Math.ceil((ed.getMinutes() + 1) / 30) * 30
-    if (em >= 60) end = new Date(ed.getFullYear(), ed.getMonth(), ed.getDate(), ed.getHours() + 1, 0)
-    else end = new Date(ed.getFullYear(), ed.getMonth(), ed.getDate(), ed.getHours(), em)
-  }
-  return { start, end }
+const TICK_STEPS: TickStep[] = [
+  { ms: 60_000,                          kind:'minute', step:1,  label:'1分钟' },
+  { ms: 5   * 60_000,                    kind:'minute', step:5,  label:'5分钟' },
+  { ms: 15  * 60_000,                    kind:'minute', step:15, label:'15分钟' },
+  { ms: 30  * 60_000,                    kind:'minute', step:30, label:'30分钟' },
+  { ms: 3600_000,                        kind:'hour',   step:1,  label:'1小时' },
+  { ms: 6   * 3600_000,                  kind:'hour',   step:6,  label:'6小时' },
+  { ms: 12  * 3600_000,                  kind:'hour',   step:12, label:'12小时' },
+  { ms: 86400_000,                       kind:'day',    step:1,  label:'1天' },
+  { ms: 7   * 86400_000,                 kind:'week',   step:7,  label:'1周' },
+  { ms: (30.44 * 86400_000) | 0,         kind:'month',  step:1,  label:'1月' },
+  { ms: 3   * ((30.44 * 86400_000) | 0), kind:'month',  step:3,  label:'3月' },
+  { ms: 6   * ((30.44 * 86400_000) | 0), kind:'month',  step:6,  label:'6月' },
+  { ms: 365 * 86400_000,                 kind:'year',   step:1,  label:'1年' },
+  { ms: 2   * 365 * 86400_000,           kind:'year',   step:2,  label:'2年' },
+  { ms: 5   * 365 * 86400_000,           kind:'year',   step:5,  label:'5年' },
+]
+// 自动选最近似「目标 8 格」的步长
+const tickStep = computed<TickStep>(() => {
+  const target = ganttDuration.value / 8
+  return TICK_STEPS.reduce((b, s) => Math.abs(s.ms - target) < Math.abs(b.ms - target) ? s : b)
 })
 
-interface GridTick { label: string; yearMark?: string; left: string }
+// 甘特图可见范围（无吸附，连续平滑）
+const ganttRange = computed(() => ({
+  start: new Date(viewCenterMs.value - ganttDuration.value / 2),
+  end:   new Date(viewCenterMs.value + ganttDuration.value / 2),
+}))
 
-// 所有刻度（用于网格线）
+interface GridTick { label: string; yearMark?: string; left: string }
 const gridTicks = computed<GridTick[]>(() =>
-  calcGridTicks(ganttRange.value.start, ganttRange.value.end, ganttScale.value))
+  calcGridTicks(ganttRange.value.start, ganttRange.value.end, tickStep.value))
 
 // 追踪时间轴容器宽度，用于动态过滤标签密度
-const ganttTimelineW = ref(700)
+const ganttTimelineW   = ref(700)
 const ganttTimelineRef = ref<HTMLElement | null>(null)
 
-// 过滤后的标签刻度：保证相邻标签间距 ≥ minPx，防止重叠
 const labelTicks = computed<GridTick[]>(() => {
   const ticks = gridTicks.value
   const w = ganttTimelineW.value
@@ -767,11 +700,67 @@ const labelTicks = computed<GridTick[]>(() => {
 // 网格线使用全密度刻度
 const monthLabels = gridTicks
 
+// ── 拖拽平移（非响应式变量，避免 Vue 追踪开销）──────────────────────────
+const ganttDragging = ref(false)
+const ganttDragged  = ref(false)
+let _gDragActive = false, _gDragMoved = false
+let _gLastX = 0, _gLastT = 0, _gVel = 0, _gMomentumId = 0
+
+function _cancelMomentum() { cancelAnimationFrame(_gMomentumId); _gVel = 0 }
+
+function onGanttMouseDown(e: MouseEvent) {
+  _cancelMomentum()
+  _gDragActive = true; _gDragMoved = false
+  ganttDragging.value = true; ganttDragged.value = false
+  _gLastX = e.clientX; _gLastT = Date.now(); _gVel = 0
+}
+function onGanttMouseMove(e: MouseEvent) {
+  if (!_gDragActive) return
+  const dx = e.clientX - _gLastX
+  const dt = Date.now() - _gLastT
+  if (Math.abs(dx) > 3) { _gDragMoved = true; ganttDragged.value = true }
+  if (_gDragMoved) {
+    if (dt > 0) _gVel = _gVel * 0.65 + (dx / dt) * 0.35
+    viewCenterMs.value -= (dx / (ganttTimelineW.value || 700)) * ganttDuration.value
+  }
+  _gLastX = e.clientX; _gLastT = Date.now()
+}
+function onGanttMouseUp() {
+  if (!_gDragActive) return
+  _gDragActive = false; ganttDragging.value = false
+  if (_gDragMoved && Math.abs(_gVel) > 0.05) {
+    let v = _gVel, lt = Date.now()
+    const run = () => {
+      const now = Date.now(), dt = now - lt; lt = now
+      viewCenterMs.value -= v * dt / (ganttTimelineW.value || 700) * ganttDuration.value
+      v *= Math.pow(0.92, dt / 16)
+      if (Math.abs(v) > 0.008) _gMomentumId = requestAnimationFrame(run)
+    }
+    _gMomentumId = requestAnimationFrame(run)
+  }
+}
+
+// ── 滚轮缩放（向光标位置锚定，指数线性）──────────────────────────────────
 function handleGanttWheel(e: WheelEvent) {
   e.preventDefault()
-  const idx = SCALES.indexOf(ganttScale.value)
-  if (e.deltaY < 0 && idx < SCALES.length - 1) ganttScale.value = SCALES[idx + 1] as GanttScale
-  else if (e.deltaY > 0 && idx > 0) ganttScale.value = SCALES[idx - 1] as GanttScale
+  _cancelMomentum()
+  const factor  = Math.exp(e.deltaY * 0.0015)   // 每 deltaY=100 约缩放 16%
+  const newDur  = Math.max(GANTT_MIN_MS, Math.min(GANTT_MAX_MS, ganttDuration.value * factor))
+  // 以光标所在时刻为锚点，保证缩放后光标下的时间不变
+  const rect = ganttTimelineRef.value?.getBoundingClientRect()
+  if (rect && rect.width > 0) {
+    const ratio        = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
+    const timeAtCursor = (viewCenterMs.value - ganttDuration.value / 2) + ratio * ganttDuration.value
+    viewCenterMs.value = timeAtCursor + newDur * (0.5 - ratio)
+  }
+  ganttDuration.value = newDur
+}
+
+// ── 甘特图摘要选中 ──────────────────────────────────────────────────────
+const ganttSelectedGoal = ref<GoalInfo | null>(null)
+function onGanttBarClick(g: GoalInfo) {
+  if (ganttDragged.value) return
+  ganttSelectedGoal.value = ganttSelectedGoal.value?.id === g.id ? null : g
 }
 const todayLeft   = computed(() => {
   const { start, end } = ganttRange.value
@@ -1113,92 +1102,68 @@ function milestoneLeft(ms: Milestone) {
   if (!isValidDate(ms.dueAt)) return '-100%'
   return `${((new Date(ms.dueAt).getTime() - start.getTime()) / (end.getTime() - start.getTime())) * 100}%`
 }
-function calcGridTicks(rangeStart: Date, rangeEnd: Date, scale: GanttScale): GridTick[] {
+function calcGridTicks(rangeStart: Date, rangeEnd: Date, tick: TickStep): GridTick[] {
   const ticks: GridTick[] = []
   const total = rangeEnd.getTime() - rangeStart.getTime()
   if (total <= 0) return ticks
-
   const pct = (d: Date) => ((d.getTime() - rangeStart.getTime()) / total * 100).toFixed(2) + '%'
-  let seenYear = -1, seenMo = -1, seenHour = ''
+  let seenParent = ''
 
-  if (scale === 'year') {
-    // 每年 1 月 1 日一个刻度
-    const cur = new Date(rangeStart.getFullYear(), 0, 1)
-    while (cur <= rangeEnd) {
-      ticks.push({ label: String(cur.getFullYear()), left: pct(cur) })
-      cur.setFullYear(cur.getFullYear() + 1)
+  // 找到 rangeStart 之前最近的对齐刻度点
+  let cur: Date
+  if (tick.kind === 'minute') {
+    cur = new Date(rangeStart); cur.setSeconds(0, 0)
+    cur.setMinutes(Math.floor(cur.getMinutes() / tick.step) * tick.step)
+  } else if (tick.kind === 'hour') {
+    cur = new Date(rangeStart); cur.setMinutes(0, 0, 0)
+    cur.setHours(Math.floor(cur.getHours() / tick.step) * tick.step)
+  } else if (tick.kind === 'day') {
+    cur = new Date(rangeStart.getFullYear(), rangeStart.getMonth(), rangeStart.getDate())
+  } else if (tick.kind === 'week') {
+    cur = new Date(rangeStart.getFullYear(), rangeStart.getMonth(), rangeStart.getDate())
+    const dow = cur.getDay(); cur.setDate(cur.getDate() - (dow === 0 ? 6 : dow - 1))
+  } else if (tick.kind === 'month') {
+    const mo = rangeStart.getMonth()
+    cur = new Date(rangeStart.getFullYear(), Math.floor(mo / tick.step) * tick.step, 1)
+  } else { // year
+    cur = new Date(Math.floor(rangeStart.getFullYear() / tick.step) * tick.step, 0, 1)
+  }
+
+  while (cur.getTime() <= rangeEnd.getTime()) {
+    const yr = cur.getFullYear(), mo = cur.getMonth() + 1
+    const d  = cur.getDate(),     h  = cur.getHours(), m = cur.getMinutes()
+
+    // 上层父标签（日期/月份/年份变化时显示）
+    let parentKey = '', parentLabel = ''
+    if (tick.kind === 'minute' || tick.kind === 'hour') {
+      parentKey = `${yr}-${mo}-${d}`
+      parentLabel = `${mo}/${d}`
+    } else if (tick.kind === 'day' || tick.kind === 'week') {
+      parentKey = `${yr}-${mo}`
+      parentLabel = mo === 1 ? `${yr}年` : `${mo}月`
+    } else if (tick.kind === 'month') {
+      parentKey = String(yr); parentLabel = String(yr)
     }
-  } else if (scale === 'quarter') {
-    // 每季度：Jan/Apr/Jul/Oct
-    const qm = Math.floor(rangeStart.getMonth() / 3) * 3
-    const cur = new Date(rangeStart.getFullYear(), qm, 1)
-    while (cur <= rangeEnd) {
-      const yr = cur.getFullYear()
-      const q = Math.floor(cur.getMonth() / 3) + 1
-      const yearMark = yr !== seenYear ? String(yr) : undefined
-      if (yearMark) seenYear = yr
-      ticks.push({ label: `Q${q}`, yearMark, left: pct(cur) })
-      cur.setMonth(cur.getMonth() + 3)
-    }
-  } else if (scale === 'month') {
-    // 每月 1 日
-    const cur = new Date(rangeStart.getFullYear(), rangeStart.getMonth(), 1)
-    while (cur <= rangeEnd) {
-      const yr = cur.getFullYear(), mo = cur.getMonth() + 1
-      const yearMark = yr !== seenYear ? String(yr) : undefined
-      if (yearMark) seenYear = yr
-      ticks.push({ label: `${mo}月`, yearMark, left: pct(cur) })
-      cur.setMonth(cur.getMonth() + 1)
-    }
-  } else if (scale === 'week') {
-    // 每周一
-    const cur = new Date(rangeStart)
-    while (cur <= rangeEnd) {
-      const yr = cur.getFullYear(), mo = cur.getMonth() + 1, d = cur.getDate()
-      const yearMark = yr !== seenYear ? String(yr) : undefined
-      if (yearMark) seenYear = yr
-      // 月份变化时在顶部显示月份
-      const moMark = seenMo !== mo ? `${mo}月` : undefined
-      seenMo = mo
-      ticks.push({ label: `${mo}/${d}`, yearMark: yearMark || moMark, left: pct(cur) })
-      cur.setDate(cur.getDate() + 7)
-    }
-  } else if (scale === 'day') {
-    // 每天，月份变化时顶部显示月份
-    const cur = new Date(rangeStart.getFullYear(), rangeStart.getMonth(), rangeStart.getDate())
-    while (cur <= rangeEnd) {
-      const yr = cur.getFullYear(), mo = cur.getMonth() + 1, d = cur.getDate()
-      const yearMark = yr !== seenYear ? String(yr) : (mo !== seenMo ? `${mo}月` : undefined)
-      if (yr !== seenYear) seenYear = yr
-      if (mo !== seenMo) seenMo = mo
-      ticks.push({ label: String(d), yearMark, left: pct(cur) })
-      cur.setDate(cur.getDate() + 1)
-    }
-  } else if (scale === 'hour') {
-    // 每 6 小时，日期变化时顶部显示日期
-    const cur = new Date(rangeStart)
-    while (cur <= rangeEnd) {
-      const mo = cur.getMonth() + 1, d = cur.getDate(), h = cur.getHours()
-      const dayKey = `${mo}/${d}`
-      const yearMark = dayKey !== seenHour ? dayKey : undefined
-      if (yearMark) seenHour = dayKey
-      ticks.push({ label: `${String(h).padStart(2,'0')}时`, yearMark, left: pct(cur) })
-      cur.setHours(cur.getHours() + 6)
-    }
-  } else {
-    // minute：每 30 分钟，整点时顶部显示"HH时"
-    const cur = new Date(rangeStart)
-    while (cur <= rangeEnd) {
-      const mo = cur.getMonth() + 1, d = cur.getDate(), h = cur.getHours(), m = cur.getMinutes()
-      const hourKey = `${mo}/${d} ${h}`
-      const yearMark = hourKey !== seenHour
-        ? `${mo}/${d} ${String(h).padStart(2,'0')}时`
-        : undefined
-      if (yearMark) seenHour = hourKey
-      const label = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`
-      ticks.push({ label, yearMark, left: pct(cur) })
-      cur.setMinutes(cur.getMinutes() + 30)
-    }
+    const yearMark = (parentKey && parentKey !== seenParent) ? parentLabel : undefined
+    if (yearMark) seenParent = parentKey
+
+    // 刻度主标签
+    let label = ''
+    if      (tick.kind === 'minute') label = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`
+    else if (tick.kind === 'hour')   label = `${String(h).padStart(2,'0')}时`
+    else if (tick.kind === 'day')    label = String(d)
+    else if (tick.kind === 'week')   label = `${mo}/${d}`
+    else if (tick.kind === 'month')  label = `${mo}月`
+    else                             label = String(yr)
+
+    ticks.push({ label, yearMark, left: pct(cur) })
+
+    // 步进到下一刻度
+    if      (tick.kind === 'minute') cur.setMinutes(cur.getMinutes() + tick.step)
+    else if (tick.kind === 'hour')   cur.setHours(cur.getHours() + tick.step)
+    else if (tick.kind === 'day' || tick.kind === 'week') cur.setDate(cur.getDate() + tick.step)
+    else if (tick.kind === 'month')  cur.setMonth(cur.getMonth() + tick.step)
+    else cur.setFullYear(cur.getFullYear() + tick.step)
   }
   return ticks
 }
