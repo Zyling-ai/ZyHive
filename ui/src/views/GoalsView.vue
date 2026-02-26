@@ -99,7 +99,15 @@
           <p>暂无目标，点击新建开始规划</p>
         </div>
 
-        <div v-else class="gantt-wrap" @wheel.prevent="handleGanttWheel">
+        <div v-else
+          class="gantt-wrap"
+          :class="{ 'is-dragging': ganttDragging }"
+          @wheel.prevent="handleGanttWheel"
+          @mousedown="onGanttMouseDown"
+          @mousemove="onGanttMouseMove"
+          @mouseup.window="onGanttMouseUp"
+          @mouseleave.self="onGanttMouseUp"
+        >
           <!-- 时间刻度行（双层：年份 + 月/周） -->
           <div class="gantt-header">
             <div class="gantt-label-col">
@@ -131,7 +139,10 @@
               </div>
             </div>
             <!-- 目标行 -->
-            <div v-for="g in filteredGoals" :key="g.id" class="gantt-row" @click="selectGoal(g)">
+            <div v-for="g in filteredGoals" :key="g.id" class="gantt-row"
+              :class="{ 'is-selected': ganttSelectedGoal?.id === g.id }"
+              @click="onGanttBarClick(g)"
+            >
               <div class="gantt-label-col">
                 <div class="gantt-label-inner">
                   <div class="gantt-agent-avatars">
@@ -165,6 +176,54 @@
             </div>
           </div>
         </div>
+
+        <!-- 目标摘要面板（点击甘特条后弹出） -->
+        <transition name="gsp-slide">
+          <div v-if="ganttSelectedGoal" class="gantt-summary-panel">
+            <div class="gsp-header">
+              <div class="gsp-avatars">
+                <div v-for="id in (ganttSelectedGoal.agentIds||[]).slice(0,3)" :key="id"
+                  class="gsp-avatar" :style="{ background: agentColorMap[id]||'#409eff' }">
+                  {{ (agentNameMap[id]||id).slice(0,1) }}
+                </div>
+              </div>
+              <div class="gsp-title-block">
+                <span class="gsp-title">{{ ganttSelectedGoal.title }}</span>
+                <el-tag :type="statusTagType(ganttSelectedGoal.status)" size="small">
+                  {{ statusLabel(ganttSelectedGoal.status) }}
+                </el-tag>
+              </div>
+              <el-button type="primary" size="small" @click="selectGoal(ganttSelectedGoal); ganttSelectedGoal=null">
+                查看详情 →
+              </el-button>
+              <el-icon class="gsp-close" @click="ganttSelectedGoal=null"><Close /></el-icon>
+            </div>
+            <div class="gsp-body">
+              <div class="gsp-stat">
+                <span class="gsp-stat-label">进度</span>
+                <el-progress :percentage="ganttSelectedGoal.progress"
+                  :color="progressColor(ganttSelectedGoal)" :stroke-width="8"
+                  style="flex:1;margin:0 10px" />
+                <span class="gsp-stat-val">{{ ganttSelectedGoal.progress }}%</span>
+              </div>
+              <div class="gsp-stat">
+                <span class="gsp-stat-label">时间</span>
+                <span class="gsp-stat-val">
+                  {{ formatDate(ganttSelectedGoal.startAt) }} — {{ formatDate(ganttSelectedGoal.endAt) }}
+                </span>
+              </div>
+              <div v-if="ganttSelectedGoal.milestones?.length" class="gsp-stat">
+                <span class="gsp-stat-label">里程碑</span>
+                <span class="gsp-stat-val">
+                  {{ ganttSelectedGoal.milestones.filter(m=>m.done).length }}/{{ ganttSelectedGoal.milestones.length }} 已完成
+                </span>
+              </div>
+              <div v-if="ganttSelectedGoal.description" class="gsp-desc">
+                {{ ganttSelectedGoal.description }}
+              </div>
+            </div>
+          </div>
+        </transition>
       </div>
 
       <!-- 新建表单 -->
@@ -484,7 +543,7 @@
 <script setup lang="ts">
 import { ref, computed, reactive, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Refresh, Delete, Flag, Loading, ChatLineRound, DocumentChecked } from '@element-plus/icons-vue'
+import { Plus, Refresh, Delete, Flag, Loading, ChatLineRound, DocumentChecked, Close } from '@element-plus/icons-vue'
 import {
   goalsApi, agents as agentsApi,
   type GoalInfo, type AgentInfo, type GoalCheck, type CheckRecord, type Milestone,
@@ -591,7 +650,43 @@ const SCALE_DURATION: Record<GanttScale, number> = {
   minute:  4  * 3600_000,               // 4 小时
 }
 
-// 甘特图可见范围：粗粒度（年/季/月）以目标中心为锚，细粒度（周/日/时/分）以今天为锚
+// ── 甘特图平移（拖拽左右）────────────────────────────────────────────────
+const ganttPanOffset  = ref(0)   // ms 偏移量，向右拖 = 负（看过去），向左拖 = 正（看未来）
+const ganttDragging   = ref(false)
+const ganttDragged    = ref(false) // 是否真的发生了拖拽位移（区分 click 和 drag）
+const ganttDragStartX = ref(0)
+const ganttDragStartOff = ref(0)
+
+function onGanttMouseDown(e: MouseEvent) {
+  ganttDragging.value = true
+  ganttDragged.value  = false
+  ganttDragStartX.value   = e.clientX
+  ganttDragStartOff.value = ganttPanOffset.value
+}
+function onGanttMouseMove(e: MouseEvent) {
+  if (!ganttDragging.value) return
+  const dx = e.clientX - ganttDragStartX.value
+  if (Math.abs(dx) > 5) ganttDragged.value = true
+  if (ganttDragged.value) {
+    const dur = SCALE_DURATION[ganttScale.value]
+    const w   = ganttTimelineW.value || 700
+    ganttPanOffset.value = ganttDragStartOff.value - Math.round((dx / w) * dur)
+  }
+}
+function onGanttMouseUp() { ganttDragging.value = false }
+
+// 切换颗粒度时重置平移
+watch(ganttScale, () => { ganttPanOffset.value = 0 })
+
+// ── 甘特图摘要选中 ──────────────────────────────────────────────────────
+const ganttSelectedGoal = ref<GoalInfo | null>(null)
+
+function onGanttBarClick(g: GoalInfo) {
+  if (ganttDragged.value) return // 拖拽过程中的 mouseup 不触发选中
+  ganttSelectedGoal.value = ganttSelectedGoal.value?.id === g.id ? null : g
+}
+
+// ── 甘特图可见范围：粗粒度以目标中心为锚；细粒度以今天为锚，今天在左 5% 处 ──
 const ganttRange = computed(() => {
   const valid = filteredGoals.value.filter(g => isValidDate(g.startAt) && isValidDate(g.endAt))
   const now = new Date()
@@ -601,12 +696,13 @@ const ganttRange = computed(() => {
     goalMax = Math.max(...valid.map(g => new Date(g.endAt).getTime()))
   }
   const dur = SCALE_DURATION[ganttScale.value]
-  // 粗粒度以目标跨度中心为锚；细粒度以今天为锚
-  const anchor = ['year', 'quarter', 'month'].includes(ganttScale.value)
-    ? (goalMin + goalMax) / 2
-    : now.getTime()
-  const rawStart = anchor - dur / 2
-  const rawEnd   = anchor + dur / 2
+  const coarse = ['year', 'quarter', 'month'].includes(ganttScale.value)
+  // 粗粒度：目标跨度中心；细粒度：今天 = 左侧 5% 位置（+ 平移偏移）
+  const baseStart = coarse
+    ? (goalMin + goalMax) / 2 - dur / 2
+    : now.getTime() - dur * 0.05
+  const rawStart = baseStart + ganttPanOffset.value
+  const rawEnd   = rawStart + dur
   const sd = new Date(rawStart), ed = new Date(rawEnd)
   let start: Date, end: Date
   if (ganttScale.value === 'year') {
@@ -621,7 +717,6 @@ const ganttRange = computed(() => {
     start = new Date(sd.getFullYear(), sd.getMonth(), 1)
     end   = new Date(ed.getFullYear(), ed.getMonth() + 1, 1)
   } else if (ganttScale.value === 'week') {
-    // 吸附到周一
     const dow = sd.getDay()
     sd.setDate(sd.getDate() - (dow === 0 ? 6 : dow - 1))
     start = new Date(sd.getFullYear(), sd.getMonth(), sd.getDate())
@@ -632,14 +727,12 @@ const ganttRange = computed(() => {
     start = new Date(sd.getFullYear(), sd.getMonth(), sd.getDate())
     end   = new Date(ed.getFullYear(), ed.getMonth(), ed.getDate() + 1)
   } else if (ganttScale.value === 'hour') {
-    // 吸附到 6 小时边界
     const sh = Math.floor(sd.getHours() / 6) * 6
     start = new Date(sd.getFullYear(), sd.getMonth(), sd.getDate(), sh)
     const eh = Math.ceil((ed.getHours() + 1) / 6) * 6
     if (eh >= 24) end = new Date(ed.getFullYear(), ed.getMonth(), ed.getDate() + 1, 0)
     else end = new Date(ed.getFullYear(), ed.getMonth(), ed.getDate(), eh)
   } else { // minute
-    // 吸附到 30 分钟边界
     const sm = Math.floor(sd.getMinutes() / 30) * 30
     start = new Date(sd.getFullYear(), sd.getMonth(), sd.getDate(), sd.getHours(), sm)
     const em = Math.ceil((ed.getMinutes() + 1) / 30) * 30
@@ -1448,7 +1541,10 @@ function formatDateTime(val?: string) {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  cursor: grab;
+  user-select: none;
 }
+.gantt-wrap.is-dragging { cursor: grabbing; }
 
 /* gantt-body：行容器，相对定位供覆盖层使用 */
 .gantt-body {
@@ -1550,6 +1646,7 @@ function formatDateTime(val?: string) {
   z-index: 1;
 }
 .gantt-row:hover { background: rgba(64,158,255,0.04); }
+.gantt-row.is-selected { background: rgba(64,158,255,0.08); }
 .gantt-row .gantt-label-col {
   display: flex;
   align-items: center;
@@ -1652,6 +1749,57 @@ function formatDateTime(val?: string) {
   color: #c0c4cc;
   padding: 0 12px;
   line-height: 40px;
+}
+
+/* ── 甘特摘要面板 ─────────────────────────────────────────────────────── */
+.gantt-summary-panel {
+  flex-shrink: 0;
+  border-top: 2px solid #409eff;
+  background: #fff;
+  padding: 12px 16px;
+  box-shadow: 0 -4px 16px rgba(0,0,0,0.08);
+}
+.gsp-slide-enter-active,
+.gsp-slide-leave-active { transition: all 0.2s ease; }
+.gsp-slide-enter-from,
+.gsp-slide-leave-to { opacity: 0; transform: translateY(12px); }
+
+.gsp-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.gsp-avatars { display: flex; gap: 2px; }
+.gsp-avatar {
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; color: #fff; font-weight: 600;
+}
+.gsp-title-block { flex: 1; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.gsp-title {
+  font-weight: 600; font-size: 14px; color: #303133;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.gsp-close {
+  cursor: pointer; color: #909399; font-size: 16px;
+  flex-shrink: 0;
+  transition: color 0.15s;
+}
+.gsp-close:hover { color: #303133; }
+.gsp-body { display: flex; flex-direction: column; gap: 6px; }
+.gsp-stat {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 13px;
+}
+.gsp-stat-label { color: #909399; width: 32px; flex-shrink: 0; }
+.gsp-stat-val { color: #303133; }
+.gsp-desc {
+  font-size: 12px; color: #606266;
+  background: #f5f7fa; border-radius: 4px;
+  padding: 6px 10px; margin-top: 4px;
+  white-space: pre-wrap; line-height: 1.5;
 }
 
 /* ── 右：AI 对话 ──────────────────────────────────────────────────────── */
