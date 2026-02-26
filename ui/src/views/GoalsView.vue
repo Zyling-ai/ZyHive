@@ -725,8 +725,9 @@ function onGanttMouseMove(e: MouseEvent) {
   const dt = Date.now() - _gLastT
   if (Math.abs(dx) > 3) { _gDragMoved = true; ganttDragged.value = true }
   if (_gDragMoved) {
+    const w = Math.max(100, ganttTimelineW.value || 700)
     if (dt > 0) _gVel = _gVel * 0.65 + (dx / dt) * 0.35
-    viewCenterMs.value -= (dx / (ganttTimelineW.value || 700)) * ganttDuration.value
+    viewCenterMs.value -= (dx / w) * ganttDuration.value
   }
   _gLastX = e.clientX; _gLastT = Date.now()
 }
@@ -736,8 +737,12 @@ function onGanttMouseUp() {
   if (_gDragMoved && Math.abs(_gVel) > 0.05) {
     let v = _gVel, lt = Date.now()
     const run = () => {
-      const now = Date.now(), dt = now - lt; lt = now
-      viewCenterMs.value -= v * dt / (ganttTimelineW.value || 700) * ganttDuration.value
+      const now = Date.now(), dt = Math.min(now - lt, 64); lt = now  // dt 最多 64ms，防止帧延迟导致大跳
+      const w = Math.max(100, ganttTimelineW.value || 700)          // 宽度至少 100px，防止除以超小值
+      viewCenterMs.value -= v * dt / w * ganttDuration.value
+      // viewCenterMs 夹在合理范围：前后各 5 年
+      const fiveYears = 5 * 365 * 86400_000
+      viewCenterMs.value = Math.max(Date.now() - fiveYears, Math.min(Date.now() + fiveYears, viewCenterMs.value))
       v *= Math.pow(0.92, dt / 16)
       if (Math.abs(v) > 0.008) _gMomentumId = requestAnimationFrame(run)
     }
@@ -1110,7 +1115,16 @@ function milestoneLeft(ms: Milestone) {
 function calcGridTicks(rangeStart: Date, rangeEnd: Date, tick: TickStep): GridTick[] {
   const ticks: GridTick[] = []
   const total = rangeEnd.getTime() - rangeStart.getTime()
-  if (total <= 0) return ticks
+  if (total <= 0 || !isFinite(total)) return ticks
+
+  // 保护：最多渲染 300 条刻度线。若当前步长会超出，自动升档到更粗的步长
+  const MAX_TICKS = 300
+  const estimatedCount = total / tick.ms
+  if (estimatedCount > MAX_TICKS) {
+    const saferTick = [...TICK_STEPS].reverse().find(s => total / s.ms <= MAX_TICKS)
+    if (saferTick) tick = saferTick
+  }
+
   const pct = (d: Date) => ((d.getTime() - rangeStart.getTime()) / total * 100).toFixed(2) + '%'
   let seenParent = ''
 
