@@ -726,7 +726,10 @@ function onGanttMouseMove(e: MouseEvent) {
   if (Math.abs(dx) > 3) { _gDragMoved = true; ganttDragged.value = true }
   if (_gDragMoved) {
     const w = Math.max(100, ganttTimelineW.value || 700)
-    if (dt > 0) _gVel = _gVel * 0.65 + (dx / dt) * 0.35
+    // 单次 dx/dt 限幅（防止极短帧间隔产生虚假高速），并限制总速度上限
+    const rawV = dt > 0 ? dx / dt : 0
+    const clampedV = Math.max(-2, Math.min(2, rawV))   // ±2 px/ms 上限，避免飞越几个月
+    if (dt > 0) _gVel = _gVel * 0.65 + clampedV * 0.35
     viewCenterMs.value -= (dx / w) * ganttDuration.value
   }
   _gLastX = e.clientX; _gLastT = Date.now()
@@ -743,7 +746,7 @@ function onGanttMouseUp() {
       // viewCenterMs 夹在合理范围：前后各 5 年
       const fiveYears = 5 * 365 * 86400_000
       viewCenterMs.value = Math.max(Date.now() - fiveYears, Math.min(Date.now() + fiveYears, viewCenterMs.value))
-      v *= Math.pow(0.92, dt / 16)
+      v *= Math.pow(0.88, dt / 16)   // 摩擦力：0.88/16ms，比 0.92 衰减更快，避免惯性飞太远
       if (Math.abs(v) > 0.008) _gMomentumId = requestAnimationFrame(run)
     }
     _gMomentumId = requestAnimationFrame(run)
