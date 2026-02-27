@@ -1098,18 +1098,24 @@ function isValidDate(val?: string) {
 function isValidBar(g: GoalInfo) {
   return isValidDate(g.startAt) && isValidDate(g.endAt)
 }
-function calcBarWidth(g: GoalInfo) {
-  const { start, end } = ganttRange.value
-  const total = end.getTime() - start.getTime()
-  return Math.max(1, ((new Date(g.endAt).getTime() - new Date(g.startAt).getTime()) / total) * 100)
-}
-function ganttBarStyle(g: GoalInfo) {
+function ganttBarRange(g: GoalInfo) {
   const { start, end } = ganttRange.value
   const total = end.getTime() - start.getTime()
   const gS = new Date(g.startAt).getTime()
   const gE = new Date(g.endAt).getTime()
-  const left  = Math.max(0, ((gS - start.getTime()) / total) * 100)
-  const width = Math.max(1, ((gE - gS) / total) * 100)
+  // 关键：right 用右端位置减去左端夹住后的值，否则 gS 超出左侧时 width 不随滚动缩减
+  const leftRaw  = (gS - start.getTime()) / total * 100
+  const rightRaw = (gE - start.getTime()) / total * 100
+  const left  = Math.max(0, leftRaw)
+  const right = Math.max(left, rightRaw)          // right 不能小于 left
+  const width = Math.max(1, right - left)         // 可见宽度（随滚动动态缩减）
+  return { left, width }
+}
+function calcBarWidth(g: GoalInfo) {
+  return ganttBarRange(g).width
+}
+function ganttBarStyle(g: GoalInfo) {
+  const { left, width } = ganttBarRange(g)
   const c1 = (g.agentIds?.[0] && agentColorMap.value[g.agentIds[0]]) ? agentColorMap.value[g.agentIds[0]] : '#409eff'
   const c2 = (g.agentIds?.[1] && agentColorMap.value[g.agentIds[1]]) ? agentColorMap.value[g.agentIds[1]] : c1
   return { left: `${left}%`, width: `${width}%`, background: g.agentIds?.length > 1 ? `linear-gradient(90deg,${c1},${c2})` : c1 }
