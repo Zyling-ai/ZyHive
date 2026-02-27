@@ -726,9 +726,13 @@ function onGanttMouseMove(e: MouseEvent) {
   if (Math.abs(dx) > 3) { _gDragMoved = true; ganttDragged.value = true }
   if (_gDragMoved) {
     const w = Math.max(100, ganttTimelineW.value || 700)
-    // 单次 dx/dt 限幅（防止极短帧间隔产生虚假高速），并限制总速度上限
+    // maxV 正比于屏幕宽度：确保惯性距离与屏幕宽窄无关，始终 ≈ 1/3 × ganttDuration
+    // 推导：total = (w/K)/w × ganttDuration × 16/0.12 → total/ganttDuration = 16/(K×0.12)
+    // 取 K=400 → total ≈ 0.33 × ganttDuration（无论手机/桌面、30天/90天视图）
+    const K = 400
+    const maxV = Math.max(100, ganttTimelineW.value || 700) / K
     const rawV = dt > 0 ? dx / dt : 0
-    const clampedV = Math.max(-2, Math.min(2, rawV))   // ±2 px/ms 上限，避免飞越几个月
+    const clampedV = Math.max(-maxV, Math.min(maxV, rawV))
     if (dt > 0) _gVel = _gVel * 0.65 + clampedV * 0.35
     viewCenterMs.value -= (dx / w) * ganttDuration.value
   }
