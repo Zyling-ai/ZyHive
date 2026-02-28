@@ -555,9 +555,18 @@ func (r *Registry) Definitions() []llm.ToolDef {
 func (r *Registry) Execute(ctx context.Context, name string, input json.RawMessage) (string, error) {
 	h, ok := r.handlers[name]
 	if !ok {
-		return "", fmt.Errorf("unknown tool: %s", name)
+		var available []string
+		for _, d := range r.defs {
+			available = append(available, d.Name)
+		}
+		return "", fmt.Errorf("unknown tool %q — available tools: [%s]", name, strings.Join(available, ", "))
 	}
-	return h(ctx, input)
+	result, err := h(ctx, input)
+	if err != nil {
+		// Wrap with tool name so the LLM knows exactly which tool failed
+		return result, fmt.Errorf("[%s] %w", name, err)
+	}
+	return result, nil
 }
 
 func (r *Registry) register(def llm.ToolDef, h Handler) {
@@ -671,10 +680,27 @@ func (r *Registry) handleBashWS(_ context.Context, input json.RawMessage) (strin
 	cmd.Env = env
 
 	out, err := cmd.CombinedOutput()
+	output := strings.TrimRight(string(out), "\n")
 	if err != nil {
-		return string(out), fmt.Errorf("command failed: %w\n%s", err, out)
+		exitCode := -1
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			exitCode = exitErr.ExitCode()
+		} else if ctx.Err() != nil {
+			// Timeout
+			if output != "" {
+				return fmt.Sprintf("❌ Command timed out after %v.\n\nPartial output:\n%s", timeout, output), nil
+			}
+			return fmt.Sprintf("❌ Command timed out after %v (no output).", timeout), nil
+		}
+		if output != "" {
+			return fmt.Sprintf("❌ Command exited with code %d.\n\n%s", exitCode, output), nil
+		}
+		return fmt.Sprintf("❌ Command exited with code %d (no output).", exitCode), nil
 	}
-	return string(out), nil
+	if output == "" {
+		return "(command completed successfully, no output)", nil
+	}
+	return output, nil
 }
 
 // ── Self-Management Handlers ─────────────────────────────────────────────────
@@ -800,7 +826,7 @@ func (r *Registry) handleSelfUpdateSoul(_ context.Context, input json.RawMessage
 
 func (r *Registry) handleAgentSpawn(_ context.Context, input json.RawMessage) (string, error) {
 	if r.subagentMgr == nil {
-		return "", fmt.Errorf("subagent manager not configured")
+		return "", fmt.Errorf("subagent manager not configured — cannot dispatch tasks in this context")
 	}
 	var p struct {
 		AgentID string `json:"agentId"`
@@ -809,7 +835,35 @@ func (r *Registry) handleAgentSpawn(_ context.Context, input json.RawMessage) (s
 		Model   string `json:"model"`
 	}
 	if err := json.Unmarshal(input, &p); err != nil {
-		return "", err
+		return "", fmt.Errorf("invalid input: %v", err)
+	}
+	if p.AgentID == "" {
+		return "", fmt.Errorf("agentId is required — use agent_list to get available agent IDs")
+	}
+	if p.Task == "" {
+		return "", fmt.Errorf("task is required — provide a detailed task description")
+	}
+	// Validate agentID against known agents
+	if r.agentLister != nil {
+		agents := r.agentLister()
+		found := false
+		for _, a := range agents {
+			if a.ID == p.AgentID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			var available []string
+			for _, a := range agents {
+				available = append(available, fmt.Sprintf("%s (id: %s)", a.Name, a.ID))
+			}
+			hint := strings.Join(available, ", ")
+			if hint == "" {
+				hint = "（无可用成员）"
+			}
+			return "", fmt.Errorf("agent %q not found.\nAvailable agents: %s\nUse agent_list for full details.", p.AgentID, hint)
+		}
 	}
 	task, err := r.subagentMgr.Spawn(subagent.SpawnOpts{
 		AgentID:   p.AgentID,

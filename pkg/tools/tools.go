@@ -42,11 +42,17 @@ func handleRead(_ context.Context, input json.RawMessage) (string, error) {
 		Limit    int    `json:"limit"`
 	}
 	if err := json.Unmarshal(input, &p); err != nil {
-		return "", err
+		return "", fmt.Errorf("invalid input: %v", err)
+	}
+	if p.FilePath == "" {
+		return "", fmt.Errorf("file_path is required")
 	}
 	data, err := os.ReadFile(p.FilePath)
 	if err != nil {
-		return "", err
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("file not found: %s", p.FilePath)
+		}
+		return "", fmt.Errorf("read %s failed: %v", p.FilePath, err)
 	}
 	lines := strings.Split(string(data), "\n")
 	start, end := 0, len(lines)
@@ -83,13 +89,18 @@ func handleWrite(_ context.Context, input json.RawMessage) (string, error) {
 		Content  string `json:"content"`
 	}
 	if err := json.Unmarshal(input, &p); err != nil {
-		return "", err
+		return "", fmt.Errorf("invalid input: %v", err)
+	}
+	if p.FilePath == "" {
+		return "", fmt.Errorf("file_path is required")
 	}
 	if err := os.MkdirAll(filepath.Dir(p.FilePath), 0755); err != nil {
-		return "", err
+		return "", fmt.Errorf("create parent directories for %s failed: %v", p.FilePath, err)
 	}
-	return fmt.Sprintf("Written %d bytes to %s", len(p.Content), p.FilePath),
-		os.WriteFile(p.FilePath, []byte(p.Content), 0644)
+	if err := os.WriteFile(p.FilePath, []byte(p.Content), 0644); err != nil {
+		return "", fmt.Errorf("write %s failed: %v", p.FilePath, err)
+	}
+	return fmt.Sprintf("Written %d bytes to %s", len(p.Content), p.FilePath), nil
 }
 
 // ── Edit ────────────────────────────────────────────────────────────────────
@@ -115,19 +126,35 @@ func handleEdit(_ context.Context, input json.RawMessage) (string, error) {
 		NewString string `json:"new_string"`
 	}
 	if err := json.Unmarshal(input, &p); err != nil {
-		return "", err
+		return "", fmt.Errorf("invalid input: %v", err)
+	}
+	if p.FilePath == "" {
+		return "", fmt.Errorf("file_path is required")
+	}
+	if p.OldString == "" {
+		return "", fmt.Errorf("old_string is required (cannot be empty)")
 	}
 	data, err := os.ReadFile(p.FilePath)
 	if err != nil {
-		return "", err
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("file not found: %s", p.FilePath)
+		}
+		return "", fmt.Errorf("read %s failed: %v", p.FilePath, err)
 	}
 	src := string(data)
 	if !strings.Contains(src, p.OldString) {
-		return "", fmt.Errorf("old_string not found in %s", p.FilePath)
+		// Give the LLM a hint: show file length so it knows the file exists
+		preview := src
+		if len(preview) > 200 {
+			preview = preview[:200] + "…"
+		}
+		return "", fmt.Errorf("old_string not found in %s (%d bytes).\nMake sure the text matches exactly (including whitespace and newlines).\nFile preview:\n%s", p.FilePath, len(src), preview)
 	}
 	result := strings.Replace(src, p.OldString, p.NewString, 1)
-	return fmt.Sprintf("Replaced 1 occurrence in %s", p.FilePath),
-		os.WriteFile(p.FilePath, []byte(result), 0644)
+	if err := os.WriteFile(p.FilePath, []byte(result), 0644); err != nil {
+		return "", fmt.Errorf("write %s failed: %v", p.FilePath, err)
+	}
+	return fmt.Sprintf("Replaced 1 occurrence in %s", p.FilePath), nil
 }
 
 // ── Bash ────────────────────────────────────────────────────────────────────
@@ -217,20 +244,39 @@ func handleGrep(_ context.Context, input json.RawMessage) (string, error) {
 		Recursive bool   `json:"recursive"`
 	}
 	if err := json.Unmarshal(input, &p); err != nil {
-		return "", err
+		return "", fmt.Errorf("invalid input: %v", err)
 	}
-	re, err := regexp.Compile(p.Pattern)
-	if err != nil {
-		return "", fmt.Errorf("invalid pattern: %w", err)
+	if p.Pattern == "" {
+		return "", fmt.Errorf("pattern is required")
+	}
+	if p.Path == "" {
+		return "", fmt.Errorf("path is required")
+	}
+	if _, err := regexp.Compile(p.Pattern); err != nil {
+		return "", fmt.Errorf("invalid regex pattern %q: %v", p.Pattern, err)
+	}
+	// Check path exists
+	if _, err := os.Stat(p.Path); err != nil {
+		return "", fmt.Errorf("path not found: %s", p.Path)
 	}
 	args := []string{"-n"}
 	if p.Recursive {
 		args = append(args, "-r")
 	}
-	_ = re // use stdlib grep via exec for now
 	cmd := exec.Command("grep", append(args, p.Pattern, p.Path)...)
-	out, _ := cmd.CombinedOutput()
-	return string(out), nil
+	out, err := cmd.CombinedOutput()
+	output := strings.TrimRight(string(out), "\n")
+	if err != nil {
+		// Exit code 1 means no matches (not a real error for grep)
+		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+			return fmt.Sprintf("No matches found for pattern %q in %s", p.Pattern, p.Path), nil
+		}
+		return "", fmt.Errorf("grep failed: %v\n%s", err, output)
+	}
+	if output == "" {
+		return fmt.Sprintf("No matches found for pattern %q in %s", p.Pattern, p.Path), nil
+	}
+	return output, nil
 }
 
 // ── Glob ────────────────────────────────────────────────────────────────────
@@ -288,12 +334,15 @@ func handleWebFetch(_ context.Context, input json.RawMessage) (string, error) {
 		MaxChars int    `json:"max_chars"`
 	}
 	if err := json.Unmarshal(input, &p); err != nil {
-		return "", err
+		return "", fmt.Errorf("invalid input: %v", err)
+	}
+	if p.URL == "" {
+		return "", fmt.Errorf("url is required")
 	}
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Get(p.URL)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("request failed: %v", err)
 	}
 	defer resp.Body.Close()
 	maxChars := p.MaxChars
@@ -302,7 +351,15 @@ func handleWebFetch(_ context.Context, input json.RawMessage) (string, error) {
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, int64(maxChars)))
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("read response body failed: %v", err)
+	}
+	if resp.StatusCode >= 400 {
+		snippet := strings.TrimSpace(string(body))
+		if len(snippet) > 500 {
+			snippet = snippet[:500] + "…"
+		}
+		return "", fmt.Errorf("HTTP %d %s\nURL: %s\nResponse: %s",
+			resp.StatusCode, resp.Status, p.URL, snippet)
 	}
 	return string(body), nil
 }
