@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Zyling-ai/zyhive/pkg/browser"
 	"github.com/Zyling-ai/zyhive/pkg/channel"
 	"github.com/Zyling-ai/zyhive/pkg/config"
 	"github.com/Zyling-ai/zyhive/pkg/llm"
@@ -28,9 +29,10 @@ import (
 type Pool struct {
 	manager      *Manager
 	cfg          *config.Config
-	projectMgr   *project.Manager // shared project workspace (may be nil)
+	projectMgr   *project.Manager  // shared project workspace (may be nil)
 	SubagentMgr  *subagent.Manager // background task manager (set after NewPool)
 	workerPool   *session.WorkerPool // session worker pool for subagent broadcast (may be nil)
+	browserMgr   *browser.Manager  // shared headless browser (lazy-init, may be nil if disabled)
 	runners      map[string]*runner.Runner
 	mu           sync.Mutex
 }
@@ -38,9 +40,17 @@ type Pool struct {
 // NewPool creates a new multi-agent runner pool.
 func NewPool(cfg *config.Config, mgr *Manager) *Pool {
 	return &Pool{
-		manager: mgr,
-		cfg:     cfg,
-		runners: make(map[string]*runner.Runner),
+		manager:    mgr,
+		cfg:        cfg,
+		runners:    make(map[string]*runner.Runner),
+		browserMgr: browser.NewManager(), // lazy: browser starts only when first tool is called
+	}
+}
+
+// CloseBrowser shuts down the shared browser process (call on Pool shutdown).
+func (p *Pool) CloseBrowser() {
+	if p.browserMgr != nil {
+		p.browserMgr.Close()
 	}
 }
 
@@ -99,6 +109,11 @@ func (p *Pool) configureToolRegistry(reg *tools.Registry, ag *Agent, fileSender 
 	memTree := memory.NewMemoryTree(ag.WorkspaceDir)
 	embedder, embedAPIKey := p.resolveEmbedder()
 	reg.WithMemorySearch(memTree, embedder, embedAPIKey)
+
+	// Register browser automation tools (headless Chrome; lazy-starts on first use).
+	if p.browserMgr != nil {
+		reg.WithBrowser(p.browserMgr, ag.WorkspaceDir)
+	}
 }
 
 // resolveEmbedder finds the first configured provider that supports the embeddings API.
