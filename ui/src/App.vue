@@ -32,6 +32,17 @@
           ★<template v-if="starCount !== null"> {{ starCount.toLocaleString() }}</template>
           <span class="header-hide-xs"> Star</span>
         </span>
+        <!-- Update available badge -->
+        <a
+          v-if="updateInfo"
+          :href="updateInfo.releaseUrl"
+          target="_blank"
+          class="header-update-btn"
+          :title="`新版本 ${updateInfo.latest} 可用，点击查看`"
+        >
+          <span class="update-dot"></span>
+          <span class="header-hide-xs">新版本 {{ updateInfo.latest }}</span>
+        </a>
         <el-divider direction="vertical" style="margin:0 4px;border-color:rgba(255,255,255,0.2)" />
         <span class="header-link" style="cursor:pointer" @click="logout" title="退出登录">
           退出
@@ -172,6 +183,7 @@ const router = useRouter()
 const collapsed = ref(false)
 const starCount = ref<number | null>(null)
 const appVersion = ref('')
+const updateInfo = ref<{ latest: string; releaseUrl: string } | null>(null)
 const isMobile = ref(false)
 const mobileDrawerOpen = ref(false)
 
@@ -227,11 +239,32 @@ onMounted(async () => {
   checkMobile()
   window.addEventListener('resize', checkMobile)
 
-  // Fetch version
+  // Fetch current version
   try {
     const vRes = await api.get('/version')
     appVersion.value = vRes.data.version
   } catch { /* ignore */ }
+
+  // Check for updates (delayed 2s, cached 1h in localStorage)
+  setTimeout(async () => {
+    const uCacheKey = 'zyhive_update_info'
+    const uCacheExp = 'zyhive_update_exp'
+    const now = Date.now()
+    const cached = localStorage.getItem(uCacheKey)
+    const exp = parseInt(localStorage.getItem(uCacheExp) || '0')
+    if (cached && now < exp) {
+      const parsed = JSON.parse(cached)
+      if (parsed?.hasUpdate) updateInfo.value = { latest: parsed.latest, releaseUrl: parsed.releaseUrl }
+      return
+    }
+    try {
+      const res = await api.get('/update/check')
+      const d = res.data
+      localStorage.setItem(uCacheKey, JSON.stringify(d))
+      localStorage.setItem(uCacheExp, String(now + 60 * 60 * 1000)) // 1h
+      if (d?.hasUpdate) updateInfo.value = { latest: d.latest, releaseUrl: d.releaseUrl }
+    } catch { /* ignore, non-critical */ }
+  }, 2000)
 
   const cacheKey = 'zyhive_gh_stars'
   const cacheExp = 'zyhive_gh_stars_exp'
@@ -292,6 +325,39 @@ body {
 .header-left { display: flex; align-items: center; gap: 8px; }
 .header-title { color: rgba(255,255,255,0.85); font-size: 14px; font-weight: 600; white-space: nowrap; }
 .header-version { font-size: 11px; color: rgba(255,255,255,0.35); font-family: monospace; white-space: nowrap; }
+.header-update-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 12px;
+  background: rgba(52, 211, 153, 0.15);
+  border: 1px solid rgba(52, 211, 153, 0.4);
+  color: #34d399;
+  font-size: 12px;
+  font-weight: 500;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background 0.2s, border-color 0.2s;
+  cursor: pointer;
+}
+.header-update-btn:hover {
+  background: rgba(52, 211, 153, 0.25);
+  border-color: rgba(52, 211, 153, 0.7);
+  color: #6ee7b7;
+}
+.update-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #34d399;
+  flex-shrink: 0;
+  animation: update-pulse 2s ease-in-out infinite;
+}
+@keyframes update-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.75); }
+}
 .header-right { display: flex; align-items: center; gap: 10px; }
 .header-link {
   color: rgba(255,255,255,0.55);
