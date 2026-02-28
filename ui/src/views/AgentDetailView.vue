@@ -28,34 +28,36 @@
             <!-- Session History Sidebar -->
             <div class="session-sidebar" :class="{ 'mobile-session-open': mobileSessionOpen }">
               <div class="session-sidebar-header">
-                <span class="sidebar-title">历史对话</span>
+                <span class="sidebar-title">所有对话</span>
                 <el-button size="small" type="primary" plain @click="newSession" :icon="Plus">新建</el-button>
               </div>
 
               <div class="session-list" v-loading="sessionsLoading">
                 <div
-                  v-for="s in agentSessions"
-                  :key="s.id"
-                  :class="['session-item', { active: activeSessionId === s.id }]"
-                  @click="resumeSession(s)"
+                  v-for="item in allSidebarItems"
+                  :key="item.type + ':' + item.id"
+                  :class="['session-item', { active: isSelectedItem(item) }]"
+                  @click="selectSidebarItem(item)"
                 >
-                  <div class="session-item-title">{{ s.title || '新对话' }}</div>
+                  <div class="session-item-header">
+                    <el-tag v-if="item.channelType === 'telegram'"
+                      type="success" size="small" effect="plain" class="session-source-tag">TG</el-tag>
+                    <el-tag v-else-if="item.type === 'channel'"
+                      type="warning" size="small" effect="plain" class="session-source-tag">Web渠道</el-tag>
+                    <el-tag v-else
+                      type="primary" size="small" effect="plain" class="session-source-tag">面板</el-tag>
+                    <span class="session-item-time">{{ formatRelative(item.lastAt) }}</span>
+                  </div>
+                  <div class="session-item-title">{{ item.label }}</div>
                   <div class="session-item-meta">
-                    <span>{{ formatRelative(s.lastAt) }}</span>
-                    <el-tag size="small" type="info" effect="plain" style="font-size: 10px; padding: 0 4px">
-                      {{ s.messageCount }} 条
-                    </el-tag>
-                    <el-tag
-                      v-if="s.tokenEstimate > 60000"
-                      size="small"
-                      type="warning"
-                      effect="plain"
-                      style="font-size: 10px; padding: 0 4px"
-                    >~{{ Math.round(s.tokenEstimate / 1000) }}k</el-tag>
+                    <span>{{ item.messageCount }} 条</span>
+                    <el-tag v-if="item.tokenEstimate && item.tokenEstimate > 60000"
+                      size="small" type="warning" effect="plain" style="font-size:10px;padding:0 4px">
+                      ~{{ Math.round(item.tokenEstimate / 1000) }}k</el-tag>
                   </div>
                 </div>
 
-                <div v-if="!sessionsLoading && !agentSessions.length" class="session-empty">
+                <div v-if="!sessionsLoading && !allSidebarItems.length" class="session-empty">
                   还没有对话记录
                 </div>
               </div>
@@ -114,16 +116,52 @@
 
             <!-- Chat Area -->
             <div class="chat-area">
-              <AiChat
-                ref="aiChatRef"
-                :agent-id="agentId"
-                :scenario="'agent-detail'"
-                :welcome-message="`你好！我是 **${agent?.name || 'AI'}**，有什么可以帮你的？`"
-                height="calc(100vh - 145px)"
-                :show-thinking="true"
-                :no-model="modelsLoaded && modelList.length === 0"
-                @session-change="onSessionChange"
-              />
+              <!-- Interactive panel session (always mounted, hidden when history view) -->
+              <div v-show="viewMode !== 'history'" style="height:100%">
+                <AiChat
+                  ref="aiChatRef"
+                  :agent-id="agentId"
+                  :scenario="'agent-detail'"
+                  :welcome-message="`你好！我是 **${agent?.name || 'AI'}**，有什么可以帮你的？`"
+                  height="calc(100vh - 145px)"
+                  :show-thinking="true"
+                  :no-model="modelsLoaded && modelList.length === 0"
+                  @session-change="onSessionChange"
+                />
+              </div>
+
+              <!-- Read-only history viewer (channel sessions) -->
+              <div v-if="viewMode === 'history'" class="history-viewer">
+                <div class="source-banner" v-if="selectedItem">
+                  <span v-if="selectedItem.channelType === 'telegram'">
+                    来自 Telegram · {{ selectedItem.id }} · 只读
+                  </span>
+                  <span v-else-if="selectedItem.type === 'channel'">
+                    来自网页渠道 · {{ selectedItem.id }} · 只读
+                  </span>
+                </div>
+                <div class="history-msg-list" v-loading="historyLoading">
+                  <div
+                    v-for="(msg, idx) in historyMessages"
+                    :key="idx"
+                    :class="['message-item', msg.role === 'user' ? 'msg-user' : 'msg-assistant']"
+                  >
+                    <div class="msg-avatar">
+                      <el-avatar :size="28" :style="{ background: msg.role === 'user' ? '#409eff' : '#67c23a', fontSize: '12px' }">
+                        {{ msg.role === 'user' ? '用' : 'AI' }}
+                      </el-avatar>
+                    </div>
+                    <div class="msg-body">
+                      <div class="msg-meta">
+                        <span class="msg-role">{{ msg.role === 'user' ? (msg.sender || '用户') : 'AI' }}</span>
+                        <span class="msg-time">{{ msg.ts ? formatDate(new Date(msg.ts).getTime()) : '' }}</span>
+                      </div>
+                      <div class="msg-text" style="background:#f4f4f5;border-radius:8px;padding:8px 12px;font-size:13px;line-height:1.6;word-break:break-word;white-space:pre-wrap">{{ msg.content }}</div>
+                    </div>
+                  </div>
+                  <el-empty v-if="!historyLoading && !historyMessages.length" description="暂无消息记录" />
+                </div>
+              </div>
             </div>
           </div>
         </el-tab-pane>
@@ -568,68 +606,7 @@
           <SkillStudio :agent-id="agentId" style="height: calc(100vh - 145px);" />
         </el-tab-pane>
 
-        <!-- Tab: 历史对话 -->
-        <el-tab-pane label="历史对话" name="convlogs">
-          <div style="margin-bottom: 16px; display: flex; align-items: center; gap: 8px;">
-            <span style="font-weight: 600; font-size: 15px;">渠道对话记录</span>
-            <el-button size="small" :icon="Refresh" circle @click="loadConvChannels" :loading="convLoading" />
-          </div>
-
-          <el-table :data="convChannels" stripe v-loading="convLoading" empty-text="暂无对话记录">
-            <el-table-column label="渠道" min-width="200">
-              <template #default="{ row }">
-                <span>{{ row.channelType === 'telegram' ? 'Telegram' : 'Web' }} {{ row.channelId }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column label="消息数" width="100">
-              <template #default="{ row }">{{ row.messageCount }} 条</template>
-            </el-table-column>
-            <el-table-column label="最后活跃" width="180">
-              <template #default="{ row }">{{ row.lastAt ? new Date(row.lastAt).toLocaleString('zh-CN') : '-' }}</template>
-            </el-table-column>
-            <el-table-column label="操作" width="100">
-              <template #default="{ row }">
-                <el-button size="small" type="primary" plain @click="openConvDrawer(row)">查看</el-button>
-              </template>
-            </el-table-column>
-          </el-table>
-
-          <!-- Conversation Drawer -->
-          <el-drawer
-            v-model="convDrawerVisible"
-            :title="convDrawerChannelId + ' 对话记录'"
-            direction="rtl"
-            size="520px"
-            :destroy-on-close="false"
-          >
-            <div class="conv-drawer-body">
-              <!-- Load more button at top -->
-              <div v-if="convHasMore" style="text-align: center; margin-bottom: 12px;">
-                <el-button size="small" plain :loading="convMsgLoading" @click="loadMoreConvMsgs">加载更多</el-button>
-              </div>
-
-              <div v-loading="convMsgLoading && convMessages.length === 0" class="conv-msg-list">
-                <div
-                  v-for="(msg, idx) in convMessages"
-                  :key="idx"
-                  :class="['conv-msg-item', msg.role === 'user' ? 'conv-msg-user' : 'conv-msg-assistant']"
-                >
-                  <div class="conv-msg-meta">
-                    <span class="conv-msg-role">{{ msg.role === 'user' ? '用户' : '助手' }}</span>
-                    <span v-if="msg.sender" class="conv-msg-sender">{{ msg.sender }}</span>
-                    <span class="conv-msg-time">{{ msg.ts ? new Date(msg.ts).toLocaleString('zh-CN') : '' }}</span>
-                  </div>
-                  <div class="conv-msg-content">{{ msg.content }}</div>
-                </div>
-                <div v-if="!convMsgLoading && convMessages.length === 0" class="conv-msg-empty">
-                  暂无消息记录
-                </div>
-              </div>
-            </div>
-          </el-drawer>
-        </el-tab-pane>
-
-                <el-tab-pane label="定时任务" name="cron">
+        <el-tab-pane label="定时任务" name="cron">
           <el-button type="primary" @click="showCronCreate = true" style="margin-bottom: 16px">
             <el-icon><Plus /></el-icon> 新建任务
           </el-button>
@@ -1035,36 +1012,105 @@ const activeTab = ref('chat')
 const mobileSessionOpen = ref(false)
 
 // ── Session sidebar ────────────────────────────────────────────────────────
+interface SidebarItem {
+  id: string
+  type: 'panel' | 'channel'
+  channelType?: string
+  label: string
+  messageCount: number
+  lastAt: number
+  tokenEstimate?: number
+  _panel?: SessionSummary
+  _channel?: ChannelSummary
+}
+
 const aiChatRef = ref<InstanceType<typeof AiChat>>()
 const agentSessions = ref<SessionSummary[]>([])
+const allSidebarItems = ref<SidebarItem[]>([])
+const selectedItem = ref<SidebarItem | null>(null)
+const viewMode = ref<'chat' | 'history' | null>(null)
+const historyMessages = ref<ConvEntry[]>([])
+const historyLoading = ref(false)
 const sessionsLoading = ref(false)
 const activeSessionId = ref<string | undefined>()
 
-async function loadAgentSessions() {
+async function loadSidebarItems() {
   sessionsLoading.value = true
   try {
-    const res = await sessionsApi.list({ agentId, limit: 50 })
-    agentSessions.value = res.data.sessions
+    const [sesRes, chRes] = await Promise.all([
+      sessionsApi.list({ agentId, limit: 50 }),
+      agentConversations.list(agentId).catch(() => ({ data: [] as ChannelSummary[] })),
+    ])
+
+    const panelItems: SidebarItem[] = (sesRes.data.sessions || [])
+      .filter(s => !s.id.startsWith('subagent-') && !s.id.startsWith('goal-') && !s.id.startsWith('__'))
+      .map(s => ({
+        id: s.id,
+        type: 'panel' as const,
+        label: s.title || '新对话',
+        messageCount: s.messageCount,
+        lastAt: typeof s.lastAt === 'string' ? new Date(s.lastAt).getTime() : (s.lastAt || 0),
+        tokenEstimate: s.tokenEstimate,
+        _panel: s,
+      }))
+
+    const channelItems: SidebarItem[] = (chRes.data || []).map(ch => ({
+      id: ch.channelId,
+      type: 'channel' as const,
+      channelType: ch.channelType,
+      label: ch.channelId,
+      messageCount: ch.messageCount,
+      lastAt: typeof ch.lastAt === 'string' ? new Date(ch.lastAt).getTime() : (ch.lastAt || 0),
+      _channel: ch,
+    }))
+
+    allSidebarItems.value = [...panelItems, ...channelItems].sort((a, b) => b.lastAt - a.lastAt)
+    agentSessions.value = sesRes.data.sessions || [] // backward compat
   } catch {}
   finally { sessionsLoading.value = false }
 }
 
-function resumeSession(s: SessionSummary) {
-  activeSessionId.value = s.id
-  aiChatRef.value?.resumeSession(s.id)
+function isSelectedItem(item: SidebarItem): boolean {
+  if (!selectedItem.value) return false
+  return selectedItem.value.type === item.type && selectedItem.value.id === item.id
+}
+
+async function selectSidebarItem(item: SidebarItem) {
+  selectedItem.value = item
+  if (item.type === 'panel') {
+    viewMode.value = 'chat'
+    activeSessionId.value = item.id
+    await new Promise(r => setTimeout(r, 50))
+    aiChatRef.value?.resumeSession(item.id)
+  } else {
+    viewMode.value = 'history'
+    historyMessages.value = []
+    historyLoading.value = true
+    try {
+      const res = await agentConversations.messages(agentId, item.id, { limit: 100, offset: 0 })
+      historyMessages.value = res.data.messages || []
+    } catch {}
+    finally { historyLoading.value = false }
+  }
 }
 
 function newSession() {
+  selectedItem.value = null
+  viewMode.value = null
   activeSessionId.value = undefined
   aiChatRef.value?.startNewSession()
 }
 
 function onSessionChange(sessionId: string) {
   activeSessionId.value = sessionId
-  // Persist so we can restore after page refresh
   localStorage.setItem(`zyhive_session_${agentId}`, sessionId)
-  // Refresh session list to show new entry
-  setTimeout(loadAgentSessions, 500)
+  setTimeout(loadSidebarItems, 500)
+}
+
+function formatDate(ms: number | string | undefined): string {
+  if (!ms) return ''
+  const d = typeof ms === 'string' ? new Date(ms) : new Date(ms)
+  return d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
 function formatRelative(ms: number): string {
@@ -1682,7 +1728,7 @@ onMounted(async () => {
   loadCron()
   loadAgentChannels()
   loadEnvVars()
-  await loadAgentSessions()
+  await loadSidebarItems()
 
   // Handle ?tab=<name> query param (e.g. from CronView "查看" button)
   const tabParam = route.query.tab as string | undefined
@@ -1690,17 +1736,18 @@ onMounted(async () => {
 
   // Handle ?resumeSession=<id> query param (from ChatsView 继续对话 button)
   const resumeId = route.query.resumeSession as string | undefined
-  // Restore last active session from localStorage (persists across page refresh)
   const savedSessionId = !resumeId ? localStorage.getItem(`zyhive_session_${agentId}`) : null
-
   const sessionToLoad = resumeId || savedSessionId || null
   if (sessionToLoad) {
-    activeSessionId.value = sessionToLoad
-    // Give AiChat a tick to mount before calling resumeSession
-    await new Promise(r => setTimeout(r, 100))
-    aiChatRef.value?.resumeSession(sessionToLoad)
-    if (!agentSessions.value.find(s => s.id === sessionToLoad)) {
+    const panelItem = allSidebarItems.value.find(item => item.type === 'panel' && item.id === sessionToLoad)
+    if (panelItem) {
+      await selectSidebarItem(panelItem)
+    } else {
+      // Session not in list yet (new), still resume it
       activeSessionId.value = sessionToLoad
+      viewMode.value = 'chat'
+      await new Promise(r => setTimeout(r, 100))
+      aiChatRef.value?.resumeSession(sessionToLoad)
     }
   }
 })
@@ -1883,17 +1930,7 @@ async function deleteCron(job: any) {
   }
 }
 
-// ── Conv Log Management ──────────────────────────────────────────────────────
-const convLoading = ref(false)
-const convChannels = ref<ChannelSummary[]>([])
-const convDrawerVisible = ref(false)
-const convDrawerChannelId = ref('')
-const convMessages = ref<ConvEntry[]>([])
-const convTotal = ref(0)
-const convOffset = ref(0)
-const convHasMore = computed(() => convMessages.value.length < convTotal.value)
-const convMsgLoading = ref(false)
-const convPageSize = 50
+// ── Conv Log Management (legacy refs kept for ChatsView compat) ──────────────
 
 
 
@@ -1901,63 +1938,7 @@ const convPageSize = 50
 
 
 
-async function loadConvChannels() {
-  convLoading.value = true
-  try {
-    const res = await agentConversations.list(agentId)
-    convChannels.value = res.data
-  } catch {
-    ElMessage.error('加载对话渠道失败')
-  } finally {
-    convLoading.value = false
-  }
-}
 
-async function openConvDrawer(ch: ChannelSummary) {
-  convDrawerChannelId.value = ch.channelId
-  convMessages.value = []
-  convTotal.value = 0
-  convOffset.value = 0
-  convDrawerVisible.value = true
-  await fetchConvMessages()
-}
-
-async function fetchConvMessages() {
-  convMsgLoading.value = true
-  try {
-    const res = await agentConversations.messages(agentId, convDrawerChannelId.value, {
-      limit: convPageSize,
-      offset: convOffset.value,
-    })
-    const data = res.data
-    convTotal.value = data.total
-    // Append to existing list (newer messages already shown, these are older)
-    if (convOffset.value === 0) {
-      convMessages.value = data.messages
-    } else {
-      convMessages.value = [...data.messages, ...convMessages.value]
-    }
-    convOffset.value += data.messages.length
-  } catch {
-    ElMessage.error('加载消息失败')
-  } finally {
-    convMsgLoading.value = false
-  }
-}
-
-async function loadMoreConvMsgs() {
-  // Load older messages: offset is current count, go backwards
-  // Since JSONL is oldest-first and we display oldest-first, we need to load from the beginning
-  // with a different offset strategy. We load page by page from offset 0 incrementally.
-  await fetchConvMessages()
-}
-
-// Load conv channels when tab is activated
-watch(activeTab, (tab) => {
-  if (tab === 'convlogs' && convChannels.value.length === 0) {
-    loadConvChannels()
-  }
-})
 </script>
 
 <style scoped>
@@ -2149,6 +2130,77 @@ watch(activeTab, (tab) => {
   font-size: 12px;
   padding: 20px 0;
 }
+
+/* Session item header with source tag + time */
+.session-item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 3px;
+}
+.session-source-tag {
+  font-size: 10px !important;
+  padding: 0 4px !important;
+  height: 16px !important;
+  line-height: 16px !important;
+  flex-shrink: 0;
+}
+.session-item-time {
+  font-size: 10px;
+  color: #c0c4cc;
+}
+
+/* History viewer */
+.history-viewer {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+.source-banner {
+  background: #f0f9eb;
+  border-bottom: 1px solid #e1f3d8;
+  padding: 8px 16px;
+  font-size: 12px;
+  color: #67c23a;
+  flex-shrink: 0;
+}
+.history-msg-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.message-item {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.msg-user {
+  flex-direction: row-reverse;
+}
+.msg-user .msg-body {
+  align-items: flex-end;
+}
+.msg-user .msg-meta {
+  flex-direction: row-reverse;
+}
+.msg-avatar { flex-shrink: 0; }
+.msg-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 82%;
+}
+.msg-meta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.msg-role { font-size: 12px; font-weight: 600; color: #606266; }
+.msg-time { font-size: 11px; color: #c0c4cc; }
 
 .chat-area {
   flex: 1;
