@@ -568,7 +568,13 @@ func (r *Runner) executeTools(ctx context.Context, calls []llm.ToolCall, out cha
 			defer wg.Done()
 			result, err := r.cfg.Tools.Execute(ctx, tc.Name, tc.Input)
 			if err != nil {
-				result = fmt.Sprintf("Error: %v", err)
+				// Combine any partial output with the error so the LLM
+				// sees both the failure reason AND any command output.
+				if result != "" {
+					result = fmt.Sprintf("ERROR: %v\n\nOutput:\n%s", err, result)
+				} else {
+					result = fmt.Sprintf("ERROR: %v", err)
+				}
 			}
 			inputStr := string(tc.Input)
 			if len(inputStr) > 500 {
