@@ -252,6 +252,27 @@ func (b *TelegramBot) SendMessage(chatID int64, text string) error {
 	return err
 }
 
+// ProactiveSend broadcasts a message to all authorised users of this bot.
+// Used by cron jobs and background tasks running in isolated sessions (delivery=none)
+// where the agent itself decides to push a notification via the send_message tool.
+// If no authorised users are configured, the message is silently dropped.
+func (b *TelegramBot) ProactiveSend(text string) error {
+	targets := b.getAllowFrom()
+	if len(targets) == 0 {
+		return nil // no authorised users configured; drop silently
+	}
+	var lastErr error
+	for _, chatID := range targets {
+		if _, err := b.sendHTML2(chatID, markdownToHTML(text), 0, 0); err != nil {
+			// Fallback to plain text if HTML fails
+			if _, err2 := b.sendPlain(chatID, text, 0, 0); err2 != nil {
+				lastErr = err2
+			}
+		}
+	}
+	return lastErr
+}
+
 // Notify runs the agent with the given prompt in the per-chat session, then sends
 // the response to the Telegram chat. Both the prompt (as user turn) and the response
 // (as assistant turn) are recorded in the session for conversation continuity.
