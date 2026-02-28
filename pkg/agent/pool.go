@@ -94,6 +94,29 @@ func (p *Pool) configureToolRegistry(reg *tools.Registry, ag *Agent, fileSender 
 	reg.WithEnvUpdater(func(key, value string, remove bool) error {
 		return p.manager.SetAgentEnvVar(agID, key, value, remove)
 	})
+
+	// Register memory_search tool (semantic when embedding provider available, BM25 fallback).
+	memTree := memory.NewMemoryTree(ag.WorkspaceDir)
+	embedder, embedAPIKey := p.resolveEmbedder()
+	reg.WithMemorySearch(memTree, embedder, embedAPIKey)
+}
+
+// resolveEmbedder finds the first configured provider that supports the embeddings API.
+// Returns (nil, "") when no suitable provider is found — memory_search degrades to BM25.
+func (p *Pool) resolveEmbedder() (*llm.Embedder, string) {
+	for _, prov := range p.cfg.Providers {
+		if prov.APIKey == "" {
+			continue
+		}
+		if !llm.SupportsEmbedding(prov.Provider) {
+			continue
+		}
+		embedder := llm.NewEmbedder(prov.Provider, prov.BaseURL)
+		if embedder != nil {
+			return embedder, prov.APIKey
+		}
+	}
+	return nil, ""
 }
 
 // buildProjectContext returns the shared project context string for system prompt injection.
