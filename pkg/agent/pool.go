@@ -212,7 +212,7 @@ func (p *Pool) ConsolidateMemory(ctx context.Context, agentID string) (string, e
 	if err != nil {
 		return "", err
 	}
-	apiKey := modelEntry.APIKey
+	apiKey, resolvedBaseURL := config.ResolveCredentials(modelEntry, p.cfg.Providers)
 	if apiKey == "" {
 		return "", fmt.Errorf("no API key for model: %s", modelEntry.ProviderModel())
 	}
@@ -223,7 +223,7 @@ func (p *Pool) ConsolidateMemory(ctx context.Context, agentID string) (string, e
 		FocusHint: memCfg.FocusHint,
 	}
 
-	llmClient := llm.NewClient(modelEntry.Provider, modelEntry.BaseURL)
+	llmClient := llm.NewClient(modelEntry.Provider, resolvedBaseURL)
 	callLLM := func(ctx context.Context, system, user string) (string, error) {
 		userJSON, _ := json.Marshal(user)
 		req := &llm.ChatRequest{
@@ -304,13 +304,13 @@ func (p *Pool) Run(ctx context.Context, agentID, message string) (string, error)
 	}
 
 	model := modelEntry.ProviderModel()
-	apiKey := modelEntry.APIKey
+	apiKey, resolvedBaseURL := config.ResolveCredentials(modelEntry, p.cfg.Providers)
 	if apiKey == "" {
 		return "", fmt.Errorf("no API key configured for model: %s", model)
 	}
 
 	// Create a fresh runner for this invocation
-	llmClient := llm.NewClient(modelEntry.Provider, modelEntry.BaseURL)
+	llmClient := llm.NewClient(modelEntry.Provider, resolvedBaseURL)
 	toolRegistry := tools.New(ag.WorkspaceDir, filepath.Dir(ag.WorkspaceDir), ag.ID)
 	p.configureToolRegistry(toolRegistry, ag, nil)
 	store := session.NewStore(ag.SessionDir)
@@ -359,12 +359,12 @@ func (p *Pool) RunStreamEvents(ctx context.Context, agentID, message, sessionID 
 		return nil, err
 	}
 	model := modelEntry.ProviderModel()
-	apiKey := modelEntry.APIKey
+	apiKey, resolvedBaseURL := config.ResolveCredentials(modelEntry, p.cfg.Providers)
 	if apiKey == "" {
 		return nil, fmt.Errorf("no API key configured for model: %s", model)
 	}
 
-	llmClient := llm.NewClient(modelEntry.Provider, modelEntry.BaseURL)
+	llmClient := llm.NewClient(modelEntry.Provider, resolvedBaseURL)
 	toolRegistry := tools.New(ag.WorkspaceDir, filepath.Dir(ag.WorkspaceDir), ag.ID)
 	p.configureToolRegistry(toolRegistry, ag, fileSender)
 	store := session.NewStore(ag.SessionDir)
@@ -432,12 +432,12 @@ func (p *Pool) RunStream(ctx context.Context, agentID, message, sessionID string
 		return nil, err
 	}
 	model := modelEntry.ProviderModel()
-	apiKey := modelEntry.APIKey
+	apiKey, resolvedBaseURL := config.ResolveCredentials(modelEntry, p.cfg.Providers)
 	if apiKey == "" {
 		return nil, fmt.Errorf("no API key configured for model: %s", model)
 	}
 
-	llmClient := llm.NewClient(modelEntry.Provider, modelEntry.BaseURL)
+	llmClient := llm.NewClient(modelEntry.Provider, resolvedBaseURL)
 	toolRegistry := tools.New(ag.WorkspaceDir, filepath.Dir(ag.WorkspaceDir), ag.ID)
 	p.configureToolRegistry(toolRegistry, ag, nil)
 	store := session.NewStore(ag.SessionDir)
@@ -532,13 +532,13 @@ func (p *Pool) SubagentRunFunc() subagent.RunFunc {
 			if model != "" {
 				resolvedModel = model
 			}
-			apiKey := modelEntry.APIKey
+			apiKey, resolvedBaseURL := config.ResolveCredentials(modelEntry, p.cfg.Providers)
 			if apiKey == "" {
 				out <- subagent.RunEvent{Type: "error", Error: fmt.Errorf("no API key for model: %s", resolvedModel)}
 				return
 			}
 
-			llmClient := llm.NewClient(modelEntry.Provider, modelEntry.BaseURL)
+			llmClient := llm.NewClient(modelEntry.Provider, resolvedBaseURL)
 			// Subagent gets its own isolated session store (separate dir)
 			subSessionDir := filepath.Join(ag.SessionDir, "subagent")
 			if err := os.MkdirAll(subSessionDir, 0755); err != nil {
