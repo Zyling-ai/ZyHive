@@ -130,10 +130,3 @@ func SupportsEmbedding(provider string) bool {
 	_, ok := knownEmbedProviders[provider]
 	return ok
 }
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
