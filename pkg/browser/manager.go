@@ -6,6 +6,7 @@ package browser
 import (
 	"encoding/base64"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -24,6 +25,7 @@ type Manager struct {
 	mu       sync.Mutex
 	browser  *rod.Browser
 	sessions map[string]*AgentSession // agentID → session
+	dataDir  string                   // directory for storing downloaded Chromium
 }
 
 // AgentSession holds browser state for one agent (tab list + active index).
@@ -50,9 +52,13 @@ type SnapResult struct {
 	ScreenshotB64  string // base64 PNG (for inline display)
 }
 
-// NewManager creates a Manager. Call it once per Pool.
-func NewManager() *Manager {
-	return &Manager{sessions: make(map[string]*AgentSession)}
+// NewManager creates a Manager. dataDir is where Chromium is downloaded if not found on system.
+// Pass the ZyHive agents directory; browser is stored in dataDir/.browser/.
+func NewManager(dataDir string) *Manager {
+	return &Manager{
+		sessions: make(map[string]*AgentSession),
+		dataDir:  dataDir,
+	}
 }
 
 // ── Browser / session lifecycle ──────────────────────────────────────────────
@@ -61,7 +67,11 @@ func (m *Manager) ensureBrowser() (*rod.Browser, error) {
 	if m.browser != nil {
 		return m.browser, nil
 	}
-	l := launcher.New().Headless(true)
+	binPath, err := m.resolveBin()
+	if err != nil {
+		return nil, err
+	}
+	l := launcher.New().Bin(binPath).Headless(true)
 	if runtime.GOOS == "linux" {
 		l = l.
 			Set("no-sandbox", "").
@@ -70,15 +80,53 @@ func (m *Manager) ensureBrowser() (*rod.Browser, error) {
 			Set("disable-gpu", "").
 			Set("disable-software-rasterizer", "")
 	}
-	if bin := os.Getenv("ZYHIVE_BROWSER_BIN"); bin != "" {
-		l = l.Bin(bin)
-	}
 	u, err := l.Launch()
 	if err != nil {
-		return nil, fmt.Errorf("启动浏览器失败: %w\n提示: 请安装 chromium 或设置环境变量 ZYHIVE_BROWSER_BIN", err)
+		return nil, fmt.Errorf("启动浏览器失败: %w", err)
 	}
 	m.browser = rod.New().ControlURL(u).MustConnect()
 	return m.browser, nil
+}
+
+// resolveBin returns the path to a Chrome/Chromium binary.
+// Priority: ZYHIVE_BROWSER_BIN env → system install → auto-download.
+func (m *Manager) resolveBin() (string, error) {
+	// 1. Explicit env override
+	if bin := os.Getenv("ZYHIVE_BROWSER_BIN"); bin != "" {
+		return bin, nil
+	}
+
+	// 2. Look for system-installed Chrome / Chromium
+	systemPaths := []string{
+		"/usr/bin/google-chrome-stable",
+		"/usr/bin/google-chrome",
+		"/usr/bin/chromium-browser",
+		"/usr/bin/chromium",
+		"/snap/bin/chromium",
+		"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+		"/Applications/Chromium.app/Contents/MacOS/Chromium",
+	}
+	for _, p := range systemPaths {
+		if _, err := os.Stat(p); err == nil {
+			return p, nil
+		}
+	}
+
+	// 3. Auto-download Chromium (stored in dataDir/.browser/)
+	b := launcher.NewBrowser()
+	if m.dataDir != "" {
+		b.RootDir = filepath.Join(m.dataDir, ".browser")
+	}
+	// Prefer NPM mirror (faster in China), fall back to Google
+	b.Hosts = []launcher.Host{launcher.HostNPM, launcher.HostGoogle}
+
+	log.Printf("[browser] 正在自动下载 Chromium（约 150MB，仅首次）...")
+	binPath, err := b.Get()
+	if err != nil {
+		return "", fmt.Errorf("自动下载 Chromium 失败: %w", err)
+	}
+	log.Printf("[browser] Chromium 已就绪: %s", binPath)
+	return binPath, nil
 }
 
 func (m *Manager) getSession(agentID string) *AgentSession {

@@ -39,11 +39,16 @@ type Pool struct {
 
 // NewPool creates a new multi-agent runner pool.
 func NewPool(cfg *config.Config, mgr *Manager) *Pool {
+	// Browser dataDir: siblings of agents dir, e.g. ./agents/../.browser → ./.browser
+	agentsDir := cfg.Agents.Dir
+	if agentsDir == "" {
+		agentsDir = "./agents"
+	}
 	return &Pool{
 		manager:    mgr,
 		cfg:        cfg,
 		runners:    make(map[string]*runner.Runner),
-		browserMgr: browser.NewManager(), // lazy: browser starts only when first tool is called
+		browserMgr: browser.NewManager(agentsDir), // lazy: browser + auto-download on first use
 	}
 }
 
