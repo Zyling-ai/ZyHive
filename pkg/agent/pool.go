@@ -35,6 +35,11 @@ type Pool struct {
 	browserMgr   *browser.Manager  // shared headless browser (lazy-init, may be nil if disabled)
 	runners      map[string]*runner.Runner
 	mu           sync.Mutex
+
+	// messageSenderFn returns a MessageSenderFunc for the given agentID.
+	// Used to inject the send_message tool so agents can proactively push notifications
+	// (e.g. from isolated cron sessions with delivery=none).
+	messageSenderFn func(agentID string) tools.MessageSenderFunc
 }
 
 // NewPool creates a new multi-agent runner pool.
@@ -89,6 +94,13 @@ func (p *Pool) GetProjectMgr() *project.Manager {
 	return p.projectMgr
 }
 
+// SetMessageSenderFn wires the proactive message-sending capability into the pool.
+// fn(agentID) returns a MessageSenderFunc that routes to the agent's active channel.
+// Called from main.go after the bot pool is available.
+func (p *Pool) SetMessageSenderFn(fn func(agentID string) tools.MessageSenderFunc) {
+	p.messageSenderFn = fn
+}
+
 // configureToolRegistry applies all optional middlewares to a fresh tool registry.
 // fileSender is optional; when non-nil, the send_file tool is registered.
 func (p *Pool) configureToolRegistry(reg *tools.Registry, ag *Agent, fileSender channel.FileSenderFunc) {
@@ -118,6 +130,13 @@ func (p *Pool) configureToolRegistry(reg *tools.Registry, ag *Agent, fileSender 
 	// Register browser automation tools (headless Chrome; lazy-starts on first use).
 	if p.browserMgr != nil {
 		reg.WithBrowser(p.browserMgr, ag.WorkspaceDir)
+	}
+
+	// Register send_message tool: lets agents proactively push notifications to users.
+	// Particularly useful in isolated cron sessions (delivery=none) where the agent itself
+	// decides whether to send based on content significance.
+	if p.messageSenderFn != nil {
+		reg.WithMessageSender(p.messageSenderFn(ag.ID))
 	}
 }
 

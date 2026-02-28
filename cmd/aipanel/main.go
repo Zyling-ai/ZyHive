@@ -29,6 +29,7 @@ import (
 	"github.com/Zyling-ai/zyhive/pkg/project"
 	"github.com/Zyling-ai/zyhive/pkg/session"
 	"github.com/Zyling-ai/zyhive/pkg/subagent"
+	"github.com/Zyling-ai/zyhive/pkg/tools"
 )
 
 // Version 由 Makefile ldflags 在编译时注入：-X main.Version=v0.9.15
@@ -166,14 +167,54 @@ func main() {
 		log.Printf("[subagent] notify: task %s (%s) → session %s", taskID, status, spawnedBySession)
 	})
 
-	// Agent runner function — used by cron engine and telegram bot
+	// ── Cron: isolated session runner ────────────────────────────────────────
+	// Each cron job invocation gets its own fresh session ("cron-{jobID}-{runID}"),
+	// completely isolated from the main conversation history.
+	// This mirrors OpenClaw's sessionTarget="isolated" pattern.
+	cronRunFunc := func(ctx context.Context, agentID, model, jobID, runID, message string) (string, error) {
+		sessionID := "cron-" + jobID + "-" + runID
+		subRun := pool.SubagentRunFunc()
+		ch := subRun(ctx, agentID, model, sessionID, "" /*no parent*/, message)
+		var sb strings.Builder
+		for ev := range ch {
+			switch ev.Type {
+			case "text_delta":
+				sb.WriteString(ev.Text)
+			case "error":
+				if ev.Error != nil {
+					return "", ev.Error
+				}
+			}
+		}
+		return sb.String(), nil
+	}
+
+	// ── Cron: announce delivery (botPool captured by closure, lazy eval) ──
+	// botPool is initialised after cronEngine; using a closure ensures we always
+	// reference the live botPool at call time (not at setup time).
+	var botPool *channel.BotPool // forward-declared; assigned below
+	cronAnnounceFunc := func(agentID, jobName, output string) {
+		if botPool == nil {
+			return
+		}
+		bot, _, ok := botPool.GetFirstBot(agentID)
+		if !ok {
+			return
+		}
+		header := fmt.Sprintf("📋 **%s**\n\n", jobName)
+		_ = bot.ProactiveSend(header + output)
+	}
+
+	// runnerFunc: simple blocking runner for Telegram bot & API (runs in shared session).
+	// Distinct from cronRunFunc which uses isolated sessions.
 	runnerFunc := func(ctx context.Context, agentID, message string) (string, error) {
 		return pool.Run(ctx, agentID, message)
 	}
+	_ = runnerFunc // used below in api.RegisterRoutes
 
-	// Initialize cron engine
+	// Initialize cron engine with isolated runner + announce func
 	cronDataDir := "cron"
-	cronEngine := cron.NewEngine(cronDataDir, runnerFunc)
+	cronEngine := cron.NewEngine(cronDataDir, cronRunFunc, cronAnnounceFunc)
 	if err := cronEngine.Load(); err != nil {
 		log.Printf("Warning: failed to load cron jobs: %v", err)
 	} else {
@@ -186,7 +227,21 @@ func main() {
 	defer cancel()
 
 	// BotPool manages running Telegram bot goroutines — supports hot-add/remove.
-	botPool := channel.NewBotPool(ctx)
+	// Assigned here (not `:=`) because botPool is forward-declared above for the cron closure.
+	botPool = channel.NewBotPool(ctx)
+
+	// Wire send_message tool: agents (especially those in isolated cron sessions) can call
+	// send_message to proactively push notifications to the agent's authorised Telegram users.
+	// The closure captures botPool (now assigned) and looks up the live bot at call time.
+	pool.SetMessageSenderFn(func(agentID string) tools.MessageSenderFunc {
+		return func(ctx context.Context, text string) error {
+			bot, _, ok := botPool.GetFirstBot(agentID)
+			if !ok {
+				return fmt.Errorf("send_message: no active Telegram bot for agent %q", agentID)
+			}
+			return bot.ProactiveSend(text)
+		}
+	})
 
 	// startBotForChannel creates and starts a TelegramBot via the pool.
 	// Safe to call at any time (API handler uses it when channels are updated).

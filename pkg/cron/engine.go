@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -16,15 +17,26 @@ import (
 	cron "github.com/robfig/cron/v3"
 )
 
-// RunnerFunc executes an agent turn and returns the full text response.
-type RunnerFunc func(ctx context.Context, agentID, message string) (string, error)
+// CronRunFunc executes an agent turn in an isolated session and returns the full text response.
+// agentID, model (empty = default), jobID, runID, message.
+// Each call MUST create a fresh session (sessionID = "cron-{jobID}-{runID}") so
+// cron jobs never pollute the main conversation history.
+type CronRunFunc func(ctx context.Context, agentID, model, jobID, runID, message string) (string, error)
+
+// AnnounceFunc delivers the completed job output to the user (e.g. sends a Telegram message).
+// Called only when delivery.mode == "announce" and output is not suppressed.
+type AnnounceFunc func(agentID, jobName, output string)
+
+// SilentToken — if the agent's output starts with (or equals) this token, the
+// result is recorded but NOT announced. Agents use this to signal "nothing to report".
+const SilentToken = "NO_ALERT"
 
 // ── Job types ─────────────────────────────────────────────────────────────
 
 type Job struct {
 	ID          string   `json:"id"`
 	Name        string   `json:"name"`
-	Remark      string   `json:"remark,omitempty"` // human-readable note
+	Remark      string   `json:"remark,omitempty"`
 	Enabled     bool     `json:"enabled"`
 	Schedule    Schedule `json:"schedule"`
 	Payload     Payload  `json:"payload"`
@@ -35,9 +47,10 @@ type Job struct {
 }
 
 type Schedule struct {
-	Kind string `json:"kind"` // "cron" | "every" | "at"
-	Expr string `json:"expr"` // cron expression
-	TZ   string `json:"tz"`   // timezone, e.g. "Asia/Shanghai"
+	Kind    string `json:"kind"`              // "cron" | "every" | "at"
+	Expr    string `json:"expr,omitempty"`    // cron expression (kind=cron/at)
+	EveryMs int64  `json:"everyMs,omitempty"` // interval in ms (kind=every); e.g. 300000 = 5 min
+	TZ      string `json:"tz,omitempty"`      // timezone, e.g. "Asia/Shanghai"
 }
 
 type Payload struct {
@@ -47,6 +60,8 @@ type Payload struct {
 }
 
 type Delivery struct {
+	// "announce" — send output to user via AnnounceFunc (unless agent outputs SilentToken)
+	// "none"     — silently record; agent must call send_message tool to push notifications
 	Mode string `json:"mode"` // "announce" | "none"
 }
 
@@ -62,8 +77,9 @@ type RunRecord struct {
 	StartedAt int64  `json:"startedAt"`
 	EndedAt   int64  `json:"endedAt"`
 	Status    string `json:"status"` // "ok" | "error"
-	Output    string `json:"output"` // truncated agent response
+	Output    string `json:"output"`
 	Error     string `json:"error,omitempty"`
+	Announced bool   `json:"announced,omitempty"` // true if delivered to user
 }
 
 // ── Engine ────────────────────────────────────────────────────────────────
@@ -71,20 +87,28 @@ type RunRecord struct {
 type Engine struct {
 	cron     *cron.Cron
 	jobs     map[string]*Job
-	entryIDs map[string]cron.EntryID // jobID -> cron entry
+	entryIDs map[string]cron.EntryID
 	jobMu    sync.RWMutex
 	dataDir  string
-	runner   RunnerFunc
+
+	// runJob executes a job in an isolated session (each run gets a fresh context).
+	runJob CronRunFunc
+
+	// announce delivers output to the user when delivery.mode == "announce".
+	announce AnnounceFunc
 }
 
-// NewEngine creates a new cron engine backed by the given data directory.
-func NewEngine(dataDir string, runner RunnerFunc) *Engine {
+// NewEngine creates a new cron engine.
+//   - runJob:   isolated session runner (see CronRunFunc)
+//   - announce: output delivery callback; may be nil (disables announce mode)
+func NewEngine(dataDir string, runJob CronRunFunc, announce AnnounceFunc) *Engine {
 	return &Engine{
 		cron:     cron.New(cron.WithSeconds()),
 		jobs:     make(map[string]*Job),
 		entryIDs: make(map[string]cron.EntryID),
 		dataDir:  dataDir,
-		runner:   runner,
+		runJob:   runJob,
+		announce: announce,
 	}
 }
 
@@ -103,7 +127,7 @@ func (e *Engine) Load() error {
 	data, err := os.ReadFile(filepath.Join(e.dataDir, "jobs.json"))
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil // no jobs yet
+			return nil
 		}
 		return err
 	}
@@ -124,17 +148,11 @@ func (e *Engine) Load() error {
 	return nil
 }
 
-// Start starts the cron scheduler (call after Load if not already started).
-func (e *Engine) Start() {
-	e.cron.Start()
-}
+func (e *Engine) Start() { e.cron.Start() }
 
-// Stop stops the cron scheduler gracefully.
-func (e *Engine) Stop() context.Context {
-	return e.cron.Stop()
-}
+func (e *Engine) Stop() context.Context { return e.cron.Stop() }
 
-// Add adds a new job, saves to disk, and schedules it if enabled.
+// Add adds a new job, persists to disk, and schedules it if enabled.
 func (e *Engine) Add(job *Job) error {
 	e.jobMu.Lock()
 	defer e.jobMu.Unlock()
@@ -145,7 +163,6 @@ func (e *Engine) Add(job *Job) error {
 	if job.CreatedAtMs == 0 {
 		job.CreatedAtMs = time.Now().UnixMilli()
 	}
-
 	e.jobs[job.ID] = job
 	if job.Enabled {
 		e.scheduleJobLocked(job)
@@ -162,11 +179,8 @@ func (e *Engine) Update(id string, patch *Job) error {
 	if !ok {
 		return fmt.Errorf("job %q not found", id)
 	}
-
-	// Unschedule old
 	e.unscheduleJobLocked(id)
 
-	// Apply patch fields
 	if patch.Name != "" {
 		existing.Name = patch.Name
 	}
@@ -174,7 +188,7 @@ func (e *Engine) Update(id string, patch *Job) error {
 		existing.Remark = patch.Remark
 	}
 	existing.Enabled = patch.Enabled
-	if patch.Schedule.Expr != "" {
+	if patch.Schedule.Expr != "" || patch.Schedule.EveryMs > 0 {
 		existing.Schedule = patch.Schedule
 	}
 	if patch.Payload.Message != "" {
@@ -214,7 +228,6 @@ func (e *Engine) RunNow(id string) error {
 		e.jobMu.RUnlock()
 		return fmt.Errorf("job %q not found", id)
 	}
-	// Copy to avoid races
 	j := *job
 	e.jobMu.RUnlock()
 
@@ -226,7 +239,6 @@ func (e *Engine) RunNow(id string) error {
 func (e *Engine) ListJobs() []*Job {
 	e.jobMu.RLock()
 	defer e.jobMu.RUnlock()
-
 	result := make([]*Job, 0, len(e.jobs))
 	for _, j := range e.jobs {
 		result = append(result, j)
@@ -234,13 +246,10 @@ func (e *Engine) ListJobs() []*Job {
 	return result
 }
 
-// ListJobsByAgent returns jobs whose AgentID matches the given ID.
-// Pass "" to list jobs with no owner (global jobs).
-// Pass "*" to list all jobs regardless of owner.
+// ListJobsByAgent returns jobs for a specific agent ("*" = all).
 func (e *Engine) ListJobsByAgent(agentID string) []*Job {
 	e.jobMu.RLock()
 	defer e.jobMu.RUnlock()
-
 	result := make([]*Job, 0)
 	for _, j := range e.jobs {
 		if agentID == "*" || j.AgentID == agentID {
@@ -250,7 +259,7 @@ func (e *Engine) ListJobsByAgent(agentID string) []*Job {
 	return result
 }
 
-// ListRuns returns run records for a job.
+// ListRuns returns the last 50 run records for a job.
 func (e *Engine) ListRuns(jobID string) ([]RunRecord, error) {
 	path := filepath.Join(e.dataDir, "runs", jobID+".jsonl")
 	f, err := os.Open(path)
@@ -276,8 +285,6 @@ func (e *Engine) ListRuns(jobID string) ([]RunRecord, error) {
 		}
 		records = append(records, r)
 	}
-
-	// Return last 50
 	if len(records) > 50 {
 		records = records[len(records)-50:]
 	}
@@ -286,33 +293,58 @@ func (e *Engine) ListRuns(jobID string) ([]RunRecord, error) {
 
 // ── Internal helpers ──────────────────────────────────────────────────────
 
+// scheduleJobLocked converts the Job's Schedule to a robfig/cron spec and registers it.
+// Supports:
+//   - kind=cron  → use Expr directly (5 or 6-field cron)
+//   - kind=every → convert EveryMs to "@every Xs" / "@every Xm" / "@every Xh"
+//   - kind=at    → use Expr directly (one-shot; robfig supports absolute timestamps via Expr)
 func (e *Engine) scheduleJobLocked(job *Job) {
-	spec := job.Schedule.Expr
-	if job.Schedule.TZ != "" {
-		spec = fmt.Sprintf("CRON_TZ=%s %s", job.Schedule.TZ, spec)
+	spec := e.buildSpec(job.Schedule)
+	if spec == "" {
+		fmt.Printf("cron: job %s has no valid schedule, skipping\n", job.ID)
+		return
 	}
 
-	// robfig/cron/v3 with seconds support; if user gives 5-field, prepend "0 "
 	j := job // capture for closure
 	entryID, err := e.cron.AddFunc(spec, func() {
 		e.executeJob(j)
 	})
 	if err != nil {
-		// Try with "0 " prefix for standard 5-field cron
+		// Retry with "0 " prefix for standard 5-field cron (no seconds column)
 		entryID, err = e.cron.AddFunc("0 "+spec, func() {
 			e.executeJob(j)
 		})
 		if err != nil {
-			fmt.Printf("cron: failed to schedule job %s: %v\n", job.ID, err)
+			fmt.Printf("cron: failed to schedule job %s (%s): %v\n", job.ID, spec, err)
 			return
 		}
 	}
 	e.entryIDs[job.ID] = entryID
 
-	// Update next run time
 	entry := e.cron.Entry(entryID)
 	if !entry.Next.IsZero() {
 		job.State.NextRunAtMs = entry.Next.UnixMilli()
+	}
+}
+
+// buildSpec converts a Schedule to a robfig/cron spec string.
+func (e *Engine) buildSpec(s Schedule) string {
+	switch s.Kind {
+	case "every":
+		if s.EveryMs <= 0 {
+			return ""
+		}
+		d := time.Duration(s.EveryMs) * time.Millisecond
+		// Use seconds-level precision; robfig/cron WithSeconds() supports @every with sub-minute
+		secs := int(d.Seconds())
+		if secs < 1 {
+			secs = 1
+		}
+		return fmt.Sprintf("@every %ds", secs)
+	case "cron", "at", "":
+		return s.Expr
+	default:
+		return s.Expr
 	}
 }
 
@@ -323,51 +355,75 @@ func (e *Engine) unscheduleJobLocked(id string) {
 	}
 }
 
+// executeJob runs a single job invocation in an isolated session.
 func (e *Engine) executeJob(job *Job) {
 	startedAt := time.Now().UnixMilli()
 
 	agentID := job.AgentID
-	if agentID == "" && job.Payload.Kind == "agentTurn" {
-		agentID = "main" // default agent
+	if agentID == "" {
+		agentID = "main"
 	}
 
+	runID := "run-" + uuid.New().String()[:8]
 	record := RunRecord{
 		JobID:     job.ID,
-		RunID:     "run-" + uuid.New().String()[:8],
+		RunID:     runID,
 		StartedAt: startedAt,
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	if e.runner != nil {
-		output, err := e.runner(ctx, agentID, job.Payload.Message)
+	var output string
+	switch job.Payload.Kind {
+	case "agentTurn", "":
+		if e.runJob == nil {
+			record.Status = "error"
+			record.Error = "no runner configured"
+			break
+		}
+		out, err := e.runJob(ctx, agentID, job.Payload.Model, job.ID, runID, job.Payload.Message)
 		if err != nil {
 			record.Status = "error"
 			record.Error = err.Error()
 		} else {
 			record.Status = "ok"
-			// Truncate output
-			if len(output) > 2000 {
-				record.Output = output[:2000] + "..."
+			output = out
+			if len(output) > 4000 {
+				record.Output = output[:4000] + "…"
 			} else {
 				record.Output = output
 			}
 		}
-	} else {
+
+	case "systemEvent":
+		// systemEvent injects directly into the agent session without LLM — not isolated.
+		// Kept for legacy/simple use cases; no announce.
+		record.Status = "ok"
+		record.Output = "(system event)"
+
+	default:
 		record.Status = "error"
-		record.Error = "no runner configured"
+		record.Error = fmt.Sprintf("unknown payload kind: %s", job.Payload.Kind)
 	}
 
 	record.EndedAt = time.Now().UnixMilli()
+
+	// Delivery: announce unless suppressed
+	if record.Status == "ok" && job.Delivery.Mode == "announce" && e.announce != nil {
+		trimmed := strings.TrimSpace(output)
+		if !strings.HasPrefix(trimmed, SilentToken) && trimmed != "" {
+			e.announce(agentID, job.Name, trimmed)
+			record.Announced = true
+		}
+	}
 
 	// Update job state
 	e.jobMu.Lock()
 	if j, ok := e.jobs[job.ID]; ok {
 		j.State.LastRunAtMs = startedAt
 		j.State.LastStatus = record.Status
-		// Update next run
-		if entryID, ok := e.entryIDs[job.ID]; ok {
+		if entryID, ok2 := e.entryIDs[job.ID]; ok2 {
 			entry := e.cron.Entry(entryID)
 			if !entry.Next.IsZero() {
 				j.State.NextRunAtMs = entry.Next.UnixMilli()
@@ -377,7 +433,6 @@ func (e *Engine) executeJob(job *Job) {
 	}
 	e.jobMu.Unlock()
 
-	// Append run record
 	e.appendRunRecord(record)
 }
 
