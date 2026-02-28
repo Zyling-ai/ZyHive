@@ -33,16 +33,16 @@
           <span class="header-hide-xs"> Star</span>
         </span>
         <!-- Update available badge -->
-        <a
+        <span
           v-if="updateInfo"
-          :href="updateInfo.releaseUrl"
-          target="_blank"
           class="header-update-btn"
-          :title="`新版本 ${updateInfo.latest} 可用，点击查看`"
+          style="cursor:pointer"
+          :title="`新版本 ${updateInfo.latest} 可用，点击前往设置`"
+          @click="router.push('/settings')"
         >
           <span class="update-dot"></span>
           <span class="header-hide-xs">新版本 {{ updateInfo.latest }}</span>
-        </a>
+        </span>
         <el-divider direction="vertical" style="margin:0 4px;border-color:rgba(255,255,255,0.2)" />
         <span class="header-link" style="cursor:pointer" @click="logout" title="退出登录">
           退出
