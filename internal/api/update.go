@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -84,7 +85,7 @@ func (h *updateHandler) Check(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"current":    current,
 		"latest":     latest,
-		"hasUpdate":  latest != current && latest != "",
+		"hasUpdate":  semverGt(latest, current),
 		"releaseUrl": releaseURL,
 	})
 }
@@ -333,6 +334,29 @@ func isURLReachable(url string) bool {
 	}
 	defer resp.Body.Close()
 	return resp.StatusCode < 500
+}
+
+// semverGt 比较 a > b（形如 v0.9.26 vs v0.9.24）
+func semverGt(a, b string) bool {
+	parse := func(s string) [3]int {
+		s = strings.TrimPrefix(s, "v")
+		parts := strings.SplitN(s, ".", 3)
+		var r [3]int
+		for i := 0; i < 3 && i < len(parts); i++ {
+			r[i], _ = strconv.Atoi(parts[i])
+		}
+		return r
+	}
+	av, bv := parse(a), parse(b)
+	for i := 0; i < 3; i++ {
+		if av[i] > bv[i] {
+			return true
+		}
+		if av[i] < bv[i] {
+			return false
+		}
+	}
+	return false
 }
 
 // copyFile 复制文件（用于备份旧二进制 & 替换）

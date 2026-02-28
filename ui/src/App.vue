@@ -252,17 +252,30 @@ onMounted(async () => {
     const now = Date.now()
     const cached = localStorage.getItem(uCacheKey)
     const exp = parseInt(localStorage.getItem(uCacheExp) || '0')
+    // semver compare: a > b (e.g. v0.9.26 > v0.9.24)
+    const semverGt = (a: string, b: string) => {
+      const parse = (s: string) => { const p = s.replace(/^v/, '').split('.').map(Number); return [p[0]??0, p[1]??0, p[2]??0] as [number,number,number] }
+      const [a1, a2, a3] = parse(a); const [b1, b2, b3] = parse(b)
+      return a1 > b1 || (a1 === b1 && a2 > b2) || (a1 === b1 && a2 === b2 && a3 > b3)
+    }
+    const current = appVersion.value
     if (cached && now < exp) {
       const parsed = JSON.parse(cached)
-      if (parsed?.hasUpdate) updateInfo.value = { latest: parsed.latest, releaseUrl: parsed.releaseUrl }
-      return
+      // 验证缓存的 latest 确实大于当前运行版本，否则丢弃缓存
+      if (parsed?.hasUpdate && parsed.latest && current && semverGt(parsed.latest, current)) {
+        updateInfo.value = { latest: parsed.latest, releaseUrl: parsed.releaseUrl }
+        return
+      }
+      // 缓存无效（版本已更新），清掉并重新检查
+      localStorage.removeItem(uCacheKey)
+      localStorage.removeItem(uCacheExp)
     }
     try {
       const res = await api.get('/update/check')
       const d = res.data
       localStorage.setItem(uCacheKey, JSON.stringify(d))
       localStorage.setItem(uCacheExp, String(now + 60 * 60 * 1000)) // 1h
-      if (d?.hasUpdate) updateInfo.value = { latest: d.latest, releaseUrl: d.releaseUrl }
+      if (d?.hasUpdate && semverGt(d.latest, current)) updateInfo.value = { latest: d.latest, releaseUrl: d.releaseUrl }
     } catch { /* ignore, non-critical */ }
   }, 2000)
 
