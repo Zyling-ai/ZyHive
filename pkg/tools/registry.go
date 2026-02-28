@@ -77,6 +77,8 @@ func New(workspaceDir, agentDir, agentID string) *Registry {
 	r.register(selfUninstallSkillDef, r.handleSelfUninstallSkill)
 	r.register(selfRenameDef, r.handleSelfRename)
 	r.register(selfUpdateSoulDef, r.handleSelfUpdateSoul)
+	// Always register subagent tools (nil mgr returns "not configured" error)
+	r.registerSubagentTools()
 	return r
 }
 
@@ -246,10 +248,10 @@ func (r *Registry) WithAgentLister(lister func() []AgentSummary) {
 	})
 }
 
-// WithSubagentManager registers background task tools (agent_spawn, agent_tasks, agent_kill).
-func (r *Registry) WithSubagentManager(mgr *subagent.Manager) {
-	r.subagentMgr = mgr
-
+// registerSubagentTools registers agent_spawn/tasks/kill/result tools.
+// Called both from New() (with nil mgr, so tools always appear) and from
+// WithSubagentManager (with real mgr, which overwrites the nil-mgr handlers).
+func (r *Registry) registerSubagentTools() {
 	r.register(llm.ToolDef{
 		Name:        "agent_spawn",
 		Description: "在后台派生一个 AI 成员执行任务。任务异步执行，不阻塞当前对话。完成后自动通知。返回任务 ID。⚠️ 务必先调用 agent_list 确认正确的 agentId，不要猜测。",
@@ -300,6 +302,13 @@ func (r *Registry) WithSubagentManager(mgr *subagent.Manager) {
 			"required":["taskId"]
 		}`),
 	}, r.handleAgentResult)
+}
+
+// WithSubagentManager sets the subagent manager and re-registers tools with the real manager.
+// Calling this after New() upgrades the nil-mgr stubs to fully functional handlers.
+func (r *Registry) WithSubagentManager(mgr *subagent.Manager) {
+	r.subagentMgr = mgr
+	r.registerSubagentTools() // overwrites nil-mgr stubs with real handlers
 }
 
 // WithProjectAccess registers project_list, project_read, and (if permitted)
