@@ -4,6 +4,86 @@
 
 ---
 
+## [v0.9.27] — 2026-02-28 · 全工具测试套件 + agent_spawn 始终注册
+
+### 新增
+- **58 个工具单元测试**（`pkg/tools/tools_test.go`）：覆盖所有内置工具的边界情况，包括：
+  - `read`：正常读取 / offset+limit / 文件不存在 / 缺参数 / 非法 JSON / offset 超界
+  - `write`：正常写 / 自动建目录 / 缺参数 / 空内容
+  - `edit`：正常替换 / old_string 未找到（附文件预览和字节数提示）/ 文件不存在 / 只替换第一处
+  - `exec`：成功 / 无输出提示 / 失败退出码保留 / stdout 不丢失 / 多行 / stderr 合并
+  - `grep`：匹配 / 无匹配明确提示 / 非法正则 / 路径不存在 / 缺参数 / 递归
+  - `glob` / `web_fetch` / `show_image` / `self_*` / `env_vars` / `agent_spawn` 系列
+
+### 修复
+- **`agent_spawn` 始终注册**：之前没有 SubagentManager 时工具根本不出现在工具列表，LLM 收到 "unknown tool" 完全不知道该工具存在；现在 `registerSubagentTools()` 在 `New()` 时就调用，无 manager 时执行返回明确的 "not configured" 错误
+- **`agent_tasks` / `agent_kill` / `agent_result` 同步修复**：与 `agent_spawn` 同类问题，同步解决
+
+---
+
+## [v0.9.26] — 2026-02-28 · Cron 隔离会话 + 统一会话侧边栏 + 工具错误信息
+
+### 新增
+- **`send_message` 工具**（`pkg/tools/messaging.go`）：AI 成员可在隔离 session 中主动向 Telegram 渠道发消息，供 Cron 任务中的 delivery=none 模式使用
+- **NO_ALERT 抑制**：Cron 任务输出以 `NO_ALERT` 开头时，自动跳过 announce delivery，减少无效推送
+- **`memory_search` 工具**（`pkg/tools/memory_search.go`）：向量 + BM25 混合检索工作区 `memory/` 目录下的所有 `.md` 文件；无 embedding provider 时自动降级为纯 BM25；支持 `top_k` 参数（默认 5，最大 20）
+- **Cron 隔离会话**：每次 Cron 任务执行都在独立 `sessionID = "cron-{jobID}-{runID}"` 的 session 中运行，不污染主对话历史
+
+### 变更
+- **统一会话侧边栏**（`AgentDetailView.vue`）：面板会话与 Telegram / Web 渠道会话合并为单一列表，按最后活动时间排序；面板会话保持交互式 AiChat 组件，渠道会话显示"此会话来自 Telegram，只读"横幅，去掉"历史对话"独立 Tab
+
+### 修复
+- **SubAgent API Key 解析**（`pkg/agent/pool.go`）：替换全部 5 处 `apiKey := modelEntry.APIKey` 为 `config.ResolveCredentials(modelEntry, cfg.Providers)`，修复 v3 config 格式下子代理报"no API key"的错误
+- **在线更新版本比较**：改用语义化版本（semver）比较替代字符串比较，修复 v0.9.9 > v0.9.19 误判；同步修复 `App.vue` stale localStorage cache 导致新版本检测失效
+- **工具错误信息精细化**：
+  - `exec`：失败时返回 `❌ Command exited with code N.\n<output>` 作为 result 而非 Go error，确保 LLM 同时看到退出码和完整输出
+  - `edit`：`old_string` 未找到时附带文件字节数 + 200 字符预览，提示检查空白字符
+  - `web_fetch`：HTTP 4xx/5xx 返回 `"HTTP 404 Not Found\nURL: ...\nResponse: <snippet>"`
+  - `grep`：区分 exit code 1（无匹配，返回 "No matches found for pattern X in Y"）与真实错误
+  - `read`：明确区分"file not found"与其他 OS 错误
+  - `registry.Execute`：所有错误加 `[toolname]` 前缀；unknown tool 时列出所有已注册工具名；`agent_spawn` 验证 agentId 是否在已知列表中
+
+---
+
+## [v0.9.25] — 2026-02-28 · 浏览器自动化 + memory_search + 版本更新角标
+
+### 新增
+- **浏览器自动化工具**（`pkg/browser/manager.go` + `pkg/tools/browser_tools.go`）：基于 go-rod（纯 Go，无 Node.js 依赖）的 16 个浏览器工具：
+  - `browser_navigate` / `browser_snapshot` / `browser_screenshot` / `browser_click`
+  - `browser_type` / `browser_fill` / `browser_press` / `browser_scroll` / `browser_select`
+  - `browser_hover` / `browser_wait` / `browser_evaluate` / `browser_close`
+  - ARIA 快照：JS 注入 `data-zy-ref` 属性标记所有可交互元素，生成结构化 ARIA 树
+  - 每个 Agent 有独立 `AgentSession`（Tab 列表 + 当前激活 Tab），所有 Agent 共享同一 Rod 浏览器进程
+  - 截图自动保存到 `{workspaceDir}/.browser_screenshots/screenshot_{timestamp}.png`
+- **Chromium 自动下载**：首次使用浏览器工具时自动下载 Chromium，零系统依赖
+- **版本更新角标**（Header）：后台定期检测 GitHub 最新 Release，有新版本时 Header 右上角显示橙色角标，点击跳转到设置页升级
+
+### 修复
+- **Web 面板在线升级进程残留**：改用 `syscall.Exec` 原地替换进程（PID 不变），配合 `Restart=always` 彻底解决升级后服务挂死问题
+
+---
+
+## [v0.9.24] — 2026-02-26 · 甘特图全面重构
+
+### 新增
+- **7 级时间颗粒度缩放**：年 → 季度 → 月 → 双周 → 周 → 天 → 小时，滚轮缩放无级切换
+- **惯性平滑拖拽**：地图式连续交互，松手后惯性滑动，速度按屏幕宽度归一化（`maxV = screenW/400`）
+- **今日线锚定**：初始视图以今日线为参考点，左侧 10% 位置显示
+- **目标摘要面板**：点击甘特条弹出目标详情侧边栏
+- **「← 甘特图」返回按钮**：目标详情编辑器工具栏新增返回按钮，快速切回甘特视图
+- **时间进度条**：甘特条颜色填充按时间进度（`timeProgress`）而非手动填写的 `progress` 字段
+
+### 修复
+- **密集网格线 Bug**：根因为 `v-for` key 使用天数字导致跨月重复，改用时间戳 `ts` 作为 key
+- **TICK_STEPS 大数字溢出**：月份常量使用 `Math.round(30.44 * 86400_000)` 替代 `| 0` 位运算（32位溢出导致负数）
+- **甘特条宽度冻结**：起始日期滚动到左侧可视区外时条宽被截断，修复边界计算
+- **快速滑动时间穿越**：限幅惯性速度防止极端滑动跳跃到遥远时间
+- **双层标题**：年份（小字）在上，月/周（主标签）在下，不再堆叠显示
+- **版本号显示**：去掉 Header 版本号前重复的 "v"
+- **Star 按钮样式**：降低视觉权重
+
+---
+
 ## [v0.9.23] — 2026-02-25 · Goals 聊天 session 隔离 + 面板高度修复
 
 ### 修复
