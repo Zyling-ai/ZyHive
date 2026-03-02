@@ -247,6 +247,8 @@ onMounted(async () => {
 
   // Check for updates (delayed 2s, cached 1h in localStorage)
   setTimeout(async () => {
+    // Skip update check if not logged in — avoids 401 redirect loop on fresh installs
+    if (!localStorage.getItem('aipanel_token')) return
     const uCacheKey = 'zyhive_update_info'
     const uCacheExp = 'zyhive_update_exp'
     const now = Date.now()

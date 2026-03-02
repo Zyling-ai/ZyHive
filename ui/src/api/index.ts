@@ -13,7 +13,10 @@ api.interceptors.response.use(
   err => {
     if (err.response?.status === 401) {
       localStorage.removeItem('aipanel_token')
-      window.location.href = '/login'
+      // Avoid redirect loop: only navigate away if not already on /login
+      if (!window.location.pathname.startsWith('/login')) {
+        window.location.href = '/login'
+      }
     }
     return Promise.reject(err)
   }
