@@ -6,7 +6,7 @@
 [![GitHub Forks](https://img.shields.io/github/forks/Zyling-ai/zyhive?style=flat&logo=github&color=orange)](https://github.com/Zyling-ai/zyhive/network/members)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 [![Go 1.22+](https://img.shields.io/badge/Go-1.22+-00ADD8.svg)](https://golang.org)
-[![Version](https://img.shields.io/badge/version-v0.9.27-brightgreen.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.10.0-brightgreen.svg)](CHANGELOG.md)
 [![官网](https://img.shields.io/badge/官网-zyling.ai-6366f1?logo=globe)](https://zyling.ai)
 
 **以团队为核心，每个 AI Agent 是团队成员。**
@@ -35,7 +35,7 @@ curl -sSL https://install.zyling.ai/install | bash
 
 ```
 ╔══════════════════════════════════════════════╗
-║  ✅  ZyHive 安装成功！版本: v0.9.27          ║
+║  ✅  ZyHive 安装成功！版本: v0.10.0          ║
 ╚══════════════════════════════════════════════╝
 
   📍 本地访问：  http://localhost:8080
@@ -268,7 +268,8 @@ make release
 | v0.9.25 | **浏览器自动化**（go-rod，16 工具，ARIA 快照）、**memory_search**、版本更新角标 | ✅ |
 | v0.9.26 | **Cron 隔离会话**、NO_ALERT、send_message、统一会话侧边栏、工具错误精细化 | ✅ |
 | v0.9.27 | **58 个工具单元测试**、agent_spawn 始终注册 | ✅ |
-| **v0.10** | 团队规划系统、会议系统 | 🔜 规划中 |
+| v0.10.0 | **稳定性修复**：新实例登录 401 死循环、update check 未登录触发问题 | ✅ |
+| **v0.11** | 团队规划系统、会议系统 | 🔜 规划中 |
 
 ---
 

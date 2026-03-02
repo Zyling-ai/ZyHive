@@ -4,6 +4,15 @@
 
 ---
 
+## [v0.10.0] — 2026-03-02 · 稳定性修复
+
+### 修复
+- **新实例登录死循环**：App.vue 中 `/api/update/check` 在未登录状态下被触发，返回 401 后拦截器跳转 `/login`，登录页再次触发检查形成无限刷新循环。修复方案：
+  - `api.interceptors.response.use`：401 跳转前检查 `pathname`，已在 `/login` 则不再跳转
+  - `App.vue`：update check 开头加 `if (!token) return`，未登录时跳过检查
+
+---
+
 ## [v0.9.27] — 2026-02-28 · 全工具测试套件 + agent_spawn 始终注册
 
 ### 新增
