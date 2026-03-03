@@ -207,23 +207,22 @@ func (h *providerHandler) Test(c *gin.Context) {
 	status := "ok"
 	msg := "连接成功"
 
+	var ok bool
+	var msg2 string
 	switch p.Provider {
 	case "anthropic":
-		ok, msg2 := testAnthropicKey(apiKey, baseURL)
-		if !ok {
-			status = "error"
-			msg = msg2
-		} else {
-			msg = msg2
-		}
+		ok, msg2 = testAnthropicKey(apiKey, baseURL)
+	case "minimax":
+		// MiniMax 不支持 GET /v1/models，改用 chat completion 轻量探测
+		ok, msg2 = testMiniMaxKey(apiKey, baseURL)
 	default:
-		ok, msg2 := testOpenAICompatKey(apiKey, baseURL)
-		if !ok {
-			status = "error"
-			msg = msg2
-		} else {
-			msg = msg2
-		}
+		ok, msg2 = testOpenAICompatKey(apiKey, baseURL)
+	}
+	if !ok {
+		status = "error"
+		msg = msg2
+	} else if msg2 != "" {
+		msg = msg2
 	}
 
 	// 更新状态

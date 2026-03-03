@@ -232,6 +232,39 @@ func testOpenAICompatKey(key, baseURL string) (bool, string) {
 	return false, fmt.Sprintf("status %d: %s", resp.StatusCode, string(respBody))
 }
 
+// testMiniMaxKey validates a MiniMax API key via a minimal chat completion request.
+// MiniMax 不支持 GET /v1/models，用 POST /v1/chat/completions + max_tokens=1 探测。
+func testMiniMaxKey(key, baseURL string) (bool, string) {
+	if baseURL == "" {
+		baseURL = "https://api.minimax.chat/v1"
+	}
+	baseURL = strings.TrimRight(baseURL, "/")
+
+	body := []byte(`{"model":"abab5.5s-chat","messages":[{"role":"user","content":"hi"}],"max_tokens":1}`)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, "POST", baseURL+"/chat/completions", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+key)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return false, fmt.Sprintf("连接失败: %v", err)
+	}
+	defer resp.Body.Close()
+	switch resp.StatusCode {
+	case 401:
+		return false, "API Key 无效（401 Unauthorized）"
+	case 403:
+		return false, "API Key 权限不足（403 Forbidden）"
+	}
+	if resp.StatusCode >= 200 && resp.StatusCode < 500 {
+		return true, "MiniMax 连接成功"
+	}
+	b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+	return false, fmt.Sprintf("status %d: %s", resp.StatusCode, string(b))
+}
+
 // defaultBaseURLForProvider returns the default API base URL for a known provider.
 func defaultBaseURLForProvider(provider string) string {
 	switch strings.ToLower(provider) {
