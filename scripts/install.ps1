@@ -34,7 +34,9 @@ $IsAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIden
 if (-not $IsAdmin) {
     Write-Host ""
     Write-Host "  ZyHive 安装需要管理员权限，正在请求提权..." -ForegroundColor Yellow
-    $ScriptPath = $MyInvocation.MyCommand.Path
+    # 管道执行（irm|iex）时 MyCommand 是 ScriptBlock，没有 Path 属性
+    # 严格模式下直接访问会抛出 PropertyNotFoundException，用 try/catch 规避
+    $ScriptPath = try { $MyInvocation.MyCommand.Path } catch { $null }
     if ($ScriptPath) {
         # 本地脚本文件 → 直接提权重启
         $ArgList = "-NoProfile -ExecutionPolicy Bypass -File `"$ScriptPath`" -Port $Port"
