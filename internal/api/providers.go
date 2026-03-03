@@ -198,6 +198,10 @@ func (h *providerHandler) Test(c *gin.Context) {
 	}
 
 	baseURL := p.BaseURL
+	// 用户未填 baseURL 时，补全已知厂商的默认地址（minimax/kimi/zhipu/qwen 等）
+	if baseURL == "" {
+		baseURL = defaultBaseURLForProvider(p.Provider)
+	}
 
 	// 使用轻量的 /v1/models 探测接口
 	status := "ok"
