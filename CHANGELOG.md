@@ -4,6 +4,13 @@
 
 ---
 
+## [v0.10.3] — 2026-03-03 · Provider 测试修复
+
+### 修复
+- **MiniMax / Kimi / 智谱等厂商测试显示"未配置调用地址"**：`providers.go` 的 `Test()` 函数未对空 `baseURL` 做兜底，导致未显式填写转发地址时测试必然失败；现与 `models.go` 保持一致，自动补全已知厂商默认地址（`defaultBaseURLForProvider`）
+
+---
+
 ## [v0.10.1] — 2026-03-02 · Windows 安装脚本双修
 
 ### 修复
