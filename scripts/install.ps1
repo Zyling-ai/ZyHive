@@ -67,7 +67,7 @@ if (-not $IsAdmin) {
 # ══════════════════════════════════════════════════════════════════════════
 
 $ServiceName  = "zyhive"
-$InstallDir   = "C:\Program Files\ZyHive"
+$InstallDir   = "C:\ProgramData\ZyHive"   # 不含空格，避免 sc.exe binPath 引号问题
 $ConfigDir    = "C:\ProgramData\ZyHive"
 $AgentsDir    = "$ConfigDir\agents"
 $BinaryPath   = "$InstallDir\zyhive.exe"
@@ -263,17 +263,22 @@ if (-not $NoService) {
         Start-Sleep 1
     }
 
-    # sc create
-    $BinPathQuoted = "`"$BinaryPath`" --config `"$ConfigFile`""
-    sc.exe create $ServiceName binPath= $BinPathQuoted start= auto DisplayName= "ZyHive AI Team OS" | Out-Null
+    # sc create（路径不含空格，无需复杂引号转义）
+    # 用 cmd /c 代理调用，彻底规避 PowerShell 对 sc.exe 参数的引号解析问题
+    $scBinPath = "$BinaryPath --config $ConfigFile"
+    $scResult  = cmd /c "sc create $ServiceName binPath= `"$scBinPath`" start= auto DisplayName= `"ZyHive AI Team OS`"" 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warn "sc create 输出：$scResult"
+        Write-Err "Windows 服务注册失败（exit $LASTEXITCODE），请以管理员身份重新运行"
+    }
     sc.exe description $ServiceName "ZyHive (引巢) — AI 团队操作系统 | https://github.com/Zyling-ai/zyhive" | Out-Null
     sc.exe failure $ServiceName reset= 60 actions= restart/3000/restart/5000/restart/10000 | Out-Null
 
-    Start-Service $ServiceName
+    Start-Service $ServiceName -ErrorAction SilentlyContinue
     Start-Sleep 2
 
-    $svc = Get-Service -Name $ServiceName
-    if ($svc.Status -eq "Running") {
+    $svc = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+    if ($svc -and $svc.Status -eq "Running") {
         Write-Ok "Windows 服务已启动：$ServiceName"
     } else {
         Write-Warn "服务启动异常，请手动检查：sc query $ServiceName"
