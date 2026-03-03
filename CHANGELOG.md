@@ -4,6 +4,13 @@
 
 ---
 
+## [v0.10.4] — 2026-03-03 · MiniMax 探测修复
+
+### 修复
+- **MiniMax 测试返回 404**：MiniMax API 不支持 `GET /v1/models`（OpenAI 标准探测端点），改为 `POST /v1/chat/completions + max_tokens=1` 轻量探测；401/403 正确识别 Key 无效，其余 2xx/4xx 视为连接成功
+
+---
+
 ## [v0.10.3] — 2026-03-03 · Provider 测试修复
 
 ### 修复
