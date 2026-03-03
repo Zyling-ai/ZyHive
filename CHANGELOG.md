@@ -4,6 +4,16 @@
 
 ---
 
+## [v0.10.1] — 2026-03-02 · Windows 安装脚本双修
+
+### 修复
+- **PowerShell `irm|iex` 崩溃**（`PropertyNotFoundException on .Path`）：`Set-StrictMode -Version Latest` 下，管道执行时 `$MyInvocation.MyCommand` 为 `ScriptBlock`，不含 `.Path` 属性，改用 `try/catch` 安全访问
+- **Windows 服务注册失败**（`Start-Service: NoServiceFoundForGivenName`）：
+  - 安装目录从 `C:\Program Files\ZyHive`（含空格）改为 `C:\ProgramData\ZyHive`，消除 `sc.exe binPath=` 引号解析问题
+  - 改用 `cmd /c "sc create ..."` 代理调用，加 `$LASTEXITCODE` 检查，失败时明确报错而非静默跳过
+
+---
+
 ## [v0.10.0] — 2026-03-02 · 稳定性修复
 
 ### 修复
