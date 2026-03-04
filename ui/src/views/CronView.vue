@@ -63,7 +63,7 @@
             />
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="190">
+        <el-table-column label="操作" width="240">
           <template #default="{ row }">
             <template v-if="isMemoryJob(row)">
               <el-tag type="info" size="small" style="margin-right: 6px;">记忆管理</el-tag>
@@ -71,6 +71,7 @@
             </template>
             <template v-else>
               <el-button size="small" @click="runNow(row)">立即运行</el-button>
+              <el-button size="small" type="info" @click="openLogs(row)">日志</el-button>
               <el-button size="small" type="danger" @click="deleteCron(row)">删除</el-button>
             </template>
           </template>
@@ -78,6 +79,51 @@
       </el-table>
       <el-empty v-if="jobs.length === 0" description="暂无定时任务" />
     </el-card>
+
+    <!-- Run Logs Dialog -->
+    <el-dialog v-model="showLogs" :title="`执行日志 — ${currentJob?.name}`" width="780px">
+      <div style="margin-bottom: 10px; display: flex; align-items: center; gap: 8px;">
+        <el-text type="info" size="small">最近 50 条执行记录</el-text>
+        <el-button size="small" @click="openLogs(currentJob!)" :loading="loadingLogs">刷新</el-button>
+      </div>
+      <el-table :data="runLogs" stripe size="small" v-loading="loadingLogs" max-height="460">
+        <el-table-column label="运行时间" width="170">
+          <template #default="{ row }">{{ formatTime(row.startedAt) }}</template>
+        </el-table-column>
+        <el-table-column label="耗时" width="80">
+          <template #default="{ row }">
+            <el-text size="small">{{ ((row.endedAt - row.startedAt) / 1000).toFixed(1) }}s</el-text>
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" width="75">
+          <template #default="{ row }">
+            <el-tag :type="row.status === 'ok' ? 'success' : 'danger'" size="small">
+              {{ row.status }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="推送" width="60">
+          <template #default="{ row }">
+            <el-tag v-if="row.announced" type="success" size="small" effect="plain">已推</el-tag>
+            <el-text v-else type="info" size="small">—</el-text>
+          </template>
+        </el-table-column>
+        <el-table-column label="输出 / 错误" min-width="200">
+          <template #default="{ row }">
+            <div v-if="row.status === 'error'" style="color: #f56c6c; font-size: 12px; white-space: pre-wrap; max-height: 80px; overflow: auto;">
+              {{ row.error }}
+            </div>
+            <div v-else style="font-size: 12px; color: #606266; white-space: pre-wrap; max-height: 80px; overflow: auto;">
+              {{ row.output || '—' }}
+            </div>
+          </template>
+        </el-table-column>
+      </el-table>
+      <el-empty v-if="!loadingLogs && runLogs.length === 0" description="暂无执行记录" />
+      <template #footer>
+        <el-button @click="showLogs = false">关闭</el-button>
+      </template>
+    </el-dialog>
 
     <!-- Create Dialog -->
     <el-dialog v-model="showCreate" title="新建定时任务" width="520px">
@@ -136,6 +182,12 @@ const jobs = ref<CronJob[]>([])
 const agentList = ref<AgentInfo[]>([])
 const filterAgentId = ref('')
 const showCreate = ref(false)
+
+// Logs
+const showLogs = ref(false)
+const currentJob = ref<CronJob | null>(null)
+const runLogs = ref<any[]>([])
+const loadingLogs = ref(false)
 
 const agentNameMap = computed(() => {
   const m: Record<string, string> = {}
@@ -228,6 +280,21 @@ async function deleteCron(job: CronJob) {
     ElMessage.success('已删除')
     loadJobs()
   } catch { ElMessage.error('删除失败') }
+}
+
+async function openLogs(job: CronJob) {
+  currentJob.value = job
+  showLogs.value = true
+  loadingLogs.value = true
+  try {
+    const res = await cronApi.runs(job.id)
+    runLogs.value = (res.data || []).slice().reverse() // newest first
+  } catch {
+    ElMessage.error('获取日志失败')
+    runLogs.value = []
+  } finally {
+    loadingLogs.value = false
+  }
 }
 </script>
 

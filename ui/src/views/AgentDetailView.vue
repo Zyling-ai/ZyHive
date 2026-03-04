@@ -633,7 +633,7 @@
                 <el-switch v-model="row.enabled" @change="toggleCron(row)" />
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="220">
+            <el-table-column label="操作" width="270">
               <template #default="{ row }">
                 <template v-if="row.payload?.message === '__MEMORY_CONSOLIDATE__'">
                   <el-tag type="info" size="small" style="margin-right: 8px;">记忆管理</el-tag>
@@ -641,6 +641,7 @@
                 </template>
                 <template v-else>
                   <el-button size="small" @click="runCronNow(row)">立即运行</el-button>
+                  <el-button size="small" type="info" @click="openCronLogs(row)">日志</el-button>
                   <el-button size="small" type="danger" @click="deleteCron(row)">删除</el-button>
                 </template>
               </template>
@@ -673,6 +674,45 @@
             <template #footer>
               <el-button @click="showCronCreate = false">取消</el-button>
               <el-button type="primary" @click="createCron">创建</el-button>
+            </template>
+          </el-dialog>
+
+          <!-- Cron Logs Dialog -->
+          <el-dialog v-model="showCronLogs" :title="`执行日志 — ${cronLogsJob?.name}`" width="780px">
+            <div style="margin-bottom: 10px; display: flex; align-items: center; gap: 8px;">
+              <el-text type="info" size="small">最近 50 条执行记录</el-text>
+              <el-button size="small" @click="openCronLogs(cronLogsJob!)" :loading="loadingCronLogs">刷新</el-button>
+            </div>
+            <el-table :data="cronLogs" stripe size="small" v-loading="loadingCronLogs" max-height="460">
+              <el-table-column label="运行时间" width="170">
+                <template #default="{ row }">{{ new Date(row.startedAt).toLocaleString('zh-CN') }}</template>
+              </el-table-column>
+              <el-table-column label="耗时" width="80">
+                <template #default="{ row }">
+                  <el-text size="small">{{ ((row.endedAt - row.startedAt) / 1000).toFixed(1) }}s</el-text>
+                </template>
+              </el-table-column>
+              <el-table-column label="状态" width="75">
+                <template #default="{ row }">
+                  <el-tag :type="row.status === 'ok' ? 'success' : 'danger'" size="small">{{ row.status }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="推送" width="60">
+                <template #default="{ row }">
+                  <el-tag v-if="row.announced" type="success" size="small" effect="plain">已推</el-tag>
+                  <el-text v-else type="info" size="small">—</el-text>
+                </template>
+              </el-table-column>
+              <el-table-column label="输出 / 错误" min-width="200">
+                <template #default="{ row }">
+                  <div v-if="row.status === 'error'" style="color: #f56c6c; font-size: 12px; white-space: pre-wrap; max-height: 80px; overflow: auto;">{{ row.error }}</div>
+                  <div v-else style="font-size: 12px; color: #606266; white-space: pre-wrap; max-height: 80px; overflow: auto;">{{ row.output || '—' }}</div>
+                </template>
+              </el-table-column>
+            </el-table>
+            <el-empty v-if="!loadingCronLogs && cronLogs.length === 0" description="暂无执行记录" />
+            <template #footer>
+              <el-button @click="showCronLogs = false">关闭</el-button>
             </template>
           </el-dialog>
         </el-tab-pane>
@@ -1413,6 +1453,10 @@ function strengthColor(s: string): '' | 'success' | 'warning' | 'info' | 'danger
 // Cron
 const cronJobs = ref<CronJob[]>([])
 const showCronCreate = ref(false)
+const showCronLogs = ref(false)
+const cronLogsJob = ref<any>(null)
+const cronLogs = ref<any[]>([])
+const loadingCronLogs = ref(false)
 const cronForm = ref({ name: '', expr: '0 9 * * *', tz: 'Asia/Shanghai', message: '', enabled: true })
 
 function statusType(s?: string) {
@@ -1927,6 +1971,21 @@ async function deleteCron(job: any) {
     loadCron()
   } catch {
     ElMessage.error('删除失败')
+  }
+}
+
+async function openCronLogs(job: any) {
+  cronLogsJob.value = job
+  showCronLogs.value = true
+  loadingCronLogs.value = true
+  try {
+    const res = await cronApi.runs(job.id)
+    cronLogs.value = (res.data || []).slice().reverse()
+  } catch {
+    ElMessage.error('获取日志失败')
+    cronLogs.value = []
+  } finally {
+    loadingCronLogs.value = false
   }
 }
 
