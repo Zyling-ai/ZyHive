@@ -45,8 +45,8 @@
                 </div>
 
                 <!-- 任务简介 -->
-                <div v-if="d.deliverable || d.attachmentCount > 0 || d.hasContext" class="dp-meta-row">
-                  <span v-if="d.attachmentCount > 0" class="dp-meta-chip">
+                <div v-if="d.deliverable || (d.attachmentCount ?? 0) > 0 || d.hasContext" class="dp-meta-row">
+                  <span v-if="(d.attachmentCount ?? 0) > 0" class="dp-meta-chip">
                     📎 {{ d.attachmentCount }} 份资料
                   </span>
                   <span v-if="d.hasContext" class="dp-meta-chip">
@@ -68,6 +68,19 @@
                     全部 ({{ d.reports.length }})
                   </button>
                 </div>
+
+                <!-- 产出文件 -->
+                <div v-if="d.artifacts && d.artifacts.length > 0" class="dp-artifacts">
+                  <span class="dp-artifacts-label">产出：</span>
+                  <button v-for="art in d.artifacts" :key="art.path"
+                          class="dp-artifact-chip"
+                          :title="art.path"
+                          @click="viewArtifact(art)">
+                    <span class="dp-art-icon">{{ artifactIcon(art.type) }}</span>
+                    {{ art.name }}
+                    <span v-if="art.size" class="dp-art-size">{{ formatSize(art.size) }}</span>
+                  </button>
+                </div>
               </div>
 
             </div>
@@ -75,6 +88,26 @@
         </div>
       </Transition>
 
+    </div>
+  </Transition>
+
+  <!-- 产出文件查看弹窗 -->
+  <Transition name="dialog-fade">
+    <div v-if="artifactDialogVisible" class="dp-dialog-mask" @click.self="artifactDialogVisible = false">
+      <div class="dp-dialog dp-artifact-dialog">
+        <div class="dp-dialog-header">
+          <span>{{ artifactDialogName }}</span>
+          <div style="display:flex;gap:8px;align-items:center">
+            <span class="dp-art-path">{{ artifactDialogPath }}</span>
+            <button class="dp-dialog-close" @click="artifactDialogVisible = false">×</button>
+          </div>
+        </div>
+        <div class="dp-dialog-body dp-artifact-body">
+          <pre v-if="artifactDialogContent" class="dp-artifact-pre">{{ artifactDialogContent }}</pre>
+          <div v-else-if="artifactLoading" class="dp-dialog-empty">加载中…</div>
+          <div v-else class="dp-dialog-empty">无法读取文件内容</div>
+        </div>
+      </div>
     </div>
   </Transition>
 
@@ -115,6 +148,14 @@ interface ReportEntry {
   timestamp: number
 }
 
+interface ArtifactEntry {
+  name: string
+  path: string
+  projectId: string
+  type: string
+  size?: number
+}
+
 interface DispatcherState {
   subagentSessionId: string
   agentId: string
@@ -132,6 +173,9 @@ interface DispatcherState {
   deliverable?: string
   attachmentCount?: number
   hasContext?: boolean
+  sharedProjectId?: string
+  // Output artifacts (from report_result tool)
+  artifacts: ArtifactEntry[]
 }
 
 const props = defineProps<{ sessionId: string }>()
@@ -141,6 +185,12 @@ const collapsed = ref(false)
 const reportDialogVisible = ref(false)
 const reportDialogAgent = ref('')
 const reportDialogRecords = ref<ReportEntry[]>([])
+
+const artifactDialogVisible = ref(false)
+const artifactDialogName = ref('')
+const artifactDialogPath = ref('')
+const artifactDialogContent = ref('')
+const artifactLoading = ref(false)
 
 const hasAny = computed(() => dispatchers.value.size > 0)
 const activeList = computed(() =>
@@ -174,6 +224,8 @@ function handleEvent(raw: any) {
       deliverable: data.deliverable || '',
       attachmentCount: data.attachmentCount || 0,
       hasContext: !!data.hasContext,
+      sharedProjectId: data.sharedProjectId || '',
+      artifacts: [],
     }
     dispatchers.value = new Map(dispatchers.value.set(id, entry))
 
@@ -216,6 +268,13 @@ function handleEvent(raw: any) {
       d.status = 'error'
       dispatchers.value = new Map(dispatchers.value)
     }
+
+  } else if (data.type === 'subagent_artifacts' || data.type === 'artifacts') {
+    const d = dispatchers.value.get(id)
+    if (d && Array.isArray(data.artifacts)) {
+      d.artifacts = data.artifacts
+      dispatchers.value = new Map(dispatchers.value)
+    }
   }
 }
 
@@ -234,10 +293,43 @@ function formatTime(ts: number): string {
   return new Date(ts).toLocaleTimeString('zh-CN')
 }
 
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return bytes + 'B'
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + 'KB'
+  return (bytes / 1024 / 1024).toFixed(1) + 'MB'
+}
+
+function artifactIcon(type: string): string {
+  return ({ code: '📄', report: '📊', data: '🗂', file: '📎' } as Record<string, string>)[type] ?? '📎'
+}
+
 function viewReports(d: DispatcherState) {
   reportDialogAgent.value = d.agentName
   reportDialogRecords.value = [...d.reports].reverse()
   reportDialogVisible.value = true
+}
+
+async function viewArtifact(art: ArtifactEntry) {
+  artifactDialogName.value = art.name
+  artifactDialogPath.value = art.path
+  artifactDialogContent.value = ''
+  artifactLoading.value = true
+  artifactDialogVisible.value = true
+  try {
+    // Fetch file content from shared project API
+    const token = localStorage.getItem('zyhive_token') || ''
+    const res = await fetch(`/api/projects/${art.projectId}/files/${encodeURIComponent(art.path)}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    if (res.ok) {
+      const data = await res.json()
+      artifactDialogContent.value = data.content ?? ''
+    }
+  } catch {
+    artifactDialogContent.value = ''
+  } finally {
+    artifactLoading.value = false
+  }
 }
 </script>
 
@@ -462,6 +554,68 @@ function viewReports(d: DispatcherState) {
   padding: 0 2px;
   text-decoration: underline;
   text-underline-offset: 2px;
+}
+
+/* ── Artifacts ───────────────────────────────────────────────────────────── */
+.dp-artifacts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+}
+.dp-artifacts-label {
+  font-size: 11px;
+  color: var(--el-text-color-secondary, #909399);
+  white-space: nowrap;
+}
+.dp-artifact-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: rgba(103, 194, 58, 0.1);
+  color: #67c23a;
+  border: 1px solid rgba(103, 194, 58, 0.25);
+  cursor: pointer;
+  transition: background 0.15s;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dp-artifact-chip:hover { background: rgba(103, 194, 58, 0.2); }
+.dp-art-icon { font-size: 12px; flex-shrink: 0; }
+.dp-art-size {
+  font-size: 10px;
+  color: var(--el-text-color-secondary, #909399);
+  margin-left: 2px;
+}
+.dp-artifact-dialog { width: 600px; max-width: 92vw; }
+.dp-artifact-body { padding: 0; }
+.dp-artifact-pre {
+  margin: 0;
+  padding: 16px 18px;
+  font-size: 12px;
+  font-family: 'Courier New', Courier, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 60vh;
+  overflow-y: auto;
+  background: var(--el-fill-color-extra-light, #fafafa);
+  color: var(--el-text-color-primary, #303133);
+  line-height: 1.6;
+}
+.dp-art-path {
+  font-size: 11px;
+  color: var(--el-text-color-secondary, #909399);
+  font-family: monospace;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ── Animations ──────────────────────────────────────────────────────────── */

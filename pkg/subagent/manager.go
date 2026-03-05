@@ -30,10 +30,13 @@ type RunFunc func(ctx context.Context, agentID, model, sessionID, parentSessionI
 // back into the parent session / send a Telegram notification.
 type NotifyFunc func(spawnedBy, spawnedBySession, taskID, label, output string, status TaskStatus)
 
-// ContextReadFn reads the last N conversation turns from the given session
-// and returns them as a single pre-formatted string (for briefing injection).
-// Returns an empty string if the session is not found or has no history.
+// ContextReadFn reads the last N conversation turns from the given session.
 type ContextReadFn func(sessionID string, lastN int) string
+
+// RunFuncExt is an extended RunFunc that receives the full Task for richer dispatch.
+// pool.go uses this to read SharedProjectID, register artifact callbacks, etc.
+// If set, takes priority over the basic RunFunc.
+type RunFuncExt func(ctx context.Context, task *Task, enrichedTask string) <-chan RunEvent
 
 // Manager manages lifecycle of all background subagent tasks.
 type Manager struct {
@@ -50,6 +53,8 @@ type Manager struct {
 
 	// contextReadFn allows Spawn to read parent session history for ContextSnapshot.
 	contextReadFn ContextReadFn // optional
+	// runExt is the extended run function; takes priority over run when set.
+	runExt RunFuncExt // optional
 
 	// In-memory event history per parent session (for page-reload recovery)
 	eventsMu      sync.RWMutex
@@ -91,11 +96,48 @@ func (m *Manager) SetAgentInfoFn(fn AgentInfoFn) {
 }
 
 // SetContextReader registers a function that reads parent session history.
-// Used by Spawn to inject ContextSnapshot when opts.ContextSnapshot is empty
-// but opts.ContextTurns > 0 (reserved for future use; callers may also pre-fill
-// opts.ContextSnapshot directly before calling Spawn).
 func (m *Manager) SetContextReader(fn ContextReadFn) {
 	m.contextReadFn = fn
+}
+
+// SetRunFuncExt registers the extended run function.
+// When set, it replaces the basic RunFunc for all task executions.
+func (m *Manager) SetRunFuncExt(fn RunFuncExt) {
+	m.runExt = fn
+}
+
+// UpdateArtifacts stores artifact results for a task and broadcasts to parent.
+// Called by the report_result tool via a registered callback.
+func (m *Manager) UpdateArtifacts(taskID string, artifacts []TaskArtifact) {
+	m.mu.Lock()
+	task, ok := m.tasks[taskID]
+	if !ok {
+		m.mu.Unlock()
+		return
+	}
+	task.Artifacts = artifacts
+	parentSession := task.SpawnedBySession
+	agentID := task.AgentID
+	sessionID := task.SessionID
+	m.mu.Unlock()
+	m.persist(task)
+
+	agentName := agentID
+	avatarColor := "#6366f1"
+	if m.agentInfoFn != nil {
+		if n, c := m.agentInfoFn(agentID); n != "" {
+			agentName, avatarColor = n, c
+		}
+	}
+	m.publishEvent(parentSession, SubagentEvent{
+		Type:              "artifacts",
+		SubagentSessionID: sessionID,
+		AgentID:           agentID,
+		AgentName:         agentName,
+		AvatarColor:       avatarColor,
+		Artifacts:         artifacts,
+		Timestamp:         time.Now().UnixMilli(),
+	})
 }
 
 // enrichTask builds the full task string from SpawnOpts:
@@ -236,6 +278,7 @@ func (m *Manager) Spawn(opts SpawnOpts) (*Task, error) {
 		Deliverable:      deliverable,
 		AttachmentCount:  len(opts.Attachments),
 		HasContext:       opts.ContextSnapshot != "",
+		SharedProjectID:  opts.SharedProjectID,
 		Status:           TaskPending,
 		SessionID:        sessionID,
 		SpawnedBy:        opts.SpawnedBy,
@@ -279,6 +322,7 @@ func (m *Manager) Spawn(opts SpawnOpts) (*Task, error) {
 		AttachmentCount:   task.AttachmentCount,
 		HasContext:        task.HasContext,
 	})
+	_ = task.SharedProjectID // used by RunFuncExt
 
 	go m.runTask(ctx, task, enrichedTask)
 	return task, nil
@@ -364,7 +408,12 @@ func (m *Manager) runTask(ctx context.Context, task *Task, enrichedTask string) 
 
 	log.Printf("[subagent] task %s started: agent=%s label=%q", task.ID, task.AgentID, task.Label)
 
-	events := m.run(ctx, task.AgentID, task.Model, task.SessionID, task.SpawnedBySession, enrichedTask)
+	var events <-chan RunEvent
+	if m.runExt != nil {
+		events = m.runExt(ctx, task, enrichedTask)
+	} else {
+		events = m.run(ctx, task.AgentID, task.Model, task.SessionID, task.SpawnedBySession, enrichedTask)
+	}
 
 	var outputBuf string
 	var taskErr error

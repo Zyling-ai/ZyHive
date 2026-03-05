@@ -33,6 +33,8 @@ type SubagentEvent struct {
 	Deliverable     string `json:"deliverable,omitempty"`
 	AttachmentCount int    `json:"attachmentCount,omitempty"`
 	HasContext      bool   `json:"hasContext,omitempty"`
+	// Artifact events: set when executor calls report_result
+	Artifacts []TaskArtifact `json:"artifacts,omitempty"`
 }
 
 // TaskStatus represents the lifecycle state of a subagent task.
@@ -63,15 +65,19 @@ type Task struct {
 	Relation         string     `json:"relation,omitempty"` // relation type at spawn time
 
 	// Brief metadata for display in DispatchPanel
-	Background      string `json:"background,omitempty"`      // task background briefing
-	Deliverable     string `json:"deliverable,omitempty"`     // expected output description
-	Priority        string `json:"priority,omitempty"`        // "high" | "normal" | "low"
-	AttachmentCount int    `json:"attachmentCount,omitempty"` // number of reference materials attached
-	HasContext      bool   `json:"hasContext,omitempty"`      // parent session context was injected
+	Background      string `json:"background,omitempty"`
+	Deliverable     string `json:"deliverable,omitempty"`
+	Priority        string `json:"priority,omitempty"`
+	AttachmentCount int    `json:"attachmentCount,omitempty"`
+	HasContext      bool   `json:"hasContext,omitempty"`
+	SharedProjectID string `json:"sharedProjectId,omitempty"`
 
-	CreatedAt  int64 `json:"createdAt"`           // unix ms
-	StartedAt  int64 `json:"startedAt,omitempty"`
-	EndedAt    int64 `json:"endedAt,omitempty"`
+	// Structured output from executor (populated via report_result tool)
+	Artifacts []TaskArtifact `json:"artifacts,omitempty"`
+
+	CreatedAt int64 `json:"createdAt"`
+	StartedAt int64 `json:"startedAt,omitempty"`
+	EndedAt   int64 `json:"endedAt,omitempty"`
 }
 
 // Duration returns a human-readable elapsed time string.
@@ -103,13 +109,21 @@ const (
 )
 
 // Attachment is a piece of material attached to a task.
-// The executor sees it injected as reference content in its task briefing.
 type Attachment struct {
 	// Name is the display name shown in the briefing (e.g. filename or label).
 	Name string
 	// Content is the text content of the attachment (resolved before Spawn).
-	// Binary files should be converted to text (e.g. code, markdown) by the caller.
 	Content string
+}
+
+// TaskArtifact is an output file produced by the executor agent.
+// Written to a shared project and reported back via the report_result tool.
+type TaskArtifact struct {
+	Name      string `json:"name"`      // display name
+	Path      string `json:"path"`      // project-relative file path
+	ProjectID string `json:"projectId"` // which shared project it belongs to
+	Type      string `json:"type"`      // "code" | "report" | "data" | "file"
+	Size      int    `json:"size,omitempty"`
 }
 
 // TaskBrief enriches a task with structured metadata beyond the raw instruction.
@@ -137,10 +151,11 @@ type SpawnOpts struct {
 	// Brief adds structured context beyond the raw task instruction.
 	Brief *TaskBrief
 	// Attachments are reference materials injected into the task briefing.
-	// Each attachment's Content is prepended to the task prompt.
 	Attachments []Attachment
 	// ContextSnapshot is the recent conversation history from the parent session,
-	// pre-resolved by the caller (e.g. last N turns formatted as plain text).
-	// Injected as background briefing so the executor understands the full picture.
+	// pre-resolved by the caller.
 	ContextSnapshot string
+	// SharedProjectID grants the spawned agent write access to this project.
+	// The executor can use project_write to deposit output files there.
+	SharedProjectID string
 }

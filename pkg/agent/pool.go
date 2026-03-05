@@ -67,6 +67,8 @@ func (p *Pool) CloseBrowser() {
 // SetSubagentManager attaches the subagent manager to the pool.
 func (p *Pool) SetSubagentManager(mgr *subagent.Manager) {
 	p.SubagentMgr = mgr
+	// Register the extended run function so pool can wire SharedProject + report_result.
+	mgr.SetRunFuncExt(p.subagentRunFuncExt())
 }
 
 // SetWorkerPool attaches the session worker pool so subagent events can be broadcast
@@ -572,6 +574,114 @@ func normalizeVisionContentType(ct, fileName string) string {
 	}
 
 	return "" // unsupported
+}
+
+// subagentRunFuncExt returns a RunFuncExt that uses the full Task for richer dispatch.
+// It handles SharedProjectID access grants and report_result wiring.
+func (p *Pool) subagentRunFuncExt() subagent.RunFuncExt {
+	return func(ctx context.Context, task *subagent.Task, enrichedTask string) <-chan subagent.RunEvent {
+		out := make(chan subagent.RunEvent, 32)
+		go func() {
+			defer close(out)
+
+			ag, ok := p.manager.Get(task.AgentID)
+			if !ok {
+				out <- subagent.RunEvent{Type: "error", Error: fmt.Errorf("agent %q not found", task.AgentID)}
+				return
+			}
+			modelEntry, err := p.resolveModel(ag)
+			if err != nil {
+				out <- subagent.RunEvent{Type: "error", Error: err}
+				return
+			}
+			resolvedModel := modelEntry.ProviderModel()
+			if task.Model != "" {
+				resolvedModel = task.Model
+			}
+			apiKey, resolvedBaseURL := config.ResolveCredentials(modelEntry, p.cfg.Providers)
+			if apiKey == "" {
+				out <- subagent.RunEvent{Type: "error", Error: fmt.Errorf("no API key for model: %s", resolvedModel)}
+				return
+			}
+
+			llmClient := llm.NewClient(modelEntry.Provider, resolvedBaseURL)
+			subSessionDir := filepath.Join(ag.SessionDir, "subagent")
+			if err := os.MkdirAll(subSessionDir, 0755); err != nil {
+				out <- subagent.RunEvent{Type: "error", Error: fmt.Errorf("create subagent session dir: %w", err)}
+				return
+			}
+			store := session.NewStore(subSessionDir)
+			toolRegistry := tools.New(ag.WorkspaceDir, filepath.Dir(ag.WorkspaceDir), ag.ID)
+			p.configureToolRegistry(toolRegistry, ag, nil)
+
+			// ── SharedProjectID: grant write access ──────────────────────────────
+			if task.SharedProjectID != "" && p.projectMgr != nil {
+				if proj, ok := p.projectMgr.Get(task.SharedProjectID); ok {
+					// Add agentID to editors; restore original editors after task completes.
+					origEditors := append([]string(nil), proj.Editors...)
+					newEditors := origEditors
+					alreadyEditor := false
+					for _, e := range origEditors {
+						if e == ag.ID {
+							alreadyEditor = true
+							break
+						}
+					}
+					if !alreadyEditor {
+						newEditors = append(newEditors, ag.ID)
+						_ = p.projectMgr.SetEditors(task.SharedProjectID, newEditors)
+						defer func() {
+							_ = p.projectMgr.SetEditors(task.SharedProjectID, origEditors)
+						}()
+					}
+				}
+			}
+
+			// ── report_result tool: wire artifact callback ────────────────────────
+			if p.SubagentMgr != nil {
+				taskID := task.ID
+				toolRegistry.WithTaskArtifactFn(func(artifacts []subagent.TaskArtifact) {
+					p.SubagentMgr.UpdateArtifacts(taskID, artifacts)
+				})
+			}
+
+			// ── report_to_parent broadcaster ──────────────────────────────────────
+			if task.SpawnedBySession != "" && p.workerPool != nil {
+				broadcastFn := func(sid, evType string, data []byte) {
+					w := p.workerPool.Get(sid)
+					if w == nil {
+						return
+					}
+					w.Broadcaster.Publish(session.BroadcastEvent{Type: evType, Data: data})
+				}
+				toolRegistry.WithParentSession(task.SpawnedBySession, broadcastFn)
+			}
+
+			r := runner.New(runner.Config{
+				AgentID:         ag.ID,
+				WorkspaceDir:    ag.WorkspaceDir,
+				Model:           resolvedModel,
+				APIKey:          apiKey,
+				SessionID:       task.SessionID,
+				ParentSessionID: task.SpawnedBySession,
+				LLM:             llmClient,
+				Tools:           toolRegistry,
+				Session:         store,
+				ProjectContext:  p.buildProjectContext(ag.ID),
+				AgentEnv:        ag.Env,
+			})
+
+			for ev := range r.Run(ctx, enrichedTask) {
+				switch ev.Type {
+				case "text_delta":
+					out <- subagent.RunEvent{Type: "text_delta", Text: ev.Text}
+				case "error":
+					out <- subagent.RunEvent{Type: "error", Error: ev.Error}
+				}
+			}
+		}()
+		return out
+	}
 }
 
 // SubagentRunFunc returns a RunFunc compatible with subagent.Manager.

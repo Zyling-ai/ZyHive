@@ -80,14 +80,16 @@ func (h *subagentHandler) Spawn(c *gin.Context) {
 		Task        string `json:"task" binding:"required"`
 		Label       string `json:"label"`
 		Model       string `json:"model"`
-		SpawnedBy   string `json:"spawnedBy"`
-		TaskType    string `json:"taskType"` // "task" | "report" | "system"
-		Background  string `json:"background"`
-		Deliverable string `json:"deliverable"`
-		Priority    string `json:"priority"`
-		Attachments []struct {
+		SpawnedBy       string `json:"spawnedBy"`
+		TaskType        string `json:"taskType"`
+		Background      string `json:"background"`
+		Deliverable     string `json:"deliverable"`
+		Priority        string `json:"priority"`
+		SharedProjectID string `json:"sharedProjectId"`
+		Attachments     []struct {
 			Name    string `json:"name"`
 			Content string `json:"content"`
+			Path    string `json:"path"`
 		} `json:"attachments"`
 		ContextTurns int `json:"contextTurns"`
 	}
@@ -133,7 +135,7 @@ func (h *subagentHandler) Spawn(c *gin.Context) {
 		}
 	}
 
-	// Build Attachments
+	// Build Attachments (API path not resolved server-side; caller must supply content)
 	attachments := make([]subagent.Attachment, 0, len(req.Attachments))
 	for _, a := range req.Attachments {
 		if a.Content != "" {
@@ -158,6 +160,7 @@ func (h *subagentHandler) Spawn(c *gin.Context) {
 		Brief:           brief,
 		Attachments:     attachments,
 		ContextSnapshot: contextSnapshot,
+		SharedProjectID: req.SharedProjectID,
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

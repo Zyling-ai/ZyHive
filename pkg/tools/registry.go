@@ -41,8 +41,11 @@ type Registry struct {
 	envUpdater    func(key, value string, remove bool) error     // optional: lets the agent update its own env vars
 
 	// Dispatch panel: report_to_parent support
-	parentSessionID string                  // non-empty when this agent was spawned by a parent session
-	broadcastFn     subagent.BroadcastFn   // optional: publish subagent events to parent broadcaster
+	parentSessionID string                // non-empty when this agent was spawned by a parent session
+	broadcastFn     subagent.BroadcastFn // optional: publish subagent events to parent broadcaster
+
+	// report_result support: callback to update task artifacts in the manager
+	taskArtifactFn func(artifacts []subagent.TaskArtifact) // optional
 }
 
 // AgentSummary is the minimal agent info exposed through the agent_list tool.
@@ -262,18 +265,20 @@ func (r *Registry) registerSubagentTools() {
 				"task":{"type":"string","description":"详细的任务指令"},
 				"label":{"type":"string","description":"任务简短标签，便于识别（可选）"},
 				"model":{"type":"string","description":"覆盖默认模型（可选，格式: provider/model）"},
-				"background":{"type":"string","description":"任务背景说明 — 为什么要做这个，上下文是什么（可选）"},
-				"deliverable":{"type":"string","description":"期望的交付物描述 — 产出格式、内容要求（可选）"},
+				"background":{"type":"string","description":"任务背景说明（可选）"},
+				"deliverable":{"type":"string","description":"期望的交付物描述（可选）"},
 				"priority":{"type":"string","enum":["high","normal","low"],"description":"任务优先级（可选，默认 normal）"},
 				"attachments":{"type":"array","description":"参考资料列表（可选）","items":{
 					"type":"object",
 					"properties":{
 						"name":{"type":"string","description":"资料名称/标题"},
-						"content":{"type":"string","description":"资料文本内容"}
+						"content":{"type":"string","description":"资料文本内容（与 path 二选一）"},
+						"path":{"type":"string","description":"工作区文件相对路径，自动读取内容（与 content 二选一）"}
 					},
-					"required":["name","content"]
+					"required":["name"]
 				}},
-				"context_turns":{"type":"integer","minimum":0,"maximum":10,"description":"携带当前对话最近 N 轮作为背景上下文注入给执行方（0=不携带，默认0）"}
+				"context_turns":{"type":"integer","minimum":0,"maximum":10,"description":"携带当前对话最近 N 轮作为背景上下文（0=不携带，默认0）"},
+				"shared_project_id":{"type":"string","description":"共享项目 ID — 授权执行方读写此项目，可将产出文件写入（可选）"}
 			},
 			"required":["agentId","task"]
 		}`),
@@ -321,6 +326,84 @@ func (r *Registry) registerSubagentTools() {
 func (r *Registry) WithSubagentManager(mgr *subagent.Manager) {
 	r.subagentMgr = mgr
 	r.registerSubagentTools() // overwrites nil-mgr stubs with real handlers
+}
+
+// WithTaskArtifactFn registers a callback so the report_result tool can update task artifacts.
+// Called by pool.go when wiring a subagent task runner.
+func (r *Registry) WithTaskArtifactFn(fn func(artifacts []subagent.TaskArtifact)) {
+	r.taskArtifactFn = fn
+	r.registerReportResultTool()
+}
+
+// registerReportResultTool registers (or overwrites) the report_result tool.
+func (r *Registry) registerReportResultTool() {
+	r.register(llm.ToolDef{
+		Name:        "report_result",
+		Description: "提交任务的结构化产出。列出已写入共享项目的文件，让派遣方可以直接查看。完成后调用一次即可。",
+		InputSchema: json.RawMessage(`{
+			"type":"object",
+			"properties":{
+				"summary":{"type":"string","description":"任务完成摘要（1-3句话）"},
+				"project_id":{"type":"string","description":"共享项目 ID（产出文件所在项目）"},
+				"files":{"type":"array","description":"产出文件列表","items":{
+					"type":"object",
+					"properties":{
+						"name":{"type":"string","description":"文件显示名"},
+						"path":{"type":"string","description":"项目内相对路径"},
+						"type":{"type":"string","enum":["code","report","data","file"],"description":"文件类型"}
+					},
+					"required":["name","path"]
+				}}
+			},
+			"required":["summary"]
+		}`),
+	}, r.handleReportResult)
+}
+
+func (r *Registry) handleReportResult(_ context.Context, input json.RawMessage) (string, error) {
+	var p struct {
+		Summary   string `json:"summary"`
+		ProjectID string `json:"project_id"`
+		Files     []struct {
+			Name string `json:"name"`
+			Path string `json:"path"`
+			Type string `json:"type"`
+		} `json:"files"`
+	}
+	if err := json.Unmarshal(input, &p); err != nil {
+		return "", fmt.Errorf("invalid input: %v", err)
+	}
+	if r.taskArtifactFn == nil {
+		return "✅ 摘要已记录（当前上下文不支持产出文件追踪）", nil
+	}
+	artifacts := make([]subagent.TaskArtifact, 0, len(p.Files))
+	for _, f := range p.Files {
+		ft := f.Type
+		if ft == "" {
+			ft = "file"
+		}
+		a := subagent.TaskArtifact{
+			Name:      f.Name,
+			Path:      f.Path,
+			ProjectID: p.ProjectID,
+			Type:      ft,
+		}
+		// Check file size if possible
+		if p.ProjectID != "" && r.projectMgr != nil {
+			if proj, ok := r.projectMgr.Get(p.ProjectID); ok {
+				if data, err := os.ReadFile(filepath.Join(proj.FilesDir, f.Path)); err == nil {
+					a.Size = len(data)
+				}
+			}
+		}
+		artifacts = append(artifacts, a)
+	}
+	r.taskArtifactFn(artifacts)
+	msg := fmt.Sprintf("✅ 任务产出已登记：%s", p.Summary)
+	if len(artifacts) > 0 {
+		msg += fmt.Sprintf("\n共 %d 个文件已记录，派遣方可在任务面板查看。", len(artifacts))
+	}
+	return msg, nil
 }
 
 // WithProjectAccess registers project_list, project_read, and (if permitted)
@@ -850,16 +933,18 @@ func (r *Registry) handleAgentSpawn(_ context.Context, input json.RawMessage) (s
 		return "", fmt.Errorf("subagent manager not configured — cannot dispatch tasks in this context")
 	}
 	var p struct {
-		AgentID      string `json:"agentId"`
-		Task         string `json:"task"`
-		Label        string `json:"label"`
-		Model        string `json:"model"`
-		Background   string `json:"background"`
-		Deliverable  string `json:"deliverable"`
-		Priority     string `json:"priority"`
-		Attachments  []struct {
+		AgentID         string `json:"agentId"`
+		Task            string `json:"task"`
+		Label           string `json:"label"`
+		Model           string `json:"model"`
+		Background      string `json:"background"`
+		Deliverable     string `json:"deliverable"`
+		Priority        string `json:"priority"`
+		SharedProjectID string `json:"shared_project_id"`
+		Attachments     []struct {
 			Name    string `json:"name"`
 			Content string `json:"content"`
+			Path    string `json:"path"` // workspace-relative path (alternative to content)
 		} `json:"attachments"`
 		ContextTurns int `json:"context_turns"`
 	}
@@ -905,11 +990,24 @@ func (r *Registry) handleAgentSpawn(_ context.Context, input json.RawMessage) (s
 		}
 	}
 
-	// Build Attachments
+	// Build Attachments — resolve workspace_file paths if needed
 	attachments := make([]subagent.Attachment, 0, len(p.Attachments))
 	for _, a := range p.Attachments {
-		if a.Content != "" {
-			attachments = append(attachments, subagent.Attachment{Name: a.Name, Content: a.Content})
+		content := a.Content
+		if content == "" && a.Path != "" {
+			// Read file from spawner's workspace
+			absPath := filepath.Join(r.workspaceDir, filepath.Clean(a.Path))
+			data, err := os.ReadFile(absPath)
+			if err != nil {
+				return "", fmt.Errorf("读取附件文件失败 %q: %v", a.Path, err)
+			}
+			content = string(data)
+			if len(content) > 20000 {
+				content = content[:20000] + "\n…（内容已截断，超过20000字符）"
+			}
+		}
+		if content != "" {
+			attachments = append(attachments, subagent.Attachment{Name: a.Name, Content: content})
 		}
 	}
 
@@ -929,6 +1027,7 @@ func (r *Registry) handleAgentSpawn(_ context.Context, input json.RawMessage) (s
 		Brief:            brief,
 		Attachments:      attachments,
 		ContextSnapshot:  contextSnapshot,
+		SharedProjectID:  p.SharedProjectID,
 	}
 
 	task, err := r.subagentMgr.Spawn(opts)
@@ -947,6 +1046,9 @@ func (r *Registry) handleAgentSpawn(_ context.Context, input json.RawMessage) (s
 	}
 	if len(attachments) > 0 {
 		sb.WriteString(fmt.Sprintf("\n- 附件: %d 份参考资料已传递", len(attachments)))
+	}
+	if p.SharedProjectID != "" {
+		sb.WriteString("\n- 共享项目: " + p.SharedProjectID + "（执行方已获写入权限）")
 	}
 	if contextSnapshot != "" {
 		sb.WriteString(fmt.Sprintf("\n- 上下文: 最近 %d 轮对话已注入", p.ContextTurns))
