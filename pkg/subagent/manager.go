@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -29,6 +30,11 @@ type RunFunc func(ctx context.Context, agentID, model, sessionID, parentSessionI
 // back into the parent session / send a Telegram notification.
 type NotifyFunc func(spawnedBy, spawnedBySession, taskID, label, output string, status TaskStatus)
 
+// ContextReadFn reads the last N conversation turns from the given session
+// and returns them as a single pre-formatted string (for briefing injection).
+// Returns an empty string if the session is not found or has no history.
+type ContextReadFn func(sessionID string, lastN int) string
+
 // Manager manages lifecycle of all background subagent tasks.
 type Manager struct {
 	mu       sync.RWMutex
@@ -41,6 +47,9 @@ type Manager struct {
 	// Dispatch panel broadcasting
 	broadcastFn   BroadcastFn  // optional: publishes subagent events to parent session broadcaster
 	agentInfoFn   AgentInfoFn  // optional: fetches agent name/avatarColor
+
+	// contextReadFn allows Spawn to read parent session history for ContextSnapshot.
+	contextReadFn ContextReadFn // optional
 
 	// In-memory event history per parent session (for page-reload recovery)
 	eventsMu      sync.RWMutex
@@ -79,6 +88,80 @@ func (m *Manager) SetBroadcaster(fn BroadcastFn) {
 // SetAgentInfoFn registers a function that fetches an agent's display name and avatar color.
 func (m *Manager) SetAgentInfoFn(fn AgentInfoFn) {
 	m.agentInfoFn = fn
+}
+
+// SetContextReader registers a function that reads parent session history.
+// Used by Spawn to inject ContextSnapshot when opts.ContextSnapshot is empty
+// but opts.ContextTurns > 0 (reserved for future use; callers may also pre-fill
+// opts.ContextSnapshot directly before calling Spawn).
+func (m *Manager) SetContextReader(fn ContextReadFn) {
+	m.contextReadFn = fn
+}
+
+// enrichTask builds the full task string from SpawnOpts:
+//   1. Task brief header (background, deliverable, priority) — if Brief is set
+//   2. Parent session context snapshot — if ContextSnapshot is non-empty
+//   3. Attachments as reference sections
+//   4. The original task instruction
+func enrichTask(opts SpawnOpts) string {
+	var sb strings.Builder
+
+	hasBrief := opts.Brief != nil && (opts.Brief.Background != "" || opts.Brief.Deliverable != "" || opts.Brief.Priority != "")
+	hasCtx := opts.ContextSnapshot != ""
+	hasAttach := len(opts.Attachments) > 0
+
+	if hasBrief || hasCtx || hasAttach {
+		sb.WriteString("# 任务简报\n\n")
+	}
+
+	if hasBrief {
+		b := opts.Brief
+		if b.Priority != "" && b.Priority != "normal" {
+			label := map[string]string{"high": "🔴 紧急", "low": "🟢 低优先级"}[b.Priority]
+			if label == "" {
+				label = b.Priority
+			}
+			sb.WriteString("**优先级：** " + label + "\n\n")
+		}
+		if b.Background != "" {
+			sb.WriteString("**背景说明：**\n" + b.Background + "\n\n")
+		}
+		if b.Deliverable != "" {
+			sb.WriteString("**期望交付物：**\n" + b.Deliverable + "\n\n")
+		}
+	}
+
+	if hasCtx {
+		sb.WriteString("**派遣方对话背景（最近几轮）：**\n```\n")
+		sb.WriteString(opts.ContextSnapshot)
+		sb.WriteString("\n```\n\n")
+	}
+
+	if hasAttach {
+		sb.WriteString("**参考资料：**\n\n")
+		for i, a := range opts.Attachments {
+			name := a.Name
+			if name == "" {
+				name = fmt.Sprintf("附件%d", i+1)
+			}
+			sb.WriteString(fmt.Sprintf("--- %s ---\n%s\n\n", name, a.Content))
+		}
+	}
+
+	if hasBrief || hasCtx || hasAttach {
+		sb.WriteString("---\n\n**任务指令：**\n")
+	}
+	sb.WriteString(opts.Task)
+	return sb.String()
+}
+
+// ReadContext reads recent conversation turns from the given session.
+// Returns empty string if no ContextReadFn is configured or session is not found.
+func (m *Manager) ReadContext(sessionID string, lastN int) string {
+	if m.contextReadFn == nil || sessionID == "" || lastN <= 0 {
+		return ""
+	}
+	return m.contextReadFn(sessionID, lastN)
 }
 
 // ListEvents returns stored subagent events for the given parent session ID.
@@ -130,11 +213,29 @@ func (m *Manager) Spawn(opts SpawnOpts) (*Task, error) {
 		taskType = TaskTypeTask
 	}
 
+	// Enrich task with brief, context snapshot, and attachments.
+	enrichedTask := enrichTask(opts)
+
+	// Populate brief display fields
+	priority := ""
+	background := ""
+	deliverable := ""
+	if opts.Brief != nil {
+		priority = opts.Brief.Priority
+		background = opts.Brief.Background
+		deliverable = opts.Brief.Deliverable
+	}
+
 	task := &Task{
 		ID:               taskID,
 		AgentID:          opts.AgentID,
 		Label:            opts.Label,
-		Description:      opts.Task,
+		Description:      opts.Task, // store original instruction (not enriched) for display
+		Priority:         priority,
+		Background:       background,
+		Deliverable:      deliverable,
+		AttachmentCount:  len(opts.Attachments),
+		HasContext:       opts.ContextSnapshot != "",
 		Status:           TaskPending,
 		SessionID:        sessionID,
 		SpawnedBy:        opts.SpawnedBy,
@@ -173,9 +274,13 @@ func (m *Manager) Spawn(opts SpawnOpts) (*Task, error) {
 		AgentName:         agentName,
 		AvatarColor:       avatarColor,
 		Timestamp:         time.Now().UnixMilli(),
+		Priority:          task.Priority,
+		Deliverable:       task.Deliverable,
+		AttachmentCount:   task.AttachmentCount,
+		HasContext:        task.HasContext,
 	})
 
-	go m.runTask(ctx, task)
+	go m.runTask(ctx, task, enrichedTask)
 	return task, nil
 }
 
@@ -236,7 +341,9 @@ func (m *Manager) List(agentID string) []*Task {
 }
 
 // runTask executes the task in a goroutine.
-func (m *Manager) runTask(ctx context.Context, task *Task) {
+// enrichedTask is the full task string (with brief, context, attachments) passed to the runner;
+// task.Description holds the original raw instruction for display purposes.
+func (m *Manager) runTask(ctx context.Context, task *Task, enrichedTask string) {
 	defer func() {
 		if r := recover(); r != nil {
 			m.mu.Lock()
@@ -257,7 +364,7 @@ func (m *Manager) runTask(ctx context.Context, task *Task) {
 
 	log.Printf("[subagent] task %s started: agent=%s label=%q", task.ID, task.AgentID, task.Label)
 
-	events := m.run(ctx, task.AgentID, task.Model, task.SessionID, task.SpawnedBySession, task.Description)
+	events := m.run(ctx, task.AgentID, task.Model, task.SessionID, task.SpawnedBySession, enrichedTask)
 
 	var outputBuf string
 	var taskErr error

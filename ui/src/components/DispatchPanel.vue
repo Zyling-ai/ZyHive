@@ -33,6 +33,8 @@
               <div class="dp-info">
                 <div class="dp-name-row">
                   <span class="dp-name">{{ d.agentName }}</span>
+                  <!-- 优先级标签 -->
+                  <span v-if="d.priority === 'high'" class="dp-priority-badge">紧急</span>
                   <span class="dp-tag" :class="'tag-' + d.status">
                     {{ statusLabel(d.status) }}
                   </span>
@@ -40,6 +42,20 @@
                     <div class="dp-progress-bar" :style="{ width: d.progress + '%' }" />
                     <span v-if="d.progress > 0" class="dp-progress-num">{{ d.progress }}%</span>
                   </div>
+                </div>
+
+                <!-- 任务简介 -->
+                <div v-if="d.deliverable || d.attachmentCount > 0 || d.hasContext" class="dp-meta-row">
+                  <span v-if="d.attachmentCount > 0" class="dp-meta-chip">
+                    📎 {{ d.attachmentCount }} 份资料
+                  </span>
+                  <span v-if="d.hasContext" class="dp-meta-chip">
+                    💬 含背景对话
+                  </span>
+                  <span v-if="d.deliverable" class="dp-meta-chip dp-deliverable"
+                        :title="d.deliverable">
+                    ✦ {{ truncate(d.deliverable, 24) }}
+                  </span>
                 </div>
 
                 <!-- 最新汇报 -->
@@ -111,6 +127,11 @@ interface DispatcherState {
   reportNew: boolean
   spawnedAt: number
   doneAt?: number
+  // Brief / enrichment fields
+  priority?: string
+  deliverable?: string
+  attachmentCount?: number
+  hasContext?: boolean
 }
 
 const props = defineProps<{ sessionId: string }>()
@@ -149,6 +170,10 @@ function handleEvent(raw: any) {
       latestReport: '',
       reportNew: false,
       spawnedAt: data.timestamp || Date.now(),
+      priority: data.priority || '',
+      deliverable: data.deliverable || '',
+      attachmentCount: data.attachmentCount || 0,
+      hasContext: !!data.hasContext,
     }
     dispatchers.value = new Map(dispatchers.value.set(id, entry))
 
@@ -376,6 +401,40 @@ function viewReports(d: DispatcherState) {
   font-size: 11px;
   color: var(--el-text-color-secondary, #909399);
   white-space: nowrap;
+}
+
+/* Priority badge */
+.dp-priority-badge {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 8px;
+  background: rgba(245, 108, 108, 0.15);
+  color: #f56c6c;
+  font-weight: 600;
+  white-space: nowrap;
+  letter-spacing: 0.2px;
+}
+
+/* Meta chips row */
+.dp-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 3px;
+}
+.dp-meta-chip {
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: var(--el-fill-color-light, #f5f7fa);
+  color: var(--el-text-color-secondary, #909399);
+  white-space: nowrap;
+}
+.dp-deliverable {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: help;
 }
 
 /* Latest report */

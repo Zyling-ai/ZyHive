@@ -76,12 +76,20 @@ func (h *subagentHandler) Kill(c *gin.Context) {
 //   - taskType "system" or spawnedBy empty: always allowed (cron / internal)
 func (h *subagentHandler) Spawn(c *gin.Context) {
 	var req struct {
-		AgentID   string `json:"agentId" binding:"required"`
-		Task      string `json:"task" binding:"required"`
-		Label     string `json:"label"`
-		Model     string `json:"model"`
-		SpawnedBy string `json:"spawnedBy"`
-		TaskType  string `json:"taskType"` // "task" | "report" | "system"
+		AgentID     string `json:"agentId" binding:"required"`
+		Task        string `json:"task" binding:"required"`
+		Label       string `json:"label"`
+		Model       string `json:"model"`
+		SpawnedBy   string `json:"spawnedBy"`
+		TaskType    string `json:"taskType"` // "task" | "report" | "system"
+		Background  string `json:"background"`
+		Deliverable string `json:"deliverable"`
+		Priority    string `json:"priority"`
+		Attachments []struct {
+			Name    string `json:"name"`
+			Content string `json:"content"`
+		} `json:"attachments"`
+		ContextTurns int `json:"contextTurns"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -115,14 +123,41 @@ func (h *subagentHandler) Spawn(c *gin.Context) {
 		relation = rel
 	}
 
+	// Build Brief
+	var brief *subagent.TaskBrief
+	if req.Background != "" || req.Deliverable != "" || req.Priority != "" {
+		brief = &subagent.TaskBrief{
+			Background:  req.Background,
+			Deliverable: req.Deliverable,
+			Priority:    req.Priority,
+		}
+	}
+
+	// Build Attachments
+	attachments := make([]subagent.Attachment, 0, len(req.Attachments))
+	for _, a := range req.Attachments {
+		if a.Content != "" {
+			attachments = append(attachments, subagent.Attachment{Name: a.Name, Content: a.Content})
+		}
+	}
+
+	// Read context snapshot if requested
+	var contextSnapshot string
+	if req.ContextTurns > 0 {
+		contextSnapshot = h.mgr.ReadContext(req.SpawnedBy, req.ContextTurns)
+	}
+
 	task, err := h.mgr.Spawn(subagent.SpawnOpts{
-		AgentID:   req.AgentID,
-		Label:     req.Label,
-		Task:      req.Task,
-		Model:     req.Model,
-		SpawnedBy: req.SpawnedBy,
-		TaskType:  taskType,
-		Relation:  relation,
+		AgentID:         req.AgentID,
+		Label:           req.Label,
+		Task:            req.Task,
+		Model:           req.Model,
+		SpawnedBy:       req.SpawnedBy,
+		TaskType:        taskType,
+		Relation:        relation,
+		Brief:           brief,
+		Attachments:     attachments,
+		ContextSnapshot: contextSnapshot,
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
