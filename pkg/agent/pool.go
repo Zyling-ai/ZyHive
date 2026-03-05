@@ -604,6 +604,7 @@ func (p *Pool) subagentRunFuncExt() subagent.RunFuncExt {
 				return
 			}
 
+			supportsTools := config.ModelSupportsTools(modelEntry)
 			llmClient := llm.NewClient(modelEntry.Provider, resolvedBaseURL)
 			subSessionDir := filepath.Join(ag.SessionDir, "subagent")
 			if err := os.MkdirAll(subSessionDir, 0755); err != nil {
@@ -666,6 +667,7 @@ func (p *Pool) subagentRunFuncExt() subagent.RunFuncExt {
 				ParentSessionID: task.SpawnedBySession,
 				LLM:             llmClient,
 				Tools:           toolRegistry,
+				SupportsTools:   supportsTools,
 				Session:         store,
 				ProjectContext:  p.buildProjectContext(ag.ID),
 				AgentEnv:        ag.Env,
@@ -713,6 +715,7 @@ func (p *Pool) SubagentRunFunc() subagent.RunFunc {
 				return
 			}
 
+			supportsToolsLegacy := config.ModelSupportsTools(modelEntry)
 			llmClient := llm.NewClient(modelEntry.Provider, resolvedBaseURL)
 			// Subagent gets its own isolated session store (separate dir)
 			subSessionDir := filepath.Join(ag.SessionDir, "subagent")
@@ -745,6 +748,7 @@ func (p *Pool) SubagentRunFunc() subagent.RunFunc {
 				ParentSessionID: parentSessionID,
 				LLM:             llmClient,
 				Tools:           toolRegistry,
+				SupportsTools:   supportsToolsLegacy,
 				Session:         store,
 				ProjectContext:  p.buildProjectContext(ag.ID),
 				AgentEnv:        ag.Env,
