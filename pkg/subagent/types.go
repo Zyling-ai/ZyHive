@@ -27,6 +27,12 @@ type SubagentEvent struct {
 	Status            string `json:"status,omitempty"`
 	Progress          int    `json:"progress,omitempty"`
 	Timestamp         int64  `json:"timestamp"`
+
+	// Brief metadata for DispatchPanel display (set on spawn events)
+	Priority        string `json:"priority,omitempty"`
+	Deliverable     string `json:"deliverable,omitempty"`
+	AttachmentCount int    `json:"attachmentCount,omitempty"`
+	HasContext      bool   `json:"hasContext,omitempty"`
 }
 
 // TaskStatus represents the lifecycle state of a subagent task.
@@ -45,7 +51,7 @@ type Task struct {
 	ID               string     `json:"id"`
 	AgentID          string     `json:"agentId"`           // which agent runs this task
 	Label            string     `json:"label,omitempty"`   // human-readable label
-	Description      string     `json:"task"`              // the task prompt
+	Description      string     `json:"task"`              // the raw task instruction (for display)
 	Status           TaskStatus `json:"status"`
 	Output           string     `json:"output"`            // accumulated text output
 	ErrorMsg         string     `json:"error,omitempty"`
@@ -55,9 +61,17 @@ type Task struct {
 	Model            string     `json:"model,omitempty"`   // overridden model
 	TaskType         TaskType   `json:"taskType,omitempty"` // task | report | system
 	Relation         string     `json:"relation,omitempty"` // relation type at spawn time
-	CreatedAt        int64      `json:"createdAt"`         // unix ms
-	StartedAt        int64      `json:"startedAt,omitempty"`
-	EndedAt          int64      `json:"endedAt,omitempty"`
+
+	// Brief metadata for display in DispatchPanel
+	Background      string `json:"background,omitempty"`      // task background briefing
+	Deliverable     string `json:"deliverable,omitempty"`     // expected output description
+	Priority        string `json:"priority,omitempty"`        // "high" | "normal" | "low"
+	AttachmentCount int    `json:"attachmentCount,omitempty"` // number of reference materials attached
+	HasContext      bool   `json:"hasContext,omitempty"`      // parent session context was injected
+
+	CreatedAt  int64 `json:"createdAt"`           // unix ms
+	StartedAt  int64 `json:"startedAt,omitempty"`
+	EndedAt    int64 `json:"endedAt,omitempty"`
 }
 
 // Duration returns a human-readable elapsed time string.
@@ -88,14 +102,45 @@ const (
 	TaskTypeSystem TaskType = "system" // internal / cron-triggered
 )
 
+// Attachment is a piece of material attached to a task.
+// The executor sees it injected as reference content in its task briefing.
+type Attachment struct {
+	// Name is the display name shown in the briefing (e.g. filename or label).
+	Name string
+	// Content is the text content of the attachment (resolved before Spawn).
+	// Binary files should be converted to text (e.g. code, markdown) by the caller.
+	Content string
+}
+
+// TaskBrief enriches a task with structured metadata beyond the raw instruction.
+// All fields are optional; non-empty fields are injected into the task briefing.
+type TaskBrief struct {
+	// Background explains why this task is needed / what the bigger context is.
+	Background string
+	// Deliverable describes what the output should look like.
+	Deliverable string
+	// Priority is "high" | "normal" | "low". Default is "normal".
+	Priority string
+}
+
 // SpawnOpts configures a new subagent task.
 type SpawnOpts struct {
 	AgentID          string   // target agent
 	Label            string   // optional human label
-	Task             string   // the task prompt
+	Task             string   // the task prompt / instruction
 	Model            string   // optional model override
 	SpawnedBy        string   // parent agent ID (for attribution)
 	SpawnedBySession string   // parent session ID
 	TaskType         TaskType // task | report | system
 	Relation         string   // relation type at spawn time (e.g. "上下级")
+
+	// Brief adds structured context beyond the raw task instruction.
+	Brief *TaskBrief
+	// Attachments are reference materials injected into the task briefing.
+	// Each attachment's Content is prepended to the task prompt.
+	Attachments []Attachment
+	// ContextSnapshot is the recent conversation history from the parent session,
+	// pre-resolved by the caller (e.g. last N turns formatted as plain text).
+	// Injected as background briefing so the executor understands the full picture.
+	ContextSnapshot string
 }

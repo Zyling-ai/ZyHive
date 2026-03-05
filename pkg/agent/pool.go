@@ -81,7 +81,72 @@ func (p *Pool) SetWorkerPool(wp *session.WorkerPool) {
 			}
 			w.Broadcaster.Publish(session.BroadcastEvent{Type: eventType, Data: data})
 		})
+		// Wire ContextReadFn: searches all agent session stores for the given session ID.
+		p.SubagentMgr.SetContextReader(func(sessionID string, lastN int) string {
+			return p.readSessionContext(sessionID, lastN)
+		})
 	}
+}
+
+// readSessionContext reads the last N conversation turns from any agent's session store.
+// It searches all known agents' session directories to find the matching session file.
+func (p *Pool) readSessionContext(sessionID string, lastN int) string {
+	agents := p.manager.List()
+	for _, ag := range agents {
+		store := session.NewStore(ag.SessionDir)
+		msgs, _, err := store.ReadHistory(sessionID)
+		if err != nil || len(msgs) == 0 {
+			continue
+		}
+		// Take the last lastN user+assistant pairs (each pair = 2 messages)
+		start := 0
+		if want := lastN * 2; len(msgs) > want {
+			start = len(msgs) - want
+		}
+		msgs = msgs[start:]
+
+		var sb strings.Builder
+		for _, m := range msgs {
+			role := "用户"
+			if m.Role == "assistant" {
+				role = "助手"
+			}
+			text := extractTextFromContent(m.Content)
+			if text == "" {
+				continue
+			}
+			if len(text) > 400 {
+				text = text[:400] + "…"
+			}
+			sb.WriteString(role + ": " + text + "\n")
+		}
+		return strings.TrimSpace(sb.String())
+	}
+	return ""
+}
+
+// extractTextFromContent extracts plain text from a message content (string or block array).
+func extractTextFromContent(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	// Try plain string first
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return s
+	}
+	// Try block array
+	var blocks []session.ContentBlock
+	if err := json.Unmarshal(raw, &blocks); err != nil {
+		return ""
+	}
+	var parts []string
+	for _, b := range blocks {
+		if b.Type == "text" && b.Text != "" {
+			parts = append(parts, b.Text)
+		}
+	}
+	return strings.Join(parts, " ")
 }
 
 // SetProjectManager attaches the shared project manager so agents can access projects via tools.

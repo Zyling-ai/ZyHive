@@ -259,9 +259,21 @@ func (r *Registry) registerSubagentTools() {
 			"type":"object",
 			"properties":{
 				"agentId":{"type":"string","description":"执行任务的 AI 成员 ID"},
-				"task":{"type":"string","description":"详细的任务描述/指令"},
+				"task":{"type":"string","description":"详细的任务指令"},
 				"label":{"type":"string","description":"任务简短标签，便于识别（可选）"},
-				"model":{"type":"string","description":"覆盖默认模型（可选，格式: provider/model）"}
+				"model":{"type":"string","description":"覆盖默认模型（可选，格式: provider/model）"},
+				"background":{"type":"string","description":"任务背景说明 — 为什么要做这个，上下文是什么（可选）"},
+				"deliverable":{"type":"string","description":"期望的交付物描述 — 产出格式、内容要求（可选）"},
+				"priority":{"type":"string","enum":["high","normal","low"],"description":"任务优先级（可选，默认 normal）"},
+				"attachments":{"type":"array","description":"参考资料列表（可选）","items":{
+					"type":"object",
+					"properties":{
+						"name":{"type":"string","description":"资料名称/标题"},
+						"content":{"type":"string","description":"资料文本内容"}
+					},
+					"required":["name","content"]
+				}},
+				"context_turns":{"type":"integer","minimum":0,"maximum":10,"description":"携带当前对话最近 N 轮作为背景上下文注入给执行方（0=不携带，默认0）"}
 			},
 			"required":["agentId","task"]
 		}`),
@@ -838,10 +850,18 @@ func (r *Registry) handleAgentSpawn(_ context.Context, input json.RawMessage) (s
 		return "", fmt.Errorf("subagent manager not configured — cannot dispatch tasks in this context")
 	}
 	var p struct {
-		AgentID string `json:"agentId"`
-		Task    string `json:"task"`
-		Label   string `json:"label"`
-		Model   string `json:"model"`
+		AgentID      string `json:"agentId"`
+		Task         string `json:"task"`
+		Label        string `json:"label"`
+		Model        string `json:"model"`
+		Background   string `json:"background"`
+		Deliverable  string `json:"deliverable"`
+		Priority     string `json:"priority"`
+		Attachments  []struct {
+			Name    string `json:"name"`
+			Content string `json:"content"`
+		} `json:"attachments"`
+		ContextTurns int `json:"context_turns"`
 	}
 	if err := json.Unmarshal(input, &p); err != nil {
 		return "", fmt.Errorf("invalid input: %v", err)
@@ -874,18 +894,65 @@ func (r *Registry) handleAgentSpawn(_ context.Context, input json.RawMessage) (s
 			return "", fmt.Errorf("agent %q not found.\nAvailable agents: %s\nUse agent_list for full details.", p.AgentID, hint)
 		}
 	}
-	task, err := r.subagentMgr.Spawn(subagent.SpawnOpts{
-		AgentID:   p.AgentID,
-		Label:     p.Label,
-		Task:      p.Task,
-		Model:     p.Model,
+
+	// Build Brief
+	var brief *subagent.TaskBrief
+	if p.Background != "" || p.Deliverable != "" || p.Priority != "" {
+		brief = &subagent.TaskBrief{
+			Background:  p.Background,
+			Deliverable: p.Deliverable,
+			Priority:    p.Priority,
+		}
+	}
+
+	// Build Attachments
+	attachments := make([]subagent.Attachment, 0, len(p.Attachments))
+	for _, a := range p.Attachments {
+		if a.Content != "" {
+			attachments = append(attachments, subagent.Attachment{Name: a.Name, Content: a.Content})
+		}
+	}
+
+	// Read context snapshot from current session if requested
+	var contextSnapshot string
+	if p.ContextTurns > 0 && r.subagentMgr != nil {
+		contextSnapshot = r.subagentMgr.ReadContext(r.sessionID, p.ContextTurns)
+	}
+
+	opts := subagent.SpawnOpts{
+		AgentID:          p.AgentID,
+		Label:            p.Label,
+		Task:             p.Task,
+		Model:            p.Model,
 		SpawnedBy:        r.agentID,
 		SpawnedBySession: r.sessionID,
-	})
+		Brief:            brief,
+		Attachments:      attachments,
+		ContextSnapshot:  contextSnapshot,
+	}
+
+	task, err := r.subagentMgr.Spawn(opts)
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("✅ 任务已派生\n- 任务 ID: %s\n- 执行者: %s\n- 标签: %s\n- 状态: %s\n\n任务在后台异步执行，使用 agent_tasks 查看状态，agent_result 获取结果。", task.ID, task.AgentID, task.Label, task.Status), nil
+
+	// Build confirmation message
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("✅ 任务已派生\n- 任务 ID: %s\n- 执行者: %s\n- 标签: %s\n- 状态: %s",
+		task.ID, task.AgentID, task.Label, task.Status))
+	if brief != nil {
+		if brief.Priority != "" && brief.Priority != "normal" {
+			sb.WriteString("\n- 优先级: " + brief.Priority)
+		}
+	}
+	if len(attachments) > 0 {
+		sb.WriteString(fmt.Sprintf("\n- 附件: %d 份参考资料已传递", len(attachments)))
+	}
+	if contextSnapshot != "" {
+		sb.WriteString(fmt.Sprintf("\n- 上下文: 最近 %d 轮对话已注入", p.ContextTurns))
+	}
+	sb.WriteString("\n\n任务在后台异步执行，使用 agent_tasks 查看状态，agent_result 获取结果。")
+	return sb.String(), nil
 }
 
 func (r *Registry) handleAgentTasks(_ context.Context, input json.RawMessage) (string, error) {
