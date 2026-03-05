@@ -211,13 +211,14 @@ func (p *Pool) configureToolRegistry(reg *tools.Registry, ag *Agent, fileSender 
 // Returns (nil, "") when no suitable provider is found — memory_search degrades to BM25.
 func (p *Pool) resolveEmbedder() (*llm.Embedder, string) {
 	for _, prov := range p.cfg.Providers {
-		if prov.APIKey == "" {
+		// Skip providers that require an API key but have none configured.
+		if prov.APIKey == "" && llm.RequiresAPIKey(prov.Provider) {
 			continue
 		}
 		if !llm.SupportsEmbedding(prov.Provider) {
 			continue
 		}
-		embedder := llm.NewEmbedder(prov.Provider, prov.BaseURL)
+		embedder := llm.NewEmbedder(prov.Provider, prov.BaseURL, prov.EmbedModel)
 		if embedder != nil {
 			return embedder, prov.APIKey
 		}

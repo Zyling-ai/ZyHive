@@ -32,12 +32,13 @@ type Config struct {
 // ProviderEntry 代表一个大模型服务商的凭据配置。
 // 一个厂商只需配置一次 APIKey，旗下所有模型共享使用。
 type ProviderEntry struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`              // 用户自定义名称，如"我的 DeepSeek"
-	Provider string `json:"provider"`          // "anthropic" | "openai" | "deepseek" | ...
-	APIKey   string `json:"apiKey"`
-	BaseURL  string `json:"baseUrl,omitempty"` // 留空 = 使用 provider 默认地址
-	Status   string `json:"status"`            // "ok" | "error" | "untested"
+	ID         string `json:"id"`
+	Name       string `json:"name"`                 // 用户自定义名称，如"我的 DeepSeek"
+	Provider   string `json:"provider"`             // "anthropic" | "openai" | "ollama" | ...
+	APIKey     string `json:"apiKey"`
+	BaseURL    string `json:"baseUrl,omitempty"`    // 留空 = 使用 provider 默认地址
+	EmbedModel string `json:"embedModel,omitempty"` // 覆盖 embedding 默认模型（如 nomic-embed-text）
+	Status     string `json:"status"`               // "ok" | "error" | "untested"
 }
 
 type GatewayConfig struct {

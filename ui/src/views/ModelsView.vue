@@ -64,15 +64,37 @@
           <div class="field-label">名称</div>
           <el-input v-model="providerForm.name" :placeholder="currentProviderMeta?.label || '如 我的 DeepSeek'" />
 
-          <div class="field-label">API Key <span class="required">*</span></div>
-          <el-input v-model="providerForm.apiKey" type="password" show-password :placeholder="currentProviderMeta?.keyFormat || 'sk-...'" />
+          <div class="field-label">
+            API Key
+            <span v-if="!noKeyProviders.has(providerForm.provider)" class="required">*</span>
+            <span v-else class="optional-tag">可选</span>
+          </div>
+          <el-input v-model="providerForm.apiKey" type="password" show-password
+            :placeholder="noKeyProviders.has(providerForm.provider) ? '本地服务无需填写' : (currentProviderMeta?.keyFormat || 'sk-...')" />
 
           <div class="relay-toggle" @click="providerForm.showRelay = !providerForm.showRelay">
             <el-switch :model-value="providerForm.showRelay" size="small" style="pointer-events:none" />
-            <span class="relay-toggle-label">使用转发地址 <span class="hint">（国内绕过限制）</span></span>
+            <span class="relay-toggle-label">使用自定义服务地址 <span class="hint">（本地/转发）</span></span>
           </div>
           <template v-if="providerForm.showRelay">
-            <el-input v-model="providerForm.baseUrl" placeholder="填写中转地址，如 https://your-relay.com" clearable style="margin-top:6px" />
+            <el-input v-model="providerForm.baseUrl"
+              :placeholder="noKeyProviders.has(providerForm.provider) ? 'http://localhost:11434' : 'https://your-relay.com'"
+              clearable style="margin-top:6px" />
+          </template>
+
+          <!-- Embedding model override (shown for providers that support embeddings) -->
+          <template v-if="['openai','zhipu','minimax','ollama','custom'].includes(providerForm.provider)">
+            <div class="field-label" style="margin-top:10px">
+              Embedding 模型
+              <span class="optional-tag">可选</span>
+              <span class="hint" style="font-weight:400">用于记忆语义搜索</span>
+            </div>
+            <el-input v-model="providerForm.embedModel"
+              :placeholder="currentProviderMeta?.modelHint || '留空使用默认（如 text-embedding-3-small）'"
+              clearable />
+            <div v-if="providerForm.provider === 'ollama'" class="embed-hint">
+              💡 先运行 <code>ollama pull nomic-embed-text</code> 或 <code>ollama pull mxbai-embed-large</code>
+            </div>
           </template>
 
           <div class="form-actions">
@@ -96,8 +118,12 @@
           </div>
           <div class="detail-grid">
             <div class="detail-row"><span class="detail-label">提供商</span><span>{{ getProviderLabel(selectedProvider.provider) }}</span></div>
-            <div class="detail-row"><span class="detail-label">API Key</span><code>{{ selectedProvider.apiKey }}</code></div>
-            <div v-if="selectedProvider.baseUrl" class="detail-row"><span class="detail-label">转发地址</span><span>{{ selectedProvider.baseUrl }}</span></div>
+            <div class="detail-row"><span class="detail-label">API Key</span>
+              <code v-if="selectedProvider.apiKey">{{ selectedProvider.apiKey.slice(0,8) }}…</code>
+              <span v-else class="hint">（无需 Key）</span>
+            </div>
+            <div v-if="selectedProvider.baseUrl" class="detail-row"><span class="detail-label">服务地址</span><span>{{ selectedProvider.baseUrl }}</span></div>
+            <div v-if="selectedProvider.embedModel" class="detail-row"><span class="detail-label">Embedding 模型</span><code>{{ selectedProvider.embedModel }}</code></div>
           </div>
           <div class="form-actions">
             <el-button @click="openEditProvider(selectedProvider)">编辑</el-button>
@@ -223,6 +249,9 @@ const providerMetaList: ProviderMeta[] = [
     apiKeyUrl:'https://dashscope.console.aliyun.com/apiKey',   apiKeyHint:'在阿里云 DashScope 控制台获取', keyFormat:'sk-...' },
   { key:'openrouter', label:'OpenRouter',   logo:iconOpenRouter, baseUrl:'https://openrouter.ai/api/v1',
     apiKeyUrl:'https://openrouter.ai/keys',                    apiKeyHint:'在 OpenRouter 创建 API Key，可访问数百个模型', keyFormat:'sk-or-v1-...' },
+  { key:'ollama',     label:'Ollama (本地)', logo:iconCustom,     baseUrl:'http://localhost:11434',
+    apiKeyUrl:'https://ollama.com',                            apiKeyHint:'Ollama 本地服务，无需 API Key。需先运行 ollama serve',
+    keyFormat:'（留空即可）', modelHint:'nomic-embed-text / mxbai-embed-large' },
   { key:'custom',     label:'自定义',       logo:iconCustom,     baseUrl:'',
     apiKeyUrl:'',                                               apiKeyHint:'填写任意 OpenAI-compatible 接口地址和 API Key' },
 ]
@@ -240,7 +269,7 @@ const providerTestingIds = ref<Set<string>>(new Set())
 const providerTestResult = ref<{ ok: boolean; msg: string } | null>(null)
 const providerForm = reactive({
   mode: 'idle' as 'idle' | 'add' | 'edit',
-  provider: 'anthropic', name: '', apiKey: '', baseUrl: '', showRelay: false,
+  provider: 'anthropic', name: '', apiKey: '', baseUrl: '', embedModel: '', showRelay: false,
 })
 
 const allModels    = ref<ModelEntry[]>([])
@@ -295,7 +324,7 @@ function openAddProvider() {
 
 function openEditProvider(p: ProviderEntry) {
   providerTestResult.value = null
-  Object.assign(providerForm, { mode:'edit', provider:p.provider, name:p.name, apiKey:'', baseUrl:p.baseUrl||'', showRelay:!!p.baseUrl })
+  Object.assign(providerForm, { mode:'edit', provider:p.provider, name:p.name, apiKey:'', baseUrl:p.baseUrl||'', embedModel:p.embedModel||'', showRelay:!!p.baseUrl })
 }
 
 function selectProvider(p: ProviderEntry) {
@@ -316,9 +345,14 @@ function cancelProviderForm() {
   providerTestResult.value = null
 }
 
+// Providers that don't need an API key (local services)
+const noKeyProviders = new Set(['ollama'])
+
 async function saveProvider() {
   if (!providerForm.provider) { ElMessage.warning('请选择提供商'); return }
-  if (!providerForm.apiKey && providerForm.mode === 'add') { ElMessage.warning('请填写 API Key'); return }
+  if (!providerForm.apiKey && providerForm.mode === 'add' && !noKeyProviders.has(providerForm.provider)) {
+    ElMessage.warning('请填写 API Key'); return
+  }
   providerSaving.value = true
   try {
     const payload = {
@@ -326,6 +360,7 @@ async function saveProvider() {
       name: providerForm.name || providerMetaMap[providerForm.provider]?.label || providerForm.provider,
       apiKey: providerForm.apiKey,
       baseUrl: providerForm.baseUrl,
+      embedModel: providerForm.embedModel || undefined,
     }
     let savedId = ''
     if (providerForm.mode === 'edit' && selectedProvider.value) {
@@ -521,6 +556,27 @@ async function deleteModel(m: ModelEntry) {
 }
 .field-label { font-size: 13px; color: #606266; margin: 14px 0 6px; font-weight: 500; }
 .required { color: var(--el-color-danger); }
+.optional-tag {
+  font-size: 11px;
+  color: var(--el-text-color-placeholder, #c0c4cc);
+  font-weight: 400;
+  margin-left: 4px;
+}
+.embed-hint {
+  font-size: 12px;
+  color: var(--el-text-color-secondary, #909399);
+  margin-top: 5px;
+  padding: 6px 10px;
+  background: var(--el-fill-color-light, #f5f7fa);
+  border-radius: 6px;
+  line-height: 1.5;
+}
+.embed-hint code {
+  background: var(--el-fill-color, #f0f2f5);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 11px;
+}
 .hint { font-weight: 400; color: #909399; font-size: 12px; }
 .form-actions { display: flex; gap: 8px; margin-top: 18px; }
 

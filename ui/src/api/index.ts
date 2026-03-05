@@ -44,9 +44,10 @@ export interface ProviderEntry {
   id: string
   name: string
   provider: string
-  apiKey: string   // 脱敏显示
+  apiKey: string      // 脱敏显示
   baseUrl?: string
-  status: string   // "ok" | "error" | "untested"
+  embedModel?: string // 覆盖默认 embedding 模型（可选）
+  status: string      // "ok" | "error" | "untested"
   modelCount: number
 }
 

@@ -24,6 +24,19 @@ var knownEmbedProviders = map[string]embedProviderSpec{
 	"openai":  {"https://api.openai.com/v1", "text-embedding-3-small"},
 	"zhipu":   {"https://open.bigmodel.cn/api/paas/v4", "embedding-2"},
 	"minimax": {"https://api.minimax.chat/v1", "embo-01"},
+	// Ollama runs locally; no API key required.
+	// Default model: nomic-embed-text (popular open embedding model, pull with `ollama pull nomic-embed-text`)
+	"ollama": {"http://localhost:11434/v1", "nomic-embed-text"},
+}
+
+// noKeyProviders lists providers that don't require an API key (e.g. local services).
+var noKeyProviders = map[string]bool{
+	"ollama": true,
+}
+
+// RequiresAPIKey returns false for providers that work without an API key.
+func RequiresAPIKey(provider string) bool {
+	return !noKeyProviders[provider]
 }
 
 // Embedder calls an OpenAI-compatible /v1/embeddings endpoint.
@@ -34,11 +47,11 @@ type Embedder struct {
 }
 
 // NewEmbedder creates an Embedder for the given provider.
-// provider: "openai" | "zhipu" | "minimax" | "custom"
-// baseURL: override default (empty = use default for known providers)
-// apiKey: passed at call time via Embed(); stored here for convenience.
+// provider: "openai" | "zhipu" | "minimax" | "ollama" | "custom"
+// baseURL: override default endpoint (empty = use provider default)
+// embedModel: override default embedding model (empty = use provider default)
 // Returns nil if the provider is not known and no baseURL is provided.
-func NewEmbedder(provider, baseURL string) *Embedder {
+func NewEmbedder(provider, baseURL, embedModel string) *Embedder {
 	spec, known := knownEmbedProviders[provider]
 	if !known && baseURL == "" {
 		return nil
@@ -51,15 +64,18 @@ func NewEmbedder(provider, baseURL string) *Embedder {
 	// Normalize: strip trailing slash, ensure /v1 suffix
 	effectiveURL = strings.TrimRight(effectiveURL, "/")
 	if !strings.HasSuffix(effectiveURL, "/v1") {
-		// If it already ends with /v1/something, don't double-add
 		if !strings.Contains(effectiveURL[max(0, len(effectiveURL)-20):], "/v1") {
 			effectiveURL += "/v1"
 		}
 	}
 
-	model := spec.Model
-	if !known {
-		model = "text-embedding-3-small" // sensible default for custom OpenAI-compat
+	model := embedModel // caller override takes priority
+	if model == "" {
+		if known {
+			model = spec.Model
+		} else {
+			model = "text-embedding-3-small" // sensible default for custom OpenAI-compat
+		}
 	}
 
 	return &Embedder{
