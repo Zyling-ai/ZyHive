@@ -361,6 +361,7 @@ func (r *Registry) registerReportResultTool() {
 }
 
 func (r *Registry) handleReportResult(_ context.Context, input json.RawMessage) (string, error) {
+	// Parse with both files array and flat single-file params (AI often passes flat format)
 	var p struct {
 		Summary   string `json:"summary"`
 		ProjectID string `json:"project_id"`
@@ -369,26 +370,47 @@ func (r *Registry) handleReportResult(_ context.Context, input json.RawMessage) 
 			Path string `json:"path"`
 			Type string `json:"type"`
 		} `json:"files"`
+		// Flat single-file fallback (AI sometimes passes these at top level)
+		Name string `json:"name"`
+		Path string `json:"path"`
+		Type string `json:"type"`
 	}
 	if err := json.Unmarshal(input, &p); err != nil {
 		return "", fmt.Errorf("invalid input: %v", err)
 	}
+
+	// If files array is empty but flat params are provided, treat as single file
+	if len(p.Files) == 0 && p.Path != "" {
+		p.Files = append(p.Files, struct {
+			Name string `json:"name"`
+			Path string `json:"path"`
+			Type string `json:"type"`
+		}{Name: p.Name, Path: p.Path, Type: p.Type})
+	}
+
 	if r.taskArtifactFn == nil {
 		return "✅ 摘要已记录（当前上下文不支持产出文件追踪）", nil
 	}
 	artifacts := make([]subagent.TaskArtifact, 0, len(p.Files))
 	for _, f := range p.Files {
+		if f.Path == "" {
+			continue
+		}
 		ft := f.Type
 		if ft == "" {
 			ft = "file"
 		}
+		name := f.Name
+		if name == "" {
+			name = filepath.Base(f.Path)
+		}
 		a := subagent.TaskArtifact{
-			Name:      f.Name,
+			Name:      name,
 			Path:      f.Path,
 			ProjectID: p.ProjectID,
 			Type:      ft,
 		}
-		// Check file size if possible
+		// Get file size from project
 		if p.ProjectID != "" && r.projectMgr != nil {
 			if proj, ok := r.projectMgr.Get(p.ProjectID); ok {
 				if data, err := os.ReadFile(filepath.Join(proj.FilesDir, f.Path)); err == nil {
@@ -402,6 +424,8 @@ func (r *Registry) handleReportResult(_ context.Context, input json.RawMessage) 
 	msg := fmt.Sprintf("✅ 任务产出已登记：%s", p.Summary)
 	if len(artifacts) > 0 {
 		msg += fmt.Sprintf("\n共 %d 个文件已记录，派遣方可在任务面板查看。", len(artifacts))
+	} else {
+		msg += "\n提示：如有产出文件请在 files 数组中指定 path（如 [{\"name\":\"报告\",\"path\":\"report.md\"}]）"
 	}
 	return msg, nil
 }
