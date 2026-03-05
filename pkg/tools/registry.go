@@ -698,6 +698,14 @@ func (r *Registry) Execute(ctx context.Context, name string, input json.RawMessa
 }
 
 func (r *Registry) register(def llm.ToolDef, h Handler) {
+	// Update existing def if already registered (avoids duplicate tool names)
+	for i, d := range r.defs {
+		if d.Name == def.Name {
+			r.defs[i] = def
+			r.handlers[def.Name] = h
+			return
+		}
+	}
 	r.defs = append(r.defs, def)
 	r.handlers[def.Name] = h
 }
