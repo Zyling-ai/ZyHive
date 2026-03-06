@@ -358,6 +358,8 @@ func main() {
 		shutdownCtx := cronEngine.Stop() // stop cron
 		<-shutdownCtx.Done()
 
+		pool.CloseBrowser() // shut down headless browser if running
+
 		srvCtx, srvCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer srvCancel()
 		srv.Shutdown(srvCtx)
