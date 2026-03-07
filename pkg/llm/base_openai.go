@@ -99,6 +99,8 @@ func buildOpenAIRequestBody(req *ChatRequest) ([]byte, error) {
 		"model":    model,
 		"messages": messages,
 		"stream":   true,
+		// Request usage data in the final stream chunk (OpenAI / compatible providers)
+		"stream_options": map[string]any{"include_usage": true},
 	}
 	if req.MaxTokens > 0 {
 		payload["max_tokens"] = req.MaxTokens
@@ -141,6 +143,12 @@ type openAIChunk struct {
 		} `json:"delta"`
 		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
+	// OpenAI streams usage in the last chunk (stream_options.include_usage=true)
+	// or in a final chunk with empty choices.
+	Usage *struct {
+		PromptTokens     int `json:"prompt_tokens"`
+		CompletionTokens int `json:"completion_tokens"`
+	} `json:"usage"`
 }
 
 type partialTool struct {
@@ -175,6 +183,13 @@ func defaultParseOpenAISSE(ctx context.Context, body io.Reader, out chan<- Strea
 		var chunk openAIChunk
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
 			continue
+		}
+		// Emit usage if present (may arrive in the last chunk with empty choices)
+		if chunk.Usage != nil && (chunk.Usage.PromptTokens+chunk.Usage.CompletionTokens) > 0 {
+			out <- StreamEvent{Type: EventUsage, Usage: &Usage{
+				InputTokens:  chunk.Usage.PromptTokens,
+				OutputTokens: chunk.Usage.CompletionTokens,
+			}}
 		}
 		if len(chunk.Choices) == 0 {
 			continue
