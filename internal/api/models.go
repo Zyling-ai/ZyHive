@@ -413,6 +413,10 @@ func (h *modelHandler) FetchModels(c *gin.Context) {
 
 	models := make([]ModelInfo, 0, len(raw.Data))
 	for _, d := range raw.Data {
+		// Skip non-chat models (embeddings, TTS, image, completions-only, etc.)
+		if !isChatCompatible(provider, d.ID) {
+			continue
+		}
 		name := d.Name
 		if name == "" {
 			name = d.DisplayName
@@ -445,4 +449,58 @@ func (h *modelHandler) save(c *gin.Context) {
 
 func ismasked(s string) bool {
 	return len(s) > 3 && s[len(s)-3:] == "***"
+}
+
+// isChatCompatible returns true if the model supports /v1/chat/completions.
+// For providers that only expose chat models (deepseek, anthropic, etc.) we allow all.
+// For OpenAI and OpenAI-compatible providers we filter out known non-chat model prefixes.
+func isChatCompatible(provider, modelID string) bool {
+	// Non-OpenAI providers typically only list chat models — allow all.
+	switch provider {
+	case "anthropic", "deepseek", "minimax", "zhipu", "moonshot",
+		"openrouter", "ollama", "qwen", "kimi", "baidu", "yi":
+		return true
+	}
+
+	// For OpenAI (and generic openai-compatible), filter out known non-chat prefixes/suffixes.
+	id := strings.ToLower(modelID)
+
+	// Explicitly blocked prefixes (non-chat models)
+	blocked := []string{
+		"text-embedding-",  // embeddings
+		"text-search-",     // search embeddings
+		"text-similarity-", // similarity embeddings
+		"text-moderation-", // moderation
+		"text-davinci-00",  // old completions (text-davinci-001/002/003)
+		"davinci-00",       // davinci-002
+		"babbage-00",       // babbage-002
+		"code-davinci-",    // codex
+		"code-cushman-",
+		"tts-",             // text-to-speech
+		"whisper-",         // speech-to-text
+		"dall-e-",          // image generation
+		"omni-moderation-", // moderation
+		"text-ada-",
+		"text-babbage-",
+		"text-curie-",
+		"text-davinci-edit-",
+		"davinci:",         // fine-tune base
+		"curie:",
+		"babbage:",
+		"ada:",
+	}
+	for _, prefix := range blocked {
+		if strings.HasPrefix(id, prefix) {
+			return true == false // false — blocked
+		}
+	}
+
+	// Blocked exact IDs
+	switch id {
+	case "davinci", "curie", "babbage", "ada",
+		"davinci-002", "babbage-002":
+		return false
+	}
+
+	return true
 }
