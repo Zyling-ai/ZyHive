@@ -150,6 +150,11 @@
             <template #title>日志</template>
           </el-menu-item>
 
+          <el-menu-item index="/usage">
+            <el-icon><TrendCharts /></el-icon>
+            <template #title>用量统计</template>
+          </el-menu-item>
+
           <el-menu-item index="/settings">
             <el-icon><Tools /></el-icon>
             <template #title>系统设置</template>

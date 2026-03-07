@@ -48,6 +48,10 @@ type Config struct {
 	// Optional: parent session ID — when set, the agent is running as a subagent.
 	// Enables the report_to_parent tool and injects task-reporting instructions.
 	ParentSessionID string
+	// Optional: provider name for usage recording (e.g. "anthropic", "openai").
+	Provider string
+	// Optional: called after each LLM turn with token usage data.
+	UsageRecorder func(inputTokens, outputTokens int, provider, model, agentID string)
 }
 
 // Runner drives a single agent's conversation lifecycle.
@@ -469,6 +473,8 @@ func (r *Runner) run(ctx context.Context, userMsg string, out chan<- RunEvent) e
 			assistantText  string
 			toolCalls      []llm.ToolCall
 			stopReason     string
+			turnInputToks  int
+			turnOutputToks int
 		)
 
 		for ev := range events {
@@ -483,11 +489,20 @@ func (r *Runner) run(ctx context.Context, userMsg string, out chan<- RunEvent) e
 					toolCalls = append(toolCalls, *ev.ToolCall)
 					out <- RunEvent{Type: "tool_call", ToolCall: ev.ToolCall}
 				}
+			case llm.EventUsage:
+				if ev.Usage != nil {
+					turnInputToks += ev.Usage.InputTokens
+					turnOutputToks += ev.Usage.OutputTokens
+				}
 			case llm.EventStop:
 				stopReason = ev.StopReason
 			case llm.EventError:
 				return ev.Err
 			}
+		}
+		// Record usage after each LLM turn
+		if r.cfg.UsageRecorder != nil && (turnInputToks+turnOutputToks) > 0 {
+			r.cfg.UsageRecorder(turnInputToks, turnOutputToks, r.cfg.Provider, r.cfg.Model, r.cfg.AgentID)
 		}
 
 		// 3. Append assistant turn to history

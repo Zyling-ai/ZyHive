@@ -772,4 +772,10 @@ export const updateApi = {
   status: () => axios.get<UpdateStatus>('/api/update/status'),
 }
 
+export const usageApi = {
+  summary: (params: Record<string, any>) => api.get('/usage/summary', { params }),
+  timeline: (params: Record<string, any>) => api.get('/usage/timeline', { params }),
+  records: (params: Record<string, any>) => api.get('/usage/records', { params }),
+}
+
 export default api

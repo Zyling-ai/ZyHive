@@ -23,6 +23,7 @@ import (
 	"github.com/Zyling-ai/zyhive/pkg/session"
 	"github.com/Zyling-ai/zyhive/pkg/subagent"
 	"github.com/Zyling-ai/zyhive/pkg/tools"
+	"github.com/Zyling-ai/zyhive/pkg/usage"
 )
 
 // Pool manages multiple concurrent agent runners (one per agent).
@@ -40,6 +41,8 @@ type Pool struct {
 	// Used to inject the send_message tool so agents can proactively push notifications
 	// (e.g. from isolated cron sessions with delivery=none).
 	messageSenderFn func(agentID string) tools.MessageSenderFunc
+
+	usageStore *usage.Store // records LLM API usage; nil = disabled
 }
 
 // NewPool creates a new multi-agent runner pool.
@@ -167,6 +170,32 @@ func (p *Pool) GetProjectMgr() *project.Manager {
 func (p *Pool) SetMessageSenderFn(fn func(agentID string) tools.MessageSenderFunc) {
 	p.messageSenderFn = fn
 }
+
+// SetUsageStore wires up the usage recorder. Call once from main after NewPool.
+func (p *Pool) SetUsageStore(s *usage.Store) { p.usageStore = s }
+
+// usageRecorder returns a recorder func for use in runner.Config.
+func (p *Pool) usageRecorder() func(in, out int, provider, model, agentID string) {
+	if p.usageStore == nil {
+		return nil
+	}
+	store := p.usageStore
+	return func(in, out int, provider, model, agentID string) {
+		rec := usage.Record{
+			ID:           usage.NewID(),
+			AgentID:      agentID,
+			Provider:     provider,
+			Model:        model,
+			InputTokens:  in,
+			OutputTokens: out,
+			Cost:         usage.EstimateCost(model, in, out),
+			CreatedAt:    timeNow(),
+		}
+		_ = store.Append(rec)
+	}
+}
+
+func timeNow() int64 { return time.Now().Unix() }
 
 // configureToolRegistry applies all optional middlewares to a fresh tool registry.
 // fileSender is optional; when non-nil, the send_file tool is registered.
@@ -384,15 +413,17 @@ func (p *Pool) Run(ctx context.Context, agentID, message string) (string, error)
 	store := session.NewStore(ag.SessionDir)
 
 	r := runner.New(runner.Config{
-		AgentID:      ag.ID,
-		WorkspaceDir: ag.WorkspaceDir,
-		Model:        model,
-		APIKey:       apiKey,
-		LLM:          llmClient,
-		Tools:        toolRegistry,
-		Session:      store,
+		AgentID:       ag.ID,
+		WorkspaceDir:  ag.WorkspaceDir,
+		Model:         model,
+		APIKey:        apiKey,
+		Provider:      modelEntry.Provider,
+		LLM:           llmClient,
+		Tools:         toolRegistry,
+		Session:       store,
 		ProjectContext: p.buildProjectContext(ag.ID),
-		AgentEnv:     ag.Env,
+		AgentEnv:      ag.Env,
+		UsageRecorder: p.usageRecorder(),
 	})
 
 	// Run and collect all text
@@ -455,17 +486,19 @@ func (p *Pool) RunStreamEvents(ctx context.Context, agentID, message, sessionID 
 	}
 
 	r := runner.New(runner.Config{
-		AgentID:      ag.ID,
-		WorkspaceDir: ag.WorkspaceDir,
-		Model:        model,
-		APIKey:       apiKey,
-		LLM:          llmClient,
+		AgentID:        ag.ID,
+		WorkspaceDir:   ag.WorkspaceDir,
+		Model:          model,
+		APIKey:         apiKey,
+		Provider:       modelEntry.Provider,
+		LLM:            llmClient,
 		Tools:          toolRegistry,
 		Session:        store,
 		SessionID:      sessionID,
 		Images:         images,
 		ProjectContext: p.buildProjectContext(ag.ID),
 		AgentEnv:       ag.Env,
+		UsageRecorder:  p.usageRecorder(),
 	})
 
 	raw := r.Run(ctx, message)
@@ -511,16 +544,18 @@ func (p *Pool) RunStream(ctx context.Context, agentID, message, sessionID string
 	store := session.NewStore(ag.SessionDir)
 
 	r := runner.New(runner.Config{
-		AgentID:      ag.ID,
-		WorkspaceDir: ag.WorkspaceDir,
-		Model:        model,
-		APIKey:       apiKey,
-		LLM:          llmClient,
+		AgentID:        ag.ID,
+		WorkspaceDir:   ag.WorkspaceDir,
+		Model:          model,
+		APIKey:         apiKey,
+		Provider:       modelEntry.Provider,
+		LLM:            llmClient,
 		Tools:          toolRegistry,
 		Session:        store,
 		SessionID:      sessionID,
 		ProjectContext: p.buildProjectContext(ag.ID),
 		AgentEnv:       ag.Env,
+		UsageRecorder:  p.usageRecorder(),
 	})
 
 	return r.Run(ctx, message), nil
@@ -664,6 +699,7 @@ func (p *Pool) subagentRunFuncExt() subagent.RunFuncExt {
 				WorkspaceDir:    ag.WorkspaceDir,
 				Model:           resolvedModel,
 				APIKey:          apiKey,
+				Provider:        modelEntry.Provider,
 				SessionID:       task.SessionID,
 				ParentSessionID: task.SpawnedBySession,
 				LLM:             llmClient,
@@ -672,6 +708,7 @@ func (p *Pool) subagentRunFuncExt() subagent.RunFuncExt {
 				Session:         store,
 				ProjectContext:  p.buildProjectContext(ag.ID),
 				AgentEnv:        ag.Env,
+				UsageRecorder:   p.usageRecorder(),
 			})
 
 			for ev := range r.Run(ctx, enrichedTask) {
@@ -745,6 +782,7 @@ func (p *Pool) SubagentRunFunc() subagent.RunFunc {
 				WorkspaceDir:    ag.WorkspaceDir,
 				Model:           resolvedModel,
 				APIKey:          apiKey,
+				Provider:        modelEntry.Provider,
 				SessionID:       sessionID,
 				ParentSessionID: parentSessionID,
 				LLM:             llmClient,
@@ -753,6 +791,7 @@ func (p *Pool) SubagentRunFunc() subagent.RunFunc {
 				Session:         store,
 				ProjectContext:  p.buildProjectContext(ag.ID),
 				AgentEnv:        ag.Env,
+				UsageRecorder:   p.usageRecorder(),
 			})
 
 			for ev := range r.Run(ctx, task) {

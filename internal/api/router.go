@@ -22,6 +22,7 @@ import (
 	"github.com/Zyling-ai/zyhive/pkg/project"
 	"github.com/Zyling-ai/zyhive/pkg/session"
 	"github.com/Zyling-ai/zyhive/pkg/subagent"
+	"github.com/Zyling-ai/zyhive/pkg/usage"
 )
 
 // configFilePath is the active config file path; set at startup from --config flag.
@@ -43,7 +44,7 @@ type BotControl struct {
 
 // RegisterRoutes mounts all API handlers onto the Gin engine.
 // cfgPath is the active config file path (--config flag value); all writes go there.
-func RegisterRoutes(r *gin.Engine, cfg *config.Config, cfgPath string, mgr *agent.Manager, pool *agent.Pool, cronEngine *cron.Engine, uiFS fs.FS, runnerFunc channel.RunnerFunc, botCtrl BotControl, projectMgr *project.Manager, subagentMgr *subagent.Manager, workerPool *session.WorkerPool) {
+func RegisterRoutes(r *gin.Engine, cfg *config.Config, cfgPath string, mgr *agent.Manager, pool *agent.Pool, cronEngine *cron.Engine, uiFS fs.FS, runnerFunc channel.RunnerFunc, botCtrl BotControl, projectMgr *project.Manager, subagentMgr *subagent.Manager, workerPool *session.WorkerPool, usageStore *usage.Store) {
 	configFilePath = cfgPath // wire the active config path for all API handlers
 	rf := runnerFunc
 	r.Use(corsMiddleware())
@@ -309,6 +310,12 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, cfgPath string, mgr *agen
 	})
 	statsH := &statsHandler{manager: mgr}
 	v1.GET("/stats", statsH.Handle)
+
+	// Usage statistics
+	usageH := newUsageHandler(usageStore)
+	v1.GET("/usage/summary", usageH.Summary)
+	v1.GET("/usage/timeline", usageH.Timeline)
+	v1.GET("/usage/records", usageH.Records)
 
 	// Logs
 	v1.GET("/logs", logsHandler)

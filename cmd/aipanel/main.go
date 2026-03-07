@@ -30,6 +30,7 @@ import (
 	"github.com/Zyling-ai/zyhive/pkg/session"
 	"github.com/Zyling-ai/zyhive/pkg/subagent"
 	"github.com/Zyling-ai/zyhive/pkg/tools"
+	"github.com/Zyling-ai/zyhive/pkg/usage"
 )
 
 // Version 由 Makefile ldflags 在编译时注入：-X main.Version=v0.9.15
@@ -319,7 +320,11 @@ func main() {
 			return bot.Notify(ctx, chatID, threadID, prompt)
 		},
 	}
-	api.RegisterRoutes(r, cfg, *configPath, mgr, pool, cronEngine, uiFS, runnerFunc, botCtrl, projectMgr, subagentMgr, workerPool)
+	// Usage store: records are written to {agentsDir}/.usage/YYYY-MM.jsonl
+	usageStore := usage.NewStore(agentsDir)
+	pool.SetUsageStore(usageStore)
+
+	api.RegisterRoutes(r, cfg, *configPath, mgr, pool, cronEngine, uiFS, runnerFunc, botCtrl, projectMgr, subagentMgr, workerPool, usageStore)
 
 	// Print access URLs
 	port := cfg.Gateway.Port
