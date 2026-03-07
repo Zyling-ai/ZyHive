@@ -233,6 +233,12 @@ func parseAnthropicSSE(ctx context.Context, body io.Reader, events chan<- Stream
 			Index int             `json:"index"`
 			Delta json.RawMessage `json:"delta"`
 			Usage json.RawMessage `json:"usage"`
+			// message_start → contains input token count
+			Message struct {
+				Usage struct {
+					InputTokens int `json:"input_tokens"`
+				} `json:"usage"`
+			} `json:"message"`
 			// content_block_start
 			ContentBlock struct {
 				Type  string `json:"type"`
@@ -250,6 +256,12 @@ func parseAnthropicSSE(ctx context.Context, body io.Reader, events chan<- Stream
 		}
 
 		switch event.Type {
+		case "message_start":
+			// Emit input token count from message_start
+			if in := event.Message.Usage.InputTokens; in > 0 {
+				events <- StreamEvent{Type: EventUsage, Usage: &Usage{InputTokens: in}}
+			}
+
 		case "content_block_start":
 			currentBlockType = event.ContentBlock.Type
 			if currentBlockType == "tool_use" {
@@ -304,6 +316,10 @@ func parseAnthropicSSE(ctx context.Context, body io.Reader, events chan<- Stream
 			}
 			if err := json.Unmarshal(event.Delta, &delta); err != nil {
 				continue
+			}
+			// Emit output token count from message_delta
+			if out := delta.Usage.OutputTokens; out > 0 {
+				events <- StreamEvent{Type: EventUsage, Usage: &Usage{OutputTokens: out}}
 			}
 			events <- StreamEvent{Type: EventStop, StopReason: delta.StopReason}
 
