@@ -1448,10 +1448,12 @@ func requireWindowsAdmin() bool {
 	ans = strings.TrimSpace(ans)
 	if ans == "" || strings.ToLower(ans) == "y" {
 		exe, _ := os.Executable()
-		// Use PowerShell to re-launch with RunAs elevation
-		relaunch := exec.Command("powershell", "-NoProfile", "-Command",
-			fmt.Sprintf("Start-Process -FilePath '%s' -Verb RunAs", exe))
+		// Launch an elevated cmd window that keeps running zyhive interactively.
+		// /k keeps the window open; wrap path in quotes for spaces.
+		psCmd := fmt.Sprintf(`Start-Process cmd -Verb RunAs -ArgumentList '/k "%s"'`, exe)
+		relaunch := exec.Command("powershell", "-NoProfile", "-Command", psCmd)
 		relaunch.Start()
+		os.Exit(0) // exit current non-admin instance
 	}
 	return false
 }
