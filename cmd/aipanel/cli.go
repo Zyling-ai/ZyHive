@@ -1430,7 +1430,7 @@ func isWindowsAdmin() bool {
 	return cmd.Run() == nil
 }
 
-// requireWindowsAdmin prints an error and re-launches the process elevated if not admin.
+// requireWindowsAdmin prints an error with clear instructions if not running as admin.
 // Returns true if already admin (caller should proceed), false if not (caller should return).
 func requireWindowsAdmin() bool {
 	if isWindowsAdmin() {
@@ -1439,22 +1439,13 @@ func requireWindowsAdmin() bool {
 	fmt.Println()
 	fmt.Println(ansiRed + "  ❌ 服务管理需要管理员权限（Error 5: 拒绝访问）" + ansiReset)
 	fmt.Println()
-	fmt.Println("  解决方法：右键点击 PowerShell 或命令提示符，")
-	fmt.Println("  选择「以管理员身份运行」，然后重新执行 zyhive")
+	fmt.Println("  ┌─ 解决方法 ──────────────────────────────────────────┐")
+	fmt.Println("  │  1. 关闭此窗口                                      │")
+	fmt.Println("  │  2. 在开始菜单搜索 PowerShell 或 cmd                 │")
+	fmt.Println("  │  3. 右键 → 「以管理员身份运行」                       │")
+	fmt.Println("  │  4. 在新窗口中重新运行：zyhive                       │")
+	fmt.Println("  └─────────────────────────────────────────────────────┘")
 	fmt.Println()
-	fmt.Print("  是否自动以管理员身份重新启动？[Y/n] ")
-	var ans string
-	fmt.Scanln(&ans)
-	ans = strings.TrimSpace(ans)
-	if ans == "" || strings.ToLower(ans) == "y" {
-		exe, _ := os.Executable()
-		// Launch an elevated cmd window that keeps running zyhive interactively.
-		// /k keeps the window open; wrap path in quotes for spaces.
-		psCmd := fmt.Sprintf(`Start-Process cmd -Verb RunAs -ArgumentList '/k "%s"'`, exe)
-		relaunch := exec.Command("powershell", "-NoProfile", "-Command", psCmd)
-		relaunch.Start()
-		os.Exit(0) // exit current non-admin instance
-	}
 	return false
 }
 
