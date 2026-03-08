@@ -1423,8 +1423,45 @@ func systemctlAction(action, service string) {
 	pause()
 }
 
+// isWindowsAdmin checks if the current process has admin privileges on Windows.
+// Uses `net session` which requires admin; returns false if access denied.
+func isWindowsAdmin() bool {
+	cmd := exec.Command("cmd", "/c", "net session >nul 2>&1")
+	return cmd.Run() == nil
+}
+
+// requireWindowsAdmin prints an error and re-launches the process elevated if not admin.
+// Returns true if already admin (caller should proceed), false if not (caller should return).
+func requireWindowsAdmin() bool {
+	if isWindowsAdmin() {
+		return true
+	}
+	fmt.Println()
+	fmt.Println(ansiRed + "  ❌ 服务管理需要管理员权限（Error 5: 拒绝访问）" + ansiReset)
+	fmt.Println()
+	fmt.Println("  解决方法：右键点击 PowerShell 或命令提示符，")
+	fmt.Println("  选择「以管理员身份运行」，然后重新执行 zyhive")
+	fmt.Println()
+	fmt.Print("  是否自动以管理员身份重新启动？[Y/n] ")
+	var ans string
+	fmt.Scanln(&ans)
+	ans = strings.TrimSpace(ans)
+	if ans == "" || strings.ToLower(ans) == "y" {
+		exe, _ := os.Executable()
+		// Use PowerShell to re-launch with RunAs elevation
+		relaunch := exec.Command("powershell", "-NoProfile", "-Command",
+			fmt.Sprintf("Start-Process -FilePath '%s' -Verb RunAs", exe))
+		relaunch.Start()
+	}
+	return false
+}
+
 // scAction — Windows SCM 服务管理（sc.exe）
 func scAction(action, service string) {
+	if !requireWindowsAdmin() {
+		pause()
+		return
+	}
 	switch action {
 	case "start":
 		out := runCmd("sc", "start", service)
