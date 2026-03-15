@@ -93,12 +93,33 @@ PORT=8080
 DOMAIN=""
 NO_ROOT=false   # --no-root 强制用户目录安装
 
+# ── 向导参数（可通过 flag 跳过交互）────────────────────────────────────────
+SKIP_SETUP=false          # --skip-setup 跳过向导
+YES_MODE=false            # --yes 全部默认
+WIZARD_PROVIDER=""        # --provider anthropic|openai|deepseek|kimi|minimax|gemini|zhipu|custom
+WIZARD_API_KEY=""         # --api-key sk-xxx  (任意提供商)
+WIZARD_BASE_URL=""        # --base-url https://xxx (自定义接口地址)
+WIZARD_MODEL=""           # --model claude-sonnet-4-6
+WIZARD_TG_TOKEN=""        # --telegram-token 123:ABC
+WIZARD_TG_ALLOWED=""      # --telegram-allowed "111,222,333"
+
 # ── 解析参数 ───────────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --domain)   DOMAIN="$2"; shift 2 ;;
-    --port)     PORT="$2";   shift 2 ;;
-    --no-root)  NO_ROOT=true; shift  ;;
+    --domain)            DOMAIN="$2";           shift 2 ;;
+    --port)              PORT="$2";             shift 2 ;;
+    --no-root)           NO_ROOT=true;          shift   ;;
+    --skip-setup)        SKIP_SETUP=true;       shift   ;;
+    --yes|-y)            YES_MODE=true;         shift   ;;
+    --provider)          WIZARD_PROVIDER="$2";  shift 2 ;;
+    --api-key)           WIZARD_API_KEY="$2";   shift 2 ;;
+    --anthropic-key)     WIZARD_API_KEY="$2"; WIZARD_PROVIDER="anthropic"; shift 2 ;;
+    --openai-key)        WIZARD_API_KEY="$2"; WIZARD_PROVIDER="openai";    shift 2 ;;
+    --deepseek-key)      WIZARD_API_KEY="$2"; WIZARD_PROVIDER="deepseek";  shift 2 ;;
+    --base-url)          WIZARD_BASE_URL="$2";  shift 2 ;;
+    --model)             WIZARD_MODEL="$2";     shift 2 ;;
+    --telegram-token)    WIZARD_TG_TOKEN="$2";  shift 2 ;;
+    --telegram-allowed)  WIZARD_TG_ALLOWED="$2"; shift 2 ;;
     *) shift ;;
   esac
 done
@@ -314,26 +335,228 @@ if ! echo "$PATH" | grep -q "$(dirname "$INSTALL_BIN")"; then
   done
 fi
 
-# ── 生成默认配置（若不存在）────────────────────────────────────────────────
-if [ ! -f "$CONFIG_FILE" ]; then
-  ADMIN_TOKEN=$(openssl rand -hex 16 2>/dev/null \
+# ══════════════════════════════════════════════════════════════════════════
+# 首次配置向导
+# ══════════════════════════════════════════════════════════════════════════
+
+# 提供商预设：provider_id|display_name|default_model|model_provider|base_url
+_PROVIDERS=(
+  "anthropic|Anthropic (Claude)|claude-sonnet-4-6|anthropic|"
+  "openai|OpenAI (GPT-4o)|gpt-4o|openai|"
+  "deepseek|DeepSeek|deepseek-chat|deepseek|https://api.deepseek.com"
+  "moonshot|月之暗面 Kimi|moonshot-v1-8k|moonshot|https://api.moonshot.cn/v1"
+  "minimax|MiniMax|abab5.5s-chat|minimax|https://api.minimax.chat/v1"
+  "google|Google Gemini|gemini-2.0-flash|google|"
+  "zhipu|智谱 AI (GLM)|glm-4-flash|zhipu|https://open.bigmodel.cn/api/paas/v4"
+  "custom|自定义 (OpenAI 兼容)|gpt-4o|custom|"
+)
+
+# 转义 JSON 字符串
+_json_escape() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
+
+# 生成 providers JSON 块
+_make_providers_json() {
+  local p_id="$1" p_name="$2" api_key="$3" base_url="$4"
+  local key_escaped; key_escaped=$(_json_escape "$api_key")
+  local base_url_json=""
+  [ -n "$base_url" ] && base_url_json=", \"baseUrl\": \"$(_json_escape "$base_url")\""
+  printf '[{"id":"%s","name":"%s","provider":"%s","apiKey":"%s","status":"untested"%s}]' \
+    "$p_id" "$p_name" "$p_id" "$key_escaped" "$base_url_json"
+}
+
+# 生成 models JSON 块
+_make_models_json() {
+  local p_id="$1" model_id="$2" model_provider="$3"
+  printf '[{"id":"default","name":"%s / %s","provider":"%s","model":"%s","providerId":"%s","isDefault":true,"status":"untested"}]' \
+    "$model_provider" "$model_id" "$model_provider" "$model_id" "$p_id"
+}
+
+# 生成 channels JSON 块（Telegram）
+_make_channels_json() {
+  local tg_token="$1" tg_allowed="$2"
+  if [ -z "$tg_token" ]; then
+    printf '[]'
+    return
+  fi
+  local allowed_json="[]"
+  if [ -n "$tg_allowed" ]; then
+    allowed_json="[$(echo "$tg_allowed" | tr ',' '\n' | awk '{printf "%s%s", (NR>1?",":""), $0}')]"
+  fi
+  printf '[{"id":"telegram","name":"Telegram","type":"telegram","config":{"botToken":"%s"},"enabled":true,"status":"untested","allowedFrom":%s}]' \
+    "$(_json_escape "$tg_token")" "$allowed_json"
+}
+
+# 向导主函数
+_wizard_setup() {
+  local cfg_file="$1"
+  local bind_mode="$2"
+
+  # ── 已有 flag 时直接使用，跳过交互 ──────────────────────────────────────
+  local sel_provider="$WIZARD_PROVIDER"
+  local sel_api_key="$WIZARD_API_KEY"
+  local sel_base_url="$WIZARD_BASE_URL"
+  local sel_model="$WIZARD_MODEL"
+  local sel_tg_token="$WIZARD_TG_TOKEN"
+  local sel_tg_allowed="$WIZARD_TG_ALLOWED"
+
+  # 是否运行在 TTY（可交互）
+  local interactive=false
+  [ -t 0 ] && [ "$SKIP_SETUP" = "false" ] && [ "$YES_MODE" = "false" ] && interactive=true
+
+  # ── 交互向导 ───────────────────────────────────────────────────────────
+  if $interactive; then
+    echo ""
+    echo -e "${BOLD}╔══════════════════════════════════════════════════════╗${NC}"
+    echo -e "${BOLD}║   🚀  ZyHive 快速配置向导                           ║${NC}"
+    echo -e "${BOLD}╚══════════════════════════════════════════════════════╝${NC}"
+    echo -e "  ${YELLOW}按 Enter 跳过任一步骤，稍后在面板中配置${NC}"
+    echo ""
+
+    # ── Step 1: 选择提供商 ──────────────────────────────────────────────
+    if [ -z "$sel_provider" ]; then
+      echo -e "  ${BOLD}Step 1/3  —  选择 AI 模型提供商${NC}"
+      echo ""
+      local i=1
+      for entry in "${_PROVIDERS[@]}"; do
+        local pname; pname=$(echo "$entry" | cut -d'|' -f2)
+        printf "    %d) %s\n" "$i" "$pname"
+        i=$((i+1))
+      done
+      echo "    0) 跳过（稍后手动配置）"
+      echo ""
+      printf "  请选择 [0-%d]: " "$((${#_PROVIDERS[@]}))"
+      local choice; read -r choice </dev/tty
+      echo ""
+
+      if [ -n "$choice" ] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#_PROVIDERS[@]}" ] 2>/dev/null; then
+        local entry="${_PROVIDERS[$((choice-1))]}"
+        sel_provider=$(echo "$entry" | cut -d'|' -f1)
+        local default_model; default_model=$(echo "$entry" | cut -d'|' -f3)
+        local default_base; default_base=$(echo "$entry" | cut -d'|' -f5)
+        [ -z "$sel_model"    ] && sel_model="$default_model"
+        [ -z "$sel_base_url" ] && sel_base_url="$default_base"
+      fi
+    fi
+
+    # ── Step 2: 输入 API Key ────────────────────────────────────────────
+    if [ -n "$sel_provider" ] && [ "$sel_provider" != "0" ] && [ -z "$sel_api_key" ]; then
+      local p_display="$sel_provider"
+      for entry in "${_PROVIDERS[@]}"; do
+        if [ "$(echo "$entry"|cut -d'|' -f1)" = "$sel_provider" ]; then
+          p_display=$(echo "$entry"|cut -d'|' -f2)
+          break
+        fi
+      done
+      echo -e "  ${BOLD}Step 2/3  —  输入 API Key${NC}"
+      echo -e "  ${YELLOW}提供商：${NC}${p_display}"
+
+      if [ "$sel_provider" = "custom" ]; then
+        printf "  Base URL (如 https://api.example.com/v1): "
+        read -r sel_base_url </dev/tty
+      fi
+
+      printf "  API Key: "
+      # 读取时不回显（隐藏 key）
+      if [ -t 0 ]; then
+        stty -echo 2>/dev/null || true
+        read -r sel_api_key </dev/tty
+        stty echo 2>/dev/null || true
+        echo ""
+      else
+        read -r sel_api_key </dev/tty
+      fi
+      echo ""
+
+      if [ "$sel_provider" = "custom" ] && [ -z "$sel_model" ]; then
+        printf "  模型 ID (如 gpt-4o): "
+        read -r sel_model </dev/tty
+        echo ""
+      fi
+    fi
+
+    # ── Step 3: Telegram 配置 ───────────────────────────────────────────
+    if [ -z "$sel_tg_token" ]; then
+      echo -e "  ${BOLD}Step 3/3  —  Telegram Bot 配置（可选）${NC}"
+      echo -e "  ${YELLOW}通过 @BotFather 创建 Bot 并获取 Token${NC}"
+      printf "  Bot Token (直接 Enter 跳过): "
+      read -r sel_tg_token </dev/tty
+      echo ""
+
+      if [ -n "$sel_tg_token" ]; then
+        printf "  允许的用户 ID（逗号分隔，直接 Enter 跳过鉴权）: "
+        read -r sel_tg_allowed </dev/tty
+        echo ""
+      fi
+    fi
+  fi
+
+  # ── 生成配置文件 ────────────────────────────────────────────────────────
+  local admin_token
+  admin_token=$(openssl rand -hex 16 2>/dev/null \
     || tr -dc 'a-f0-9' < /dev/urandom | head -c 32)
 
+  # 构建各 JSON 块
+  local providers_json='[]'
+  local models_json='[]'
+  local channels_json='[]'
+
+  if [ -n "$sel_provider" ] && [ "$sel_provider" != "0" ] && [ -n "$sel_api_key" ]; then
+    local p_display="$sel_provider"
+    local p_default_model="$sel_model"
+    local p_model_provider="$sel_provider"
+    for entry in "${_PROVIDERS[@]}"; do
+      if [ "$(echo "$entry"|cut -d'|' -f1)" = "$sel_provider" ]; then
+        p_display=$(echo "$entry"|cut -d'|' -f2)
+        [ -z "$p_default_model" ] && p_default_model=$(echo "$entry"|cut -d'|' -f3)
+        p_model_provider=$(echo "$entry"|cut -d'|' -f4)
+        break
+      fi
+    done
+    providers_json=$(_make_providers_json "$sel_provider" "$p_display" "$sel_api_key" "$sel_base_url")
+    models_json=$(_make_models_json "$sel_provider" "${p_default_model:-gpt-4o}" "$p_model_provider")
+  fi
+
+  [ -n "$sel_tg_token" ] && \
+    channels_json=$(_make_channels_json "$sel_tg_token" "${sel_tg_allowed:-$WIZARD_TG_ALLOWED}")
+
+  # 写配置
+  cat > "$cfg_file" << CFGEOF
+{
+  "configVersion": 3,
+  "gateway":  { "port": ${PORT}, "bind": "${bind_mode}" },
+  "agents":   { "dir": "${AGENTS_DIR}" },
+  "providers": ${providers_json},
+  "models":    ${models_json},
+  "channels":  ${channels_json},
+  "tools":     [],
+  "skills":    [],
+  "auth":      { "mode": "token", "token": "${admin_token}" }
+}
+CFGEOF
+
+  echo ""
+  echo -e "  ${YELLOW}🔑 管理员 Token：${NC}${GREEN}${BOLD}${admin_token}${NC}"
+  echo -e "     已保存至 ${cfg_file}"
+
+  [ -n "$sel_provider" ] && [ -n "$sel_api_key" ] && \
+    echo -e "  🤖 已配置提供商：${GREEN}${sel_provider}${NC}  模型：${GREEN}${sel_model:-默认}${NC}"
+  [ -n "$sel_tg_token" ] && \
+    echo -e "  💬 Telegram Bot 已配置"
+
+  SHOW_TOKEN="$admin_token"
+  SHOW_PROVIDER="$sel_provider"
+  SHOW_MODEL="$sel_model"
+}
+
+# ── 生成默认配置（若不存在）────────────────────────────────────────────────
+SHOW_TOKEN=""
+SHOW_PROVIDER=""
+SHOW_MODEL=""
+
+if [ ! -f "$CONFIG_FILE" ]; then
   BIND_MODE="lan"
   [ -n "$DOMAIN" ] && BIND_MODE="localhost"
-
-  CONFIG_CONTENT="{
-  \"gateway\": { \"port\": $PORT, \"bind\": \"$BIND_MODE\" },
-  \"agents\":  { \"dir\": \"$AGENTS_DIR\" },
-  \"models\":  { \"primary\": \"anthropic/claude-sonnet-4-6\" },
-  \"auth\":    { \"mode\": \"token\", \"token\": \"$ADMIN_TOKEN\" }
-}"
-
-  echo "$CONFIG_CONTENT" | $SUDO tee "$CONFIG_FILE" > /dev/null
-  echo ""
-  echo -e "  ${YELLOW}🔑 管理员 Token：${NC}${GREEN}${BOLD}$ADMIN_TOKEN${NC}"
-  echo -e "     已保存至 $CONFIG_FILE，请妥善保存"
-  SHOW_TOKEN="$ADMIN_TOKEN"
+  _wizard_setup "$CONFIG_FILE" "$BIND_MODE"
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -553,7 +776,9 @@ else
   [ -n "$LOCAL_IP"  ] && echo -e "  🏠 内网访问：  ${BLUE}http://$LOCAL_IP:$PORT${NC}"
   [ -n "$PUBLIC_IP" ] && echo -e "  🌐 公网访问：  ${BLUE}http://$PUBLIC_IP:$PORT${NC}"
 fi
-[ -n "$SHOW_TOKEN" ] && echo -e "\n  🔑 管理员 Token：${GREEN}${BOLD}$SHOW_TOKEN${NC}"
+[ -n "$SHOW_TOKEN"    ] && echo -e "\n  🔑 管理员 Token：  ${GREEN}${BOLD}$SHOW_TOKEN${NC}"
+[ -n "$SHOW_PROVIDER" ] && echo -e "  🤖 AI 提供商：     ${GREEN}$SHOW_PROVIDER${NC}${SHOW_MODEL:+ / $SHOW_MODEL}"
+[ -z "$SHOW_PROVIDER" ] && echo -e "  ${YELLOW}⚠  未配置 AI Key，请登录面板 → 设置 → 提供商 添加${NC}"
 echo ""
 echo -e "  📄 配置文件：  $CONFIG_FILE"
 echo -e "  🗂  成员目录：  $AGENTS_DIR"
