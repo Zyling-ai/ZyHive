@@ -14,8 +14,16 @@
 param(
     [string]$Port   = "8080",
     [string]$Domain = "",
-    [switch]$NoService,      # 不安装 Windows 服务（仅复制二进制）
-    [switch]$Uninstall       # 卸载
+    [switch]$NoService,           # 不安装 Windows 服务（仅复制二进制）
+    [switch]$Uninstall,           # 卸载
+    [switch]$SkipSetup,           # 跳过安装向导
+    [switch]$Yes,                 # 全部默认，不交互
+    [string]$Provider     = "",   # anthropic|openai|deepseek|moonshot|minimax|google|zhipu|custom
+    [string]$ApiKey       = "",   # AI 服务商 API Key
+    [string]$BaseUrl      = "",   # 自定义提供商 Base URL
+    [string]$Model        = "",   # 指定模型 ID
+    [string]$TelegramToken    = "",  # Telegram Bot Token
+    [string]$TelegramAllowed  = ""   # 允许的 Telegram 用户 ID（逗号分隔）
 )
 
 Set-StrictMode -Version Latest
@@ -40,8 +48,16 @@ if (-not $IsAdmin) {
     if ($ScriptPath) {
         # 本地脚本文件 → 直接提权重启
         $ArgList = "-NoProfile -ExecutionPolicy Bypass -File `"$ScriptPath`" -Port $Port"
-        if ($Domain)     { $ArgList += " -Domain $Domain" }
-        if ($NoService)  { $ArgList += " -NoService" }
+        if ($Domain)          { $ArgList += " -Domain $Domain" }
+        if ($NoService)       { $ArgList += " -NoService" }
+        if ($Provider)        { $ArgList += " -Provider $Provider" }
+        if ($ApiKey)          { $ArgList += " -ApiKey $ApiKey" }
+        if ($BaseUrl)         { $ArgList += " -BaseUrl $BaseUrl" }
+        if ($Model)           { $ArgList += " -Model $Model" }
+        if ($TelegramToken)   { $ArgList += " -TelegramToken $TelegramToken" }
+        if ($TelegramAllowed) { $ArgList += " -TelegramAllowed '$TelegramAllowed'" }
+        if ($SkipSetup)       { $ArgList += " -SkipSetup" }
+        if ($Yes)             { $ArgList += " -Yes" }
         Start-Process powershell -Verb RunAs -ArgumentList $ArgList -Wait
         exit
     } else {
@@ -54,8 +70,16 @@ if (-not $IsAdmin) {
             Invoke-WebRequest -Uri "https://raw.githubusercontent.com/Zyling-ai/zyhive/main/scripts/install.ps1" -OutFile $TmpScript -UseBasicParsing
         }
         $ArgList = "-NoProfile -ExecutionPolicy Bypass -File `"$TmpScript`" -Port $Port"
-        if ($Domain)     { $ArgList += " -Domain $Domain" }
-        if ($NoService)  { $ArgList += " -NoService" }
+        if ($Domain)          { $ArgList += " -Domain $Domain" }
+        if ($NoService)       { $ArgList += " -NoService" }
+        if ($Provider)        { $ArgList += " -Provider $Provider" }
+        if ($ApiKey)          { $ArgList += " -ApiKey $ApiKey" }
+        if ($BaseUrl)         { $ArgList += " -BaseUrl $BaseUrl" }
+        if ($Model)           { $ArgList += " -Model $Model" }
+        if ($TelegramToken)   { $ArgList += " -TelegramToken $TelegramToken" }
+        if ($TelegramAllowed) { $ArgList += " -TelegramAllowed '$TelegramAllowed'" }
+        if ($SkipSetup)       { $ArgList += " -SkipSetup" }
+        if ($Yes)             { $ArgList += " -Yes" }
         Start-Process powershell -Verb RunAs -ArgumentList $ArgList -Wait
         Remove-Item $TmpScript -Force -ErrorAction SilentlyContinue
         exit
@@ -233,18 +257,214 @@ Copy-Item $TmpBin $BinaryPath -Force
 Remove-Item $TmpBin -Force -ErrorAction SilentlyContinue
 Write-Ok "二进制已安装至 $BinaryPath"
 
-# ── 生成默认配置 ───────────────────────────────────────────────────────────
-$ShowToken = $null
+# ── 安装向导函数 ──────────────────────────────────────────────────────────
+function Invoke-SetupWizard {
+    param(
+        [string]$AdminToken,
+        [string]$BindMode,
+        [int]$GatewayPort,
+        [string]$AgentsDirPath
+    )
+
+    # 提供商预设表
+    $ProviderPresets = [ordered]@{
+        "anthropic" = @{ Name = "Anthropic (Claude)"; Model = "claude-sonnet-4-6"; BaseUrl = "" }
+        "openai"    = @{ Name = "OpenAI (GPT-4o)";    Model = "gpt-4o";            BaseUrl = "" }
+        "deepseek"  = @{ Name = "DeepSeek";            Model = "deepseek-chat";     BaseUrl = "https://api.deepseek.com" }
+        "moonshot"  = @{ Name = "月之暗面 Kimi";        Model = "moonshot-v1-8k";    BaseUrl = "https://api.moonshot.cn/v1" }
+        "minimax"   = @{ Name = "MiniMax";              Model = "abab5.5s-chat";     BaseUrl = "https://api.minimax.chat/v1" }
+        "google"    = @{ Name = "Google Gemini";        Model = "gemini-2.0-flash";  BaseUrl = "" }
+        "zhipu"     = @{ Name = "智谱 AI";              Model = "glm-4-flash";       BaseUrl = "https://open.bigmodel.cn/api/paas/v4" }
+        "custom"    = @{ Name = "自定义";               Model = "";                  BaseUrl = "" }
+    }
+
+    $WizardProvider      = $script:Provider
+    $WizardApiKey        = $script:ApiKey
+    $WizardBaseUrl       = $script:BaseUrl
+    $WizardModel         = $script:Model
+    $WizardTelegramToken = $script:TelegramToken
+    $WizardTelegramAllowed = $script:TelegramAllowed
+
+    $IsTTY = [System.Environment]::UserInteractive -and (-not [System.Console]::IsInputRedirected)
+
+    # 如果没提供 ApiKey 且不跳过向导，尝试交互
+    if ((-not $WizardApiKey) -and $IsTTY -and (-not $script:SkipSetup) -and (-not $script:Yes)) {
+        Write-Host ""
+        Write-Host "  ╔══════════════════════════════════════════════╗" -ForegroundColor Cyan
+        Write-Host "  ║         ZyHive 安装向导（可回车跳过）         ║" -ForegroundColor Cyan
+        Write-Host "  ╚══════════════════════════════════════════════╝" -ForegroundColor Cyan
+        Write-Host ""
+
+        # Step 1: 选择提供商
+        Write-Host "  步骤 1/3  选择 AI 提供商（直接回车跳过）" -ForegroundColor Yellow
+        Write-Host ""
+        $i = 1
+        $ProviderKeys = @($ProviderPresets.Keys)
+        foreach ($key in $ProviderKeys) {
+            $preset = $ProviderPresets[$key]
+            Write-Host ("    [{0}] {1,-12} {2}" -f $i, $key, $preset.Name)
+            $i++
+        }
+        Write-Host ""
+        $ProviderChoice = Read-Host "  请输入编号或提供商名称"
+
+        if ($ProviderChoice -ne "") {
+            # 尝试按编号或名称匹配
+            $chosen = $null
+            if ($ProviderChoice -match '^\d+$') {
+                $idx = [int]$ProviderChoice - 1
+                if ($idx -ge 0 -and $idx -lt $ProviderKeys.Count) {
+                    $chosen = $ProviderKeys[$idx]
+                }
+            } elseif ($ProviderPresets.Contains($ProviderChoice.ToLower())) {
+                $chosen = $ProviderChoice.ToLower()
+            }
+
+            if ($chosen) {
+                $WizardProvider = $chosen
+
+                # custom：询问 BaseUrl 和 Model
+                if ($chosen -eq "custom") {
+                    $customBase = Read-Host "  Base URL（如 https://api.example.com/v1）"
+                    $customModel = Read-Host "  模型 ID（如 gpt-4-turbo）"
+                    $WizardBaseUrl = $customBase.Trim()
+                    $WizardModel   = $customModel.Trim()
+                } else {
+                    $preset = $ProviderPresets[$chosen]
+                    if (-not $WizardBaseUrl -and $preset.BaseUrl) { $WizardBaseUrl = $preset.BaseUrl }
+                    if (-not $WizardModel)                        { $WizardModel   = $preset.Model }
+                }
+
+                # Step 2: 输入 API Key（隐藏输入）
+                Write-Host ""
+                Write-Host "  步骤 2/3  输入 API Key（输入时不显示字符，回车跳过）" -ForegroundColor Yellow
+                Write-Host "  提供商: $WizardProvider" -ForegroundColor Cyan
+                Write-Host ""
+                Write-Host "  API Key: " -NoNewline
+
+                $keyChars = New-Object System.Collections.Generic.List[char]
+                try {
+                    while ($true) {
+                        $k = [System.Console]::ReadKey($true)
+                        if ($k.Key -eq [System.ConsoleKey]::Enter) { break }
+                        elseif ($k.Key -eq [System.ConsoleKey]::Backspace) {
+                            if ($keyChars.Count -gt 0) { $keyChars.RemoveAt($keyChars.Count - 1) }
+                        } else {
+                            $keyChars.Add($k.KeyChar)
+                        }
+                    }
+                } catch {
+                    # 非交互环境回退
+                    $keyChars = @()
+                }
+                Write-Host ""
+                if ($keyChars.Count -gt 0) {
+                    $WizardApiKey = -join $keyChars
+                }
+            } else {
+                Write-Warn "无效的提供商选择，跳过 AI 配置"
+            }
+        }
+
+        # Step 3: Telegram Token
+        Write-Host ""
+        Write-Host "  步骤 3/3  配置 Telegram Bot（回车跳过）" -ForegroundColor Yellow
+        Write-Host ""
+        $tgToken = Read-Host "  Telegram Bot Token（格式: 123456:ABC-xxx）"
+        if ($tgToken.Trim() -ne "") {
+            $WizardTelegramToken = $tgToken.Trim()
+            $tgAllowed = Read-Host "  允许的用户 ID（逗号分隔，留空则不限制）"
+            $WizardTelegramAllowed = $tgAllowed.Trim()
+        }
+    }
+
+    # ── 构建 configVersion:3 格式配置 ────────────────────────────────────
+    $providersArr = @()
+    $modelsArr    = @()
+    $channelsArr  = @()
+
+    if ($WizardProvider -and $WizardApiKey) {
+        $preset      = $ProviderPresets[$WizardProvider]
+        $provName    = if ($preset) { $preset.Name } else { $WizardProvider }
+        $modelId     = if ($WizardModel) { $WizardModel } elseif ($preset) { $preset.Model } else { "" }
+        $baseUrlVal  = if ($WizardBaseUrl) { $WizardBaseUrl } elseif ($preset) { $preset.BaseUrl } else { "" }
+
+        $provObj = [ordered]@{
+            id       = $WizardProvider
+            name     = $provName
+            provider = $WizardProvider
+            apiKey   = $WizardApiKey
+            status   = "untested"
+        }
+        if ($baseUrlVal) { $provObj["baseUrl"] = $baseUrlVal }
+        $providersArr += $provObj
+
+        if ($modelId) {
+            $modelsArr += [ordered]@{
+                id         = "default"
+                name       = "$WizardProvider / $modelId"
+                provider   = $WizardProvider
+                model      = $modelId
+                providerId = $WizardProvider
+                isDefault  = $true
+                status     = "untested"
+            }
+        }
+    }
+
+    if ($WizardTelegramToken) {
+        $allowedIds = @()
+        if ($WizardTelegramAllowed) {
+            $allowedIds = $WizardTelegramAllowed -split ',' | ForEach-Object {
+                $n = $null
+                if ([int64]::TryParse($_.Trim(), [ref]$n)) { $n }
+            } | Where-Object { $_ -ne $null }
+        }
+        $channelsArr += [ordered]@{
+            id          = "telegram"
+            name        = "Telegram"
+            type        = "telegram"
+            config      = @{ botToken = $WizardTelegramToken }
+            enabled     = $true
+            status      = "untested"
+            allowedFrom = $allowedIds
+        }
+    }
+
+    $configObj = [ordered]@{
+        configVersion = 3
+        gateway       = [ordered]@{ port = $GatewayPort; bind = $BindMode }
+        agents        = @{ dir = $AgentsDirPath.Replace("\", "/") }
+        providers     = $providersArr
+        models        = $modelsArr
+        channels      = $channelsArr
+        tools         = @()
+        skills        = @()
+        auth          = [ordered]@{ mode = "token"; token = $AdminToken }
+    }
+
+    $configJson = $configObj | ConvertTo-Json -Depth 10
+    $configJson | Out-File -FilePath $script:ConfigFile -Encoding utf8 -Force
+
+    # 返回向导结果（用于完成摘要）
+    return @{
+        Provider      = $WizardProvider
+        ApiKey        = $WizardApiKey
+        Model         = if ($WizardModel) { $WizardModel } elseif ($WizardProvider -and $ProviderPresets[$WizardProvider]) { $ProviderPresets[$WizardProvider].Model } else { "" }
+        TelegramToken = $WizardTelegramToken
+    }
+}
+
+# ── 生成配置（调用向导）──────────────────────────────────────────────────
+$ShowToken   = $null
+$WizardResult = $null
 if (-not (Test-Path $ConfigFile)) {
     $AdminToken = -join ((48..57) + (97..102) | Get-Random -Count 32 | ForEach-Object {[char]$_})
     $BindMode   = if ($Domain) { "localhost" } else { "lan" }
-    $Config = @{
-        gateway = @{ port = [int]$Port; bind = $BindMode }
-        agents  = @{ dir  = $AgentsDir.Replace("\", "/") }
-        models  = @{ primary = "anthropic/claude-sonnet-4-6" }
-        auth    = @{ mode = "token"; token = $AdminToken }
-    } | ConvertTo-Json -Depth 5
-    $Config | Out-File -FilePath $ConfigFile -Encoding utf8 -Force
+
+    $WizardResult = Invoke-SetupWizard -AdminToken $AdminToken -BindMode $BindMode `
+        -GatewayPort ([int]$Port) -AgentsDirPath $AgentsDir
+
     Write-Host ""
     Write-Host "  🔑 管理员 Token：" -NoNewline -ForegroundColor Yellow
     Write-Host $AdminToken -ForegroundColor Green
@@ -317,6 +537,18 @@ if ($ShowToken) {
     Write-Host ""
     Write-Host "  🔑 管理员 Token：" -NoNewline -ForegroundColor Yellow
     Write-Host $ShowToken -ForegroundColor Green
+}
+if ($WizardResult) {
+    Write-Host ""
+    if ($WizardResult.Provider -and $WizardResult.ApiKey) {
+        $modelStr = if ($WizardResult.Model) { " / $($WizardResult.Model)" } else { "" }
+        Write-Host "  🤖 AI 提供商：$($WizardResult.Provider)$modelStr" -ForegroundColor Cyan
+    } else {
+        Write-Host "  ⚠  未配置 AI Key，请登录面板 → 设置 → 提供商 添加" -ForegroundColor Yellow
+    }
+    if ($WizardResult.TelegramToken) {
+        Write-Host "  💬 Telegram Bot 已配置" -ForegroundColor Cyan
+    }
 }
 Write-Host ""
 Write-Host "  📄 配置文件：  $ConfigFile"
