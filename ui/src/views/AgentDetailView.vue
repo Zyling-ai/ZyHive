@@ -1030,6 +1030,112 @@
           </div>
         </el-tab-pane>
 
+        <!-- ── 工具权限 Tab ── -->
+        <el-tab-pane label="工具权限" name="toolpolicy">
+          <div style="padding: 20px; max-width: 720px;">
+            <h3 style="margin: 0 0 6px; font-size: 15px;">工具权限 <span style="font-size:12px;color:#888;font-weight:400;">（仅此成员）</span></h3>
+            <p style="margin: 0 0 18px; color: #64748b; font-size: 13px;">
+              控制此 AI 成员可使用的工具。<strong>Deny 优先于 Allow</strong>。未设置时继承全局策略。<br>
+              支持 group 快捷方式：<code>group:fs</code> <code>group:runtime</code> <code>group:web</code>
+              <code>group:memory</code> <code>group:ui</code> <code>group:agent</code>
+              <code>group:sessions</code> <code>group:cron</code> <code>group:messaging</code>
+            </p>
+
+            <el-form label-width="90px" size="default">
+              <el-form-item label="Profile">
+                <el-select v-model="toolPolicyForm.profile" placeholder="继承全局（不限制）" style="width: 260px;" clearable>
+                  <el-option label="full — 不限制（默认）" value="full" />
+                  <el-option label="coding — 文件+命令+Agent+记忆" value="coding" />
+                  <el-option label="messaging — 仅消息+Sessions" value="messaging" />
+                  <el-option label="minimal — 仅 send_message + 记忆" value="minimal" />
+                </el-select>
+                <span style="margin-left:8px; font-size:12px; color:#94a3b8;">基础白名单，Allow/Deny 在此基础上叠加</span>
+              </el-form-item>
+
+              <el-form-item label="Allow">
+                <div style="width: 100%">
+                  <el-tag
+                    v-for="(item, idx) in toolPolicyForm.allow"
+                    :key="idx"
+                    closable
+                    size="small"
+                    style="margin: 2px 4px 2px 0;"
+                    @close="toolPolicyForm.allow.splice(idx, 1)"
+                  >{{ item }}</el-tag>
+                  <el-input
+                    v-model="toolPolicyAllowInput"
+                    size="small"
+                    placeholder="输入工具名或 group:xx，回车添加"
+                    style="width: 260px; margin-top: 4px;"
+                    @keyup.enter="addToolPolicyTag('allow')"
+                  >
+                    <template #append>
+                      <el-button @click="addToolPolicyTag('allow')" size="small">添加</el-button>
+                    </template>
+                  </el-input>
+                </div>
+              </el-form-item>
+
+              <el-form-item label="Deny">
+                <div style="width: 100%">
+                  <el-tag
+                    v-for="(item, idx) in toolPolicyForm.deny"
+                    :key="idx"
+                    closable
+                    type="danger"
+                    size="small"
+                    style="margin: 2px 4px 2px 0;"
+                    @close="toolPolicyForm.deny.splice(idx, 1)"
+                  >{{ item }}</el-tag>
+                  <el-input
+                    v-model="toolPolicyDenyInput"
+                    size="small"
+                    placeholder="输入工具名或 group:xx，回车拒绝"
+                    style="width: 260px; margin-top: 4px;"
+                    @keyup.enter="addToolPolicyTag('deny')"
+                  >
+                    <template #append>
+                      <el-button @click="addToolPolicyTag('deny')" size="small">添加</el-button>
+                    </template>
+                  </el-input>
+                </div>
+              </el-form-item>
+
+              <!-- 快速 preset 按钮 -->
+              <el-form-item label="">
+                <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                  <span style="font-size:12px; color:#94a3b8; align-self:center;">快速 Deny：</span>
+                  <el-button size="small" plain @click="quickDeny('group:runtime')">禁用命令执行</el-button>
+                  <el-button size="small" plain @click="quickDeny('group:fs')">禁用文件读写</el-button>
+                  <el-button size="small" plain @click="quickDeny('bash')">仅禁用 bash</el-button>
+                  <el-button size="small" plain type="danger" @click="clearToolPolicy">重置（继承全局）</el-button>
+                </div>
+              </el-form-item>
+
+              <el-form-item label="">
+                <el-button type="primary" :loading="toolPolicySaving" @click="saveToolPolicy">
+                  保存权限策略
+                </el-button>
+                <span v-if="toolPolicySaved" style="margin-left:10px;color:#67c23a;font-size:13px;">✓ 已保存</span>
+              </el-form-item>
+            </el-form>
+
+            <!-- 当前生效工具预览 -->
+            <el-divider />
+            <div style="font-size:13px; color:#64748b; margin-bottom:8px;">当前策略预览（所有工具 → 过滤后可用）</div>
+            <div style="display:flex; flex-wrap:wrap; gap:6px;">
+              <el-tag
+                v-for="t in toolPolicyPreview"
+                :key="t.name"
+                :type="t.denied ? 'danger' : 'success'"
+                size="small"
+                :title="t.denied ? '被 deny 屏蔽' : '可用'"
+              >{{ t.name }}</el-tag>
+              <span v-if="!toolPolicyPreview.length" style="color:#94a3b8; font-size:12px;">（无预览数据）</span>
+            </div>
+          </div>
+        </el-tab-pane>
+
       </el-tabs>
     </el-main>
   </el-container>
@@ -1293,6 +1399,137 @@ async function saveEnvVars() {
     ElMessage.error('保存失败')
   } finally {
     envSaving.value = false
+  }
+}
+
+// ── Tool Policy ──────────────────────────────────────────────────────────────
+const toolPolicyForm = ref<{ profile: string; allow: string[]; deny: string[] }>({
+  profile: '',
+  allow: [],
+  deny: [],
+})
+const toolPolicyAllowInput = ref('')
+const toolPolicyDenyInput = ref('')
+const toolPolicySaving = ref(false)
+const toolPolicySaved = ref(false)
+
+// All built-in tool names for preview
+const ALL_TOOL_NAMES = [
+  'read','write','edit','grep','glob',
+  'bash','process',
+  'web_fetch','web_search',
+  'memory_search',
+  'browser','show_image','image',
+  'agent_list','agent_spawn','agent_tasks','agent_kill','agent_result',
+  'sessions_list','sessions_history','sessions_send',
+  'cron_list','cron_add','cron_remove',
+  'send_message','send_file',
+  'self_list_skills','self_install_skill','self_uninstall_skill','self_rename','self_update_soul','self_set_env','self_delete_env',
+  'project_list','project_read','project_write','project_create','project_glob',
+  'report_result',
+]
+
+const TOOL_GROUPS: Record<string, string[]> = {
+  'group:fs': ['read','write','edit','grep','glob'],
+  'group:runtime': ['bash','process'],
+  'group:web': ['web_fetch','web_search'],
+  'group:memory': ['memory_search'],
+  'group:ui': ['browser','show_image','image'],
+  'group:agent': ['agent_list','agent_spawn','agent_tasks','agent_kill','agent_result'],
+  'group:sessions': ['sessions_list','sessions_history','sessions_send'],
+  'group:cron': ['cron_list','cron_add','cron_remove'],
+  'group:messaging': ['send_message','send_file'],
+  'group:self': ['self_list_skills','self_install_skill','self_uninstall_skill','self_rename','self_update_soul','self_set_env','self_delete_env'],
+  'group:project': ['project_list','project_read','project_write','project_create','project_glob'],
+}
+
+const PROFILE_ALLOWLISTS: Record<string, string[] | null> = {
+  'full': null,
+  'coding': ['read','write','edit','grep','glob','bash','process','agent_list','agent_spawn','agent_tasks','agent_kill','agent_result','memory_search','image','web_fetch','web_search'],
+  'messaging': ['send_message','send_file','sessions_list','sessions_history','sessions_send','memory_search'],
+  'minimal': ['send_message','memory_search'],
+}
+
+function expandPatterns(patterns: string[]): Set<string> {
+  const result = new Set<string>()
+  for (const p of patterns) {
+    if (p === '*') { ALL_TOOL_NAMES.forEach(n => result.add(n)); continue }
+    if (TOOL_GROUPS[p]) { TOOL_GROUPS[p]!.forEach(n => result.add(n)); continue }
+    result.add(p.toLowerCase())
+  }
+  return result
+}
+
+const toolPolicyPreview = computed(() => {
+  const profile = toolPolicyForm.value.profile
+  const allow = toolPolicyForm.value.allow
+  const deny = toolPolicyForm.value.deny
+
+  if (!profile && !allow.length && !deny.length) return []
+
+  const baseAllow: Set<string> | null =
+    profile && profile !== 'full' && PROFILE_ALLOWLISTS[profile]
+      ? new Set(PROFILE_ALLOWLISTS[profile]!)
+      : null
+
+  const extraAllow = expandPatterns(allow)
+  const denySet = expandPatterns(deny)
+
+  return ALL_TOOL_NAMES.map(name => {
+    const denied = denySet.has('*') || denySet.has(name)
+    if (denied) return { name, denied: true }
+    let allowed = baseAllow === null ? true : baseAllow.has(name)
+    if (extraAllow.has('*') || extraAllow.has(name)) allowed = true
+    return { name, denied: !allowed }
+  })
+})
+
+function loadToolPolicy() {
+  const p = agent.value?.toolPolicy
+  toolPolicyForm.value = {
+    profile: p?.profile || '',
+    allow: p?.allow ? [...p.allow] : [],
+    deny: p?.deny ? [...p.deny] : [],
+  }
+}
+
+function addToolPolicyTag(type: 'allow' | 'deny') {
+  const input = type === 'allow' ? toolPolicyAllowInput : toolPolicyDenyInput
+  const val = input.value.trim()
+  if (!val) return
+  if (!toolPolicyForm.value[type].includes(val)) {
+    toolPolicyForm.value[type].push(val)
+  }
+  input.value = ''
+}
+
+function quickDeny(pattern: string) {
+  if (!toolPolicyForm.value.deny.includes(pattern)) {
+    toolPolicyForm.value.deny.push(pattern)
+  }
+}
+
+function clearToolPolicy() {
+  toolPolicyForm.value = { profile: '', allow: [], deny: [] }
+}
+
+async function saveToolPolicy() {
+  toolPolicySaving.value = true
+  try {
+    const policy: any = {}
+    if (toolPolicyForm.value.profile) policy.profile = toolPolicyForm.value.profile
+    if (toolPolicyForm.value.allow.length) policy.allow = toolPolicyForm.value.allow
+    if (toolPolicyForm.value.deny.length) policy.deny = toolPolicyForm.value.deny
+    const payload = Object.keys(policy).length ? policy : null
+    const res = await agentsApi.update(agentId, { toolPolicy: payload } as any)
+    agent.value = res.data
+    toolPolicySaved.value = true
+    setTimeout(() => { toolPolicySaved.value = false }, 2000)
+    ElMessage.success('工具权限已保存')
+  } catch {
+    ElMessage.error('保存失败')
+  } finally {
+    toolPolicySaving.value = false
   }
 }
 
@@ -1772,6 +2009,7 @@ onMounted(async () => {
   loadCron()
   loadAgentChannels()
   loadEnvVars()
+  loadToolPolicy()
   await loadSidebarItems()
 
   // Handle ?tab=<name> query param (e.g. from CronView "查看" button)

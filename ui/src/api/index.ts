@@ -24,6 +24,12 @@ api.interceptors.response.use(
 
 // ── Types ────────────────────────────────────────────────────────────────
 
+export interface ToolPolicy {
+  profile?: 'full' | 'coding' | 'messaging' | 'minimal'
+  allow?: string[]
+  deny?: string[]
+}
+
 export interface AgentInfo {
   id: string
   name: string
@@ -38,6 +44,7 @@ export interface AgentInfo {
   status: string
   workspaceDir: string
   env?: Record<string, string>  // per-agent env vars for exec tool
+  toolPolicy?: ToolPolicy       // per-agent tool permission policy
 }
 
 export interface ProviderEntry {
