@@ -250,6 +250,24 @@ func (p *Pool) configureToolRegistry(reg *tools.Registry, ag *Agent, fileSender 
 			break
 		}
 	}
+
+	// Apply tool permission policy (allow/deny/profile).
+	// Parse raw JSON policies from config; nil-safe.
+	var globalPolicy, agentPolicy *tools.ToolPolicy
+	if len(p.cfg.ToolPolicyRaw) > 0 {
+		var gp tools.ToolPolicy
+		if err := json.Unmarshal(p.cfg.ToolPolicyRaw, &gp); err == nil {
+			globalPolicy = &gp
+		}
+	}
+	if len(ag.ToolPolicyRaw) > 0 {
+		var ap tools.ToolPolicy
+		if err := json.Unmarshal(ag.ToolPolicyRaw, &ap); err == nil {
+			agentPolicy = &ap
+		}
+	}
+	effectivePolicy := tools.MergePolicy(globalPolicy, agentPolicy)
+	reg.ApplyPolicy(effectivePolicy)
 }
 
 // resolveEmbedder finds the first configured provider that supports the embeddings API.
