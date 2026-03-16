@@ -234,6 +234,14 @@ func (p *Pool) configureToolRegistry(reg *tools.Registry, ag *Agent, fileSender 
 	if p.messageSenderFn != nil {
 		reg.WithMessageSender(p.messageSenderFn(ag.ID))
 	}
+
+	// Register web_search tool if Brave API key is configured.
+	for _, tool := range p.cfg.Tools {
+		if tool.Type == "brave_search" && tool.APIKey != "" {
+			reg.WithWebSearch(tool.APIKey)
+			break
+		}
+	}
 }
 
 // resolveEmbedder finds the first configured provider that supports the embeddings API.
