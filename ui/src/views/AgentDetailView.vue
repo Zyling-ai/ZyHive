@@ -1143,7 +1143,7 @@
                   <span style="font-size:12px; color:#94a3b8; align-self:center;">快速 Deny：</span>
                   <el-button size="small" plain @click="quickDeny('group:runtime')">禁用命令执行</el-button>
                   <el-button size="small" plain @click="quickDeny('group:fs')">禁用文件读写</el-button>
-                  <el-button size="small" plain @click="quickDeny('bash')">仅禁用 bash</el-button>
+                  <el-button size="small" plain @click="quickDeny('exec')">仅禁用 exec</el-button>
                   <el-button size="small" plain type="danger" @click="clearToolPolicy">重置（继承全局）</el-button>
                 </div>
               </el-form-item>
@@ -1488,7 +1488,7 @@ const toolPolicySaved = ref(false)
 // All built-in tool names for preview
 const ALL_TOOL_NAMES = [
   'read','write','edit','grep','glob',
-  'bash','process',
+  'exec','process',
   'web_fetch','web_search',
   'memory_search',
   'browser','show_image','image',
@@ -1503,7 +1503,7 @@ const ALL_TOOL_NAMES = [
 
 const TOOL_GROUPS: Record<string, string[]> = {
   'group:fs': ['read','write','edit','grep','glob'],
-  'group:runtime': ['bash','process'],
+  'group:runtime': ['exec','process'],
   'group:web': ['web_fetch','web_search'],
   'group:memory': ['memory_search'],
   'group:ui': ['browser','show_image','image'],
@@ -1517,7 +1517,7 @@ const TOOL_GROUPS: Record<string, string[]> = {
 
 const PROFILE_ALLOWLISTS: Record<string, string[] | null> = {
   'full': null,
-  'coding': ['read','write','edit','grep','glob','bash','process','agent_list','agent_spawn','agent_tasks','agent_kill','agent_result','memory_search','image','web_fetch','web_search'],
+  'coding': ['read','write','edit','grep','glob','exec','process','agent_list','agent_spawn','agent_tasks','agent_kill','agent_result','memory_search','image','web_fetch','web_search'],
   'messaging': ['send_message','send_file','sessions_list','sessions_history','sessions_send','memory_search'],
   'minimal': ['send_message','memory_search'],
 }
