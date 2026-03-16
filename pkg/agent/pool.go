@@ -235,6 +235,14 @@ func (p *Pool) configureToolRegistry(reg *tools.Registry, ag *Agent, fileSender 
 		reg.WithMessageSender(p.messageSenderFn(ag.ID))
 	}
 
+	// Register image vision tool — uses the agent's configured model for analysis.
+	if modelEntry, err := p.resolveModel(ag); err == nil {
+		resolvedAPIKey, resolvedBaseURL := config.ResolveCredentials(modelEntry, p.cfg.Providers)
+		visionClient := llm.NewClient(modelEntry.Provider, resolvedBaseURL)
+		caller := tools.BuildVisionCaller(visionClient, modelEntry.Model, resolvedAPIKey)
+		reg.WithVisionCaller(caller)
+	}
+
 	// Register web_search tool if Brave API key is configured.
 	for _, tool := range p.cfg.Tools {
 		if tool.Type == "brave_search" && tool.APIKey != "" {
