@@ -26,6 +26,7 @@ type Config struct {
 	Channels  []ChannelEntry   `json:"channels"`            // global channel registry
 	Tools     []ToolEntry      `json:"tools"`               // global capability registry (API keys etc.)
 	Skills    []SkillEntry     `json:"skills"`              // installed skills
+	ACPAgents []ACPAgentEntry  `json:"acpAgents,omitempty"` // external coding-agent CLIs
 	Auth      AuthConfig       `json:"auth"`
 	// ToolPolicyRaw is stored as raw JSON and interpreted by the tools package to avoid import cycles.
 	ToolPolicyRaw json.RawMessage `json:"toolPolicy,omitempty"` // global tool allow/deny/profile
@@ -154,6 +155,24 @@ type SkillEntry struct {
 	Enabled     bool   `json:"enabled"`
 }
 
+// HeartbeatConfig controls the built-in heartbeat for an agent.
+type HeartbeatConfig struct {
+	Enabled     bool   `json:"enabled"`
+	IntervalMin int    `json:"intervalMin,omitempty"` // 0 → default 30 min
+	Prompt      string `json:"prompt,omitempty"`      // empty → default OpenClaw prompt
+}
+
+// ACPAgentEntry defines an external coding-agent CLI (e.g. claude, codex).
+type ACPAgentEntry struct {
+	ID      string   `json:"id"`
+	Name    string   `json:"name"`
+	Binary  string   `json:"binary"`            // executable path, e.g. "claude" or "/usr/local/bin/codex"
+	Args    []string `json:"args,omitempty"`    // extra CLI args; use {{task}} placeholder for task injection
+	WorkDir string   `json:"workDir,omitempty"` // default working directory; empty = agent workspace
+	Env     []string `json:"env,omitempty"`     // KEY=VALUE pairs to set in the subprocess
+	Status  string   `json:"status,omitempty"`  // "ok" | "untested" | "error"
+}
+
 // AgentConfig is the on-disk config.json per agent. References global entries by ID.
 type AgentConfig struct {
 	ID          string         `json:"id"`
@@ -164,6 +183,7 @@ type AgentConfig struct {
 	ToolIDs     []string       `json:"toolIds,omitempty"`
 	SkillIDs    []string       `json:"skillIds,omitempty"`
 	AvatarColor string         `json:"avatarColor,omitempty"`
+	Heartbeat   *HeartbeatConfig `json:"heartbeat,omitempty"` // nil = heartbeat disabled
 	// ToolPolicy is stored as raw JSON and interpreted by the tools package to avoid import cycles.
 	ToolPolicyRaw json.RawMessage `json:"toolPolicy,omitempty"`
 }

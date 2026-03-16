@@ -47,6 +47,13 @@ type Pool struct {
 	usageStore *usage.Store // records LLM API usage; nil = disabled
 
 	cronEngine *cron.Engine // optional: enables cron_list/add/remove tools
+
+	// Heartbeat management: one goroutine per agent with heartbeat enabled.
+	hbMu      sync.Mutex
+	hbCancels map[string]context.CancelFunc // agentID → cancel
+
+	// ACP agents (external coding CLIs) — injected from config.
+	acpAgents []config.ACPAgentEntry
 }
 
 // NewPool creates a new multi-agent runner pool.
@@ -61,6 +68,7 @@ func NewPool(cfg *config.Config, mgr *Manager) *Pool {
 		cfg:        cfg,
 		runners:    make(map[string]*runner.Runner),
 		browserMgr: browser.NewManager(agentsDir), // lazy: browser + auto-download on first use
+		hbCancels:  make(map[string]context.CancelFunc),
 	}
 }
 
@@ -100,6 +108,96 @@ func (p *Pool) SetWorkerPool(wp *session.WorkerPool) {
 // SetCronEngine attaches the cron engine so agents can manage their own scheduled jobs.
 func (p *Pool) SetCronEngine(e *cron.Engine) {
 	p.cronEngine = e
+}
+
+// ── Heartbeat ────────────────────────────────────────────────────────────────
+
+const defaultHeartbeatPrompt = "Read HEARTBEAT.md if it exists. Follow it strictly. Do not infer or repeat old tasks from prior chats. If nothing needs attention, reply HEARTBEAT_OK."
+
+// StartHeartbeats reads each agent's heartbeat config and starts background goroutines.
+// Call after all agents are loaded and the pool is fully wired.
+func (p *Pool) StartHeartbeats() {
+	for _, ag := range p.manager.List() {
+		if ag.Heartbeat != nil && ag.Heartbeat.Enabled {
+			p.startAgentHeartbeat(ag.ID, ag.Heartbeat)
+		}
+	}
+}
+
+// StopHeartbeats cancels all running heartbeat goroutines.
+func (p *Pool) StopHeartbeats() {
+	p.hbMu.Lock()
+	defer p.hbMu.Unlock()
+	for id, cancel := range p.hbCancels {
+		cancel()
+		delete(p.hbCancels, id)
+	}
+}
+
+// RestartAgentHeartbeat stops any existing heartbeat for the agent and starts a new one
+// based on the agent's current config. Call after updating an agent's heartbeat settings.
+func (p *Pool) RestartAgentHeartbeat(agentID string) {
+	p.hbMu.Lock()
+	if cancel, ok := p.hbCancels[agentID]; ok {
+		cancel()
+		delete(p.hbCancels, agentID)
+	}
+	p.hbMu.Unlock()
+
+	if ag, ok := p.manager.Get(agentID); ok {
+		if ag.Heartbeat != nil && ag.Heartbeat.Enabled {
+			p.startAgentHeartbeat(agentID, ag.Heartbeat)
+		}
+	}
+}
+
+func (p *Pool) startAgentHeartbeat(agentID string, cfg *config.HeartbeatConfig) {
+	interval := time.Duration(cfg.IntervalMin) * time.Minute
+	if interval <= 0 {
+		interval = 30 * time.Minute
+	}
+	prompt := cfg.Prompt
+	if prompt == "" {
+		prompt = defaultHeartbeatPrompt
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	p.hbMu.Lock()
+	p.hbCancels[agentID] = cancel
+	p.hbMu.Unlock()
+
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				// Fire and forget — don't block the heartbeat goroutine.
+				go func() {
+					runCtx, runCancel := context.WithTimeout(context.Background(), 5*time.Minute)
+					defer runCancel()
+					if _, err := p.Run(runCtx, agentID, prompt); err != nil {
+						log.Printf("[heartbeat] agent %s: %v", agentID, err)
+					}
+				}()
+			}
+		}
+	}()
+	log.Printf("[heartbeat] started for agent %s (interval=%s)", agentID, interval)
+}
+
+// ── ACP Agents ───────────────────────────────────────────────────────────────
+
+// SetACPAgents injects the list of external coding-agent CLIs from global config.
+func (p *Pool) SetACPAgents(entries []config.ACPAgentEntry) {
+	p.acpAgents = entries
+}
+
+// GetACPAgents returns the configured ACP agents (read-only snapshot).
+func (p *Pool) GetACPAgents() []config.ACPAgentEntry {
+	return p.acpAgents
 }
 
 // readSessionContext reads the last N conversation turns from any agent's session store.
@@ -365,6 +463,12 @@ func (p *Pool) configureToolRegistry(reg *tools.Registry, ag *Agent, fileSender 
 	sessAdapter := p.buildSessionAdapter()
 	sessionSender := &poolSessionSender{pool: p}
 	reg.WithSessionTools(sessAdapter, sessAdapter, sessionSender)
+
+	// Register ACP tools (acp_list + acp_spawn) if any ACP agents are configured.
+	if len(p.acpAgents) > 0 {
+		acpAgents := p.acpAgents // capture
+		reg.WithACPAgents(func() []config.ACPAgentEntry { return acpAgents })
+	}
 
 	// Apply tool permission policy (allow/deny/profile).
 	// Parse raw JSON policies from config; nil-safe.

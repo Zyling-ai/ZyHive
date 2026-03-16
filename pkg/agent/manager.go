@@ -40,6 +40,7 @@ type Agent struct {
 	WorkspaceDir string                `json:"workspaceDir"`
 	SessionDir   string                `json:"sessionDir"`
 	Status       string                `json:"status"` // "running" | "stopped" | "idle"
+	Heartbeat    *config.HeartbeatConfig `json:"heartbeat,omitempty"` // nil = heartbeat disabled
 	ToolPolicyRaw json.RawMessage `json:"toolPolicy,omitempty"` // nil = inherit global
 }
 
@@ -54,9 +55,10 @@ type agentConfig struct {
 	ToolIDs     []string              `json:"toolIds,omitempty"`
 	SkillIDs    []string              `json:"skillIds,omitempty"`
 	AvatarColor string                `json:"avatarColor,omitempty"`
-	System      bool                  `json:"system,omitempty"`
-	Env         map[string]string     `json:"env,omitempty"` // per-agent env vars for exec
-	ToolPolicyRaw json.RawMessage `json:"toolPolicy,omitempty"` // nil = inherit global
+	System      bool                    `json:"system,omitempty"`
+	Env         map[string]string       `json:"env,omitempty"` // per-agent env vars for exec
+	Heartbeat   *config.HeartbeatConfig `json:"heartbeat,omitempty"` // nil = disabled
+	ToolPolicyRaw json.RawMessage       `json:"toolPolicy,omitempty"` // nil = inherit global
 }
 
 // Manager manages all agents under a root directory.
@@ -115,20 +117,21 @@ func (m *Manager) LoadAll() error {
 
 		wsDir := filepath.Join(agentDir, "workspace")
 		m.agents[cfg.ID] = &Agent{
-			ID:           cfg.ID,
-			Name:         cfg.Name,
-			Description:  cfg.Description,
-			Model:        cfg.Model,
-			ModelID:      cfg.ModelID,
-			Channels:     cfg.Channels,
-			ToolIDs:      cfg.ToolIDs,
-			SkillIDs:     cfg.SkillIDs,
-			AvatarColor:  cfg.AvatarColor,
-			System:       cfg.System,
-			Env:          cfg.Env,
-			WorkspaceDir: wsDir,
-			SessionDir:   filepath.Join(agentDir, "sessions"),
-			Status:       "idle",
+			ID:            cfg.ID,
+			Name:          cfg.Name,
+			Description:   cfg.Description,
+			Model:         cfg.Model,
+			ModelID:       cfg.ModelID,
+			Channels:      cfg.Channels,
+			ToolIDs:       cfg.ToolIDs,
+			SkillIDs:      cfg.SkillIDs,
+			AvatarColor:   cfg.AvatarColor,
+			System:        cfg.System,
+			Env:           cfg.Env,
+			Heartbeat:     cfg.Heartbeat,
+			WorkspaceDir:  wsDir,
+			SessionDir:    filepath.Join(agentDir, "sessions"),
+			Status:        "idle",
 			ToolPolicyRaw: cfg.ToolPolicyRaw,
 		}
 
@@ -290,16 +293,18 @@ func (m *Manager) Remove(id string) error {
 // Pointer fields: nil means "leave unchanged"; non-nil means "apply this value".
 // Slice fields: nil means "leave unchanged"; non-nil (even empty) means "replace".
 type UpdateOpts struct {
-	Name          *string           `json:"name,omitempty"`
-	Description   *string           `json:"description,omitempty"`
-	ModelID       *string           `json:"modelId,omitempty"`
-	Model         *string           `json:"model,omitempty"`
-	AvatarColor   *string           `json:"avatarColor,omitempty"`
-	ToolIDs       []string          `json:"toolIds"`
-	SkillIDs      []string          `json:"skillIds"`
-	Env           map[string]string `json:"env"` // nil = leave unchanged; non-nil (even empty) = replace
-	ToolPolicySet bool              // true = apply ToolPolicyRaw (even if nil/empty = clear policy)
-	ToolPolicyRaw json.RawMessage   // raw JSON for toolPolicy; nil = no policy
+	Name          *string                 `json:"name,omitempty"`
+	Description   *string                 `json:"description,omitempty"`
+	ModelID       *string                 `json:"modelId,omitempty"`
+	Model         *string                 `json:"model,omitempty"`
+	AvatarColor   *string                 `json:"avatarColor,omitempty"`
+	ToolIDs       []string                `json:"toolIds"`
+	SkillIDs      []string                `json:"skillIds"`
+	Env           map[string]string       `json:"env"` // nil = leave unchanged; non-nil (even empty) = replace
+	HeartbeatSet  bool                    // true = apply Heartbeat (even if nil = clear)
+	Heartbeat     *config.HeartbeatConfig // nil = disable heartbeat
+	ToolPolicySet bool                    // true = apply ToolPolicyRaw (even if nil/empty = clear policy)
+	ToolPolicyRaw json.RawMessage         // raw JSON for toolPolicy; nil = no policy
 }
 
 // UpdateAgent patches an agent's config fields and persists to disk.
@@ -355,6 +360,10 @@ func (m *Manager) UpdateAgent(agentID string, opts UpdateOpts) error {
 	if opts.Env != nil {
 		cfg.Env = opts.Env
 		ag.Env = opts.Env
+	}
+	if opts.HeartbeatSet {
+		cfg.Heartbeat = opts.Heartbeat
+		ag.Heartbeat = opts.Heartbeat
 	}
 	if opts.ToolPolicySet {
 		cfg.ToolPolicyRaw = opts.ToolPolicyRaw

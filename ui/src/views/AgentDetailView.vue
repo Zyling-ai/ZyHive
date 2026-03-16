@@ -715,6 +715,42 @@
               <el-button @click="showCronLogs = false">关闭</el-button>
             </template>
           </el-dialog>
+
+          <!-- ── 内置心跳 ── -->
+          <el-divider />
+          <div style="max-width: 640px; margin-top: 8px;">
+            <h3 style="margin: 0 0 10px; font-size: 15px;">💓 内置心跳</h3>
+            <p style="margin: 0 0 14px; color: #64748b; font-size: 13px;">
+              定时向此成员注入心跳 prompt，让 AI 主动检查待办事项、邮件、日历等。<br>
+              成员需在工作区创建 <code>HEARTBEAT.md</code> 来声明要检查的内容，否则心跳无实际作用。
+            </p>
+            <el-form label-width="90px" size="default">
+              <el-form-item label="启用心跳">
+                <el-switch v-model="heartbeatForm.enabled" />
+              </el-form-item>
+              <template v-if="heartbeatForm.enabled">
+                <el-form-item label="间隔（分钟）">
+                  <el-input-number v-model="heartbeatForm.intervalMin" :min="1" :max="1440" style="width: 180px;" />
+                  <span style="margin-left:8px; font-size:12px; color:#94a3b8;">默认 30 分钟</span>
+                </el-form-item>
+                <el-form-item label="Prompt">
+                  <el-input
+                    v-model="heartbeatForm.prompt"
+                    type="textarea"
+                    :rows="3"
+                    placeholder="留空使用默认 prompt（读取 HEARTBEAT.md，无事则 HEARTBEAT_OK）"
+                    style="font-family: monospace; font-size: 12px;"
+                  />
+                </el-form-item>
+              </template>
+              <el-form-item label="">
+                <el-button type="primary" :loading="heartbeatSaving" @click="saveHeartbeat">
+                  保存心跳配置
+                </el-button>
+                <span v-if="heartbeatSaved" style="margin-left:10px;color:#67c23a;font-size:13px;">✓ 已保存，立即生效</span>
+              </el-form-item>
+            </el-form>
+          </div>
         </el-tab-pane>
 
         <!-- Tab 7: 渠道 (per-agent channel config) -->
@@ -1402,6 +1438,42 @@ async function saveEnvVars() {
   }
 }
 
+// ── Heartbeat ─────────────────────────────────────────────────────────────────
+const heartbeatForm = ref({ enabled: false, intervalMin: 30, prompt: '' })
+const heartbeatSaving = ref(false)
+const heartbeatSaved = ref(false)
+
+function loadHeartbeat() {
+  const hb = agent.value?.heartbeat
+  heartbeatForm.value = {
+    enabled: hb?.enabled ?? false,
+    intervalMin: hb?.intervalMin || 30,
+    prompt: hb?.prompt || '',
+  }
+}
+
+async function saveHeartbeat() {
+  heartbeatSaving.value = true
+  try {
+    const hb = heartbeatForm.value.enabled
+      ? {
+          enabled: true,
+          intervalMin: heartbeatForm.value.intervalMin || 30,
+          prompt: heartbeatForm.value.prompt || undefined,
+        }
+      : null
+    const res = await agentsApi.update(agentId, { heartbeat: hb } as any)
+    agent.value = res.data
+    heartbeatSaved.value = true
+    setTimeout(() => { heartbeatSaved.value = false }, 2500)
+    ElMessage.success(heartbeatForm.value.enabled ? '心跳已启动' : '心跳已停止')
+  } catch {
+    ElMessage.error('保存失败')
+  } finally {
+    heartbeatSaving.value = false
+  }
+}
+
 // ── Tool Policy ──────────────────────────────────────────────────────────────
 const toolPolicyForm = ref<{ profile: string; allow: string[]; deny: string[] }>({
   profile: '',
@@ -2009,6 +2081,7 @@ onMounted(async () => {
   loadCron()
   loadAgentChannels()
   loadEnvVars()
+  loadHeartbeat()
   loadToolPolicy()
   await loadSidebarItems()
 

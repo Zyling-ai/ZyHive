@@ -226,6 +226,16 @@ func main() {
 	// Wire cron engine into agent pool so agents can manage cron jobs via tools.
 	pool.SetCronEngine(cronEngine)
 
+	// Wire ACP agents (external coding CLIs) from global config.
+	if len(cfg.ACPAgents) > 0 {
+		pool.SetACPAgents(cfg.ACPAgents)
+		log.Printf("ACP agents configured: %d", len(cfg.ACPAgents))
+	}
+
+	// Start built-in heartbeats for all agents that have heartbeat.enabled=true.
+	pool.StartHeartbeats()
+	log.Printf("Heartbeats started")
+
 	// Initialize Telegram bot (if enabled)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
