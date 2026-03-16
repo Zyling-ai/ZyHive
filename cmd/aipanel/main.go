@@ -223,6 +223,9 @@ func main() {
 		log.Printf("Cron engine started (%d jobs loaded)", len(cronEngine.ListJobs()))
 	}
 
+	// Wire cron engine into agent pool so agents can manage cron jobs via tools.
+	pool.SetCronEngine(cronEngine)
+
 	// Initialize Telegram bot (if enabled)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

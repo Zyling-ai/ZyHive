@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/Zyling-ai/zyhive/pkg/browser"
 	"github.com/Zyling-ai/zyhive/pkg/channel"
 	"github.com/Zyling-ai/zyhive/pkg/config"
+	"github.com/Zyling-ai/zyhive/pkg/cron"
 	"github.com/Zyling-ai/zyhive/pkg/llm"
 	"github.com/Zyling-ai/zyhive/pkg/memory"
 	"github.com/Zyling-ai/zyhive/pkg/project"
@@ -43,6 +45,8 @@ type Pool struct {
 	messageSenderFn func(agentID string) tools.MessageSenderFunc
 
 	usageStore *usage.Store // records LLM API usage; nil = disabled
+
+	cronEngine *cron.Engine // optional: enables cron_list/add/remove tools
 }
 
 // NewPool creates a new multi-agent runner pool.
@@ -91,6 +95,11 @@ func (p *Pool) SetWorkerPool(wp *session.WorkerPool) {
 			return p.readSessionContext(sessionID, lastN)
 		})
 	}
+}
+
+// SetCronEngine attaches the cron engine so agents can manage their own scheduled jobs.
+func (p *Pool) SetCronEngine(e *cron.Engine) {
+	p.cronEngine = e
 }
 
 // readSessionContext reads the last N conversation turns from any agent's session store.
@@ -157,6 +166,101 @@ func extractTextFromContent(raw json.RawMessage) string {
 // SetProjectManager attaches the shared project manager so agents can access projects via tools.
 func (p *Pool) SetProjectManager(mgr *project.Manager) {
 	p.projectMgr = mgr
+}
+
+// poolSessionAdapter aggregates session data across all agents for the sessions_* tools.
+type poolSessionAdapter struct {
+	pool *Pool
+}
+
+func (p *Pool) buildSessionAdapter() *poolSessionAdapter {
+	return &poolSessionAdapter{pool: p}
+}
+
+// ListSessions aggregates sessions from all agents' session stores.
+func (a *poolSessionAdapter) ListSessions(limit int) []tools.SessionSummary {
+	if limit <= 0 {
+		limit = 20
+	}
+	a.pool.manager.mu.RLock()
+	agents := make([]*Agent, 0, len(a.pool.manager.agents))
+	for _, ag := range a.pool.manager.agents {
+		agents = append(agents, ag)
+	}
+	a.pool.manager.mu.RUnlock()
+
+	var all []tools.SessionSummary
+	for _, ag := range agents {
+		store := session.NewStore(ag.SessionDir)
+		sessions, err := store.ListSessions()
+		if err != nil {
+			continue
+		}
+		for _, s := range sessions {
+			all = append(all, tools.SessionSummary{
+				SessionKey:   s.ID,
+				AgentID:      ag.ID,
+				LastActiveMs: s.LastAt,
+				LastMessage:  s.Title,
+			})
+		}
+	}
+	// Sort by LastActiveMs descending (newest first), take limit.
+	sort.Slice(all, func(i, j int) bool {
+		return all[i].LastActiveMs > all[j].LastActiveMs
+	})
+	if len(all) > limit {
+		all = all[:limit]
+	}
+	return all
+}
+
+// ReadHistory reads session history from the agent that owns the session.
+func (a *poolSessionAdapter) ReadHistory(sessionKey string, limit int) ([]tools.SessionMessage, error) {
+	a.pool.manager.mu.RLock()
+	agents := make([]*Agent, 0, len(a.pool.manager.agents))
+	for _, ag := range a.pool.manager.agents {
+		agents = append(agents, ag)
+	}
+	a.pool.manager.mu.RUnlock()
+
+	for _, ag := range agents {
+		store := session.NewStore(ag.SessionDir)
+		msgs, _, err := store.ReadHistory(sessionKey)
+		if err == nil && msgs != nil {
+			var result []tools.SessionMessage
+			for _, m := range msgs {
+				text := extractTextFromContent(m.Content)
+				if len(text) > 500 {
+					text = text[:500] + "..."
+				}
+				result = append(result, tools.SessionMessage{
+					Role:    m.Role,
+					Content: text,
+				})
+			}
+			if limit > 0 && len(result) > limit {
+				result = result[len(result)-limit:]
+			}
+			return result, nil
+		}
+	}
+	return nil, fmt.Errorf("session %q not found", sessionKey)
+}
+
+// poolSessionSender sends a message to another agent using the pool.
+type poolSessionSender struct {
+	pool *Pool
+}
+
+func (s *poolSessionSender) SendToAgent(agentID, message string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	result, err := s.pool.Run(ctx, agentID, message)
+	if err != nil {
+		return "", fmt.Errorf("sessions_send to %s: %v", agentID, err)
+	}
+	return result, nil
 }
 
 // GetProjectMgr returns the project manager (may be nil).
@@ -250,6 +354,17 @@ func (p *Pool) configureToolRegistry(reg *tools.Registry, ag *Agent, fileSender 
 			break
 		}
 	}
+
+	// Register cron_list/add/remove tools if cron engine is available.
+	if p.cronEngine != nil {
+		reg.WithCronEngine(p.cronEngine)
+	}
+
+	// Register sessions_list/history/send tools.
+	// Uses a cross-agent adapter that aggregates all known agents' session stores.
+	sessAdapter := p.buildSessionAdapter()
+	sessionSender := &poolSessionSender{pool: p}
+	reg.WithSessionTools(sessAdapter, sessAdapter, sessionSender)
 
 	// Apply tool permission policy (allow/deny/profile).
 	// Parse raw JSON policies from config; nil-safe.
