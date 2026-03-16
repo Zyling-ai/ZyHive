@@ -411,6 +411,19 @@ func (p *Pool) configureToolRegistry(reg *tools.Registry, ag *Agent, fileSender 
 	if p.SubagentMgr != nil {
 		reg.WithSubagentManager(p.SubagentMgr)
 	}
+	// Register agent_list so agents can discover peers.
+	reg.WithAgentLister(func() []tools.AgentSummary {
+		agents := p.manager.List()
+		summaries := make([]tools.AgentSummary, 0, len(agents))
+		for _, a := range agents {
+			summaries = append(summaries, tools.AgentSummary{
+				ID:          a.ID,
+				Name:        a.Name,
+				Description: a.Description,
+			})
+		}
+		return summaries
+	})
 	if fileSender != nil {
 		reg.WithFileSender(fileSender, p.cfg.Gateway.BaseURL(), p.cfg.Auth.Token)
 	}
