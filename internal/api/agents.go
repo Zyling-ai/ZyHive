@@ -11,6 +11,7 @@ import (
 	"github.com/Zyling-ai/zyhive/pkg/cron"
 )
 
+
 type agentHandler struct {
 	cfg        *config.Config
 	manager    *agent.Manager
@@ -21,19 +22,20 @@ type agentHandler struct {
 
 // AgentInfo is the JSON shape returned to the frontend.
 type AgentInfo struct {
-	ID            string            `json:"id"`
-	Name          string            `json:"name"`
-	Description   string            `json:"description,omitempty"`
-	Model         string            `json:"model"`
-	ModelID       string            `json:"modelId,omitempty"`
-	ToolIDs       []string          `json:"toolIds,omitempty"`
-	SkillIDs      []string          `json:"skillIds,omitempty"`
-	AvatarColor   string            `json:"avatarColor,omitempty"`
-	System        bool              `json:"system,omitempty"`
-	Status        string            `json:"status"`
-	WorkspaceDir  string            `json:"workspaceDir"`
-	Env           map[string]string `json:"env,omitempty"`          // per-agent env vars
-	ToolPolicy    json.RawMessage   `json:"toolPolicy,omitempty"`   // per-agent tool permission policy
+	ID            string                  `json:"id"`
+	Name          string                  `json:"name"`
+	Description   string                  `json:"description,omitempty"`
+	Model         string                  `json:"model"`
+	ModelID       string                  `json:"modelId,omitempty"`
+	ToolIDs       []string                `json:"toolIds,omitempty"`
+	SkillIDs      []string                `json:"skillIds,omitempty"`
+	AvatarColor   string                  `json:"avatarColor,omitempty"`
+	System        bool                    `json:"system,omitempty"`
+	Status        string                  `json:"status"`
+	WorkspaceDir  string                  `json:"workspaceDir"`
+	Env           map[string]string       `json:"env,omitempty"`          // per-agent env vars
+	Heartbeat     *config.HeartbeatConfig `json:"heartbeat,omitempty"`    // built-in heartbeat config
+	ToolPolicy    json.RawMessage         `json:"toolPolicy,omitempty"`   // per-agent tool permission policy
 }
 
 func agentToInfo(a *agent.Agent) AgentInfo {
@@ -50,6 +52,7 @@ func agentToInfo(a *agent.Agent) AgentInfo {
 		Status:       a.Status,
 		WorkspaceDir: a.WorkspaceDir,
 		Env:          a.Env,
+		Heartbeat:    a.Heartbeat,
 		ToolPolicy:   a.ToolPolicyRaw,
 	}
 }
@@ -213,10 +216,23 @@ func (h *agentHandler) Update(c *gin.Context) {
 		if raw["toolPolicy"] == nil {
 			opts.ToolPolicyRaw = nil
 		} else {
-			// Re-marshal the toolPolicy value to json.RawMessage
 			b, err := json.Marshal(raw["toolPolicy"])
 			if err == nil {
 				opts.ToolPolicyRaw = json.RawMessage(b)
+			}
+		}
+	}
+	if _, ok := raw["heartbeat"]; ok {
+		opts.HeartbeatSet = true
+		if raw["heartbeat"] == nil {
+			opts.Heartbeat = nil
+		} else {
+			b, err := json.Marshal(raw["heartbeat"])
+			if err == nil {
+				var hb config.HeartbeatConfig
+				if json.Unmarshal(b, &hb) == nil {
+					opts.Heartbeat = &hb
+				}
 			}
 		}
 	}
@@ -224,6 +240,11 @@ func (h *agentHandler) Update(c *gin.Context) {
 	if err := h.manager.UpdateAgent(id, opts); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
+	}
+
+	// If heartbeat config changed, restart the heartbeat goroutine immediately.
+	if opts.HeartbeatSet && h.pool != nil {
+		h.pool.RestartAgentHeartbeat(id)
 	}
 
 	ag, _ := h.manager.Get(id)

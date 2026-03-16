@@ -228,6 +228,17 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, cfgPath string, mgr *agen
 		cronGroup.GET("/:jobId/runs", cronH.Runs)
 	}
 
+	// ACP Agents (external coding CLIs)
+	acpH := &acpHandler{cfg: cfg, pool: pool, cfgPath: cfgPath}
+	acpGroup := v1.Group("/acp")
+	{
+		acpGroup.GET("", acpH.List)
+		acpGroup.POST("", acpH.Create)
+		acpGroup.PATCH("/:id", acpH.Update)
+		acpGroup.DELETE("/:id", acpH.Delete)
+		acpGroup.POST("/:id/test", acpH.Test)
+	}
+
 	// Goals & Planning
 	goalDataDir := "cron" // same directory as cron, goals.json lives alongside jobs.json
 	goalMgr := goal.NewManager(goalDataDir, cronEngine)
