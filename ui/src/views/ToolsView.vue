@@ -203,7 +203,7 @@
         </el-form-item>
         <el-form-item label="启动参数">
           <el-input v-model="acpArgsStr" placeholder="如 --print  或  chat --task {{task}}" style="font-family:monospace;" />
-          <div style="font-size:11px; color:#94a3b8; margin-top:2px;">空格分隔；支持 {{task}} 占位符（否则通过 stdin 传入）</div>
+          <div style="font-size:11px; color:#94a3b8; margin-top:2px;">空格分隔；支持 <code v-pre>{{task}}</code> 占位符（否则通过 stdin 传入）</div>
         </el-form-item>
         <el-form-item label="工作目录">
           <el-input v-model="acpForm.workDir" placeholder="留空 = 用成员工作区" style="font-family:monospace;" />
