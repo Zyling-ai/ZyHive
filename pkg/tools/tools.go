@@ -166,7 +166,8 @@ var bashToolDef = lllm.ToolDef{
 		"type":"object",
 		"properties":{
 			"command":{"type":"string","description":"Shell command to execute"},
-			"timeout":{"type":"number","description":"Timeout in seconds (max 120)"}
+			"timeout":{"type":"number","description":"Timeout in seconds (max 120)"},
+			"background":{"type":"boolean","description":"Run in background, returns sessionId immediately"}
 		},
 		"required":["command"]
 	}`),

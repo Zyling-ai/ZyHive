@@ -70,6 +70,7 @@ func New(workspaceDir, agentDir, agentID string) *Registry {
 	r.register(writeToolDef, r.handleWriteWS)
 	r.register(editToolDef, r.handleEditWS)
 	r.register(bashToolDef, r.handleBashWS)
+	r.register(processToolDef, handleProcess)
 	r.register(grepToolDef, r.handleGrepWS)
 	r.register(globToolDef, r.handleGlobWS)
 	r.register(webFetchToolDef, handleWebFetch)
@@ -785,11 +786,25 @@ func (r *Registry) handleGlobWS(ctx context.Context, input json.RawMessage) (str
 // injecting any per-agent env vars (agentEnv) on top of the sanitized system env.
 func (r *Registry) handleBashWS(_ context.Context, input json.RawMessage) (string, error) {
 	var p struct {
-		Command string `json:"command"`
-		Timeout int    `json:"timeout"`
+		Command    string `json:"command"`
+		Timeout    int    `json:"timeout"`
+		Background bool   `json:"background"`
 	}
 	if err := json.Unmarshal(input, &p); err != nil {
 		return "", err
+	}
+
+	// Handle background execution
+	if p.Background {
+		command := p.Command
+		if r.workspaceDir != "" && command != "" {
+			command = fmt.Sprintf("cd %q && %s", r.workspaceDir, command)
+		}
+		id, err := startBackground(command)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("Background session started: %s\nUse process(action=poll/log, sessionId=%s) to monitor.", id, id), nil
 	}
 
 	// Prepend workspace cd so relative paths work
