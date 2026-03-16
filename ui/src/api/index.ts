@@ -30,6 +30,12 @@ export interface ToolPolicy {
   deny?: string[]
 }
 
+export interface HeartbeatConfig {
+  enabled: boolean
+  intervalMin?: number
+  prompt?: string
+}
+
 export interface AgentInfo {
   id: string
   name: string
@@ -44,6 +50,7 @@ export interface AgentInfo {
   status: string
   workspaceDir: string
   env?: Record<string, string>  // per-agent env vars for exec tool
+  heartbeat?: HeartbeatConfig   // built-in heartbeat config
   toolPolicy?: ToolPolicy       // per-agent tool permission policy
 }
 
