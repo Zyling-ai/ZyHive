@@ -290,14 +290,16 @@ func (m *Manager) Remove(id string) error {
 // Pointer fields: nil means "leave unchanged"; non-nil means "apply this value".
 // Slice fields: nil means "leave unchanged"; non-nil (even empty) means "replace".
 type UpdateOpts struct {
-	Name        *string           `json:"name,omitempty"`
-	Description *string           `json:"description,omitempty"`
-	ModelID     *string           `json:"modelId,omitempty"`
-	Model       *string           `json:"model,omitempty"`
-	AvatarColor *string           `json:"avatarColor,omitempty"`
-	ToolIDs     []string          `json:"toolIds"`
-	SkillIDs    []string          `json:"skillIds"`
-	Env         map[string]string `json:"env"` // nil = leave unchanged; non-nil (even empty) = replace
+	Name          *string           `json:"name,omitempty"`
+	Description   *string           `json:"description,omitempty"`
+	ModelID       *string           `json:"modelId,omitempty"`
+	Model         *string           `json:"model,omitempty"`
+	AvatarColor   *string           `json:"avatarColor,omitempty"`
+	ToolIDs       []string          `json:"toolIds"`
+	SkillIDs      []string          `json:"skillIds"`
+	Env           map[string]string `json:"env"` // nil = leave unchanged; non-nil (even empty) = replace
+	ToolPolicySet bool              // true = apply ToolPolicyRaw (even if nil/empty = clear policy)
+	ToolPolicyRaw json.RawMessage   // raw JSON for toolPolicy; nil = no policy
 }
 
 // UpdateAgent patches an agent's config fields and persists to disk.
@@ -353,6 +355,10 @@ func (m *Manager) UpdateAgent(agentID string, opts UpdateOpts) error {
 	if opts.Env != nil {
 		cfg.Env = opts.Env
 		ag.Env = opts.Env
+	}
+	if opts.ToolPolicySet {
+		cfg.ToolPolicyRaw = opts.ToolPolicyRaw
+		ag.ToolPolicyRaw = opts.ToolPolicyRaw
 	}
 
 	out, err := json.MarshalIndent(cfg, "", "  ")
