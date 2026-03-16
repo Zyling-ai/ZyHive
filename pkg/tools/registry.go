@@ -46,6 +46,9 @@ type Registry struct {
 
 	// report_result support: callback to update task artifacts in the manager
 	taskArtifactFn func(artifacts []subagent.TaskArtifact) // optional
+
+	cronEngine   CronEngine    // optional: cron_* tools
+	sessionTools *sessionToolSet // optional: sessions_* tools
 }
 
 // AgentSummary is the minimal agent info exposed through the agent_list tool.
