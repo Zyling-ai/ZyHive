@@ -268,6 +268,11 @@ func (m *Manager) Spawn(opts SpawnOpts) (*Task, error) {
 		deliverable = opts.Brief.Deliverable
 	}
 
+	// If isolated, discard parent context snapshot so the session starts clean.
+	if opts.Isolated {
+		opts.ContextSnapshot = ""
+	}
+
 	task := &Task{
 		ID:               taskID,
 		AgentID:          opts.AgentID,
@@ -277,7 +282,7 @@ func (m *Manager) Spawn(opts SpawnOpts) (*Task, error) {
 		Background:       background,
 		Deliverable:      deliverable,
 		AttachmentCount:  len(opts.Attachments),
-		HasContext:       opts.ContextSnapshot != "",
+		HasContext:       opts.ContextSnapshot != "" && !opts.Isolated,
 		SharedProjectID:  opts.SharedProjectID,
 		Status:           TaskPending,
 		SessionID:        sessionID,
@@ -286,10 +291,19 @@ func (m *Manager) Spawn(opts SpawnOpts) (*Task, error) {
 		Model:            opts.Model,
 		TaskType:         taskType,
 		Relation:         opts.Relation,
+		TimeoutSec:       opts.TimeoutSec,
+		MaxTurns:         opts.MaxTurns,
+		Isolated:         opts.Isolated,
 		CreatedAt:        time.Now().UnixMilli(),
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	var ctx context.Context
+	var cancel context.CancelFunc
+	if opts.TimeoutSec > 0 {
+		ctx, cancel = context.WithTimeout(context.Background(), time.Duration(opts.TimeoutSec)*time.Second)
+	} else {
+		ctx, cancel = context.WithCancel(context.Background())
+	}
 
 	m.mu.Lock()
 	m.tasks[taskID] = task

@@ -60,9 +60,12 @@ type Task struct {
 	SessionID        string     `json:"sessionId"`         // isolated session key
 	SpawnedBy        string     `json:"spawnedBy,omitempty"`        // parent agent ID
 	SpawnedBySession string     `json:"spawnedBySession,omitempty"` // parent session ID
-	Model            string     `json:"model,omitempty"`   // overridden model
-	TaskType         TaskType   `json:"taskType,omitempty"` // task | report | system
-	Relation         string     `json:"relation,omitempty"` // relation type at spawn time
+	Model            string     `json:"model,omitempty"`      // overridden model
+	TaskType         TaskType   `json:"taskType,omitempty"`   // task | report | system
+	Relation         string     `json:"relation,omitempty"`   // relation type at spawn time
+	TimeoutSec       int        `json:"timeoutSec,omitempty"` // 0 = no limit
+	MaxTurns         int        `json:"maxTurns,omitempty"`   // 0 = no limit
+	Isolated         bool       `json:"isolated,omitempty"`   // clean session, no parent context
 
 	// Brief metadata for display in DispatchPanel
 	Background      string `json:"background,omitempty"`
@@ -142,11 +145,18 @@ type SpawnOpts struct {
 	AgentID          string   // target agent
 	Label            string   // optional human label
 	Task             string   // the task prompt / instruction
-	Model            string   // optional model override
+	Model            string   // optional model override (e.g. "anthropic/claude-opus-4-5")
 	SpawnedBy        string   // parent agent ID (for attribution)
 	SpawnedBySession string   // parent session ID
 	TaskType         TaskType // task | report | system
 	Relation         string   // relation type at spawn time (e.g. "上下级")
+
+	// TimeoutSec limits how long the subagent can run (0 = no limit).
+	TimeoutSec int
+	// MaxTurns limits the number of LLM turns (0 = no limit).
+	MaxTurns int
+	// Isolated: if true, the subagent starts with a clean session (no parent context snapshot).
+	Isolated bool
 
 	// Brief adds structured context beyond the raw task instruction.
 	Brief *TaskBrief

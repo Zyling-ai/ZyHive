@@ -268,7 +268,10 @@ func (r *Registry) registerSubagentTools() {
 				"agentId":{"type":"string","description":"执行任务的 AI 成员 ID"},
 				"task":{"type":"string","description":"详细的任务指令"},
 				"label":{"type":"string","description":"任务简短标签，便于识别（可选）"},
-				"model":{"type":"string","description":"覆盖默认模型（可选，格式: provider/model）"},
+				"model":{"type":"string","description":"覆盖默认模型（可选，格式: provider/model，如 anthropic/claude-opus-4-5）"},
+				"timeout":{"type":"integer","description":"任务超时秒数（0=不限，默认不限）"},
+				"max_turns":{"type":"integer","description":"最大 LLM 对话轮次（0=不限，默认不限）"},
+				"isolated":{"type":"boolean","description":"隔离模式：不继承父对话上下文，以全新 session 启动（默认 false）"},
 				"background":{"type":"string","description":"任务背景说明（可选）"},
 				"deliverable":{"type":"string","description":"期望的交付物描述（可选）"},
 				"priority":{"type":"string","enum":["high","normal","low"],"description":"任务优先级（可选，默认 normal）"},
@@ -281,7 +284,7 @@ func (r *Registry) registerSubagentTools() {
 					},
 					"required":["name"]
 				}},
-				"context_turns":{"type":"integer","minimum":0,"maximum":10,"description":"携带当前对话最近 N 轮作为背景上下文（0=不携带，默认0）"},
+				"context_turns":{"type":"integer","minimum":0,"maximum":10,"description":"携带当前对话最近 N 轮作为背景上下文（0=不携带，默认0；isolated=true 时忽略）"},
 				"shared_project_id":{"type":"string","description":"共享项目 ID — 授权执行方读写此项目，可将产出文件写入（可选）"}
 			},
 			"required":["agentId","task"]
@@ -987,6 +990,9 @@ func (r *Registry) handleAgentSpawn(_ context.Context, input json.RawMessage) (s
 		Task            string `json:"task"`
 		Label           string `json:"label"`
 		Model           string `json:"model"`
+		Timeout         int    `json:"timeout"`
+		MaxTurns        int    `json:"max_turns"`
+		Isolated        bool   `json:"isolated"`
 		Background      string `json:"background"`
 		Deliverable     string `json:"deliverable"`
 		Priority        string `json:"priority"`
@@ -1072,6 +1078,9 @@ func (r *Registry) handleAgentSpawn(_ context.Context, input json.RawMessage) (s
 		Label:            p.Label,
 		Task:             p.Task,
 		Model:            p.Model,
+		TimeoutSec:       p.Timeout,
+		MaxTurns:         p.MaxTurns,
+		Isolated:         p.Isolated,
 		SpawnedBy:        r.agentID,
 		SpawnedBySession: r.sessionID,
 		Brief:            brief,
