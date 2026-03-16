@@ -24,9 +24,11 @@ type Config struct {
 	Providers []ProviderEntry  `json:"providers,omitempty"` // API Key 注册表（每个厂商一条）
 	Models    []ModelEntry     `json:"models"`              // global model registry
 	Channels  []ChannelEntry   `json:"channels"`            // global channel registry
-	Tools     []ToolEntry      `json:"tools"`               // global capability registry
+	Tools     []ToolEntry      `json:"tools"`               // global capability registry (API keys etc.)
 	Skills    []SkillEntry     `json:"skills"`              // installed skills
 	Auth      AuthConfig       `json:"auth"`
+	// ToolPolicyRaw is stored as raw JSON and interpreted by the tools package to avoid import cycles.
+	ToolPolicyRaw json.RawMessage `json:"toolPolicy,omitempty"` // global tool allow/deny/profile
 }
 
 // ProviderEntry 代表一个大模型服务商的凭据配置。
@@ -158,10 +160,12 @@ type AgentConfig struct {
 	Name        string         `json:"name"`
 	Description string         `json:"description,omitempty"`
 	ModelID     string         `json:"modelId"`
-	Channels    []ChannelEntry `json:"channels,omitempty"`   // per-agent channel config (own bot tokens)
+	Channels    []ChannelEntry `json:"channels,omitempty"` // per-agent channel config (own bot tokens)
 	ToolIDs     []string       `json:"toolIds,omitempty"`
 	SkillIDs    []string       `json:"skillIds,omitempty"`
 	AvatarColor string         `json:"avatarColor,omitempty"`
+	// ToolPolicy is stored as raw JSON and interpreted by the tools package to avoid import cycles.
+	ToolPolicyRaw json.RawMessage `json:"toolPolicy,omitempty"`
 }
 
 type AuthConfig struct {

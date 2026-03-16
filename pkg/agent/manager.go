@@ -40,6 +40,7 @@ type Agent struct {
 	WorkspaceDir string                `json:"workspaceDir"`
 	SessionDir   string                `json:"sessionDir"`
 	Status       string                `json:"status"` // "running" | "stopped" | "idle"
+	ToolPolicyRaw json.RawMessage `json:"toolPolicy,omitempty"` // nil = inherit global
 }
 
 // agentConfig is the on-disk config.json format for each agent.
@@ -55,6 +56,7 @@ type agentConfig struct {
 	AvatarColor string                `json:"avatarColor,omitempty"`
 	System      bool                  `json:"system,omitempty"`
 	Env         map[string]string     `json:"env,omitempty"` // per-agent env vars for exec
+	ToolPolicyRaw json.RawMessage `json:"toolPolicy,omitempty"` // nil = inherit global
 }
 
 // Manager manages all agents under a root directory.
@@ -127,6 +129,7 @@ func (m *Manager) LoadAll() error {
 			WorkspaceDir: wsDir,
 			SessionDir:   filepath.Join(agentDir, "sessions"),
 			Status:       "idle",
+			ToolPolicyRaw: cfg.ToolPolicyRaw,
 		}
 
 		// Migrate flat MEMORY.md → hierarchical memory tree if needed
