@@ -1,5 +1,4 @@
 // Package cron provides the scheduled job engine.
-// Reference: openclaw/src/cron/service.ts, schedule.ts
 package cron
 
 import (

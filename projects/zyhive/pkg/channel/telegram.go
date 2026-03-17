@@ -1,5 +1,4 @@
 // Package channel — Telegram Bot integration with streaming draft and group support.
-// Design mirrors OpenClaw's telegram implementation:
 //   - sendChatAction "typing" kept alive during generation
 //   - Streaming: first chunk → sendMessage; subsequent chunks → editMessageText (throttled 1s)
 //   - Group chats: respond only when @mentioned or replied-to
@@ -875,7 +874,7 @@ func (b *TelegramBot) cleanMessageText(text string) string {
 }
 
 // enrichWithContext adds forward/reply context to the user's message text,
-// mirroring OpenClaw's forwardPrefix + replySuffix pattern.
+// mirroring forwardPrefix + replySuffix pattern.
 func (b *TelegramBot) enrichWithContext(msg *TelegramMessage, text string) string {
 	var parts []string
 

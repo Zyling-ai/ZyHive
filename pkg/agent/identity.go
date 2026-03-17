@@ -1,5 +1,4 @@
 // Package agent manages AI agent lifecycle and workspace files.
-// Reference: openclaw/src/agents/identity-file.ts, workspace.ts
 package agent
 
 import (
@@ -36,7 +35,6 @@ func ReadMemory(workspaceDir string) (string, error) {
 
 // InitWorkspace creates the standard workspace structure for a new agent.
 // Now uses hierarchical memory tree instead of flat MEMORY.md.
-// Reference: openclaw/src/agents/workspace-templates.ts
 func InitWorkspace(workspaceDir, agentName, role string) error {
 	identity := "# IDENTITY.md\n\n- **Name:** " + agentName + "\n- **Role:** " + role + "\n"
 	if err := writeMD(workspaceDir, "IDENTITY.md", identity); err != nil {

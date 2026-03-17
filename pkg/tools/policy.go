@@ -1,5 +1,4 @@
 // pkg/tools/policy.go — tool allow/deny/profile permission system.
-// Mirrors OpenClaw's tools.allow / tools.deny / tools.profile config.
 package tools
 
 import (

@@ -60,8 +60,7 @@ func (c *AnthropicClient) Stream(ctx context.Context, req *ChatRequest) (<-chan 
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("x-api-key", req.APIKey)
 	httpReq.Header.Set("anthropic-version", anthropicVersion)
-	// Always include extended cache TTL beta header (ref: openclaw anthropic provider)
-	httpReq.Header.Set("anthropic-beta", "extended-cache-ttl-2025-04-11")
+		httpReq.Header.Set("anthropic-beta", "extended-cache-ttl-2025-04-11")
 	for _, h := range req.BetaHeaders {
 		existing := httpReq.Header.Get("anthropic-beta")
 		httpReq.Header.Set("anthropic-beta", existing+","+h)

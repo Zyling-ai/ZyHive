@@ -1,6 +1,5 @@
 // Package runner implements the core agent conversation loop.
 // Reference: pi-coding-agent/dist/core/agent-session.js (AgentSession._handleAgentEvent)
-//            openclaw/src/agents/pi-embedded-runner/run/attempt.ts
 //
 // The main loop:
 //   1. Build system prompt (identity + soul + workspace files + skills)

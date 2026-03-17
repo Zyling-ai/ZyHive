@@ -1,5 +1,4 @@
 // cmd/aipanel/main.go — entry point for 引巢 · ZyHive (zyling AI 团队操作系统)
-// Reference: openclaw/src/main.ts
 package main
 
 import (
@@ -171,7 +170,7 @@ func main() {
 	// ── Cron: isolated session runner ────────────────────────────────────────
 	// Each cron job invocation gets its own fresh session ("cron-{jobID}-{runID}"),
 	// completely isolated from the main conversation history.
-	// This mirrors OpenClaw's sessionTarget="isolated" pattern.
+	// Isolated session pattern: subagent runs in its own context without inheriting parent history.
 	cronRunFunc := func(ctx context.Context, agentID, model, jobID, runID, message string) (string, error) {
 		sessionID := "cron-" + jobID + "-" + runID
 		subRun := pool.SubagentRunFunc()

@@ -1,6 +1,5 @@
 // Package runner implements the core agent conversation loop.
 // Reference: pi-coding-agent/dist/core/agent-session.js (AgentSession._handleAgentEvent)
-//            openclaw/src/agents/pi-embedded-runner/run/attempt.ts
 //
 // The main loop:
 //   1. Build system prompt (identity + soul + workspace files + skills)
@@ -427,7 +426,7 @@ func (r *Runner) run(ctx context.Context, userMsg string, out chan<- RunEvent) e
 			"以下环境变量已配置，exec 工具运行时自动可用（无需手动导出）：\n" +
 			"- " + strings.Join(keys, "\n- ") + "\n"
 	}
-	// Runtime 紧凑行（借鉴 OpenClaw）：给 Agent 完整的运行时自我感知，Token 极少。
+	// Runtime 紧凑行：给 Agent 完整的运行时自我感知，Token 极少。
 	toolsFlag := "on"
 	if !r.cfg.SupportsTools {
 		toolsFlag = "off(model not supported)"

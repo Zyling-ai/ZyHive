@@ -1,5 +1,4 @@
 // cmd/aipanel/main.go — entry point for 引巢 · ZyHive (zyling AI 团队操作系统)
-// Reference: openclaw/src/main.ts
 package main
 
 import (

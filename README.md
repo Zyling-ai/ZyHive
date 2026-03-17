@@ -6,7 +6,7 @@
 [![GitHub Forks](https://img.shields.io/github/forks/Zyling-ai/zyhive?style=flat&logo=github&color=orange)](https://github.com/Zyling-ai/zyhive/network/members)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 [![Go 1.22+](https://img.shields.io/badge/Go-1.22+-00ADD8.svg)](https://golang.org)
-[![Version](https://img.shields.io/badge/version-v0.10.4-brightgreen.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v0.10.12-brightgreen.svg)](CHANGELOG.md)
 [![官网](https://img.shields.io/badge/官网-zyling.ai-6366f1?logo=globe)](https://zyling.ai)
 
 **以团队为核心，每个 AI Agent 是团队成员。**
@@ -35,7 +35,7 @@ curl -sSL https://install.zyling.ai/install | bash
 
 ```
 ╔══════════════════════════════════════════════╗
-║  ✅  ZyHive 安装成功！版本: v0.10.4          ║
+║  ✅  ZyHive 安装成功！版本: v0.10.12         ║
 ╚══════════════════════════════════════════════╝
 
   📍 本地访问：  http://localhost:8080
@@ -188,8 +188,6 @@ Go 后端 (Gin，单二进制)
   cmd/aipanel   ← 入口 + CLI 管理面板（跨平台服务管理）
 ```
 
-**架构参考：** [OpenClaw](https://github.com/openclaw/openclaw)
-
 ---
 
 ## ⚙️ 配置文件
@@ -272,6 +270,10 @@ make release
 | v0.10.1 | **Windows 安装脚本双修**：irm\|iex 崩溃、服务注册失败 | ✅ |
 | v0.10.3 | **Provider 测试修复**：MiniMax 等厂商"未配置调用地址"问题 | ✅ |
 | v0.10.4 | **MiniMax 探测修复**：改用 chat completion 探测替代不支持的 GET /v1/models | ✅ |
+| v0.10.9 | **安装向导**：bash / PowerShell 交互式向导（8 provider 预设） | ✅ |
+| v0.10.10 | **工具调用修复**：Runner 三个路径补全 SupportsTools 字段 | ✅ |
+| v0.10.11 | **agent_list 修复**：Pool 正式注册 WithAgentLister | ✅ |
+| v0.10.12 | **工具生态全面升级**：web_search / image / process / cron_* / sessions_* / acp_* + 工具权限系统 + 内置心跳 + ACP 编程代理 | ✅ |
 | **v0.11** | 团队规划系统、会议系统 | 🔜 规划中 |
 
 ---

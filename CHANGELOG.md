@@ -4,6 +4,40 @@
 
 ---
 
+## [v0.10.12] — 2026-03-17 · 工具生态全面升级
+
+### 修复
+- **工具名称错误**：`policy.go` 中 `group:runtime` 的工具名 `bash` → 实际注册名为 `exec`，导致 deny/allow 策略对执行工具无效
+- **AgentLister 未注册**：`pool.go` 未调用 `WithAgentLister`，导致 `agent_list` 工具不可用
+
+---
+
+## [v0.10.11] — 2026-03-17 · agent_list 工具注册修复
+
+### 修复
+- **`agent_list` 工具缺失**：`pool.go configureToolRegistry()` 中未调用 `reg.WithAgentLister()`，导致 AI 成员无法通过工具查询同伴列表；现在注册时自动从 `manager.List()` 获取成员摘要注入
+
+---
+
+## [v0.10.10] — 2026-03-17 · 工具调用全路径修复
+
+### 修复
+- **`SupportsTools` 三处缺失**：`pool.go` 中 `Run()`、`RunStreamEvents()`（无图片路径）、`RunStream()` 构造 `runner.Config` 时均未设置 `SupportsTools` 字段，导致这三条路径下工具调用始终为 `off`；`RunStreamEvents`（有图片路径）和子代理路径已正确设置，本次补全全部路径
+
+---
+
+## [v0.10.9] — 2026-03-17 · 安装向导 + 类型修复
+
+### 新增
+- **`install.sh` 安装向导**（Linux / macOS）：交互式三步向导，支持 8 大 provider 预设，`--flag` 无人值守模式，安装完成后展示访问地址和 Token
+- **`install.ps1` 安装向导**（Windows PowerShell）：等效功能，修复 `irm|iex` 管道崩溃，服务注册改用 `C:\ProgramData\ZyHive`
+
+### 修复
+- **TypeScript 类型错误**：`ui/src/api/index.ts` 补充 `HeartbeatConfig` interface，解决编译报错
+- **Vue 模板插值冲突**：`ToolsView.vue` 中 `{{task}}` 占位符使用 `v-pre` 指令阻止 Vue 解析
+
+---
+
 ## [v0.10.4] — 2026-03-03 · MiniMax 探测修复
 
 ### 修复

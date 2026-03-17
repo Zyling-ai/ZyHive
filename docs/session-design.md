@@ -1,6 +1,6 @@
 # Session 管理设计
 
-> 以 OpenClaw 为蓝本，适配 ZyHive 的 Go 实现。本文档反映 v0.9.0 已实现状态。
+> 适配 ZyHive 的 Go 实现。本文档反映 v0.9.0 已实现状态。
 
 ---
 
@@ -117,9 +117,9 @@ agents/{agentId}/convlogs/
 
 ---
 
-## 与 OpenClaw 对照
+## 与业界方案对照
 
-| 特性 | OpenClaw | ZyHive |
+| 特性 | 业界方案 | ZyHive |
 |------|---------|--------|
 | Session key | `agent:main:telegram:group:-xxx` | `ses-{timestamp}` |
 | 存储格式 | JSONL v3 | JSONL v3（相同）|
