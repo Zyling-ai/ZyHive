@@ -42,9 +42,29 @@
         placeholder="新对话"
         clearable
         @change="onSessionChange"
+        popper-class="session-popper"
       >
-        <el-option value="" label="＋ 新对话" />
-        <el-option v-for="s in sessions" :key="s.key" :label="s.preview" :value="s.key" />
+        <el-option value="" label="＋ 新对话">
+          <div class="sess-new-opt">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            新对话
+          </div>
+        </el-option>
+        <el-option v-for="s in sessions" :key="s.key" :label="s.preview" :value="s.key">
+          <div class="sess-opt">
+            <div class="sess-opt-title">{{ s.preview }}</div>
+            <div class="sess-opt-meta">
+              <span class="sess-ch">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                {{ s.channel }}
+              </span>
+              <span class="sess-dot">·</span>
+              <span class="sess-time">{{ fmtTime(s.lastAt) }}</span>
+              <span class="sess-dot">·</span>
+              <span class="sess-count">{{ s.messageCount }} 条</span>
+            </div>
+          </div>
+        </el-option>
       </el-select>
 
       <div class="toolbar-flex" />
@@ -111,9 +131,19 @@ const currentAgentId  = ref('')
 const currentModelId  = ref('')
 const currentSessionId = ref('')
 const chatKey = ref(0)
-const sessions = ref<{ key: string; preview: string }[]>([])
+const sessions = ref<SessionItem[]>([])
 
 const currentAgent = computed(() => agents.value.find(a => a.id === currentAgentId.value))
+
+// 历史会话
+interface SessionItem {
+  key: string
+  preview: string
+  createdAt: number
+  lastAt: number
+  messageCount: number
+  channel: string
+}
 
 // 派遣
 interface DispatchedTask {
@@ -170,7 +200,11 @@ async function loadSessions(agentId: string) {
     const res = await sessApi.list({ agentId, limit: 30 })
     sessions.value = (res.data.sessions || []).map((s: any) => ({
       key: s.id || s.key,
-      preview: (s.lastMessage || s.title || s.id || '').slice(0, 36) || '对话',
+      preview: (s.title || s.id || '').slice(0, 40) || '对话',
+      createdAt: s.createdAt || 0,
+      lastAt: s.lastAt || s.createdAt || 0,
+      messageCount: s.messageCount || 0,
+      channel: s.channel || s.source || 'web',
     }))
   } catch {}
 }
@@ -198,7 +232,7 @@ function onSessionChange(key: string) {
 function onSessionCreated(key: string) {
   currentSessionId.value = key
   if (!sessions.value.find(s => s.key === key)) {
-    sessions.value.unshift({ key, preview: '新对话' })
+    sessions.value.unshift({ key, preview: '新对话', createdAt: Date.now(), lastAt: Date.now(), messageCount: 0, channel: 'web' })
   }
 }
 
@@ -241,6 +275,20 @@ function pollTask(task: DispatchedTask) {
 
 function statusText(s: string) {
   return ({ running: '执行中...', done: '已完成', error: '失败' } as any)[s] || s
+}
+
+function fmtTime(ts: number): string {
+  if (!ts) return '-'
+  const d = new Date(ts)
+  const now = new Date()
+  const diff = now.getTime() - d.getTime()
+  if (diff < 60000) return '刚刚'
+  if (diff < 3600000) return Math.floor(diff / 60000) + ' 分钟前'
+  if (diff < 86400000) return Math.floor(diff / 3600000) + ' 小时前'
+  const m = d.getMonth() + 1, day = d.getDate()
+  const h = String(d.getHours()).padStart(2, '0'), min = String(d.getMinutes()).padStart(2, '0')
+  if (d.getFullYear() === now.getFullYear()) return `${m}/${day} ${h}:${min}`
+  return `${d.getFullYear()}/${m}/${day}`
 }
 </script>
 
@@ -354,4 +402,31 @@ function statusText(s: string) {
 .empty-hint { text-align: center; }
 .empty-icon { font-size: 48px; margin-bottom: 12px; }
 .empty-hint a { color: #818cf8; cursor: pointer; text-decoration: underline; }
+
+/* ── 历史会话选项 ─────────────────────────────────────────────────────── */
+:global(.session-popper .el-select-dropdown__item) {
+  padding: 0 !important;
+  height: auto !important;
+  line-height: normal !important;
+}
+.sess-new-opt {
+  display: flex; align-items: center; gap: 6px;
+  padding: 8px 12px; font-size: 13px; font-weight: 600; color: #818cf8;
+}
+.sess-opt {
+  padding: 7px 12px;
+}
+.sess-opt-title {
+  font-size: 13px; color: var(--el-text-color-primary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  max-width: 220px; margin-bottom: 3px;
+}
+.sess-opt-meta {
+  display: flex; align-items: center; gap: 4px;
+  font-size: 11px; color: var(--el-text-color-secondary);
+}
+.sess-ch { display: flex; align-items: center; gap: 3px; }
+.sess-dot { opacity: 0.4; }
+.sess-count { opacity: 0.7; }
+.sess-time { opacity: 0.7; }
 </style>
