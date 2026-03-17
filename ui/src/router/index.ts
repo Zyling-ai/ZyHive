@@ -10,6 +10,12 @@ const router = createRouter({
     },
     {
       path: '/',
+      name: 'chat-home',
+      component: () => import('../views/ChatHomeView.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/dashboard',
       name: 'dashboard',
       component: () => import('../views/DashboardView.vue'),
       meta: { requiresAuth: true }
