@@ -1433,9 +1433,15 @@ defineExpose({ clearMessages, appendMessage, sendText, sendSilent, fillInput, me
 // ── Init ─────────────────────────────────────────────────────────────────
 onMounted(() => {
   scrollBottom()
-  // On page load: if a session is already active, check for ongoing background generation
+  // On page load: if a session is already active, load messages and check ongoing background generation
   if (currentSessionId.value) {
-    reconnectIfGenerating(currentSessionId.value)
+    if (props.initialMessages && props.initialMessages.length > 0) {
+      // initialMessages provided externally — skip fetch, just reconnect
+      reconnectIfGenerating(currentSessionId.value)
+    } else {
+      // Load full message history for this session
+      resumeSession(currentSessionId.value)
+    }
   }
 })
 </script>
