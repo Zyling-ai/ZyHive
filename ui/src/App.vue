@@ -180,7 +180,7 @@
 
       <!-- Main content -->
       <el-container>
-        <el-main class="app-main">
+        <el-main class="app-main" :class="{ 'is-chat-page': isChatPage }">
           <router-view />
         </el-main>
       </el-container>
@@ -222,6 +222,9 @@ const activeMenu = computed(() => {
   if (path.startsWith('/agents/')) return '/agents'
   return path
 })
+
+// 聊天页：撑满高度，不需要 padding
+const isChatPage = computed(() => route.path === '/')
 
 function onLogoClick() {
   if (isMobile.value) {
@@ -533,6 +536,16 @@ body {
   min-height: calc(100vh - 44px);
   padding: 20px 24px;
   overflow-x: hidden;
+}
+
+/* 聊天首页：撑满剩余高度，无内边距，无滚动 */
+.app-main.is-chat-page {
+  padding: 0 !important;
+  min-height: 0 !important;
+  height: calc(100vh - 44px) !important;
+  overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column !important;
 }
 
 /* ─── Global mobile table fix ────────────────────────────────────────────── */
