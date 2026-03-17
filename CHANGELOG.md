@@ -1,10 +1,30 @@
 # Changelog — 引巢 · ZyHive
 
-> 所有重要版本变更记录。版本号遵循 [Semantic Versioning](https://semver.org/)。
+> 版本号规则：`年.月.日`（当日第一版），同日多次发布追加 `v2`、`v3`……（如 `26.3.17v2`）
 
 ---
 
-## [v0.10.12] — 2026-03-17 · 工具生态全面升级
+## [26.3.17] — 2026-03-17 · 全新聊天首页 + CLI 子命令
+
+### 新功能
+- **全新聊天首页**：默认打开即聊天，侧边栏第一项为「聊天」，第二项为「仪表盘」
+- **顶部工具条**：成员下拉选择器（含头像）、模型选择、历史会话（显示渠道/时间/消息数）、新对话按钮
+- **派遣任务动画**：`agent_spawn` 触发时被派遣成员头像飞入顶部区域，橙灯=执行中/绿灯=完成/红灯=失败，悬浮显示进度气泡
+- **历史会话自动加载**：选择历史对话后自动拉取完整消息记录
+- **每条消息 token 显示**：每条助手消息底部显示 `↑ input ↓ output tokens`
+- **CLI 子命令**：`zyhive token`、`zyhive start/stop/restart/status/enable/disable/help`
+
+### 修复
+- 历史会话选中后消息不显示（AiChat onMounted 补充 resumeSession 调用）
+- 成员选择器改为下拉（原为头像列表）
+- 配色统一深色系
+
+### 以往版本
+> 历史版本（v0.9.x – v0.10.x）采用语义化版本号，详见下方记录
+
+---
+
+## [26.3.17] — 2026-03-17 · 工具生态全面升级
 
 ### 修复
 - **工具名称错误**：`policy.go` 中 `group:runtime` 的工具名 `bash` → 实际注册名为 `exec`，导致 deny/allow 策略对执行工具无效
@@ -12,21 +32,21 @@
 
 ---
 
-## [v0.10.11] — 2026-03-17 · agent_list 工具注册修复
+## [26.3.17] — 2026-03-17 · agent_list 工具注册修复
 
 ### 修复
 - **`agent_list` 工具缺失**：`pool.go configureToolRegistry()` 中未调用 `reg.WithAgentLister()`，导致 AI 成员无法通过工具查询同伴列表；现在注册时自动从 `manager.List()` 获取成员摘要注入
 
 ---
 
-## [v0.10.10] — 2026-03-17 · 工具调用全路径修复
+## [26.3.17] — 2026-03-17 · 工具调用全路径修复
 
 ### 修复
 - **`SupportsTools` 三处缺失**：`pool.go` 中 `Run()`、`RunStreamEvents()`（无图片路径）、`RunStream()` 构造 `runner.Config` 时均未设置 `SupportsTools` 字段，导致这三条路径下工具调用始终为 `off`；`RunStreamEvents`（有图片路径）和子代理路径已正确设置，本次补全全部路径
 
 ---
 
-## [v0.10.9] — 2026-03-17 · 安装向导 + 类型修复
+## [26.3.17] — 2026-03-17 · 安装向导 + 类型修复
 
 ### 新增
 - **`install.sh` 安装向导**（Linux / macOS）：交互式三步向导，支持 8 大 provider 预设，`--flag` 无人值守模式，安装完成后展示访问地址和 Token
@@ -38,21 +58,21 @@
 
 ---
 
-## [v0.10.4] — 2026-03-03 · MiniMax 探测修复
+## [26.3.17] — 2026-03-03 · MiniMax 探测修复
 
 ### 修复
 - **MiniMax 测试返回 404**：MiniMax API 不支持 `GET /v1/models`（OpenAI 标准探测端点），改为 `POST /v1/chat/completions + max_tokens=1` 轻量探测；401/403 正确识别 Key 无效，其余 2xx/4xx 视为连接成功
 
 ---
 
-## [v0.10.3] — 2026-03-03 · Provider 测试修复
+## [26.3.17] — 2026-03-03 · Provider 测试修复
 
 ### 修复
 - **MiniMax / Kimi / 智谱等厂商测试显示"未配置调用地址"**：`providers.go` 的 `Test()` 函数未对空 `baseURL` 做兜底，导致未显式填写转发地址时测试必然失败；现与 `models.go` 保持一致，自动补全已知厂商默认地址（`defaultBaseURLForProvider`）
 
 ---
 
-## [v0.10.1] — 2026-03-02 · Windows 安装脚本双修
+## [26.3.17] — 2026-03-02 · Windows 安装脚本双修
 
 ### 修复
 - **PowerShell `irm|iex` 崩溃**（`PropertyNotFoundException on .Path`）：`Set-StrictMode -Version Latest` 下，管道执行时 `$MyInvocation.MyCommand` 为 `ScriptBlock`，不含 `.Path` 属性，改用 `try/catch` 安全访问
@@ -62,7 +82,7 @@
 
 ---
 
-## [v0.10.0] — 2026-03-02 · 稳定性修复
+## [26.3.17] — 2026-03-02 · 稳定性修复
 
 ### 修复
 - **新实例登录死循环**：App.vue 中 `/api/update/check` 在未登录状态下被触发，返回 401 后拦截器跳转 `/login`，登录页再次触发检查形成无限刷新循环。修复方案：
