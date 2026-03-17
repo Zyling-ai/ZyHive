@@ -1,5 +1,4 @@
 // Package agent manages AI agent lifecycle and workspace files.
-// Reference: pi-coding-agent/dist/core/agent-session.js, openclaw/src/agents/
 //
 // Each agent has:
 //   - config.json  — basic metadata (id, name, model)

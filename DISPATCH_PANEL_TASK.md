@@ -448,4 +448,4 @@ export const getSubagentEvents = (sessionId: string) =>
 3. 验证：在聊天中触发子任务，观察顶部面板动画
 
 完成后执行：
-openclaw system event --text "派遣面板系统实现完成，已build成功" --mode now
+

@@ -1,5 +1,4 @@
 // Chat handler — streaming SSE conversation endpoint.
-// Reference: openclaw/src/gateway/server-chat.ts
 //
 // The Chat endpoint creates a runner.Runner, calls runner.Run(ctx, message),
 // and streams RunEvents back as Server-Sent Events (SSE).

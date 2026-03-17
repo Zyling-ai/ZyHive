@@ -1,6 +1,6 @@
 // Package session handles JSONL-based session storage.
 // Reference: pi-coding-agent/dist/core/session-manager.js
-// Session format is compatible with OpenClaw/pi-coding-agent v3.
+// Session format: v3 JSONL.
 package session
 
 import "encoding/json"

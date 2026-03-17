@@ -1,5 +1,4 @@
 // Cron job handler — CRUD for scheduled jobs + run history.
-// Reference: openclaw/src/gateway/server-cron.ts, src/cron/
 package api
 
 import (

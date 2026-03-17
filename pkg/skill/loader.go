@@ -1,5 +1,4 @@
 // Package skill loads and manages agent skills.
-// Reference: openclaw/src/agents/skills.ts
 //
 // Go Skill format:
 //   skills/{skill-name}/SKILL.md   — content injected into system prompt

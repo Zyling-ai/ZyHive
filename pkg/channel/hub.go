@@ -1,5 +1,4 @@
 // Package channel manages inbound/outbound messaging channels.
-// Reference: openclaw/src/channels/, openclaw/src/telegram/
 package channel
 
 // Hub routes inbound messages to the correct agent runner.

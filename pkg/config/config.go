@@ -159,7 +159,7 @@ type SkillEntry struct {
 type HeartbeatConfig struct {
 	Enabled     bool   `json:"enabled"`
 	IntervalMin int    `json:"intervalMin,omitempty"` // 0 → default 30 min
-	Prompt      string `json:"prompt,omitempty"`      // empty → default OpenClaw prompt
+	Prompt      string `json:"prompt,omitempty"`      // empty → use default heartbeat prompt
 }
 
 // ACPAgentEntry defines an external coding-agent CLI (e.g. claude, codex).

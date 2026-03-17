@@ -1,7 +1,6 @@
 // Package session — context compaction logic.
 // When a session's token estimate exceeds the threshold (80k tokens),
 // old messages are summarized via LLM and replaced with a CompactionEntry.
-// Reference: openclaw/src/hooks/bundled/session-memory/
 package session
 
 import (

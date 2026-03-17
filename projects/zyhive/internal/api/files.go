@@ -1,5 +1,4 @@
 // File handler — workspace file management.
-// Reference: openclaw/src/agents/workspace.ts
 package api
 
 import (

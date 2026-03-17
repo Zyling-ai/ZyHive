@@ -1,5 +1,4 @@
 // Package memory handles hierarchical agent memory: core/, projects/, daily/, topics/.
-// Reference: openclaw/src/agents/memory-search.ts
 package memory
 
 import (
