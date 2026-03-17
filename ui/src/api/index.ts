@@ -169,6 +169,9 @@ export const agents = {
   /** Agent 间通信：向目标 Agent 发消息，同步等待回复 */
   message: (targetId: string, message: string, fromAgentId?: string) =>
     api.post<{ response: string }>(`/agents/${targetId}/message`, { message, fromAgentId }),
+  /** 获取成员的会话历史列表 */
+  listSessions: (agentId: string, limit = 20) =>
+    api.get<any[]>(`/sessions?agentId=${encodeURIComponent(agentId)}&limit=${limit}`),
 }
 
 export const providers = {
