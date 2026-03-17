@@ -80,8 +80,18 @@
           class="sidebar-menu"
           @select="onMenuSelect"
         >
-          <!-- 仪表盘 -->
+          <!-- 聊天（默认首页） -->
           <el-menu-item index="/">
+            <el-icon>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+              </svg>
+            </el-icon>
+            <template #title>聊天</template>
+          </el-menu-item>
+
+          <!-- 仪表盘 -->
+          <el-menu-item index="/dashboard">
             <el-icon><HomeFilled /></el-icon>
             <template #title>仪表盘</template>
           </el-menu-item>
