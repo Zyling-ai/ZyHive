@@ -193,6 +193,10 @@
                   title="检测到配置 JSON，点击应用">
                   <el-icon><Setting /></el-icon> 应用配置
                 </button>
+                <!-- Token 使用量 -->
+                <span v-if="msg.tokenUsage" class="msg-token-usage">
+                  ↑ {{ msg.tokenUsage.input.toLocaleString() }} ↓ {{ msg.tokenUsage.output.toLocaleString() }} tokens
+                </span>
               </div>
 
             </div><!-- end msg-bubble -->
@@ -396,6 +400,7 @@ const emit = defineEmits<{
   (e: 'apply', data: Record<string, string>): void
   (e: 'session-change', sessionId: string): void  // fired when a new session is created
   (e: 'streaming-change', streaming: boolean): void  // fired when streaming starts/stops
+  (e: 'dispatch', agentId: string, agentName: string, avatarColor: string, taskId: string): void  // fired when agent_spawn is called
 }>()
 
 // ── Types ─────────────────────────────────────────────────────────────────
@@ -433,6 +438,8 @@ export interface ChatMsg {
   options?: string[]
   /** Special error: no model configured */
   noModelError?: boolean
+  /** Token usage for this assistant message */
+  tokenUsage?: { input: number; output: number }
 }
 
 // ── State ─────────────────────────────────────────────────────────────────
@@ -1106,6 +1113,13 @@ function runChat(text: string, imgs: string[], silent = false) {
               tc.taskStatus = 'pending'
               spawnedTaskMap.set(activeToolId, m[1])
               startTaskPolling()
+              // Emit dispatch event for ChatHomeView animation
+              try {
+                const inp = tc.input ? JSON.parse(tc.input) : {}
+                const spawnedId = inp.agentId ?? ''
+                const spawnedName = inp.agentId ?? ''
+                emit('dispatch', spawnedId, spawnedName, '#409eff', m[1])
+              } catch {}
             }
           }
           // Sync into streamToolCalls
@@ -1113,6 +1127,20 @@ function runChat(text: string, imgs: string[], silent = false) {
           if (stc) { stc.result = tc.result; stc.status = 'done'; stc.duration = tc.duration }
         }
         scrollBottom()
+        break
+      }
+
+      // ── Token 使用量 ────────────────────────────────────────────────────────
+      case 'usage': {
+        if (ev.input_tokens != null || ev.output_tokens != null) {
+          const cur = messages.value[msgIdx]
+          if (cur) {
+            cur.tokenUsage = {
+              input: ev.input_tokens ?? 0,
+              output: ev.output_tokens ?? 0,
+            }
+          }
+        }
         break
       }
 
@@ -1136,6 +1164,13 @@ function runChat(text: string, imgs: string[], silent = false) {
         const cur = messages.value[msgIdx]!
         cur.text = streamText.value
         cur.thinking = streamThinking.value || undefined
+        // Save token usage from done event if available
+        if (ev.type === 'done' && (ev.input_tokens != null || ev.output_tokens != null)) {
+          cur.tokenUsage = {
+            input: ev.input_tokens ?? 0,
+            output: ev.output_tokens ?? 0,
+          }
+        }
 
         if (props.applyable) {
           const extracted = tryExtractJson(streamText.value)
@@ -1789,6 +1824,15 @@ onMounted(() => {
   transition: background .15s;
 }
 .apply-btn:hover { background: #337ecc; }
+
+/* ── Token usage ── */
+.msg-token-usage {
+  font-size: 11px;
+  color: #c0c4cc;
+  margin-left: auto;
+  white-space: nowrap;
+  align-self: center;
+}
 
 /* ── Msg actions ── */
 .msg-actions {
