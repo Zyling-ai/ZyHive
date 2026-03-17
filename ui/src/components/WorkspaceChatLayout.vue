@@ -560,7 +560,7 @@ onUnmounted(() => {
   display: flex;
   height: 100%;
   overflow: hidden;
-  background: #f8fafc;
+  background: #0f1117;
 }
 .wc-layout * { box-sizing: border-box; }
 
@@ -569,8 +569,8 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: #fff;
-  border-right: 1px solid #e2e8f0;
+  background: #161b27;
+  border-right: 1px solid rgba(255,255,255,0.07);
 }
 .wc-panel:last-child { border-right: none; }
 .wc-panel-right { flex: 1; min-width: 280px; }
@@ -581,34 +581,34 @@ onUnmounted(() => {
   justify-content: space-between;
   padding: 0 8px 0 10px;
   height: 34px;
-  border-bottom: 1px solid #e2e8f0;
-  background: #f8fafc;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  background: #1a2032;
   flex-shrink: 0;
 }
 .wc-panel-title {
   font-size: 12px;
   font-weight: 600;
-  color: #334155;
+  color: #c8d3e8;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   flex: 1;
   min-width: 0;
 }
-.wc-panel-title.muted { color: #94a3b8; font-weight: 400; }
+.wc-panel-title.muted { color: rgba(255,255,255,0.3); font-weight: 400; }
 .file-path-title { display: flex; align-items: center; gap: 5px; }
 .file-path-text  { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .file-ext-badge  {
-  background: #e2e8f0; color: #64748b; font-size: 10px; padding: 1px 5px;
+  background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.4); font-size: 10px; padding: 1px 5px;
   border-radius: 4px; font-family: monospace; flex-shrink: 0;
 }
 .wc-header-actions { display: flex; align-items: center; gap: 3px; flex-shrink: 0; }
 .wc-icon-btn {
   padding: 2px 6px; background: transparent; border: 1px solid transparent;
-  border-radius: 4px; cursor: pointer; font-size: 13px; color: #64748b;
+  border-radius: 4px; cursor: pointer; font-size: 13px; color: rgba(255,255,255,0.35);
 }
-.wc-icon-btn:hover { background: #e2e8f0; border-color: #cbd5e1; }
-.wc-icon-btn.danger:hover { background: #fee2e2; color: #dc2626; border-color: #fca5a5; }
+.wc-icon-btn:hover { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.15); color: rgba(255,255,255,0.7); }
+.wc-icon-btn.danger:hover { background: rgba(239,68,68,0.15); color: #f87171; border-color: rgba(239,68,68,0.3); }
 .wc-save-btn {
   padding: 2px 10px; background: #3b82f6; color: #fff;
   border: none; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 500;
@@ -782,40 +782,40 @@ onUnmounted(() => {
 .editor-body { display: flex; flex-direction: column; }
 .editor-wrap { flex: 1; display: flex; overflow: hidden; }
 .line-numbers {
-  width: 42px; background: #f8fafc; border-right: 1px solid #e2e8f0;
+  width: 42px; background: #1a2032; border-right: 1px solid rgba(255,255,255,0.06);
   padding: 8px 0; overflow: hidden; flex-shrink: 0; user-select: none;
 }
 .line-num {
   height: 19px; text-align: right; padding-right: 8px;
-  font-size: 11px; font-family: monospace; color: #94a3b8; line-height: 19px;
+  font-size: 11px; font-family: monospace; color: rgba(255,255,255,0.2); line-height: 19px;
 }
 .code-editor {
   flex: 1; padding: 8px 12px;
   font-family: 'Menlo','Monaco','Courier New',monospace;
   font-size: 13px; line-height: 19px;
-  background: #fff; color: #1e293b;
+  background: #0d1117; color: #c9d1d9;
   border: none; outline: none; resize: none;
   overflow-y: auto; overflow-x: auto;
-  white-space: pre; tab-size: 2; caret-color: #3b82f6;
+  white-space: pre; tab-size: 2; caret-color: #818cf8;
 }
 .editor-statusbar {
   display: flex; gap: 10px; align-items: center;
-  padding: 3px 10px; font-size: 11px; color: #94a3b8;
-  background: #f8fafc; border-top: 1px solid #e2e8f0; flex-shrink: 0;
+  padding: 3px 10px; font-size: 11px; color: rgba(255,255,255,0.3);
+  background: #1a2032; border-top: 1px solid rgba(255,255,255,0.06); flex-shrink: 0;
 }
-.stat-chip  { background: #e2e8f0; border-radius: 3px; padding: 1px 5px; font-family: monospace; color: #64748b; }
+.stat-chip  { background: rgba(255,255,255,0.08); border-radius: 3px; padding: 1px 5px; font-family: monospace; color: rgba(255,255,255,0.4); }
 .stat-flex  { flex: 1; }
 .status-dirty { color: #f59e0b; font-weight: 600; }
 .status-saved { color: #22c55e; }
 .wc-empty-editor {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  height: 100%; color: #94a3b8; font-size: 14px; gap: 10px;
+  height: 100%; color: rgba(255,255,255,0.25); font-size: 14px; gap: 10px;
 }
 .wc-empty-icon { font-size: 40px; }
-.wc-empty-hint { font-size: 12px; color: #cbd5e1; }
+.wc-empty-hint { font-size: 12px; color: rgba(255,255,255,0.2); }
 .wc-binary-notice {
   display: flex; align-items: center; justify-content: center;
-  height: 100%; color: #94a3b8; font-size: 13px;
+  height: 100%; color: rgba(255,255,255,0.25); font-size: 13px;
 }
 
 /* ── Resize handle ── */
@@ -833,8 +833,8 @@ onUnmounted(() => {
   align-items: center;
   justify-content: space-between;
   padding: 4px 8px;
-  border-bottom: 1px solid #e2e8f0;
-  background: #f8fafc;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  background: #1a2032;
   flex-shrink: 0;
   gap: 6px;
   height: 38px;
@@ -846,10 +846,10 @@ onUnmounted(() => {
   box-shadow: 0 0 0 1px #e2e8f0 inset;
 }
 .session-opt { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
-.session-opt-title { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; color: #334155; }
+.session-opt-title { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; color: #c8d3e8; }
 .session-opt-time  { font-size: 11px; color: #94a3b8; flex-shrink: 0; }
 .session-new-btn {
-  padding: 3px 10px; background: #f1f5f9; color: #334155;
+  padding: 3px 10px; background: #f1f5f9; color: #c8d3e8;
   border: 1px solid #e2e8f0; border-radius: 6px; cursor: pointer; font-size: 12px; white-space: nowrap;
 }
 .session-new-btn:hover { background: #e2e8f0; border-color: #cbd5e1; }
@@ -872,7 +872,7 @@ onUnmounted(() => {
 }
 .wc-modal-input:focus { border-color: #3b82f6; }
 .wc-modal-footer { display: flex; gap: 8px; justify-content: flex-end; }
-.wc-btn         { padding: 6px 16px; border-radius: 6px; border: 1px solid #e2e8f0; background: #f8fafc; color: #334155; font-size: 13px; cursor: pointer; }
+.wc-btn         { padding: 6px 16px; border-radius: 6px; border: 1px solid #e2e8f0; background: #f8fafc; color: #c8d3e8; font-size: 13px; cursor: pointer; }
 .wc-btn.primary { background: #3b82f6; color: #fff; border-color: #3b82f6; }
 .wc-btn:hover   { opacity: .85; }
 </style>

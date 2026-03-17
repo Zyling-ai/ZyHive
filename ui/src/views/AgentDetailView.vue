@@ -2906,6 +2906,34 @@ async function openCronLogs(job: any) {
   }
   :deep(.el-tab-pane) { padding: 0 !important; }
 
+  /* ── 深色 Tabs 主题 ─────────────────────────────────────────────────────── */
+  :deep(.el-tabs--border-card) {
+    background: #161b27 !important;
+    border-color: rgba(255,255,255,0.07) !important;
+  }
+  :deep(.el-tabs--border-card > .el-tabs__header) {
+    background: #1a2032 !important;
+    border-bottom-color: rgba(255,255,255,0.07) !important;
+  }
+  :deep(.el-tabs--border-card > .el-tabs__header .el-tabs__item) {
+    color: rgba(255,255,255,0.4) !important;
+    border-color: transparent !important;
+  }
+  :deep(.el-tabs--border-card > .el-tabs__header .el-tabs__item.is-active) {
+    color: #818cf8 !important;
+    background: #161b27 !important;
+    border-bottom-color: #161b27 !important;
+    border-right-color: rgba(255,255,255,0.07) !important;
+    border-left-color: rgba(255,255,255,0.07) !important;
+  }
+  :deep(.el-tabs--border-card > .el-tabs__header .el-tabs__item:hover) {
+    color: rgba(255,255,255,0.75) !important;
+  }
+  :deep(.el-tabs--border-card > .el-tabs__content) {
+    background: #161b27 !important;
+    padding: 0 !important;
+  }
+
   /* ── Page layout ───────────────────────────────────────────────────────── */
   .agent-detail :deep(.el-main) { padding: 0 !important; overflow: hidden; }
   :deep(.el-main) { padding: 0 !important; }
