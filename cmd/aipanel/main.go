@@ -55,6 +55,40 @@ func main() {
 		os.Exit(0)
 	}
 
+	// ── 子命令处理 ──────────────────────────────────────────────────────────
+	// 支持：zyhive token / start / stop / restart / status / version
+	args := flag.Args()
+	if len(args) > 0 {
+		switch args[0] {
+		case "version":
+			fmt.Println("ZyHive " + Version)
+			os.Exit(0)
+
+		case "token":
+			// 打印当前访问令牌（明文）
+			cfg := loadConfigForSubcmd(defaultCfg)
+			if cfg == nil || cfg.Auth.Token == "" {
+				fmt.Fprintln(os.Stderr, "❌ 未找到访问令牌，请先运行 zyhive 进入管理面板配置")
+				os.Exit(1)
+			}
+			fmt.Println(cfg.Auth.Token)
+			os.Exit(0)
+
+		case "start", "stop", "restart", "status", "enable", "disable":
+			runServiceSubcmd(args[0])
+			os.Exit(0)
+
+		case "help", "--help", "-h":
+			printSubcmdHelp()
+			os.Exit(0)
+
+		default:
+			fmt.Fprintf(os.Stderr, "❌ 未知子命令：%s\n\n", args[0])
+			printSubcmdHelp()
+			os.Exit(1)
+		}
+	}
+
 	// 无参数 且 无环境变量 → 进入 CLI 管理面板
 	// 判断：config 是默认值 且 没有 --serve 且 没有 AIPANEL_CONFIG 环境变量
 	configExplicitlySet := false

@@ -1678,3 +1678,80 @@ func generateNginxConfig(domain string, port int) {
 		printSuccess("Nginx 配置已重载")
 	}
 }
+
+// ── 子命令辅助 ─────────────────────────────────────────────────────────────
+
+func printSubcmdHelp() {
+	fmt.Print(`引巢 · ZyHive — AI 团队操作系统
+
+用法：
+  zyhive                  进入交互式管理面板
+  zyhive token            显示当前访问令牌
+  zyhive start            启动服务
+  zyhive stop             停止服务
+  zyhive restart          重启服务
+  zyhive status           查看服务状态
+  zyhive enable           设置开机自启
+  zyhive disable          取消开机自启
+  zyhive version          显示版本号
+
+服务以 --serve 标志直接启动（systemd/launchd 使用）：
+  zyhive --serve --config /etc/zyhive/zyhive.json
+
+`)
+}
+
+func loadConfigForSubcmd(defaultCfg string) *config.Config {
+	path := findConfigPath()
+	if defaultCfg != "aipanel.json" {
+		path = defaultCfg
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		return nil
+	}
+	return cfg
+}
+
+func runServiceSubcmd(action string) {
+	switch action {
+	case "status":
+		var out string
+		switch runtime.GOOS {
+		case "darwin":
+			out = runCmd("launchctl", "list", "com.zyhive.zyhive")
+		case "windows":
+			out = runCmd("sc", "query", "zyhive")
+		default:
+			out = runCmd("systemctl", "status", "zyhive", "--no-pager", "-l")
+		}
+		fmt.Println(out)
+	default:
+		switch runtime.GOOS {
+		case "darwin":
+			launchctlAction(action, "zyhive")
+		case "windows":
+			scAction(action, "zyhive")
+		default:
+			out := runCmd("systemctl", action, "zyhive")
+			if out != "" {
+				fmt.Print(out)
+			}
+			switch action {
+			case "start", "restart":
+				if isServiceRunning() {
+					fmt.Println("✅ ZyHive 服务已" + map[string]string{"start": "启动", "restart": "重启"}[action])
+				} else {
+					fmt.Fprintln(os.Stderr, "❌ 服务启动失败，请检查日志：journalctl -u zyhive -n 30")
+					os.Exit(1)
+				}
+			case "stop":
+				fmt.Println("✅ ZyHive 服务已停止")
+			case "enable":
+				fmt.Println("✅ 已设置开机自启")
+			case "disable":
+				fmt.Println("✅ 已取消开机自启")
+			}
+		}
+	}
+}
