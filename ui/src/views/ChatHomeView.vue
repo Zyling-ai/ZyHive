@@ -297,8 +297,11 @@ function fmtTime(ts: number): string {
   display: flex;
   flex-direction: column;
   height: 100%;
+  max-height: 100%;
   background: var(--el-bg-color-page, #141618);
   overflow: hidden;
+  position: absolute;
+  inset: 0;
 }
 
 /* ── 顶部工具条 ───────────────────────────────────────────────────────── */
@@ -391,8 +394,12 @@ function fmtTime(ts: number): string {
 
 /* ── 聊天主体 ─────────────────────────────────────────────────────────── */
 .chat-body {
-  flex: 1; min-height: 0; overflow: hidden;
-  display: flex; flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  position: relative;
 }
 
 .chat-empty {
