@@ -1,6 +1,13 @@
 import axios from 'axios'
 
-const api = axios.create({ baseURL: '/api' })
+// 支持跨服务器连接：从 localStorage 读取服务器地址
+function getBaseURL(): string {
+  const saved = localStorage.getItem('aipanel_url')
+  if (saved) return `${saved}/api`
+  return '/api'
+}
+
+const api = axios.create({ baseURL: getBaseURL() })
 
 api.interceptors.request.use(cfg => {
   const token = localStorage.getItem('aipanel_token')
