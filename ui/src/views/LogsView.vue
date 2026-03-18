@@ -137,7 +137,8 @@ onUnmounted(() => {
   flex: 1;
   height: calc(100vh - 180px);
   overflow-y: auto;
-  background: #1a1a2e;
+  background: #f8f9fa;
+  border: 1px solid #e4e7ed;
   border-radius: 6px;
   padding: 12px 16px;
   font-family: 'Menlo', 'Monaco', 'Consolas', monospace;
@@ -154,10 +155,10 @@ onUnmounted(() => {
 .log-text { display: block; }
 
 /* Level colors */
-.level-error .log-text  { color: #ff6b6b; }
-.level-warn  .log-text  { color: #ffd93d; }
-.level-info  .log-text  { color: #6bcb77; }
-.level-default .log-text { color: #adb5bd; }
+.level-error .log-text  { color: #c0392b; }
+.level-warn  .log-text  { color: #d97706; }
+.level-info  .log-text  { color: #16a34a; }
+.level-default .log-text { color: #374151; }
 
 .log-empty {
   display: flex;
