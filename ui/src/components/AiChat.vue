@@ -1465,6 +1465,7 @@ onMounted(() => {
   flex-direction: column;
   gap: 14px;
   scroll-behavior: smooth;
+  background: #161b27;
 }
 
 .chat-empty {
@@ -1516,10 +1517,10 @@ onMounted(() => {
   max-width: 72cqi; /* container query units */
 }
 .msg-bubble.assistant {
-  background: var(--el-bg-color, #1e2535);
-  color: var(--el-text-color-primary, #e2e8f0);
+  background: #1e2535;
+  color: #e2e8f0;
   border-bottom-left-radius: 4px;
-  box-shadow: 0 1px 4px rgba(0,0,0,.2);
+  box-shadow: 0 2px 8px rgba(0,0,0,.3);
 }
 
 /* ── 未配置模型提示卡 ── */
@@ -1933,8 +1934,8 @@ onMounted(() => {
 /* ── Input area ── */
 .chat-input-area {
   flex-shrink: 0;
-  background: var(--el-bg-color, #1e2535);
-  border-top: 1px solid var(--el-border-color, rgba(255,255,255,0.08));
+  background: #1a2032;
+  border-top: 1px solid rgba(255,255,255,0.08);
   padding: 10px 12px;
 }
 
