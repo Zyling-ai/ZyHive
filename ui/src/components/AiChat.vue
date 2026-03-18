@@ -1476,8 +1476,8 @@ onMounted(() => {
 .examples { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 8px; }
 .example-chip {
   padding: 6px 14px;
-  background: #fff;
-  border: 1px solid #dcdfe6;
+  background: var(--el-bg-color, #1e2535);
+  border: 1px solid var(--el-border-color, rgba(255,255,255,0.15));
   border-radius: 16px;
   cursor: pointer;
   color: #409eff;
@@ -1516,10 +1516,10 @@ onMounted(() => {
   max-width: 72cqi; /* container query units */
 }
 .msg-bubble.assistant {
-  background: #fff;
-  color: #303133;
+  background: var(--el-bg-color, #1e2535);
+  color: var(--el-text-color-primary, #e2e8f0);
   border-bottom-left-radius: 4px;
-  box-shadow: 0 1px 4px rgba(0,0,0,.08);
+  box-shadow: 0 1px 4px rgba(0,0,0,.2);
 }
 
 /* ── 未配置模型提示卡 ── */
@@ -1609,7 +1609,7 @@ onMounted(() => {
 
 /* ── Thinking ── */
 .thinking-block {
-  background: #f8f9fa;
+  background: var(--el-bg-color, #1e2535);
   border: 1px solid #e4e7ed;
   border-radius: 8px;
   overflow: hidden;
@@ -1648,15 +1648,15 @@ onMounted(() => {
   margin-bottom: 4px;
 }
 .tool-step {
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
+  background: var(--el-bg-color, #1a2032);
+  border: 1px solid var(--el-border-color, rgba(255,255,255,0.1));
   border-radius: 8px;
   overflow: hidden;
   cursor: pointer;
   transition: border-color .15s, background .15s;
   user-select: none;
 }
-.tool-step:hover { border-color: #cbd5e1; background: #f1f5f9; }
+.tool-step:hover { border-color: rgba(99,102,241,0.4); background: rgba(99,102,241,0.08); }
 .tool-step.running { border-color: #fbbf24; background: #fffbeb; }
 .tool-step.done    { border-color: #86efac; }
 .tool-step.error   { border-color: #fca5a5; background: #fff5f5; }
@@ -1704,7 +1704,7 @@ onMounted(() => {
   display: inline-flex; align-items: center; gap: 3px;
   font-size: 11px; padding: 1px 7px; border-radius: 10px;
   font-weight: 600; flex-shrink: 0; white-space: nowrap;
-  background: #f1f5f9; color: #64748b;
+  background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.5);
 }
 .task-badge.pending  { background: #fef9c3; color: #a16207; animation: badge-breathe 1.8s ease-in-out infinite; }
 .task-badge.running  { background: #dbeafe; color: #1d4ed8; animation: badge-breathe 1.2s ease-in-out infinite; }
@@ -1714,7 +1714,7 @@ onMounted(() => {
 }
 .task-badge.done     { background: #dcfce7; color: #15803d; }
 .task-badge.error    { background: #fee2e2; color: #b91c1c; }
-.task-badge.killed   { background: #f1f5f9; color: #475569; }
+.task-badge.killed   { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.4); }
 
 /* ── Running tasks banner ── */
 .running-tasks-banner {
@@ -1875,8 +1875,8 @@ onMounted(() => {
 }
 .option-chip {
   padding: 6px 14px;
-  background: #fff;
-  border: 1.5px solid #d0e8ff;
+  background: var(--el-bg-color, #1e2535);
+  border: 1.5px solid rgba(99,102,241,0.4);
   border-radius: 20px;
   cursor: pointer;
   font-size: 13px;
@@ -1933,8 +1933,8 @@ onMounted(() => {
 /* ── Input area ── */
 .chat-input-area {
   flex-shrink: 0;
-  background: #fff;
-  border-top: 1px solid #e4e7ed;
+  background: var(--el-bg-color, #1e2535);
+  border-top: 1px solid var(--el-border-color, rgba(255,255,255,0.08));
   padding: 10px 12px;
 }
 
@@ -1992,8 +1992,8 @@ onMounted(() => {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  background: #f1f5f9;
-  border: 1px solid #e2e8f0;
+  background: var(--el-bg-color-page, #141618);
+  border: 1px solid var(--el-border-color, rgba(255,255,255,0.12));
   border-radius: 20px;
   padding: 4px 10px 4px 8px;
   font-size: 12px;
@@ -2031,7 +2031,7 @@ onMounted(() => {
   line-height: 1.5;
   overflow-y: hidden;
 }
-.chat-textarea:focus { border-color: #409eff; background: #fff; }
+.chat-textarea:focus { border-color: #6366f1; background: var(--el-bg-color, #1e2535); }
 .chat-textarea:disabled { opacity: .6; cursor: not-allowed; }
 
 .input-actions { display: flex; flex-direction: column; gap: 4px; }
