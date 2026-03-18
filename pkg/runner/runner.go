@@ -95,13 +95,16 @@ func New(cfg Config) *Runner {
 
 // RunEvent is emitted to the caller during a conversation turn.
 type RunEvent struct {
-	Type          string // "text_delta" | "tool_call" | "tool_result" | "error" | "done"
+	Type          string // "text_delta" | "tool_call" | "tool_result" | "usage" | "error" | "done"
 	Text          string
 	ToolCall      *llm.ToolCall
 	Error         error
 	// Done event extras
 	SessionID     string
 	TokenEstimate int
+	// Usage event extras
+	InputTokens  int
+	OutputTokens int
 }
 
 // Run processes one user message and streams events until the model stops.
@@ -449,6 +452,7 @@ func (r *Runner) run(ctx context.Context, userMsg string, out chan<- RunEvent) e
 
 	// 3. Agentic loop — call LLM, handle tools, repeat
 	const maxIter = 30
+	var totalInputToks, totalOutputToks int
 	for i := 0; i < maxIter; i++ {
 
 		var toolDefs []llm.ToolDef
@@ -492,6 +496,14 @@ func (r *Runner) run(ctx context.Context, userMsg string, out chan<- RunEvent) e
 				if ev.Usage != nil {
 					turnInputToks += ev.Usage.InputTokens
 					turnOutputToks += ev.Usage.OutputTokens
+					// Forward accumulated usage to the SSE stream so the UI can show token counts
+					if turnInputToks > 0 || turnOutputToks > 0 {
+						out <- RunEvent{
+							Type:         "usage",
+							InputTokens:  turnInputToks,
+							OutputTokens: turnOutputToks,
+						}
+					}
 				}
 			case llm.EventStop:
 				stopReason = ev.StopReason
@@ -499,7 +511,9 @@ func (r *Runner) run(ctx context.Context, userMsg string, out chan<- RunEvent) e
 				return ev.Err
 			}
 		}
-		// Record usage after each LLM turn
+		// Accumulate total tokens and record usage after each LLM turn
+		totalInputToks += turnInputToks
+		totalOutputToks += turnOutputToks
 		if r.cfg.UsageRecorder != nil && (turnInputToks+turnOutputToks) > 0 {
 			r.cfg.UsageRecorder(turnInputToks, turnOutputToks, r.cfg.Provider, r.cfg.Model, r.cfg.AgentID)
 		}
@@ -536,6 +550,8 @@ func (r *Runner) run(ctx context.Context, userMsg string, out chan<- RunEvent) e
 				Type:          "done",
 				SessionID:     r.cfg.SessionID,
 				TokenEstimate: tokenEstimate,
+				InputTokens:   totalInputToks,
+				OutputTokens:  totalOutputToks,
 			}
 			// Trigger compaction asynchronously if token budget exceeded
 			if r.cfg.SessionID != "" && r.cfg.Session != nil {

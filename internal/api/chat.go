@@ -386,9 +386,16 @@ func runEventToJSON(ev runner.RunEvent) []byte {
 		}
 	case "error":
 		m["error"] = fmt.Sprintf("%v", ev.Error)
+	case "usage":
+		m["input_tokens"] = ev.InputTokens
+		m["output_tokens"] = ev.OutputTokens
 	case "done":
 		m["sessionId"] = ev.SessionID
 		m["tokenEstimate"] = ev.TokenEstimate
+		if ev.InputTokens > 0 || ev.OutputTokens > 0 {
+			m["input_tokens"] = ev.InputTokens
+			m["output_tokens"] = ev.OutputTokens
+		}
 	}
 	data, _ := json.Marshal(m)
 	return data
