@@ -2906,31 +2906,31 @@ async function openCronLogs(job: any) {
   }
   :deep(.el-tab-pane) { padding: 0 !important; }
 
-  /* ── 深色 Tabs 主题 ─────────────────────────────────────────────────────── */
+  /* ── Tabs 浅色主题（覆盖 El Plus border-card 默认样式） ─────────────────── */
   :deep(.el-tabs--border-card) {
-    background: #161b27 !important;
-    border-color: rgba(255,255,255,0.07) !important;
+    background: #fff !important;
+    border-color: #e4e7ed !important;
   }
   :deep(.el-tabs--border-card > .el-tabs__header) {
-    background: #1a2032 !important;
-    border-bottom-color: rgba(255,255,255,0.07) !important;
+    background: #f5f7fa !important;
+    border-bottom-color: #e4e7ed !important;
   }
   :deep(.el-tabs--border-card > .el-tabs__header .el-tabs__item) {
-    color: rgba(255,255,255,0.4) !important;
+    color: #909399 !important;
     border-color: transparent !important;
   }
   :deep(.el-tabs--border-card > .el-tabs__header .el-tabs__item.is-active) {
-    color: #818cf8 !important;
-    background: #161b27 !important;
-    border-bottom-color: #161b27 !important;
-    border-right-color: rgba(255,255,255,0.07) !important;
-    border-left-color: rgba(255,255,255,0.07) !important;
+    color: #409eff !important;
+    background: #fff !important;
+    border-bottom-color: #fff !important;
+    border-right-color: #e4e7ed !important;
+    border-left-color: #e4e7ed !important;
   }
   :deep(.el-tabs--border-card > .el-tabs__header .el-tabs__item:hover) {
-    color: rgba(255,255,255,0.75) !important;
+    color: #606266 !important;
   }
   :deep(.el-tabs--border-card > .el-tabs__content) {
-    background: #161b27 !important;
+    background: #fff !important;
     padding: 0 !important;
   }
 
