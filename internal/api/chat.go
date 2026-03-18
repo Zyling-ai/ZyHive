@@ -392,7 +392,9 @@ func runEventToJSON(ev runner.RunEvent) []byte {
 	case "done":
 		m["sessionId"] = ev.SessionID
 		m["tokenEstimate"] = ev.TokenEstimate
-		if ev.InputTokens > 0 || ev.OutputTokens > 0 {
+		// Only include token counts if both are non-zero (complete data)
+		// Avoids overwriting a correct usage event with a partial done event
+		if ev.InputTokens > 0 && ev.OutputTokens > 0 {
 			m["input_tokens"] = ev.InputTokens
 			m["output_tokens"] = ev.OutputTokens
 		}
