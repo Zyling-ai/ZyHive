@@ -309,7 +309,7 @@ function fmtTime(ts: number): string {
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  background: var(--el-bg-color-page, #141618);
+  background: #f4f6f9;
 }
 
 /* ── 顶部工具条 ───────────────────────────────────────────────────────── */
@@ -318,8 +318,8 @@ function fmtTime(ts: number): string {
   align-items: center;
   gap: 8px;
   padding: 8px 16px;
-  background: var(--el-bg-color, #1d1e24);
-  border-bottom: 1px solid var(--el-border-color, rgba(255,255,255,0.08));
+  background: #fff;
+  border-bottom: 1px solid #e4e7ed;
   flex-shrink: 0;
 }
 
@@ -384,7 +384,7 @@ function fmtTime(ts: number): string {
 .dz-dot {
   position: absolute; bottom: -1px; right: -1px;
   width: 9px; height: 9px; border-radius: 50%;
-  border: 1.5px solid var(--el-bg-color, #1d1e24);
+  border: 1.5px solid #dcdfe6;
 }
 .dot-running { background: #f59e0b; animation: blink 1s ease-in-out infinite; }
 .dot-done    { background: #22c55e; }
