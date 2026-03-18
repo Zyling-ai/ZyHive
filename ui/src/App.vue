@@ -548,15 +548,19 @@ body {
 
 /* 聊天首页：撑满剩余高度，无内边距，无滚动 */
 .app-right-container {
-  flex: 1;
+  flex: 1 !important;
   min-width: 0;
   min-height: 0;
+  height: 0;   /* flex trick: 与 flex:1 配合撑满剩余高度 */
   display: flex !important;
   flex-direction: column !important;
+  overflow: hidden;
 }
 .app-main.is-chat-page {
   padding: 0 !important;
+  margin: 0 !important;
   min-height: 0 !important;
+  height: 0 !important;   /* flex trick */
   flex: 1 !important;
   overflow: hidden !important;
   display: flex !important;
