@@ -3,6 +3,14 @@
 
     <!-- ══ 聊天顶部工具条（在 App.vue 内容区内） ══════════════════════════ -->
     <div class="chat-toolbar">
+      <!-- Sidebar 展开/收起 -->
+      <button class="sidebar-toggle-btn" @click="emit('toggle-sidebar')" title="展开/收起侧栏">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <rect x="3" y="3" width="18" height="18" rx="2"/>
+          <line x1="9" y1="3" x2="9" y2="21"/>
+        </svg>
+      </button>
+
       <!-- 成员选择器 -->
       <el-select
         v-model="currentAgentId"
@@ -123,6 +131,8 @@ import { ref, computed, onMounted } from 'vue'
 import { agents as agentsApi, models as modelsApi, sessions as sessApi } from '../api'
 import AiChat from '../components/AiChat.vue'
 import type { AgentInfo, ModelEntry } from '../api'
+
+const emit = defineEmits<{ (e: 'toggle-sidebar'): void }>()
 
 
 const agents    = ref<AgentInfo[]>([])
@@ -297,11 +307,10 @@ function fmtTime(ts: number): string {
   display: flex;
   flex-direction: column;
   height: 100%;
-  max-height: 100%;
+  min-height: 0;
+  flex: 1;
   background: var(--el-bg-color-page, #141618);
   overflow: hidden;
-  position: absolute;
-  inset: 0;
 }
 
 /* ── 顶部工具条 ───────────────────────────────────────────────────────── */
@@ -314,6 +323,16 @@ function fmtTime(ts: number): string {
   border-bottom: 1px solid var(--el-border-color, rgba(255,255,255,0.08));
   flex-shrink: 0;
 }
+
+.sidebar-toggle-btn {
+  display: flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; flex-shrink: 0;
+  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 6px; cursor: pointer; color: rgba(255,255,255,0.55);
+  transition: background 0.15s, color 0.15s;
+  padding: 0;
+}
+.sidebar-toggle-btn:hover { background: rgba(255,255,255,0.12); color: #fff; }
 
 .agent-select   { width: 148px; flex-shrink: 0; }
 .model-select   { width: 164px; flex-shrink: 0; }

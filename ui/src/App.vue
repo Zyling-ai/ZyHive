@@ -179,9 +179,9 @@
       </el-aside>
 
       <!-- Main content -->
-      <el-container>
+      <el-container class="app-right-container">
         <el-main class="app-main" :class="{ 'is-chat-page': isChatPage }">
-          <router-view />
+          <router-view @toggle-sidebar="onToggleSidebar" />
         </el-main>
       </el-container>
     </el-container>
@@ -229,6 +229,14 @@ const isChatPage = computed(() => route.path === '/')
 function onLogoClick() {
   if (isMobile.value) {
     mobileDrawerOpen.value = false
+  } else {
+    collapsed.value = !collapsed.value
+  }
+}
+
+function onToggleSidebar() {
+  if (isMobile.value) {
+    mobileDrawerOpen.value = !mobileDrawerOpen.value
   } else {
     collapsed.value = !collapsed.value
   }
@@ -539,10 +547,17 @@ body {
 }
 
 /* 聊天首页：撑满剩余高度，无内边距，无滚动 */
+.app-right-container {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex !important;
+  flex-direction: column !important;
+}
 .app-main.is-chat-page {
   padding: 0 !important;
   min-height: 0 !important;
-  height: calc(100vh - 44px) !important;
+  flex: 1 !important;
   overflow: hidden !important;
   display: flex !important;
   flex-direction: column !important;
