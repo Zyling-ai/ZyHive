@@ -306,11 +306,10 @@ function fmtTime(ts: number): string {
 .chat-home {
   display: flex;
   flex-direction: column;
-  height: 100%;
-  min-height: 0;
   flex: 1;
-  background: var(--el-bg-color-page, #141618);
+  min-height: 0;
   overflow: hidden;
+  background: var(--el-bg-color-page, #141618);
 }
 
 /* ── 顶部工具条 ───────────────────────────────────────────────────────── */
