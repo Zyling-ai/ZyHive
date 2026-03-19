@@ -456,6 +456,9 @@ func (r *Runner) run(ctx context.Context, userMsg string, out chan<- RunEvent) e
 	var totalInputToks, totalOutputToks int
 	planningContinuations := 0 // track how many auto-continuations we've injected
 	for i := 0; i < maxIter; i++ {
+		// Sanitize history before each API call to catch any orphaned tool_use/tool_result
+		// blocks that may have accumulated from previous runs, interruptions, or continuation injections.
+		r.history = sanitizeHistory(r.history)
 
 		var toolDefs []llm.ToolDef
 		if r.cfg.SupportsTools {
@@ -533,23 +536,41 @@ func (r *Runner) run(ctx context.Context, userMsg string, out chan<- RunEvent) e
 		// end_turn + planning colon: AI said "I'll do X:" but stopped — push it to execute.
 		// end_turn (or no tool calls otherwise): genuinely done.
 		if stopReason == "max_tokens" && len(toolCalls) == 0 && strings.TrimSpace(assistantText) != "" {
-			// Auto-continue: model ran out of tokens while generating text
+			// Auto-continue: model ran out of tokens while generating text.
+			// Persist the partial assistant text so session stays in sync with in-memory history.
+			if r.cfg.SessionID != "" && r.cfg.Session != nil {
+				_ = r.cfg.Session.AppendMessage(r.cfg.SessionID, "assistant", assistantContent)
+			}
 			contMsg := json.RawMessage(`[{"type":"text","text":"继续，从你刚才中断的地方继续，不要重复已有内容。"}]`)
 			r.history = append(r.history, llm.ChatMessage{Role: "user", Content: contMsg})
+			if r.cfg.SessionID != "" && r.cfg.Session != nil {
+				_ = r.cfg.Session.AppendMessage(r.cfg.SessionID, "user", contMsg)
+			}
 			out <- RunEvent{Type: "text_delta", Text: "\n\n*(自动续写)*\n\n"}
-			assistantText = "" // reset so next turn's text appends cleanly
+			assistantText = ""
 			continue
 		}
 		if stopReason == "end_turn" && len(toolCalls) == 0 && planningContinuations < 2 {
 			t := strings.TrimSpace(assistantText)
-			// Detect planning-only responses: ends with "：" ":" "，" or similar unfinished markers
+			// Detect planning-only responses: ends with "：" ":" or similar unfinished markers
 			if strings.HasSuffix(t, "：") || strings.HasSuffix(t, ":") ||
 				strings.HasSuffix(t, "如下") || strings.HasSuffix(t, "如下：") ||
 				strings.HasSuffix(t, "开始生成：") || strings.HasSuffix(t, "开始执行：") ||
 				strings.HasSuffix(t, "执行：") || strings.HasSuffix(t, "生成：") {
 				planningContinuations++
+				// Persist assistant planning msg + continuation user msg so session stays in sync
+				if r.cfg.SessionID != "" && r.cfg.Session != nil {
+					safeContent := stripToolUseBlocks(assistantContent)
+					if safeContent == nil {
+						safeContent = assistantContent
+					}
+					_ = r.cfg.Session.AppendMessage(r.cfg.SessionID, "assistant", safeContent)
+				}
 				contMsg := json.RawMessage(`[{"type":"text","text":"继续，立即调用工具执行，不要只描述计划。"}]`)
 				r.history = append(r.history, llm.ChatMessage{Role: "user", Content: contMsg})
+				if r.cfg.SessionID != "" && r.cfg.Session != nil {
+					_ = r.cfg.Session.AppendMessage(r.cfg.SessionID, "user", contMsg)
+				}
 				out <- RunEvent{Type: "text_delta", Text: "\n"}
 				assistantText = ""
 				continue
