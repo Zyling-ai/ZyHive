@@ -128,6 +128,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { ElNotification } from 'element-plus'
 import { agents as agentsApi, models as modelsApi, sessions as sessApi } from '../api'
 import AiChat from '../components/AiChat.vue'
 import type { AgentInfo, ModelEntry } from '../api'
@@ -274,8 +275,31 @@ function pollTask(task: DispatchedTask) {
       if (r.ok) {
         const d = await r.json()
         if (d.output) task.latestReport = (d.output as string).slice(-80)
-        if (d.status === 'done') { task.status = 'done'; setTimeout(() => { dispatched.value = dispatched.value.filter(x => x.taskId !== task.taskId) }, 4000); return }
-        if (d.status === 'error') { task.status = 'error'; setTimeout(() => { dispatched.value = dispatched.value.filter(x => x.taskId !== task.taskId) }, 6000); return }
+        if (d.status === 'done') {
+          task.status = 'done'
+          const summary = (d.output as string || '').slice(0, 120)
+          ElNotification({
+            title: `✅ ${task.agentName} 完成了任务`,
+            message: summary || '任务已完成',
+            type: 'success',
+            duration: 8000,
+            position: 'bottom-right',
+          })
+          setTimeout(() => { dispatched.value = dispatched.value.filter(x => x.taskId !== task.taskId) }, 4000)
+          return
+        }
+        if (d.status === 'error') {
+          task.status = 'error'
+          ElNotification({
+            title: `❌ ${task.agentName} 任务失败`,
+            message: d.error || '执行过程中出现错误',
+            type: 'error',
+            duration: 8000,
+            position: 'bottom-right',
+          })
+          setTimeout(() => { dispatched.value = dispatched.value.filter(x => x.taskId !== task.taskId) }, 6000)
+          return
+        }
       }
     } catch {}
     setTimeout(tick, 3000)
