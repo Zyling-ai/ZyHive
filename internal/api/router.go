@@ -346,9 +346,20 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, cfgPath string, mgr *agen
 				f, err := uiFS.Open(strings.TrimPrefix(path, "/"))
 				if err == nil {
 					f.Close()
+					// Hashed assets (e.g. /assets/foo-abc123.js) can be cached long-term
+					// index.html and SPA routes must never be cached so deploys take effect immediately
+					if strings.HasPrefix(path, "/assets/") {
+						c.Header("Cache-Control", "public, max-age=31536000, immutable")
+					} else {
+						c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
+						c.Header("Pragma", "no-cache")
+					}
 					fileServer.ServeHTTP(c.Writer, c.Request)
 					return
 				}
+				// SPA fallback → index.html, never cache
+				c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
+				c.Header("Pragma", "no-cache")
 				c.Request.URL.Path = "/"
 				fileServer.ServeHTTP(c.Writer, c.Request)
 				return
