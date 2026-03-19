@@ -114,6 +114,7 @@
         :agent-id="currentAgentId"
         :session-id="currentSessionId || undefined"
         @dispatch="onDispatch"
+        @task-handled="onTaskHandled"
         @session-change="onSessionCreated"
       />
     </div>
@@ -163,6 +164,7 @@ interface SessionItem {
 interface DispatchedTask {
   taskId: string; agentId: string; agentName: string
   avatarColor: string; status: 'running'|'done'|'error'; latestReport: string
+  handled?: boolean  // true if LLM already processed result via agent_result tool
 }
 const dispatched = ref<DispatchedTask[]>([])
 
@@ -255,6 +257,12 @@ function newChat() {
   chatKey.value++
 }
 
+// ── 任务已被 LLM 内部处理（agent_result 调用成功）──────────────────────────
+function onTaskHandled(taskId: string) {
+  const task = dispatched.value.find(d => d.taskId === taskId)
+  if (task) task.handled = true
+}
+
 // ── 派遣 ──────────────────────────────────────────────────────────────────
 function onDispatch(agentId: string, agentName: string, avatarColor: string, taskId: string) {
   const agInfo = agents.value.find(a => a.id === agentId)
@@ -281,12 +289,14 @@ function pollTask(task: DispatchedTask) {
         if (d.status === 'done') {
           task.status = 'done'
           const output = (d.output as string || '').trim()
-          const label = task.agentName + (d.label ? '·' + d.label : '')
-          // 优先让主助手在对话窗口里续写汇报；无法续写时降级为通知
-          if (aiChatRef.value?.continueAfterSpawn) {
-            aiChatRef.value.continueAfterSpawn(task.agentName, d.label || task.agentName, output)
-          } else {
-            ElNotification({ title: `✅ ${label} 完成了任务`, message: output.slice(0, 120) || '已完成', type: 'success', duration: 8000, position: 'bottom-right' })
+          const label = d.label || task.agentName
+          // 如果 LLM 已经通过 agent_result 主动处理了结果，跳过重复汇报
+          if (!task.handled) {
+            if (aiChatRef.value?.continueAfterSpawn) {
+              aiChatRef.value.continueAfterSpawn(task.agentName, label, output)
+            } else {
+              ElNotification({ title: `✅ ${task.agentName} 完成了任务`, message: output.slice(0, 120) || '已完成', type: 'success', duration: 8000, position: 'bottom-right' })
+            }
           }
           setTimeout(() => { dispatched.value = dispatched.value.filter(x => x.taskId !== task.taskId) }, 4000)
           return

@@ -401,6 +401,7 @@ const emit = defineEmits<{
   (e: 'session-change', sessionId: string): void  // fired when a new session is created
   (e: 'streaming-change', streaming: boolean): void  // fired when streaming starts/stops
   (e: 'dispatch', agentId: string, agentName: string, avatarColor: string, taskId: string): void  // fired when agent_spawn is called
+  (e: 'task-handled', taskId: string): void  // fired when agent_result returns — LLM already handled the result
 }>()
 
 // ── Types ─────────────────────────────────────────────────────────────────
@@ -1121,6 +1122,16 @@ function runChat(text: string, imgs: string[], silent = false) {
                 emit('dispatch', spawnedId, spawnedName, '#409eff', m[1])
               } catch {}
             }
+          }
+          // agent_result: LLM already handled the task result; notify ChatHomeView to skip continueAfterSpawn
+          if (tc.name === 'agent_result' && ev.text) {
+            const m = ev.text.match(/[a-f0-9]{8}-[a-f0-9]{3,}/i) ?? ev.text.match(/([a-f0-9-]{8,})/i)
+            // Also check the tool input for the taskId
+            try {
+              const inp = tc.input ? JSON.parse(tc.input) : {}
+              const tid = inp.taskId ?? inp.task_id ?? inp.id ?? (m ? m[1] : null)
+              if (tid) emit('task-handled', tid)
+            } catch {}
           }
           // Sync into streamToolCalls
           const stc = streamToolCalls.value.find(t => t.id === activeToolId)
