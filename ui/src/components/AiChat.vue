@@ -1441,13 +1441,23 @@ function sendSilent(text: string) { runChat(text, [], true) }
 
 /**
  * 子任务完成回调：注入系统提示气泡，再静默触发主助手流式汇报结果。
+ * 若当前正在流式生成，等待本轮结束后再触发，避免被 streaming 守卫拦截。
  */
-async function continueAfterSpawn(agentName: string, label: string, output: string) {
-  if (streaming.value) return
-  appendMessage({ role: 'system', text: `✅ ${agentName} 完成了任务「${label}」` })
-  await nextTick()
-  const prompt = `[系统通知] ${agentName} 已完成你派遣的任务「${label}」，以下是执行结果：\n\n${output}\n\n请基于以上结果，向用户做一个自然的汇报。`
-  runChat(prompt, [], true)
+function continueAfterSpawn(agentName: string, label: string, output: string) {
+  const doIt = () => {
+    appendMessage({ role: 'system', text: `✅ ${agentName} 完成了任务「${label}」` })
+    const prompt = `[系统通知] ${agentName} 已完成你派遣的任务「${label}」，以下是执行结果：\n\n${output}\n\n请基于以上结果，向用户做一个自然的汇报。`
+    nextTick(() => runChat(prompt, [], true))
+  }
+
+  if (!streaming.value) {
+    doIt()
+    return
+  }
+  // 主助手正在回复——等本轮流式结束后再触发
+  const stop = watch(streaming, (val) => {
+    if (!val) { stop(); doIt() }
+  })
 }
 
 defineExpose({ clearMessages, appendMessage, sendText, sendSilent, fillInput, messages, streaming, currentSessionId, resumeSession, startNewSession, continueAfterSpawn })
