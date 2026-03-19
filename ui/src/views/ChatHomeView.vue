@@ -109,6 +109,7 @@
     <!-- ══ AiChat 主体 ════════════════════════════════════════════════════ -->
     <div class="chat-body" v-if="currentAgentId">
       <AiChat
+        ref="aiChatRef"
         :key="chatKey"
         :agent-id="currentAgentId"
         :session-id="currentSessionId || undefined"
@@ -132,6 +133,8 @@ import { ElNotification } from 'element-plus'
 import { agents as agentsApi, models as modelsApi, sessions as sessApi } from '../api'
 import AiChat from '../components/AiChat.vue'
 import type { AgentInfo, ModelEntry } from '../api'
+
+const aiChatRef = ref<InstanceType<typeof AiChat>>()
 
 const emit = defineEmits<{ (e: 'toggle-sidebar'): void }>()
 
@@ -277,26 +280,24 @@ function pollTask(task: DispatchedTask) {
         if (d.output) task.latestReport = (d.output as string).slice(-80)
         if (d.status === 'done') {
           task.status = 'done'
-          const summary = (d.output as string || '').slice(0, 120)
-          ElNotification({
-            title: `✅ ${task.agentName} 完成了任务`,
-            message: summary || '任务已完成',
-            type: 'success',
-            duration: 8000,
-            position: 'bottom-right',
-          })
+          const output = (d.output as string || '').trim()
+          const label = task.agentName + (d.label ? '·' + d.label : '')
+          // 优先让主助手在对话窗口里续写汇报；无法续写时降级为通知
+          if (aiChatRef.value?.continueAfterSpawn) {
+            aiChatRef.value.continueAfterSpawn(task.agentName, d.label || task.agentName, output)
+          } else {
+            ElNotification({ title: `✅ ${label} 完成了任务`, message: output.slice(0, 120) || '已完成', type: 'success', duration: 8000, position: 'bottom-right' })
+          }
           setTimeout(() => { dispatched.value = dispatched.value.filter(x => x.taskId !== task.taskId) }, 4000)
           return
         }
         if (d.status === 'error') {
           task.status = 'error'
-          ElNotification({
-            title: `❌ ${task.agentName} 任务失败`,
-            message: d.error || '执行过程中出现错误',
-            type: 'error',
-            duration: 8000,
-            position: 'bottom-right',
-          })
+          if (aiChatRef.value?.continueAfterSpawn) {
+            aiChatRef.value.appendMessage?.({ role: 'system', text: `❌ ${task.agentName} 任务执行失败：${d.error || '未知错误'}` })
+          } else {
+            ElNotification({ title: `❌ ${task.agentName} 任务失败`, message: d.error || '执行出错', type: 'error', duration: 8000, position: 'bottom-right' })
+          }
           setTimeout(() => { dispatched.value = dispatched.value.filter(x => x.taskId !== task.taskId) }, 6000)
           return
         }
