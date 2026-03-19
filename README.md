@@ -6,7 +6,7 @@
 [![GitHub Forks](https://img.shields.io/github/forks/Zyling-ai/zyhive?style=flat&logo=github&color=orange)](https://github.com/Zyling-ai/zyhive/network/members)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 [![Go 1.22+](https://img.shields.io/badge/Go-1.22+-00ADD8.svg)](https://golang.org)
-[![Version](https://img.shields.io/badge/version-26.3.17v1-brightgreen.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-26.3.18v8-brightgreen.svg)](CHANGELOG.md)
 [![官网](https://img.shields.io/badge/官网-zyling.ai-6366f1?logo=globe)](https://zyling.ai)
 
 **以团队为核心，每个 AI Agent 是团队成员。**
@@ -29,13 +29,11 @@ irm https://install.zyling.ai/install | iex
 curl -sSL https://install.zyling.ai/install | bash
 ```
 
-**Windows Git Bash / MSYS2 / Cygwin** 与 macOS/Linux 命令相同，脚本会自动检测并调用系统 PowerShell 完成安装。
-
 安装完成后，终端直接显示访问地址和访问令牌：
 
 ```
 ╔══════════════════════════════════════════════╗
-║  ✅  ZyHive 安装成功！版本: 26.3.17v1         ║
+║  ✅  ZyHive 安装成功！版本: 26.3.18v8         ║
 ╚══════════════════════════════════════════════╝
 
   📍 本地访问：  http://localhost:8080
@@ -65,127 +63,145 @@ curl -sSL https://install.zyling.ai/install | bash
 ### 成员管理
 - **多 AI 成员**：每个成员有独立的身份（IDENTITY.md）、灵魂（SOUL.md）、记忆、工作区、技能、定时任务、消息渠道
 - **系统配置助手 `__config__`**：内置不可删除，启动时自动创建，专门负责全局配置问答
-- **独立模型**：每个成员可单独配置大模型（身份 Tab 下拉选择）
+- **独立模型**：每个成员可单独配置大模型（身份 Tab 下拉选择），支持 10+ Provider
 - **删除成员**：自动停止 Bot、清理工作区，前端确认弹窗防误操作
-- **头像颜色**：每个成员有个性化颜色，图谱/对话均展示
+- **头像颜色**：每个成员有个性化颜色，图谱 / 对话均展示
 
 ### 对话 & 会话
-- **SSE 流式对话**：与任意成员实时对话，支持工具调用（折叠卡展示，含进行中呼吸灯动画）
-- **会话持久化**：JSONL 格式存储，含消息历史、Token 估算、Compaction 摘要
-- **统一会话侧边栏**：面板会话与 Telegram / Web 渠道会话合并为单一列表，按最后活动时间排序；渠道会话只读显示（标注来源标签）
-- **对话管理（ChatsView）**：跨成员查看全部历史对话，工具调用卡片展示，按渠道/成员双筛选
-- **@ 其他成员**：对话中转发消息给指定成员，获取跨成员回复
+- **流式对话首页（ChatHomeView）**：默认首页即聊天，成员下拉选择器、模型切换、历史会话选择、新对话按钮
+- **SSE 流式输出**：打字机效果实时输出，工具调用折叠卡展示（含进行中呼吸灯动画）
+- **Token 用量实时显示**：每条助手消息底部显示 `↑ input ↓ output tokens`，done 事件汇总
+- **会话持久化**：JSONL 格式存储，含消息历史、Token 估算、上下文压缩（Compaction）摘要
+- **统一会话侧边栏**：面板会话与 Telegram / Web 渠道会话合并为单一列表，按最后活动时间排序
+- **对话管理（ChatsView）**：跨成员查看全部历史对话，工具调用卡片展示，按渠道 / 成员双筛选
+- **@ 其他成员**：对话中 @ 转发消息给指定成员，获取跨成员回复
+- **派遣任务面板（DispatchPanel）**：`agent_spawn` 触发时被派遣成员头像飞入顶部，橙灯=执行中 / 绿灯=完成 / 红灯=失败
 
 ### 工作区 & 知识
-- **工作区文件管理**：文件树递归展示（VSCode 风格，Catppuccin Mocha 深色，SVG 矢量图标）、在线编辑器、创建/删除文件、二进制文件检测
-- **身份 & 灵魂编辑**：可视化编辑 IDENTITY.md / SOUL.md，失焦自动保存
-- **记忆管理**：浏览和编辑 Agent 记忆文件，每日日志，自动整合（Cron 触发）
-- **成员环境变量**：AI 成员可通过 `self_set_env` / `self_delete_env` 工具自行持久化私有变量
+- **文件管理**：文件树递归展示（SVG 矢量图标）、在线编辑器、创建 / 删除文件
+- **分层记忆系统**：`memory/core/` + `memory/projects/` + `memory/daily/` + `memory/topics/` 四层目录，轻量 INDEX.md 注入系统提示词
+- **memory_search 工具**：向量 + BM25 双模式语义检索，有 Embedding API 时向量检索，无则 BM25 降级
+- **记忆蒸馏（Consolidator）**：自动将 daily 层短期日志提炼合并到 core 层长期记忆
+- **共享团队工作区（Projects）**：多成员共享项目文件夹，支持 per-agent 读写权限配置
 
-### 技能系统（SkillStudio）
-- 三栏布局：技能列表 | 文件编辑器 | AI 协作聊天
-- AI 实时推荐技能方向，自动生成 `skill.json` + `SKILL.md`
-- 沙箱隔离：工具操作严格限制在 `skills/{skillId}/` 目录
-- 并发后台生成：多技能同时生成不互相阻塞，左侧绿色呼吸点指示
-- 技能历史持久化到后端 session
+### 工具生态（70+ 工具）
+- **执行工具**：`exec`（bash 命令）、`read` / `write` / `edit`（文件操作）、`glob`（文件匹配）
+- **浏览器自动化（go-rod）**：`browser_navigate` / `snapshot` / `screenshot` / `click` / `type` / `fill` / `press` / `hover` / `scroll` / `select` / `eval` / `wait`，支持 ARIA 快照
+- **进程管理**：`process`（管理后台命令会话，list / poll / log / write / kill）
+- **记忆检索**：`memory_search`（向量 + BM25 语义检索）
+- **网络工具**：`web_search`（Brave Search API）、`web_fetch`（抓取页面内容）
+- **图像分析**：`image`（Vision 模型分析图片）
+- **消息推送**：`messaging`（向 Telegram 等渠道发消息）
+- **定时任务**：`cron_list` / `cron_add` / `cron_update` / `cron_remove` / `cron_run`
+- **多会话管理**：`sessions_list` / `sessions_history` / `sessions_send` / `sessions_spawn`（派遣子成员）
+- **ACP 编程代理**：`acp_*`（spawn ACP 代理 session，用于长任务编程委派）
+- **项目工作区**：`project_list` / `project_read` / `project_write` / `project_glob`
 
-### 团队协作
-- **团队图谱（TeamView）**：可拖拽成员节点，拖放创建关系，SVG 精确坐标，4 种关系类型（上下级有向箭头 / 平级协作 / 支持 / 其他），一键整理排列
-- **关系管理**：卡片式弹窗选择关系类型，支持「⇄ 翻转」方向，点击连线编辑/删除，双向自动同步
-- **后台任务系统（SubagentsView）**：基于关系权限（上级可派遣下级，下级可汇报，平级协作互发），任务卡片显示类型/关系/流向
-- **目标规划（GoalsView）**：个人/团队目标管理，支持甘特图（7 级时间颗粒度缩放、惯性拖拽、今日线锚定）与列表双视图，里程碑、多成员分配、定期检查绑定 Cron
+### 工具权限系统
+- 每个成员可独立配置工具策略：`allow`（默认允许）/ `deny`（默认拒绝）+ 精细白名单 / 黑名单
+- 工具按组管理：`group:filesystem` / `group:runtime` / `group:browser` / `group:network` 等
+- 高危工具（如 `exec`）支持需用户审批模式（`ask`）
+
+### 定时任务（Cron）
+- **隔离会话**：每次 Cron 任务在独立 session 中执行，不污染主对话历史
+- **表达式支持**：标准 cron 表达式 + 时区配置
+- **Cron 管理 UI（CronView）**：可视化创建、编辑、立即执行、查看历史记录
+
+### 目标规划（Goals）
+- **甘特图（GoalsView）**：可拖拽时间线，7 级缩放（今 / 周 / 月 / 季 / 半年 / 年 / 三年），惯性滑动，今日锚定
+- **里程碑管理**：目标分解为可追踪里程碑节点，关联负责成员
+- **AI 迭代评审**：关联 Cron 任务，AI 定期自动写进度评审报告
+- **Goals 聊天**：每个目标独立聊天 session，不污染其他对话
+
+### 子成员（Subagents）
+- **Subagents 管理（SubagentsView）**：查看所有派遣中的子成员任务，状态 / 模型 / 耗时实时显示
+- **派遣结果回传**：子成员完成后自动将结果推送回主成员对话
 
 ### 消息渠道
-- **Telegram Bot**：每个成员独立配置 Bot，白名单管理，图片/视频/音频/文档/媒体组，群聊/话题线程，主动推送（`/api/agents/:id/notify`）
-- **Per-chat 持久会话**：每个 Telegram chat 绑定独立 session，Bot 有完整对话记忆
-- **Web 渠道**：独立 URL `/chat/{agentId}/{channelId}`，支持密码保护，Session 隔离
-- **热重载**：新增/修改渠道立即生效，Token 唯一性检测
+- **Telegram Bot**：每个成员可绑定独立 Bot（per-agent），支持 per-chat 持久会话、命令菜单、图片媒体处理
+- **Web 公开聊天（PublicChatView）**：无需登录的公开对话页面，适合对外展示
+- **渠道管理（ChannelsView）**：可视化管理 Telegram token 配置，实时测试连接
 
-### 浏览器自动化
-- **16 个浏览器工具**：基于 go-rod（纯 Go，零 Node.js 依赖），覆盖导航 / 快照 / 截图 / 点击 / 输入 / 滚动 / 执行 JS / 等待元素
-- **ARIA 快照**：JS 注入 `data-zy-ref` 标记所有可交互元素，生成结构化 ARIA 树供 AI 精准操作
-- **多成员隔离**：每个成员有独立 Tab 会话，全局共享一个 Chromium 进程
-- **Chromium 自动下载**：首次使用自动拉取，零人工干预
+### 多模型支持（10+ Provider）
+- Anthropic Claude（claude-3-5/3-7 系列）
+- OpenAI（GPT-4o / o1 / o3 系列）
+- DeepSeek（deepseek-chat / deepseek-reasoner）
+- MiniMax（abab 系列，特殊 POST 探测适配）
+- 智谱 AI（GLM-4 系列）
+- Moonshot（kimi 系列）
+- Qwen（通义千问系列）
+- OpenRouter（聚合多家 Provider）
+- 自定义 OpenAI 兼容端点（Custom）
+- **Provider API Key 管理（ModelsView）**：可视化管理所有 Provider 配置，实时测试连通性
 
-### 记忆检索（memory_search）
-- **向量 + BM25 混合检索**：对工作区 `memory/` 目录所有 `.md` 文件建立混合索引
-- **自动降级**：无 embedding provider 时自动切换为纯 BM25 文本检索
-- **增量更新**：基于 mtime 检测文件变更，只重建变更文件的索引
+### Token 用量统计
+- **UsageView**：按成员 / 日期 / Provider 统计 Token 消耗与费用
+- **实时计费**：每次对话 done 事件返回 inputTokens + outputTokens + 估算费用
+- **多 Provider 计费单价**：内置主流 Provider 官方计费标准
 
-### 任务 & 调度
-- **定时任务（Cron）**：可视化配置，每个成员独立任务，执行历史，一键运行
-- **Cron 隔离会话**：每次任务执行在独立 session 中运行，不污染主对话历史
-- **NO_ALERT 抑制**：任务输出以 `NO_ALERT` 开头时跳过推送，减少无效通知
-- **`send_message` 工具**：AI 在隔离 session 中可主动向 Telegram 渠道发消息
-- **技能库**：跨成员汇总展示，按成员筛选，一键复制
-
-### 全局项目系统
-- 左侧项目列表 + 右侧文件浏览器 + 代码编辑器三栏布局
-- 递归文件树，支持创建/删除文件，标签/描述元信息
-
-### 模型 & 配置
-- **多 Provider 支持**：Anthropic / OpenAI / DeepSeek / Kimi / 智谱 GLM / MiniMax / 通义千问 / 自定义 Base URL
-- **Provider API Key 管理**：Provider 与 Model 分离配置（v3 config），`ResolveCredentials()` 统一解析
-- **在线测试**：API Key 验证、模型 Probe，失败原因实时展示；国内 IP 被 Anthropic 封锁时明确提示并引导切换
-- **工具调用能力矩阵**：不支持 tool_call 的模型自动标注并前端灰显警告（如 deepseek-reasoner）
-- **Config 自动迁移**：启动时自动执行 `applyMigrations()`，当前版本 v3，历史配置无需手动转换
-- **全局 Tools**：内置 read / write / edit / exec / grep / glob / web_fetch / memory_search / browser_* 等，可按成员启用/禁用
-
-### CLI 管理面板（类宝塔风格）
-直接运行 `zyhive`（无参数）进入交互式管理菜单：
-
-```
-┌─ 操作菜单 ─────────────────────────────────────┐
-│ [1] 系统状态                                    │
-│ [2] 服务管理（启动 / 停止 / 重启）               │
-│ [3] 配置管理（访问令牌 / 端口 / 绑定模式）        │
-│ [4] 成员管理（查看 / 重置 AI 成员）               │
-│ [5] 日志查看                                    │
-│ [6] 在线更新（一键升级到最新版）                  │
-│ [7] Nginx 管理                                  │
-│ [8] SSL 证书管理                                │
-│ [9] 备份与恢复                                  │
-│ [0] 退出                                       │
-└────────────────────────────────────────────────┘
-```
-
-> 服务管理完整支持 Linux（systemd）/ macOS（launchd）/ Windows（sc.exe）三平台。
+### 系统管理
+- **在线升级（UpdateView）**：检测 GitHub 最新版本，一键在线升级，五阶段进度显示（下载→验证→应用→完成）
+- **日志查看（LogsView）**：实时系统日志，浅色主题终端风格
+- **技能工作室（SkillStudio）**：安装、启用、编辑成员技能（SKILL.md）
+- **设置（SettingsView）**：全局配置、Provider 管理、模型选择、系统提示词调试
 
 ---
 
-## 🖥️ 平台支持
-
-| 平台 | 安装方式 | 服务管理 | 备注 |
-|------|----------|----------|------|
-| Linux (x86_64) | bash 脚本 | systemd | ✅ 推荐 |
-| Linux (arm64) | bash 脚本 | systemd | ✅ 支持 |
-| macOS (Apple Silicon) | bash 脚本 | launchd | ✅ 支持 |
-| macOS (Intel) | bash 脚本 | launchd | ✅ 支持 |
-| Windows (x86_64) | PowerShell 脚本 | sc.exe | ✅ 支持 |
-| Windows (arm64) | PowerShell 脚本 | sc.exe | ✅ 支持 |
-| Windows Git Bash | bash 脚本（自动转 PS） | — | ✅ 自动适配 |
-
----
-
-## 🛠️ 技术架构
+## 🗂 项目结构
 
 ```
-Vue 3 + Element Plus (SPA, go:embed 单二进制)
-        ↓ REST API + SSE
-Go 后端 (Gin，单二进制)
-        │
-  pkg/runner    ← Agent 对话主循环（工具调用循环，并行执行）
-  pkg/llm       ← Anthropic / OpenAI 流式客户端
-  pkg/session   ← JSONL 会话存储（broadcaster fan-out + replay buffer）
-  pkg/tools     ← 内置工具（read/write/edit/exec/grep/glob/web_fetch/show_image/memory_search/send_message/browser_*）
-  pkg/browser   ← 浏览器自动化（go-rod，ARIA 快照，多成员 Tab 隔离）
-  pkg/agent     ← 多成员生命周期 + 工作区管理 + 关系图
-  pkg/channel   ← Telegram / Web 渠道（热重载，per-chat session）
-  pkg/cron      ← 定时任务引擎（隔离 session，NO_ALERT 抑制）
-  pkg/memory    ← 记忆整合（自动 Compaction）+ 向量/BM25 混合检索
-  pkg/skill     ← Skills 管理 + Runner 注入
-  pkg/project   ← 全局项目系统
-  cmd/aipanel   ← 入口 + CLI 管理面板（跨平台服务管理）
+zyhive/
+├── cmd/aipanel/
+│   ├── main.go          ← 主入口（服务启动 / 平台服务注册）
+│   └── cli.go           ← CLI 子命令（start/stop/restart/status/enable/disable/token）
+├── internal/api/
+│   ├── router.go        ← 路由注册（所有 REST API）
+│   ├── chat.go          ← SSE 流式对话端点
+│   ├── agents.go        ← 成员 CRUD
+│   ├── sessions.go      ← 会话管理
+│   ├── relations.go     ← 关系图谱 + SVG 渲染
+│   ├── update.go        ← 在线升级（五阶段状态机）
+│   ├── goals.go         ← 目标规划 API
+│   ├── projects.go      ← 共享项目工作区 API
+│   ├── subagents.go     ← 子成员 API
+│   ├── usage.go         ← Token 用量统计 API
+│   └── ...
+├── pkg/
+│   ├── agent/           ← 成员生命周期 + 工作区 + IDENTITY/SOUL + 关系图
+│   ├── runner/          ← 对话主循环（工具调用循环）+ 系统提示词构建
+│   ├── session/         ← 会话工作者池 + Broadcaster + 持久化
+│   ├── llm/             ← 10+ Provider 适配（StreamEvent 统一抽象）
+│   ├── tools/           ← 70+ 工具注册 + 权限策略（ToolPolicy）
+│   ├── memory/          ← 四层记忆树 + 索引构建 + 语义检索
+│   ├── channel/         ← Telegram Bot + 渠道路由
+│   ├── cron/            ← Cron 引擎（隔离会话）
+│   ├── goal/            ← 目标规划数据结构
+│   ├── subagent/        ← 子成员派遣管理
+│   ├── browser/         ← 浏览器自动化（go-rod）
+│   ├── skill/           ← 技能元数据管理
+│   ├── project/         ← 共享项目工作区
+│   ├── usage/           ← Token 计费与存储
+│   ├── config/          ← 配置结构（ProviderEntry 列表）
+│   └── compaction/      ← 上下文压缩
+└── ui/src/
+    ├── views/
+    │   ├── ChatHomeView.vue      ← 对话首页（默认页面）
+    │   ├── AgentDetailView.vue   ← 成员详情（身份/灵魂/工作区/Cron/渠道）
+    │   ├── ChatsView.vue         ← 全局对话管理
+    │   ├── GoalsView.vue         ← 目标规划 + 甘特图
+    │   ├── SubagentsView.vue     ← 子成员任务监控
+    │   ├── TeamView.vue          ← 团队关系图谱
+    │   ├── ModelsView.vue        ← Provider & 模型管理
+    │   ├── UsageView.vue         ← Token 用量统计
+    │   ├── ProjectsView.vue      ← 共享项目工作区
+    │   ├── LogsView.vue          ← 系统日志
+    │   ├── ToolsView.vue         ← 工具权限管理
+    │   └── ...
+    └── components/
+        ├── AiChat.vue            ← 核心对话组件（SSE + 工具卡）
+        ├── WorkspaceChatLayout.vue ← 工作区内嵌对话布局
+        ├── DispatchPanel.vue     ← 子成员派遣状态面板
+        └── SkillStudio.vue       ← 技能工作室
 ```
 
 ---
@@ -212,7 +228,21 @@ Go 后端 (Gin，单二进制)
   },
   "models": {
     "primary": "anthropic/claude-sonnet-4-6"
-  }
+  },
+  "providers": [
+    {
+      "id": "anthropic-1",
+      "type": "anthropic",
+      "apiKey": "sk-ant-...",
+      "name": "Anthropic"
+    },
+    {
+      "id": "openai-1",
+      "type": "openai",
+      "apiKey": "sk-...",
+      "name": "OpenAI"
+    }
+  ]
 }
 ```
 
@@ -223,6 +253,7 @@ Go 后端 (Gin，单二进制)
 | `auth.token` | Bearer Token，用于 API 鉴权 |
 | `agents.dir` | 成员数据根目录 |
 | `models.primary` | 默认模型（`provider/model` 格式） |
+| `providers[]` | Provider 列表（type / apiKey / baseUrl 等） |
 
 ---
 
@@ -234,9 +265,12 @@ cd ui && npm install
 
 # 完整构建（必须用 make，不能直接 go build）
 make build
-# 等价于: vite build + cp ui/dist → cmd/aipanel/ui_dist + go build
+# 等价于: vite build + make sync-ui + go build
 
-# 多平台发布构建（需先构建 UI）
+# sync-ui：将 ui/dist 同步到 cmd/aipanel/ui_dist（go:embed 读取此目录）
+make sync-ui
+
+# 多平台发布构建
 cd ui && npm run build && cd ..
 make release
 
@@ -244,7 +278,7 @@ make release
 ./bin/aipanel --config aipanel.json
 ```
 
-> ⚠️ 直接 `go build` 会缺少 UI 静态文件（go:embed），**必须用 `make build`**
+> ⚠️ 直接 `go build` 会缺少 UI 静态文件（go:embed ui_dist），**必须用 `make build`**
 
 ---
 
@@ -252,29 +286,27 @@ make release
 
 | 版本 | 内容 | 状态 |
 |------|------|------|
-| v0.1–0.4 | 项目骨架、LLM 客户端、Session 存储、Tools、Runner、Vue 3 UI | ✅ |
+| v0.1–v0.4 | 项目骨架、LLM 客户端、Session 存储、Tools、Runner、Vue 3 UI | ✅ |
 | v0.5 | Auth、Stats、安装脚本、多 Agent 协同 | ✅ |
 | v0.6 | 记忆模块、团队关系图谱、Telegram 完整能力 | ✅ |
 | v0.7 | 消息渠道下沉成员级别、per-agent 独立 Bot | ✅ |
 | v0.8 | SkillStudio 技能工作室、Web 多渠道隔离、历史对话系统 | ✅ |
 | v0.9.0 | 团队图谱交互、全局项目系统、成员管理增强 | ✅ |
-| v0.9.1 | 后台任务系统、移动端响应式、Telegram 持久会话、成员 Env 自管理 | ✅ |
-| v0.9.8–11 | CF 加速节点、root 权限提示、Windows 完整支持、通用安装端点 | ✅ |
-| v0.9.12–17 | 三级记忆系统、多 Provider 支持、Config 迁移、OpenAI-compat 工具修复 | ✅ |
-| v0.9.18–23 | MiniMax/DeepSeek 修复、Provider API Key 管理、Goals 目标规划（甘特图）| ✅ |
-| v0.9.24 | **甘特图全面重构**（7 级缩放、惯性拖拽、今日锚定、密集网格修复） | ✅ |
-| v0.9.25 | **浏览器自动化**（go-rod，16 工具，ARIA 快照）、**memory_search**、版本更新角标 | ✅ |
-| v0.9.26 | **Cron 隔离会话**、NO_ALERT、send_message、统一会话侧边栏、工具错误精细化 | ✅ |
-| v0.9.27 | **58 个工具单元测试**、agent_spawn 始终注册 | ✅ |
-| 26.3.17v1 | **稳定性修复**：新实例登录 401 死循环、update check 未登录触发问题 | ✅ |
-| 26.3.17v1 | **Windows 安装脚本双修**：irm\|iex 崩溃、服务注册失败 | ✅ |
-| 26.3.17v1 | **Provider 测试修复**：MiniMax 等厂商"未配置调用地址"问题 | ✅ |
-| 26.3.17v1 | **MiniMax 探测修复**：改用 chat completion 探测替代不支持的 GET /v1/models | ✅ |
-| 26.3.17v1 | **安装向导**：bash / PowerShell 交互式向导（8 provider 预设） | ✅ |
-| 26.3.17v1 | **工具调用修复**：Runner 三个路径补全 SupportsTools 字段 | ✅ |
-| 26.3.17v1 | **agent_list 修复**：Pool 正式注册 WithAgentLister | ✅ |
-| 26.3.17v1 | **工具生态全面升级**：web_search / image / process / cron_* / sessions_* / acp_* + 工具权限系统 + 内置心跳 + ACP 编程代理 | ✅ |
-| **v0.11** | 团队规划系统、会议系统 | 🔜 规划中 |
+| v0.9.1–v0.9.11 | 后台任务系统、移动端响应式、Telegram 持久会话、CF 加速节点、Windows 完整支持 | ✅ |
+| v0.9.12–v0.9.17 | 三级记忆系统、多 Provider 支持、Config migration v1→v2、OpenAI-compat 工具修复 | ✅ |
+| v0.9.18–v0.9.23 | MiniMax / DeepSeek 修复、Provider API Key 管理 UI、Goals 目标规划（甘特图）、Cron 隔离会话 | ✅ |
+| v0.9.24 | 甘特图全面重构（7 级缩放、惯性拖拽、今日锚定、v-for key 重复修复）、memory_search 工具 | ✅ |
+| v0.9.25 | 浏览器自动化（go-rod，16 工具，ARIA 快照）、Cron 隔离 session、send_message 工具 | ✅ |
+| v0.9.26 | localStorage 版本检查缓存 bug 修复（semver 比较）| ✅ |
+| v0.9.27 | 58 个工具单元测试、agent_spawn 始终注册修复 | ✅ |
+| v0.10.x | Provider 测试修复、MiniMax POST 探测、Windows 安装脚本双修、新登录页 | ✅ |
+| v0.10.15 | CLI 子命令（zyhive start / stop / restart / status / enable / disable / token） | ✅ |
+| v0.10.16–v0.10.20 | 全新聊天首页（ChatHomeView）、历史会话选择、成员下拉、Token 用量显示 | ✅ |
+| 26.3.17v1 | 版本号格式变更（年.月.日vN）；工具生态全面升级（web_search / image / process / cron_* / sessions_* / acp_*）；工具权限策略系统；内置心跳；ACP 编程代理 | ✅ |
+| 26.3.17v2 | 对话区高度修复（is-chat-page flex 链）| ✅ |
+| 26.3.17v3 | AgentDetailView + WorkspaceChatLayout 深色主题统一 | ✅ |
+| **26.3.18v1–v8** | **全站浅色主题**：移除 dark mode，恢复所有页面浅色配色；侧边栏折叠按钮；Token 用量 SSE 正确透传；LogsView 浅色终端风格 | ✅ |
+| v0.11（规划中）| 团队规划系统增强、会议系统、ChatsView 统一重写、共享工作区权限 UI | 🔜 |
 
 ---
 

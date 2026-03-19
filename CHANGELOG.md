@@ -4,6 +4,70 @@
 
 ---
 
+## [26.3.18v8] — 2026-03-18 · WorkspaceChatLayout + AgentDetailView 全站浅色主题
+
+### 修复
+- **WorkspaceChatLayout.vue 浅色主题**：全文件 53 处深色硬编码色值（`#1a1a2e`、`#0d0d1a` 等）替换为浅色等价值（`#f4f6f9`、`#fff`、`#e4e7ed`、`#303133`），消除工作区内嵌聊天页面的黑色残留
+- **AgentDetailView.vue 浅色主题**：移除 `:deep` 覆盖的 El Plus Tab 深色变量，恢复 El Plus 标准浅色 Tab 配色
+
+---
+
+## [26.3.18v7] — 2026-03-18 · LogsView 浅色主题
+
+### 修复
+- **LogsView 浅色终端**：`.log-container` 背景从 `#1a1a2e`（深色终端）改为 `#f8f9fa`（浅色），日志文本颜色适配浅色背景（灰色日志、绿色 INFO、红色 ERROR）
+
+---
+
+## [26.3.18v6] — 2026-03-18 · 全站浅色主题恢复（Revert dark mode）
+
+### 修复（回滚）
+- **移除 `<html class="dark">`**：撤销 v3/v4/v5 错误引入的全局 dark class
+- **移除 Element Plus dark CSS vars 导入**：`main.ts` 中删除 `element-plus/theme-chalk/dark/css-vars.css` 导入
+- **AiChat.vue 恢复浅色**：`.msg-bubble.assistant { background:#fff; color:#303133 }`；输入区 `background:#fff; border-top:1px solid #e4e7ed`；chip/textarea 全部恢复浅色硬编码值
+- **ChatHomeView.vue 恢复浅色**：toolbar `background:#fff`、chat-home `background:#f4f6f9`
+
+---
+
+## [26.3.18v5] — 2026-03-18 · 对话区颜色对比度调整（已被 v6 回滚）
+
+### 修复
+- 消息气泡对比度优化（使用 El Plus dark CSS vars，v6 已回滚）
+
+---
+
+## [26.3.18v4] — 2026-03-18 · AiChat 深色主题 + Token 输出修复（部分已被 v6 回滚）
+
+### 修复
+- **Token OutputTokens 为 0**：`runEventToJSON` 新增 `"usage"` case，将 usage RunEvent 序列化为 SSE 事件推送给前端；`"done"` 事件仅在 `ev.InputTokens > 0 && ev.OutputTokens > 0` 时才携带 token 字段，防止覆盖前端已累计的有效数据
+- AiChat 深色主题（v6 已回滚，当前为浅色）
+
+---
+
+## [26.3.18v3] — 2026-03-18 · 高度链修复（height:100vh）
+
+### 修复
+- **`app-layout` 高度链**：`App.vue` 中 `.app-layout { height:100vh; overflow:hidden }` 替代 `min-height:100vh`，为子组件提供明确父高度，使 `flex:1` 的子元素能正确撑满视口
+- **`app-right-container`**：移除 `height:0` 覆盖，改用默认 `align-items:stretch`，防止 flex 子项高度塌陷
+- **`app-main.is-chat-page`**：`flex:1; min-height:0`（不再使用 `height:0`）
+
+---
+
+## [26.3.18v2] — 2026-03-18 · Token 用量 SSE 透传
+
+### 新功能
+- **Token 用量实时透传**：`runner.go` 新增 `RunEvent.InputTokens` / `OutputTokens` 字段；`EventUsage` 时累计 `totalInputToks` / `totalOutputToks` 并 emit `RunEvent{Type:"usage"}`；`runEventToJSON` 处理 `"usage"` 事件，前端实时更新每条消息的 token 计数
+
+---
+
+## [26.3.18v1] — 2026-03-18 · 侧边栏折叠修复 + 工具条折叠按钮
+
+### 修复
+- **侧边栏被遮挡**：`ChatHomeView.vue` 使用 `position:absolute` 覆盖了父容器，导致侧边栏不可见；改用正确的 flex 布局
+- **侧边栏折叠按钮**：顶部工具条新增折叠/展开侧边栏按钮（`☰` / `✕`），响应式切换
+
+---
+
 ## [26.3.17v1] — 2026-03-17 · 全新聊天首页 + CLI 子命令
 
 ### 新功能
