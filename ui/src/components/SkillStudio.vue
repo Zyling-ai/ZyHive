@@ -204,6 +204,18 @@
                 @input="promptDirty = true"
               />
             </div>
+            <!-- AI diff 预览条（Cursor 风格）-->
+            <div v-if="pendingEdit?.file === 'SKILL.md'" class="diff-bar">
+              <div class="diff-bar-left">
+                <span class="diff-tag">AI 建议修改</span>
+                <span class="diff-summary">{{ pendingEdit.summary }}</span>
+                <span class="diff-stats">{{ pendingEditStats }}</span>
+              </div>
+              <div class="diff-bar-right">
+                <el-button size="small" type="primary" @click="applyPendingEdit">✅ 应用</el-button>
+                <el-button size="small" @click="pendingEdit = null">✕ 忽略</el-button>
+              </div>
+            </div>
           </div>
 
           <!-- 通用文件编辑器（AI 生成的工具文件等） -->
@@ -318,6 +330,32 @@ const selected = ref<AgentSkillMeta | null>(null)
 const activeFile = ref<string>('meta')
 const editorFullscreen = ref(false)  // 全屏编辑模式（隐藏右侧 AI 聊天）
 
+// ── AI 直接编辑文件（Cursor 风格 diff 预览）────────────────────────────────
+interface PendingEdit { file: string; content: string; summary: string }
+const pendingEdit = ref<PendingEdit | null>(null)
+const pendingEditStats = computed(() => {
+  if (!pendingEdit.value) return ''
+  const oldLines = (pendingEdit.value.file === 'SKILL.md' ? promptContent.value : genericContent.value).split('\n')
+  const newLines = pendingEdit.value.content.split('\n')
+  const added   = newLines.filter(l => !oldLines.includes(l)).length
+  const removed = oldLines.filter(l => !newLines.includes(l)).length
+  return `+${added} / -${removed} 行`
+})
+function applyPendingEdit() {
+  if (!pendingEdit.value) return
+  if (pendingEdit.value.file === 'SKILL.md') {
+    promptContent.value = pendingEdit.value.content
+    promptDirty.value = true
+    activeFile.value = 'prompt'
+  } else {
+    genericContent.value = pendingEdit.value.content
+    genericDirty.value = true
+    activeFile.value = pendingEdit.value.file
+  }
+  ElMessage.success('已应用 AI 修改')
+  pendingEdit.value = null
+}
+
 // Metadata form (mirrors selected skill)
 const metaForm = ref({ name: '', icon: '', category: '', description: '', version: '1.0.0', enabled: true })
 
@@ -382,23 +420,24 @@ const chatContext = computed(() => {
   if (!selected.value) return '你是一个技能配置助手，帮助用户设计和优化 AI 技能的系统提示词。'
   return `你是一个技能配置助手，正在帮助用户配置技能「${selected.value.name || selected.value.id}」（ID: ${selected.value.id}）。
 
-## 🎯 核心能力：自动填充表单（优先使用）
+## 🎯 核心能力
 
-当用户描述技能需求时，**直接输出以下 JSON，页面会自动填充所有字段**：
+### 1. 直接编辑 SKILL.md（优先）
+当用户要修改/优化/生成 SKILL.md 内容时，**直接输出以下 JSON，编辑器会显示 diff 并让用户一键应用**：
 
-\`\`\`json
-{"action":"fill_skill","data":{"name":"技能名称","icon":"🔧","category":"分类","description":"简要描述","enabled":true,"prompt":"# 技能名称\\n\\n## 角色\\n你是...\\n\\n## 能力\\n..."}}
-\`\`\`
+${'```'}json
+{"action":"edit_file","file":"SKILL.md","summary":"修改摘要（一句话）","content":"# 技能名称\\n\\n## 角色\\n你是...\\n\\n## 能力\\n..."}
+${'```'}
 
-字段说明：
-- name: 技能显示名称
-- icon: emoji 图标（如 🌐 📝 🔍）
-- category: 分类（如 语言、代码、创意）
-- description: 一句话描述功能
-- enabled: true/false
-- prompt: 完整的 SKILL.md 内容（Markdown，支持换行 \\n）
+注意：
+- content 是完整的新文件内容（Markdown），用 \\n 换行
+- summary 是一句话描述做了什么（如"优化了角色定义，补充了3个行为规范"）
+- 输出后编辑器底部会弹出 diff 预览，用户点"应用"才正式生效
 
-输出 JSON 后页面自动填充，用户确认后点保存即可。
+### 2. 填充基本信息（名称/分类/描述）
+${'```'}json
+{"action":"fill_skill","data":{"name":"技能名称","icon":"🔧","category":"分类","description":"简要描述","enabled":true}}
+${'```'}
 
 ## 当前技能信息
 - 名称：${selected.value.name || '（未命名）'}
@@ -646,11 +685,23 @@ async function onAiResponse(skillId: string, text: string) {
   }
 }
 
-// 解析并应用 fill_skill JSON
+// 解析并应用 fill_skill / edit_file JSON
 function tryFillSkill(text: string): boolean {
   const tryApply = (jsonStr: string): boolean => {
     try {
       const obj = JSON.parse(jsonStr)
+
+      // ── edit_file：AI 直接修改文件内容，显示 diff 预览 ──────────────────
+      if (obj.action === 'edit_file' && obj.file && typeof obj.content === 'string') {
+        pendingEdit.value = {
+          file: obj.file,
+          content: obj.content,
+          summary: obj.summary || obj.file + ' 内容已更新',
+        }
+        activeFile.value = obj.file === 'SKILL.md' ? 'prompt' : obj.file
+        return true
+      }
+
       if (obj.action === 'fill_skill' && obj.data) {
         const d = obj.data
         if (d.name)        metaForm.value.name        = d.name
@@ -674,8 +725,8 @@ function tryFillSkill(text: string): boolean {
   const codeBlock = text.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/)
   if (codeBlock?.[1] && tryApply(codeBlock[1])) return true
 
-  // 裸 JSON
-  const bare = text.match(/(\{"action"\s*:\s*"fill_skill"[\s\S]*?\})/)
+  // 裸 JSON (fill_skill / edit_file)
+  const bare = text.match(/(\{"action"\s*:\s*"(?:fill_skill|edit_file)"[\s\S]*?\})\s*(?:```|$)/)
   if (bare?.[1] && tryApply(bare[1])) return true
 
   return false
@@ -931,6 +982,37 @@ onMounted(loadList)
 }
 .code-textarea:focus { background: #fffef8; }
 .code-textarea::placeholder { color: #c0c4cc; }
+
+/* ── Diff bar (Cursor-style apply prompt) ── */
+.diff-bar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  background: #ecf5ff;
+  border-top: 2px solid #409eff;
+  gap: 12px;
+  animation: diffSlide 0.2s ease;
+}
+@keyframes diffSlide {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.diff-bar-left  { display: flex; align-items: center; gap: 8px; min-width: 0; overflow: hidden; }
+.diff-bar-right { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.diff-tag {
+  background: #409eff; color: #fff;
+  padding: 1px 7px; border-radius: 10px;
+  font-size: 11px; font-weight: 600; white-space: nowrap;
+}
+.diff-summary {
+  font-size: 12px; color: #303133;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 300px;
+}
+.diff-stats {
+  font-size: 11px; color: #67c23a; font-family: monospace; white-space: nowrap;
+}
 
 /* ── Chat ── */
 .studio-chat {
