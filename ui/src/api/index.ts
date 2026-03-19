@@ -460,7 +460,7 @@ export const sessions = {
   list: (params?: { agentId?: string; limit?: number }) =>
     api.get<{ sessions: SessionSummary[]; total: number }>('/sessions', { params }),
   get: (agentId: string, sid: string) =>
-    api.get<SessionDetail>(`/sessions/${agentId}/${sid}`),
+    api.get<SessionDetail>(`/agents/${agentId}/sessions/${sid}`),
   delete: (agentId: string, sid: string) =>
     api.delete(`/sessions/${agentId}/${sid}`),
   rename: (agentId: string, sid: string, title: string) =>
