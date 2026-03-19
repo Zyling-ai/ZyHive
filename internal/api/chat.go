@@ -459,8 +459,13 @@ func (h *chatHandler) GetSession(c *gin.Context) {
 	store := session.NewStore(ag.SessionDir)
 	entries, err := store.ReadAll(sid)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-		return
+		// Subagent sessions are stored in a "subagent/" subdirectory; fall back to it.
+		subStore := session.NewStore(filepath.Join(ag.SessionDir, "subagent"))
+		entries, err = subStore.ReadAll(sid)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
 	}
 	c.JSON(http.StatusOK, entries)
 }
