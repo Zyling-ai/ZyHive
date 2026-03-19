@@ -191,14 +191,15 @@ func (h *fileHandler) Read(c *gin.Context) {
 }
 
 // Write PUT /api/agents/:id/files/*path
-// Accepts both raw text (Content-Type: text/plain) and JSON {content: string}.
+// Accepts raw text (Content-Type: text/plain), JSON {content: string}, or
+// JSON {content: "base64:<b64>"} for binary files (bypasses CF binary upload limits).
 func (h *fileHandler) Write(c *gin.Context) {
 	_, absPath, ok := h.resolveWorkspacePath(c)
 	if !ok {
 		return
 	}
 
-	body, err := io.ReadAll(io.LimitReader(c.Request.Body, 10*1024*1024)) // 10MB limit
+	body, err := io.ReadAll(io.LimitReader(c.Request.Body, 20*1024*1024)) // 20MB limit
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -211,7 +212,18 @@ func (h *fileHandler) Write(c *gin.Context) {
 			Content string `json:"content"`
 		}
 		if err := json.Unmarshal(body, &payload); err == nil {
-			body = []byte(payload.Content)
+			content := payload.Content
+			// Support base64-encoded binary: "base64:<b64data>"
+			if strings.HasPrefix(content, "base64:") {
+				decoded, decErr := base64.StdEncoding.DecodeString(content[7:])
+				if decErr != nil {
+					c.JSON(http.StatusBadRequest, gin.H{"error": "invalid base64: " + decErr.Error()})
+					return
+				}
+				body = decoded
+			} else {
+				body = []byte(content)
+			}
 		}
 	}
 
