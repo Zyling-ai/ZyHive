@@ -265,7 +265,7 @@
           <!-- 输出（折叠，当右侧聊天可用时退为次要） -->
           <div v-if="selected.output" class="detail-section detail-output">
             <div class="section-label">输出摘要</div>
-            <div class="section-content output-content">{{ truncate(selected.output, 300) }}</div>
+            <div class="section-content output-content">{{ truncate(selected.output, 600) }}</div>
           </div>
         </div>
       </template>
@@ -920,7 +920,7 @@ function relativeTime(ts: number) {
   white-space: pre-wrap;
 }
 .error-content  { background: #fff5f5; color: #f56c6c; }
-.output-content { max-height: 160px; overflow-y: auto; }
+.output-content { max-height: 260px; overflow-y: auto; }
 .task-desc { font-family: inherit; }
 
 /* ── 右：对话框 ──────────────────────────────────────────────────────── */
