@@ -15,7 +15,9 @@ import (
 )
 
 // CompactionThreshold is the token count that triggers compaction.
-const CompactionThreshold = 80_000
+// Set conservatively so that after compaction the remaining context fits
+// well within any proxy/CDN timeout budget (Cloudflare: ~100s idle).
+const CompactionThreshold = 50_000
 
 // CompactIfNeeded checks if a session needs compaction and runs it asynchronously.
 // Safe to call from runner after a completed turn; fires and forgets.

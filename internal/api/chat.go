@@ -198,6 +198,11 @@ func (h *chatHandler) pipeSSE(c *gin.Context, worker *session.SessionWorker) {
 	ch, unsub := worker.Broadcaster.Subscribe(subKey)
 	defer unsub()
 
+	// Keepalive ticker: send SSE comment every 15s so intermediate proxies
+	// (Clash, nginx, CF) don't drop the connection during long LLM processing.
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+
 	c.Stream(func(w io.Writer) bool {
 		select {
 		case ev, ok := <-ch:
@@ -206,6 +211,10 @@ func (h *chatHandler) pipeSSE(c *gin.Context, worker *session.SessionWorker) {
 			}
 			fmt.Fprintf(w, "data: %s\n\n", ev.Data)
 			return ev.Type != "done" && ev.Type != "error"
+		case <-ticker.C:
+			// SSE comment — ignored by browser but resets any proxy idle timer
+			fmt.Fprintf(w, ": keepalive\n\n")
+			return true
 		case <-c.Request.Context().Done():
 			return false // browser left; runner continues
 		}
