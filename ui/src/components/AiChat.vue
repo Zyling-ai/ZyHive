@@ -305,12 +305,15 @@
           <img :src="src" />
           <button class="remove-attach" @click="removeImage(i)">×</button>
         </div>
-        <!-- 文本文件芯片 -->
-        <div v-for="(f, i) in pendingFiles" :key="'file-'+i" class="attach-file-chip">
-          <span class="attach-file-icon">{{ fileTypeIcon(f.name) }}</span>
+        <!-- 文件芯片（文本 + 二进制） -->
+        <div v-for="(f, i) in pendingFiles" :key="'file-'+i"
+          :class="['attach-file-chip', { 'attach-file-uploading': f.uploading, 'attach-file-error': f.uploadError }]">
+          <span class="attach-file-icon">{{ f.uploading ? '⏳' : f.uploadError ? '❌' : fileTypeIcon(f.name) }}</span>
           <span class="attach-file-name">{{ f.name }}</span>
-          <span class="attach-file-size">{{ formatFileSize(f.content.length) }}</span>
-          <button class="attach-file-remove" @click="pendingFiles.splice(i, 1)">×</button>
+          <span class="attach-file-size">
+            {{ f.uploading ? '上传中…' : f.uploadError ? f.uploadError : f.size ? formatFileSize(f.size) : formatFileSize(f.content.length) }}
+          </span>
+          <button v-if="!f.uploading" class="attach-file-remove" @click="pendingFiles.splice(i, 1)">×</button>
         </div>
       </div>
 
@@ -336,7 +339,7 @@
             <input type="file" multiple hidden @change="handleFileSelect" />
           </label>
           <!-- 发送 -->
-          <button class="send-btn" :disabled="streaming || historyLoading || props.noModel || (!inputText.trim() && !pendingImages.length && !pendingFiles.length)"
+          <button class="send-btn" :disabled="streaming || historyLoading || props.noModel || (!inputText.trim() && !pendingImages.length && !pendingFiles.length) || pendingFiles.some(f => f.uploading)"
             @click="send">
             <span v-if="streaming" class="spinner" />
             <span v-else>↑</span>
@@ -425,7 +428,11 @@ interface ToolCallEntry {
 
 interface PendingFile {
   name: string
-  content: string  // text content
+  content: string       // text content (text files) OR empty string (binary)
+  uploadPath?: string   // workspace-relative path for binary uploads
+  uploading?: boolean
+  uploadError?: string
+  size?: number
 }
 
 export interface ChatMsg {
@@ -905,6 +912,17 @@ const TEXT_EXTS = new Set([
   'html','css','scss','less','json','yaml','yml','toml','ini','cfg','env',
   'sh','bash','zsh','fish','ps1','bat','cmd','dockerfile','makefile',
   'sql','graphql','proto','xml','svg','gitignore','gitattributes',
+  'csv','tsv','log','conf','properties','r','rb','php',
+])
+
+// 二进制文件：上传到 workspace/uploads/，消息里携带路径引用
+const BINARY_EXTS = new Set([
+  'xlsx','xls','xlsm','xlsb',
+  'docx','doc','rtf',
+  'pptx','ppt',
+  'pdf',
+  'zip','tar','gz',
+  'mp3','mp4','mov','avi',
 ])
 
 function isTextFile(name: string): boolean {
@@ -918,6 +936,13 @@ function fileTypeIcon(name: string): string {
     js:'🟨', ts:'🔵', vue:'💚', go:'🐹', py:'🐍', rs:'🦀',
     html:'🌐', css:'🎨', json:'📋', md:'📝', sh:'⚡',
     sql:'🗄️', yaml:'⚙️', yml:'⚙️', dockerfile:'🐳',
+    csv:'📊', tsv:'📊',
+    xlsx:'📗', xls:'📗', xlsm:'📗', xlsb:'📗',
+    docx:'📘', doc:'📘', rtf:'📘',
+    pptx:'📙', ppt:'📙',
+    pdf:'📕',
+    zip:'🗜️', tar:'🗜️', gz:'🗜️',
+    mp3:'🎵', mp4:'🎬', mov:'🎬', avi:'🎬',
   }
   return icons[ext] ?? '📄'
 }
@@ -956,6 +981,11 @@ function onDragLeave(e: DragEvent) {
   }
 }
 
+function isBinaryFile(name: string): boolean {
+  const ext = name.split('.').pop()?.toLowerCase() ?? ''
+  return BINARY_EXTS.has(ext)
+}
+
 function handleGlobalDrop(e: DragEvent) {
   _dragDepth = 0
   isDragOver.value = false
@@ -966,8 +996,10 @@ function handleGlobalDrop(e: DragEvent) {
       readImageFile(file)
     } else if (isTextFile(file.name)) {
       readTextFile(file)
+    } else if (isBinaryFile(file.name)) {
+      uploadBinaryFile(file)
     }
-    // else: unsupported, silently ignore
+    // else: truly unsupported, silently ignore
   }
 }
 
@@ -979,9 +1011,10 @@ function handleFileSelect(e: Event) {
       readImageFile(file)
     } else if (isTextFile(file.name)) {
       readTextFile(file)
+    } else if (isBinaryFile(file.name)) {
+      uploadBinaryFile(file)
     }
   }
-  // Reset the input so the same file can be selected again
   ;(e.target as HTMLInputElement).value = ''
 }
 
@@ -989,10 +1022,32 @@ function readTextFile(file: File) {
   const reader = new FileReader()
   reader.onload = () => {
     if (typeof reader.result === 'string') {
-      pendingFiles.value.push({ name: file.name, content: reader.result })
+      pendingFiles.value.push({ name: file.name, content: reader.result, size: file.size })
     }
   }
-  reader.readAsText(file)
+  reader.readAsText(file, 'utf-8')
+}
+
+async function uploadBinaryFile(file: File) {
+  const uploadPath = `uploads/${Date.now()}_${file.name}`
+  const entry: PendingFile = { name: file.name, content: '', uploadPath, uploading: true, size: file.size }
+  pendingFiles.value.push(entry)
+  const idx = pendingFiles.value.length - 1
+
+  try {
+    const buf = await file.arrayBuffer()
+    const base = (localStorage.getItem('aipanel_url') || '').replace(/\/$/, '')
+    const token = localStorage.getItem('aipanel_token') || ''
+    const res = await fetch(`${base}/api/agents/${props.agentId}/files/${uploadPath}`, {
+      method: 'PUT',
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/octet-stream' },
+      body: buf,
+    })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    pendingFiles.value[idx] = { ...entry, uploading: false }
+  } catch (e: any) {
+    pendingFiles.value[idx] = { ...entry, uploading: false, uploadError: e.message || '上传失败' }
+  }
 }
 
 function readImageFile(file: File) {
@@ -1012,13 +1067,25 @@ function send() {
   const files = [...pendingFiles.value]
   if (!text && !imgs.length && !files.length) return
   if (streaming.value) return
+  // Don't send if any binary file is still uploading
+  if (files.some(f => f.uploading)) return
 
   // Build final message text: append file contents as code blocks
   let finalText = text
   if (files.length > 0) {
     const fileBlocks = files.map(f => {
+      if (f.uploadPath) {
+        // Binary file: include path reference so agent can process it with tools
+        const sizeStr = f.size ? ` (${formatFileSize(f.size)})` : ''
+        return `\n\n📎 **${f.name}**${sizeStr}\n文件已上传到工作区路径 \`${f.uploadPath}\`，可用 read/exec/bash 工具处理。`
+      }
       const ext = f.name.split('.').pop() ?? 'text'
-      return `\n\n📎 **${f.name}**\n\`\`\`${ext}\n${f.content}\n\`\`\``
+      // Truncate very large text files to avoid token overflow
+      const MAX = 80000
+      const content = f.content.length > MAX
+        ? f.content.slice(0, MAX) + `\n\n…（文件过大，已截断，完整内容共 ${f.content.length} 字符）`
+        : f.content
+      return `\n\n📎 **${f.name}**\n\`\`\`${ext}\n${content}\n\`\`\``
     }).join('')
     finalText = (text ? text + fileBlocks : fileBlocks.trimStart())
   }
@@ -2044,6 +2111,8 @@ onMounted(() => {
   padding: 4px 10px 4px 8px;
   font-size: 12px;
 }
+.attach-file-uploading { border-color: #93c5fd; background: #eff6ff; }
+.attach-file-error     { border-color: #fca5a5; background: #fef2f2; }
 .attach-file-icon  { font-size: 14px; }
 .attach-file-name  { color: #334155; font-weight: 500; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .attach-file-size  { color: #94a3b8; font-size: 11px; }
