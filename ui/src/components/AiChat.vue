@@ -685,8 +685,22 @@ function processToolResult(result: string): { mediaUrl?: string; fileCard?: { ur
 }
 
 // ── Markdown renderer (lightweight) ──────────────────────────────────────
+/**
+ * 过滤 skill-studio action JSON 块，避免原始协议 JSON 显示给用户。
+ * 匹配 ```json {...} ``` 和裸 JSON 对象（action: edit_file / fill_skill）。
+ */
+function filterActionBlocks(text: string): string {
+  // Remove ```json...``` blocks with action keys
+  text = text.replace(/```(?:json)?\s*\{[^`]*?"action"\s*:\s*"(?:edit_file|fill_skill)"[^`]*?\}\s*```/gs, '')
+  // Remove bare JSON objects with action keys (allow multi-line)
+  text = text.replace(/\{\s*"action"\s*:\s*"(?:edit_file|fill_skill)"[\s\S]*?\n?\}/g, '')
+  return text.trim()
+}
+
 function renderMd(text: string): string {
   if (!text) return ''
+  // In skill-studio, hide protocol JSON from the user — actions are handled silently
+  if (props.scenario === 'skill-studio') text = filterActionBlocks(text)
   let html = text
     // Escape HTML first
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')

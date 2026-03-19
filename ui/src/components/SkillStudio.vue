@@ -418,39 +418,37 @@ watch(selected, async (sk) => {
 // ── AI Chat context ────────────────────────────────────────────────────────
 const chatContext = computed(() => {
   if (!selected.value) return '你是一个技能配置助手，帮助用户设计和优化 AI 技能的系统提示词。'
-  return `你是一个技能配置助手，正在帮助用户配置技能「${selected.value.name || selected.value.id}」（ID: ${selected.value.id}）。
+  const skillPath = `skills/${selected.value.id}/SKILL.md`
+  return `你是一个技能配置助手，正在帮助用户配置技能「${selected.value.name || selected.value.id}」。
 
-## 🎯 核心能力
+## 🎯 工作方式
 
-### 1. 直接编辑 SKILL.md（优先）
-当用户要修改/优化/生成 SKILL.md 内容时，**直接输出以下 JSON，编辑器会显示 diff 并让用户一键应用**：
+### 1. 编辑 SKILL.md → 直接用 write 工具写文件（最重要）
+当用户要创建/修改/优化 SKILL.md 内容时，**直接调用 write 工具**写入文件，写完后编辑器自动刷新。
 
-${'```'}json
-{"action":"edit_file","file":"SKILL.md","summary":"修改摘要（一句话）","content":"# 技能名称\\n\\n## 角色\\n你是...\\n\\n## 能力\\n..."}
-${'```'}
+文件路径：\`${skillPath}\`
 
-注意：
-- content 是完整的新文件内容（Markdown），用 \\n 换行
-- summary 是一句话描述做了什么（如"优化了角色定义，补充了3个行为规范"）
-- 输出后编辑器底部会弹出 diff 预览，用户点"应用"才正式生效
+示例：
+- 用户说"帮我生成一个利润表审核技能" → 直接 write 工具写完整内容到 ${skillPath}
+- 用户说"优化第二段" → read 工具读取当前内容 → 修改 → write 工具写回
+- 不要输出文件内容让用户自己复制，直接写文件
 
-### 2. 填充基本信息（名称/分类/描述）
+### 2. 填写基本信息（名称/图标/描述）→ 输出以下 JSON
 ${'```'}json
 {"action":"fill_skill","data":{"name":"技能名称","icon":"🔧","category":"分类","description":"简要描述","enabled":true}}
 ${'```'}
 
 ## 当前技能信息
+- 技能 ID：${selected.value.id}
 - 名称：${selected.value.name || '（未命名）'}
 - 分类：${selected.value.category || '（未设置）'}
-- 当前 SKILL.md（共 ${promptContent.value.length} 字符）：
-\`\`\`markdown
-${promptContent.value.length > 2000
-  ? promptContent.value.slice(0, 2000) + '\n\n…（内容过长已截断，如需查看或修改完整内容，请直接在左侧编辑器中操作）'
-  : (promptContent.value || '（空）')}
-\`\`\`
+- SKILL.md：${promptContent.value ? `共 ${promptContent.value.length} 字符` : '（空，尚未创建）'}
 
-## 高级：创建工具文件（仅需要外部工具时使用）
-文件路径必须在 skills/${selected.value.id}/ 目录下，如 skills/${selected.value.id}/tools/helper.py`
+${promptContent.value && promptContent.value.length <= 1500 ? `当前内容：\n\`\`\`markdown\n${promptContent.value}\n\`\`\`` : ''}
+
+## 注意
+- 读写文件时路径直接用 \`${skillPath}\`（相对路径即可）
+- 写完文件后，编辑器会自动刷新，无需再提示用户手动操作`
 })
 
 const chatWelcome = computed(() => {
@@ -670,15 +668,19 @@ async function openNew() {
 async function onAiResponse(skillId: string, text: string) {
   if (skillId === selected.value?.id) isNewSkill.value = false
 
-  // 尝试解析 fill_skill JSON
-  if (skillId === selected.value?.id && tryFillSkill(text)) {
-    return  // 已自动填充，不需要刷新文件
-  }
+  // 尝试解析 fill_skill / edit_file JSON（兼容旧模式 + 备用协议）
+  if (skillId === selected.value?.id) tryFillSkill(text)
 
-  // 刷新该 skill 的元数据 + 目录（AI 可能用 bash 工具写了文件）
+  // 始终刷新编辑器：AI 可能通过 write 工具直接写了文件
   await loadList()
   if (skillId === selected.value?.id) {
+    const prevContent = promptContent.value
     await Promise.all([loadDirFiles(), reloadPrompt()])
+    // 如果 SKILL.md 内容有变化，自动切到编辑器并提示
+    if (promptContent.value && promptContent.value !== prevContent) {
+      activeFile.value = 'prompt'
+      ElMessage.success({ message: 'SKILL.md 已更新', duration: 2000 })
+    }
     if (activeFile.value !== 'meta' && activeFile.value !== 'prompt') {
       await reloadGenericFile()
     }
