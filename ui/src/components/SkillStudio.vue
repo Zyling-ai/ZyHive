@@ -592,53 +592,114 @@ watch(selected, async (sk) => {
 
 // ── AI Chat context ────────────────────────────────────────────────────────
 const chatContext = computed(() => {
-  if (!selected.value) return '你是一个技能配置助手，帮助用户设计和优化 AI 技能的系统提示词。'
-  const skillPath = `skills/${selected.value.id}/SKILL.md`
-  return `你是一个技能配置助手，正在帮助用户配置技能「${selected.value.name || selected.value.id}」。
+  if (!selected.value) return '你是一个技能架构师，帮助用户设计和生成完整的 AI 技能包。'
+  const sid = selected.value.id
+  const base = `skills/${sid}`
+  const currentFiles = dirFiles.value.map(f => f.path).join(', ') || '（空）'
+  const skillState = selected.value.name ? `名称: ${selected.value.name}，分类: ${selected.value.category || '未设置'}` : '（新建，尚未配置）'
 
-## 🎯 工作方式
+  return `你是一个专业的技能架构师，负责为 AI 成员生成完整、规范的技能包。
+当前技能目录: ${base}/（技能 ID: ${sid}）
+当前技能状态: ${skillState}
+目录中已有文件: ${currentFiles}
 
-### 1. 编辑 SKILL.md → 直接用 write 工具写文件（最重要）
-当用户要创建/修改/优化 SKILL.md 内容时，**直接调用 write 工具**写入文件，写完后编辑器自动刷新。
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+## 一、技能包标准结构
 
-文件路径：\`${skillPath}\`
+一个完整的技能包包含以下文件：
 
-示例：
-- 用户说"帮我生成一个利润表审核技能" → 直接 write 工具写完整内容到 ${skillPath}
-- 用户说"优化第二段" → read 工具读取当前内容 → 修改 → write 工具写回
-- 不要输出文件内容让用户自己复制，直接写文件
-
-### 2. 填写基本信息（名称/图标/描述）→ 输出以下 JSON
-${'```'}json
-{"action":"fill_skill","data":{"name":"技能名称","icon":"🔧","category":"分类","description":"简要描述","enabled":true}}
+${'```'}
+skills/{id}/
+├── SKILL.md          # 核心：注入 AI System Prompt 的指令（必须）
+├── skill.json        # 元数据：名称/图标/分类/描述（自动管理，无需手写）
+└── tools/            # 可选：工具脚本（仅需外部计算/数据处理时创建）
+    ├── main.py       # 工具入口
+    └── README.md     # 工具说明
 ${'```'}
 
-## 当前技能信息
-- 技能 ID：${selected.value.id}
-- 名称：${selected.value.name || '（未命名）'}
-- 分类：${selected.value.category || '（未设置）'}
-- SKILL.md：${promptContent.value ? `共 ${promptContent.value.length} 字符` : '（空，尚未创建）'}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+## 二、SKILL.md 渐进式披露规范
 
-${promptContent.value && promptContent.value.length <= 1500 ? `当前内容：\n\`\`\`markdown\n${promptContent.value}\n\`\`\`` : ''}
+**核心原则：按层次组织，让 LLM 先理解角色，再理解规则，最后才处理细节。**
 
-## 注意
-- 读写文件时路径直接用 \`${skillPath}\`（相对路径即可）
-- 写完文件后，编辑器会自动刷新，无需再提示用户手动操作`
+SKILL.md 标准分层结构（越往后的章节越少被触发）：
+
+${'```'}markdown
+# [技能名称]
+
+## 🎯 角色
+[一句话定义：你是谁，核心使命是什么]
+
+## ⚡ 核心能力
+- 能力1：[简洁描述]
+- 能力2：[简洁描述]
+- 能力3：[简洁描述]（不超过5条）
+
+## 📋 工作流程
+[遇到任务时的标准思路/步骤，3-6步]
+
+## 📐 输出规范
+[格式要求：结构、语言风格、长度]
+
+## ⚠️ 边界规则
+[什么情况下拒绝 / 降级 / 澄清]
+
+## 🔧 工具使用（可选，仅需工具时加此章节）
+[工具调用规范和参数说明]
+${'```'}
+
+**写作要点：**
+- 角色 + 核心能力：简短有力，LLM 每次都读
+- 工作流程：结构化步骤，触发频率高
+- 输出规范 / 边界规则：只在需要时展开，避免冗余
+- 避免重复：同一信息只在一个章节出现
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+## 三、生成技能的完整流程（每次创建技能必须全部执行）
+
+当用户描述一个技能需求，**按以下顺序依次完成**：
+
+**步骤1：填写元数据**（输出 JSON，页面自动填充表单）
+${'```'}json
+{"action":"fill_skill","data":{"name":"技能名称","icon":"📊","category":"分类","description":"一句话功能描述","enabled":true}}
+${'```'}
+
+**步骤2：写入 SKILL.md**（write 工具，直接写文件）
+路径：\`${base}/SKILL.md\`
+按渐进式披露规范写完整内容。
+
+**步骤3：按需创建工具文件**（仅技能需要执行代码/外部数据时）
+如需工具，创建 \`${base}/tools/\` 目录并写入脚本。
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+## 四、修改技能
+
+- **修改 SKILL.md**：先用 read 工具读取当前内容，理解后再用 write 工具写回
+- **新增工具文件**：直接 write 到对应路径
+- **优化提示词**：遵循渐进式披露，减少冗余
+- **所有操作直接用工具完成，不要把内容输出给用户复制**
+
+${promptContent.value && promptContent.value.length <= 1200
+  ? `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n## 当前 SKILL.md 内容\n\`\`\`markdown\n${promptContent.value}\n\`\`\``
+  : promptContent.value ? `\n当前 SKILL.md 已有内容（${promptContent.value.length} 字符），如需修改请先 read 工具读取。` : ''}`
 })
 
 const chatWelcome = computed(() => {
-  if (!selected.value) return '选择一个技能后，我可以帮你生成配置，自动填写所有字段。'
-  if (isNewSkill.value) return `新技能已创建（ID: ${selected.value.id}）。告诉我你想要什么功能，我会自动填写名称、描述和完整的 SKILL.md 提示词，确认后点保存即可。`
-  return `当前编辑「${selected.value.name}」。告诉我需要如何调整，我会直接填写表单，或者你也可以直接对话测试当前技能效果。`
+  if (!selected.value) return '选择一个技能后，我可以帮你一键生成完整技能包（元数据 + SKILL.md + 工具文件）。'
+  if (isNewSkill.value) return `新技能已创建（ID: ${selected.value.id}）。\n\n告诉我这个技能要做什么，我会**一次性生成完整技能包**：自动填写名称/图标/描述，写入规范的 SKILL.md（渐进式披露结构），如需工具也一并创建。`
+  return `当前技能：「${selected.value.name || selected.value.id}」\n\n告诉我需要如何调整——我会直接用工具修改对应文件，不会让你手动复制内容。`
 })
 
 const chatExamples = computed(() => {
-  if (!selected.value) return ['帮我设计一个代码审查技能', '帮我写一个翻译助手']
-  if (isNewSkill.value) return ['帮我生成这个技能的完整配置', '这个技能用于什么场景？']
+  if (!selected.value) return ['帮我生成一个财务报表审核技能', '帮我设计一个代码审查技能']
+  if (isNewSkill.value) return [
+    '生成完整技能包',
+    '这个技能需要能分析利润表，识别异常数据，给出审核意见',
+  ]
   return [
-    `帮我优化「${selected.value.name}」的提示词`,
-    '重新生成更好的 SKILL.md',
-    '直接测试：用中文介绍一下你的功能',
+    `重新生成完整的 ${selected.value.name} 技能包`,
+    '优化 SKILL.md 的渐进式披露结构',
+    '为这个技能添加 Python 工具脚本',
   ]
 })
 
