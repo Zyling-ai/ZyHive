@@ -1036,19 +1036,35 @@ async function uploadBinaryFile(file: File) {
 
   try {
     const buf = await file.arrayBuffer()
-    // Convert to base64 and send as JSON to avoid Cloudflare binary upload limits
     const bytes = new Uint8Array(buf)
-    let binary = ''
-    for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i])
-    const b64 = btoa(binary)
     const base = (localStorage.getItem('aipanel_url') || '').replace(/\/$/, '')
     const token = localStorage.getItem('aipanel_token') || ''
-    const res = await fetch(`${base}/api/agents/${props.agentId}/files/${uploadPath}`, {
-      method: 'PUT',
-      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content: 'base64:' + b64 }),
-    })
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+
+    // Chunk size: 300KB raw bytes → ~400KB base64 — stays well under CF limits
+    const CHUNK = 300 * 1024
+    const total = Math.ceil(bytes.byteLength / CHUNK) || 1
+
+    for (let i = 0; i < total; i++) {
+      const slice = bytes.slice(i * CHUNK, (i + 1) * CHUNK)
+      // Convert chunk to base64
+      let binary = ''
+      for (let j = 0; j < slice.length; j++) binary += String.fromCharCode(slice[j])
+      const b64 = btoa(binary)
+
+      const res = await fetch(
+        `${base}/api/agents/${props.agentId}/files/${uploadPath}?chunk=${i}&total=${total}`,
+        {
+          method: 'PUT',
+          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: 'base64:' + b64 }),
+        }
+      )
+      if (!res.ok) {
+        const text = await res.text().catch(() => '')
+        throw new Error(`chunk ${i} failed: HTTP ${res.status} ${text.slice(0, 80)}`)
+      }
+    }
+
     pendingFiles.value[idx] = { ...entry, uploading: false }
   } catch (e: any) {
     pendingFiles.value[idx] = { ...entry, uploading: false, uploadError: e.message || '上传失败' }

@@ -4,6 +4,7 @@ package api
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -192,14 +193,16 @@ func (h *fileHandler) Read(c *gin.Context) {
 
 // Write PUT /api/agents/:id/files/*path
 // Accepts raw text (Content-Type: text/plain), JSON {content: string}, or
-// JSON {content: "base64:<b64>"} for binary files (bypasses CF binary upload limits).
+// JSON {content: "base64:<b64>"} for binary files.
+// Optional query params for chunked upload:
+//   ?chunk=N&total=T  — N=0 creates/truncates, N>0 appends; last chunk returns {ok,size}
 func (h *fileHandler) Write(c *gin.Context) {
 	_, absPath, ok := h.resolveWorkspacePath(c)
 	if !ok {
 		return
 	}
 
-	body, err := io.ReadAll(io.LimitReader(c.Request.Body, 20*1024*1024)) // 20MB limit
+	body, err := io.ReadAll(io.LimitReader(c.Request.Body, 5*1024*1024)) // 5MB per chunk
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -229,6 +232,38 @@ func (h *fileHandler) Write(c *gin.Context) {
 
 	if err := os.MkdirAll(filepath.Dir(absPath), 0755); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Chunked upload support: ?chunk=N&total=T
+	chunkStr := c.Query("chunk")
+	if chunkStr != "" {
+		chunkN := 0
+		fmt.Sscanf(chunkStr, "%d", &chunkN)
+		var f *os.File
+		if chunkN == 0 {
+			// First chunk: create or truncate
+			f, err = os.OpenFile(absPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+		} else {
+			// Subsequent chunks: append
+			f, err = os.OpenFile(absPath, os.O_APPEND|os.O_WRONLY, 0644)
+		}
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		_, werr := f.Write(body)
+		f.Close()
+		if werr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": werr.Error()})
+			return
+		}
+		info, _ := os.Stat(absPath)
+		size := int64(0)
+		if info != nil {
+			size = info.Size()
+		}
+		c.JSON(http.StatusOK, gin.H{"ok": true, "chunk": chunkN, "size": size})
 		return
 	}
 
