@@ -467,5 +467,77 @@ func (h *chatHandler) GetSession(c *gin.Context) {
 			return
 		}
 	}
-	c.JSON(http.StatusOK, entries)
+
+	// Convert raw JSONL entries to UI-friendly {messages:[{role,text,toolCalls,isCompact}]} format.
+	type UIMessage struct {
+		Role      string                  `json:"role"`
+		Text      string                  `json:"text"`
+		ToolCalls []session.ToolCallRecord `json:"toolCalls,omitempty"`
+		IsCompact bool                    `json:"isCompact,omitempty"`
+	}
+	type UISession struct {
+		Messages []UIMessage `json:"messages"`
+	}
+
+	var msgs []UIMessage
+	for _, raw := range entries {
+		var base struct {
+			Type string `json:"type"`
+		}
+		if err2 := json.Unmarshal(raw, &base); err2 != nil {
+			continue
+		}
+		switch base.Type {
+		case "message":
+			var me session.MessageEntry
+			if err2 := json.Unmarshal(raw, &me); err2 != nil {
+				continue
+			}
+			// Extract displayable text from content (string or block array)
+			text := extractTextFromContent(me.Message.Content)
+			msgs = append(msgs, UIMessage{
+				Role:      me.Message.Role,
+				Text:      text,
+				ToolCalls: me.Message.ToolCalls,
+			})
+		case "compaction":
+			msgs = append(msgs, UIMessage{
+				Role:      "system",
+				Text:      "更早的内容已压缩",
+				IsCompact: true,
+			})
+		}
+	}
+	if msgs == nil {
+		msgs = []UIMessage{}
+	}
+	c.JSON(http.StatusOK, UISession{Messages: msgs})
+}
+
+// extractTextFromContent pulls displayable text from a message content field.
+// Content can be a plain string or an array of content blocks.
+func extractTextFromContent(content json.RawMessage) string {
+	if len(content) == 0 {
+		return ""
+	}
+	// Try plain string first
+	var s string
+	if err := json.Unmarshal(content, &s); err == nil {
+		return s
+	}
+	// Try content block array
+	var blocks []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal(content, &blocks); err == nil {
+		var parts []string
+		for _, b := range blocks {
+			if b.Type == "text" && b.Text != "" {
+				parts = append(parts, b.Text)
+			}
+		}
+		return strings.Join(parts, "\n")
+	}
+	return ""
 }
