@@ -176,17 +176,24 @@
               <span class="file-hint">注入到 AI System Prompt 的指令内容</span>
               <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
                 <el-tag v-if="promptDirty" type="warning" size="small">未保存</el-tag>
-                <span style="font-size:11px;color:#c0c4cc">{{ promptContent.length }} 字符</span>
+                <span style="font-size:11px;color:#c0c4cc">{{ promptLineCount }} 行 · {{ promptContent.length }} 字符</span>
                 <el-button size="small" circle :loading="promptLoading" @click="reloadPrompt" title="重新加载">
                   <el-icon><Refresh /></el-icon>
                 </el-button>
+                <el-button size="small" circle :type="editorFullscreen ? 'primary' : ''" @click="editorFullscreen = !editorFullscreen" :title="editorFullscreen ? '退出全屏编辑' : '全屏编辑'">
+                  <el-icon><FullScreen /></el-icon>
+                </el-button>
               </div>
             </div>
-            <textarea
-              v-model="promptContent"
-              class="code-textarea"
-              spellcheck="false"
-              placeholder="# 技能名称
+            <div class="code-editor-wrap">
+              <div class="line-numbers" aria-hidden="true">
+                <div v-for="n in promptLineCount" :key="n" class="line-num">{{ n }}</div>
+              </div>
+              <textarea
+                v-model="promptContent"
+                class="code-textarea"
+                spellcheck="false"
+                placeholder="# 技能名称
 
 ## 功能说明
 描述该技能的用途…
@@ -194,8 +201,9 @@
 ## 行为规范
 - 规范 1
 - 规范 2"
-              @input="promptDirty = true"
-            />
+                @input="promptDirty = true"
+              />
+            </div>
           </div>
 
           <!-- 通用文件编辑器（AI 生成的工具文件等） -->
@@ -215,23 +223,25 @@
                 </el-popconfirm>
               </div>
             </div>
-            <textarea
-              v-model="genericContent"
-              class="code-textarea"
-              spellcheck="false"
-              :placeholder="`编辑 ${activeFile} …`"
-              @input="genericDirty = true"
-            />
+            <div class="code-editor-wrap">
+              <textarea
+                v-model="genericContent"
+                class="code-textarea"
+                spellcheck="false"
+                :placeholder="`编辑 ${activeFile} …`"
+                @input="genericDirty = true"
+              />
+            </div>
           </div>
         </div>
       </template>
     </div>
 
-    <!-- 拖拽手柄 3: 编辑器 ↔ 聊天 -->
-    <div class="ss-handle" @mousedown="startResize($event, 'chat')" :class="{ dragging: dragging === 'chat' }"><div class="ss-handle-bar"/></div>
+    <!-- 拖拽手柄 3: 编辑器 ↔ 聊天（全屏时隐藏） -->
+    <div v-show="!editorFullscreen" class="ss-handle" @mousedown="startResize($event, 'chat')" :class="{ dragging: dragging === 'chat' }"><div class="ss-handle-bar"/></div>
 
-    <!-- ── 右：AI 协作聊天 ── -->
-    <div class="studio-chat" :style="{ width: chatW + 'px' }">
+    <!-- ── 右：AI 协作聊天（全屏时隐藏） ── -->
+    <div v-show="!editorFullscreen" class="studio-chat" :style="{ width: chatW + 'px' }">
       <div class="chat-panel-head">
         <el-icon><ChatLineRound /></el-icon>
         AI 协作配置
@@ -306,6 +316,7 @@ const skills = ref<AgentSkillMeta[]>([])
 const listLoading = ref(false)
 const selected = ref<AgentSkillMeta | null>(null)
 const activeFile = ref<string>('meta')
+const editorFullscreen = ref(false)  // 全屏编辑模式（隐藏右侧 AI 聊天）
 
 // Metadata form (mirrors selected skill)
 const metaForm = ref({ name: '', icon: '', category: '', description: '', version: '1.0.0', enabled: true })
@@ -314,6 +325,7 @@ const metaForm = ref({ name: '', icon: '', category: '', description: '', versio
 const promptContent = ref('')
 const promptLoading = ref(false)
 const promptDirty = ref(false)
+const promptLineCount = computed(() => Math.max(1, promptContent.value.split('\n').length))
 
 const saving = ref(false)
 
@@ -391,9 +403,11 @@ const chatContext = computed(() => {
 ## 当前技能信息
 - 名称：${selected.value.name || '（未命名）'}
 - 分类：${selected.value.category || '（未设置）'}
-- 当前 SKILL.md：
+- 当前 SKILL.md（共 ${promptContent.value.length} 字符）：
 \`\`\`markdown
-${promptContent.value || '（空）'}
+${promptContent.value.length > 2000
+  ? promptContent.value.slice(0, 2000) + '\n\n…（内容过长已截断，如需查看或修改完整内容，请直接在左侧编辑器中操作）'
+  : (promptContent.value || '（空）')}
 \`\`\`
 
 ## 高级：创建工具文件（仅需要外部工具时使用）
@@ -873,11 +887,36 @@ onMounted(loadList)
   overflow-x: auto;
 }
 
+/* ── Code editor with line numbers ── */
+.code-editor-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+  background: #fff;
+}
+.line-numbers {
+  flex-shrink: 0;
+  width: 44px;
+  padding: 16px 0;
+  background: #f8f9fa;
+  border-right: 1px solid #ebeef5;
+  overflow: hidden;
+  user-select: none;
+  text-align: right;
+}
+.line-num {
+  padding: 0 8px 0 0;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+  font-size: 12px;
+  line-height: 1.65;
+  color: #c0c4cc;
+  white-space: nowrap;
+}
 .code-textarea {
   flex: 1;
-  width: 100%;
+  min-width: 0;
   height: 100%;
-  min-height: 0;
   resize: none;
   border: none;
   outline: none;
