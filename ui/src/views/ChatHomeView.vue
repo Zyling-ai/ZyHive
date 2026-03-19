@@ -270,7 +270,7 @@ function pollTask(task: DispatchedTask) {
   const tick = async () => {
     if (tries++ > 60) { task.status = 'error'; return }
     try {
-      const r = await fetch(`${base}/api/agents/${task.agentId}/tasks/${task.taskId}`, { headers: { Authorization: `Bearer ${token}` } })
+      const r = await fetch(`${base}/api/tasks/${task.taskId}`, { headers: { Authorization: `Bearer ${token}` } })
       if (r.ok) {
         const d = await r.json()
         if (d.output) task.latestReport = (d.output as string).slice(-80)
