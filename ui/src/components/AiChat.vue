@@ -1040,15 +1040,15 @@ async function uploadBinaryFile(file: File) {
     const base = (localStorage.getItem('aipanel_url') || '').replace(/\/$/, '')
     const token = localStorage.getItem('aipanel_token') || ''
 
-    // Chunk size: 300KB raw bytes → ~400KB base64 — stays well under CF limits
-    const CHUNK = 300 * 1024
+    // Chunk size: 50KB raw bytes → ~67KB base64 JSON — works through any proxy/VPN
+    const CHUNK = 50 * 1024
     const total = Math.ceil(bytes.byteLength / CHUNK) || 1
 
     for (let i = 0; i < total; i++) {
       const slice = bytes.slice(i * CHUNK, (i + 1) * CHUNK)
       // Convert chunk to base64
       let binary = ''
-      for (let j = 0; j < slice.length; j++) binary += String.fromCharCode(slice[j])
+      for (let j = 0; j < slice.length; j++) binary += String.fromCharCode(slice[j]!)
       const b64 = btoa(binary)
 
       const res = await fetch(
