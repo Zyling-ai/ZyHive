@@ -89,6 +89,7 @@ func New(cfg Config) *Runner {
 	// Fallback: client-supplied history
 	if len(cfg.PreloadedHistory) > 0 {
 		r.history = append(r.history, cfg.PreloadedHistory...)
+		r.history = sanitizeHistory(r.history)
 	}
 	return r
 }
