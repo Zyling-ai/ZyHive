@@ -454,6 +454,7 @@ func (r *Runner) run(ctx context.Context, userMsg string, out chan<- RunEvent) e
 	// 3. Agentic loop — call LLM, handle tools, repeat
 	const maxIter = 30
 	var totalInputToks, totalOutputToks int
+	planningContinuations := 0 // track how many auto-continuations we've injected
 	for i := 0; i < maxIter; i++ {
 
 		var toolDefs []llm.ToolDef
@@ -526,7 +527,34 @@ func (r *Runner) run(ctx context.Context, userMsg string, out chan<- RunEvent) e
 			Content: assistantContent,
 		})
 
-		// 4. If no tool calls or stop reason is "end_turn", we're done
+		// 4. Decide whether to continue or finish.
+		//
+		// max_tokens: model hit output limit mid-response — inject a continuation.
+		// end_turn + planning colon: AI said "I'll do X:" but stopped — push it to execute.
+		// end_turn (or no tool calls otherwise): genuinely done.
+		if stopReason == "max_tokens" && len(toolCalls) == 0 && strings.TrimSpace(assistantText) != "" {
+			// Auto-continue: model ran out of tokens while generating text
+			contMsg := json.RawMessage(`[{"type":"text","text":"继续，从你刚才中断的地方继续，不要重复已有内容。"}]`)
+			r.history = append(r.history, llm.ChatMessage{Role: "user", Content: contMsg})
+			out <- RunEvent{Type: "text_delta", Text: "\n\n*(自动续写)*\n\n"}
+			assistantText = "" // reset so next turn's text appends cleanly
+			continue
+		}
+		if stopReason == "end_turn" && len(toolCalls) == 0 && planningContinuations < 2 {
+			t := strings.TrimSpace(assistantText)
+			// Detect planning-only responses: ends with "：" ":" "，" or similar unfinished markers
+			if strings.HasSuffix(t, "：") || strings.HasSuffix(t, ":") ||
+				strings.HasSuffix(t, "如下") || strings.HasSuffix(t, "如下：") ||
+				strings.HasSuffix(t, "开始生成：") || strings.HasSuffix(t, "开始执行：") ||
+				strings.HasSuffix(t, "执行：") || strings.HasSuffix(t, "生成：") {
+				planningContinuations++
+				contMsg := json.RawMessage(`[{"type":"text","text":"继续，立即调用工具执行，不要只描述计划。"}]`)
+				r.history = append(r.history, llm.ChatMessage{Role: "user", Content: contMsg})
+				out <- RunEvent{Type: "text_delta", Text: "\n"}
+				assistantText = ""
+				continue
+			}
+		}
 		if stopReason == "end_turn" || len(toolCalls) == 0 {
 			// Only persist if we have actual content (avoid saving null/empty assistant turns
 			// that would corrupt the session history and cause Anthropic 400 errors later).

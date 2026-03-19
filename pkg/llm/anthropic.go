@@ -125,7 +125,7 @@ func sanitizeContentBlocks(raw json.RawMessage) json.RawMessage {
 func buildAnthropicRequest(req *ChatRequest) ([]byte, error) {
 	maxTokens := req.MaxTokens
 	if maxTokens == 0 {
-		maxTokens = 8096
+		maxTokens = 16000
 	}
 
 	// Normalise message content: Anthropic requires content to be a non-empty list
