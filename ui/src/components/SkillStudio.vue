@@ -83,35 +83,120 @@
         <div class="editor-body">
           <!-- 文件树 -->
           <div class="file-tree" :style="{ width: treeW + 'px' }">
+            <!-- 树顶部工具栏 -->
             <div class="tree-title">
-              目录
-              <el-button link size="small" :loading="dirLoading" @click="loadDirFiles" style="margin-left:auto;padding:0">
-                <el-icon><Refresh /></el-icon>
-              </el-button>
+              <span>文件</span>
+              <div style="display:flex;gap:2px;margin-left:auto">
+                <el-tooltip content="新建文件" placement="top" :show-after="500">
+                  <el-button link size="small" @click="openNewFileDialog('')">
+                    <el-icon><DocumentAdd /></el-icon>
+                  </el-button>
+                </el-tooltip>
+                <el-tooltip content="新建目录" placement="top" :show-after="500">
+                  <el-button link size="small" @click="openNewDirDialog('')">
+                    <el-icon><FolderAdd /></el-icon>
+                  </el-button>
+                </el-tooltip>
+                <el-button link size="small" :loading="dirLoading" @click="loadDirFiles">
+                  <el-icon><Refresh /></el-icon>
+                </el-button>
+              </div>
             </div>
-            <div class="tree-item tree-dir">
-              <el-icon><Folder /></el-icon>
-              <span>{{ selected.id }}/</span>
+
+            <!-- 根目录行（不可删除） -->
+            <div class="tree-item tree-dir-root">
+              <el-icon style="color:#e6a23c"><Folder /></el-icon>
+              <span class="tree-name">{{ selected.id }}/</span>
             </div>
+
             <!-- skill.json 固定入口 -->
             <div :class="['tree-item', { 'tree-active': activeFile === 'meta' }]" @click="activeFile = 'meta'">
-              <el-icon><Document /></el-icon>
-              <span>skill.json</span>
+              <span class="tree-indent" />
+              <el-icon style="color:#409eff"><Setting /></el-icon>
+              <span class="tree-name">skill.json</span>
             </div>
-            <!-- 动态文件列表（递归，排除 skill.json） -->
-            <div
-              v-for="f in dirFiles" :key="f.path"
-              :class="['tree-item', { 'tree-active': activeFile === (f.path === 'SKILL.md' ? 'prompt' : f.path), 'tree-dir-row': f.isDir }]"
-              :style="{ paddingLeft: `${12 + f.depth * 12}px` }"
-              @click="openFile(f.path, f.isDir)"
-            >
-              <el-icon v-if="f.isDir" style="color:#e6a23c"><Folder /></el-icon>
-              <el-icon v-else><Document /></el-icon>
-              <span>{{ f.name }}</span>
-              <el-tag v-if="f.path === 'SKILL.md' && selected.enabled" size="small" type="success" effect="plain" style="margin-left:4px;font-size:10px">注入中</el-tag>
-            </div>
+
+            <!-- 动态文件 / 目录列表 -->
+            <template v-for="f in visibleFiles" :key="f.path">
+              <div
+                :class="['tree-item', {
+                  'tree-active': activeFile === (f.path === 'SKILL.md' ? 'prompt' : f.path) && !f.isDir,
+                  'tree-dir-row': f.isDir,
+                }]"
+                :style="{ paddingLeft: `${8 + (f.depth + 1) * 12}px` }"
+                @click="f.isDir ? toggleDir(f.path) : openFile(f.path, false)"
+              >
+                <!-- 目录箭头 -->
+                <el-icon v-if="f.isDir" class="dir-arrow" :class="{ 'dir-open': !collapsedDirs.has(f.path) }">
+                  <ArrowRight />
+                </el-icon>
+                <el-icon v-if="f.isDir" style="color:#e6a23c"><Folder /></el-icon>
+                <el-icon v-else style="color:#909399"><Document /></el-icon>
+                <span class="tree-name">{{ f.name }}</span>
+                <el-tag v-if="f.path === 'SKILL.md' && selected.enabled" size="small" type="success" effect="plain" style="margin-left:2px;font-size:10px;flex-shrink:0">注入</el-tag>
+
+                <!-- 悬停操作按钮 -->
+                <div class="tree-item-acts" @click.stop>
+                  <el-tooltip v-if="f.isDir" content="在此目录新建文件" placement="top" :show-after="300">
+                    <el-button link size="small" @click="openNewFileDialog(f.path)">
+                      <el-icon><DocumentAdd /></el-icon>
+                    </el-button>
+                  </el-tooltip>
+                  <el-tooltip v-if="f.isDir" content="在此目录新建子目录" placement="top" :show-after="300">
+                    <el-button link size="small" @click="openNewDirDialog(f.path)">
+                      <el-icon><FolderAdd /></el-icon>
+                    </el-button>
+                  </el-tooltip>
+                  <el-tooltip v-if="!f.isDir" content="重命名" placement="top" :show-after="300">
+                    <el-button link size="small" @click="openRenameDialog(f.path)">
+                      <el-icon><Edit /></el-icon>
+                    </el-button>
+                  </el-tooltip>
+                  <el-popconfirm
+                    :title="`删除 ${f.name}？`"
+                    @confirm="deleteFile(f.path)"
+                    width="180"
+                  >
+                    <template #reference>
+                      <el-button link size="small" type="danger">
+                        <el-icon><Delete /></el-icon>
+                      </el-button>
+                    </template>
+                  </el-popconfirm>
+                </div>
+              </div>
+            </template>
+
             <div v-if="!dirLoading && dirFiles.length === 0" class="tree-empty">空目录</div>
           </div>
+
+          <!-- 新建文件/目录 对话框 -->
+          <el-dialog v-model="newEntryDialog.visible" :title="newEntryDialog.isDir ? '新建目录' : '新建文件'" width="360px" :close-on-click-modal="false">
+            <el-form @submit.prevent="createEntry">
+              <div style="font-size:12px;color:#909399;margin-bottom:8px" v-if="newEntryDialog.inDir">
+                位置：{{ selected.id }}/{{ newEntryDialog.inDir }}/
+              </div>
+              <el-input
+                v-model="newEntryDialog.name"
+                :placeholder="newEntryDialog.isDir ? '目录名（如 tools）' : '文件名（如 config.json）'"
+                autofocus
+                @keyup.enter="createEntry"
+              />
+            </el-form>
+            <template #footer>
+              <el-button @click="newEntryDialog.visible = false">取消</el-button>
+              <el-button type="primary" :loading="newEntryDialog.creating" @click="createEntry">创建</el-button>
+            </template>
+          </el-dialog>
+
+          <!-- 重命名对话框 -->
+          <el-dialog v-model="renameDialog.visible" title="重命名文件" width="360px" :close-on-click-modal="false">
+            <el-input v-model="renameDialog.newName" :placeholder="renameDialog.oldPath" @keyup.enter="doRename" />
+            <template #footer>
+              <el-button @click="renameDialog.visible = false">取消</el-button>
+              <el-button type="primary" :loading="renameDialog.saving" @click="doRename">重命名</el-button>
+            </template>
+          </el-dialog>
 
           <!-- 拖拽手柄 2: 文件树 ↔ 编辑区 -->
           <div class="ss-handle" @mousedown="startResize($event, 'tree')" :class="{ dragging: dragging === 'tree' }"><div class="ss-handle-bar"/></div>
@@ -377,6 +462,96 @@ const isNewSkill = ref(false)  // true when just created — AI should guide use
 interface DirEntry { name: string; path: string; isDir: boolean; depth: number }
 const dirFiles = ref<DirEntry[]>([])
 const dirLoading = ref(false)
+
+// ── 目录展开/收起 ──────────────────────────────────────────────────────────
+const collapsedDirs = ref(new Set<string>())
+
+function toggleDir(path: string) {
+  if (collapsedDirs.value.has(path)) collapsedDirs.value.delete(path)
+  else collapsedDirs.value.add(path)
+  // Trigger reactivity
+  collapsedDirs.value = new Set(collapsedDirs.value)
+}
+
+const visibleFiles = computed(() => dirFiles.value.filter(f => {
+  const parts = f.path.split('/')
+  for (let i = 1; i < parts.length; i++) {
+    if (collapsedDirs.value.has(parts.slice(0, i).join('/'))) return false
+  }
+  return true
+}))
+
+// ── 新建文件/目录 ──────────────────────────────────────────────────────────
+const newEntryDialog = ref({ visible: false, isDir: false, inDir: '', name: '', creating: false })
+
+function openNewFileDialog(inDir: string) {
+  newEntryDialog.value = { visible: true, isDir: false, inDir, name: '', creating: false }
+}
+function openNewDirDialog(inDir: string) {
+  newEntryDialog.value = { visible: true, isDir: true, inDir, name: '', creating: false }
+}
+
+async function createEntry() {
+  const { isDir, inDir, name } = newEntryDialog.value
+  if (!name.trim() || !selected.value) return
+  newEntryDialog.value.creating = true
+  const relPath = inDir ? `${inDir}/${name.trim()}` : name.trim()
+  const skillBase = `skills/${selected.value.id}`
+  try {
+    if (isDir) {
+      // Create a .gitkeep placeholder so the directory exists
+      await filesApi.write(agentId, `${skillBase}/${relPath}/.gitkeep`, '')
+    } else {
+      await filesApi.write(agentId, `${skillBase}/${relPath}`, '')
+    }
+    newEntryDialog.value.visible = false
+    await loadDirFiles()
+    if (!isDir) {
+      // Auto-open the new file
+      await openFile(relPath, false)
+    } else {
+      // Auto-expand the new dir
+      collapsedDirs.value.delete(relPath)
+    }
+    ElMessage.success(`${isDir ? '目录' : '文件'} ${relPath} 已创建`)
+  } catch (e: any) {
+    ElMessage.error(e.response?.data?.error || '创建失败')
+  } finally {
+    newEntryDialog.value.creating = false
+  }
+}
+
+// ── 重命名文件 ──────────────────────────────────────────────────────────────
+const renameDialog = ref({ visible: false, oldPath: '', newName: '', saving: false })
+
+function openRenameDialog(path: string) {
+  const parts = path.split('/')
+  renameDialog.value = { visible: true, oldPath: path, newName: parts[parts.length - 1] ?? '', saving: false }
+}
+
+async function doRename() {
+  const { oldPath, newName } = renameDialog.value
+  if (!newName.trim() || !selected.value) return
+  renameDialog.value.saving = true
+  const parts = oldPath.split('/')
+  const dir = parts.slice(0, -1).join('/')
+  const newPath = dir ? `${dir}/${newName.trim()}` : newName.trim()
+  const skillBase = `skills/${selected.value.id}`
+  try {
+    // Read old, write new, delete old
+    const res = await filesApi.read(agentId, `${skillBase}/${oldPath}`)
+    await filesApi.write(agentId, `${skillBase}/${newPath}`, res.data?.content || '')
+    await filesApi.delete(agentId, `${skillBase}/${oldPath}`)
+    renameDialog.value.visible = false
+    if (activeFile.value === oldPath) activeFile.value = newPath === 'SKILL.md' ? 'prompt' : newPath
+    await loadDirFiles()
+    ElMessage.success('重命名成功')
+  } catch (e: any) {
+    ElMessage.error(e.response?.data?.error || '重命名失败')
+  } finally {
+    renameDialog.value.saving = false
+  }
+}
 
 // Generic file editor (for non-skill.json / non-SKILL.md files)
 const genericContent = ref('')
@@ -906,6 +1081,18 @@ onMounted(loadList)
 .tree-item.tree-active { background: #ecf5ff; color: #409eff; font-weight: 600; }
 .tree-item.tree-dir { color: #e6a23c; cursor: default; }
 .tree-item.tree-dir:hover { background: transparent; }
+.tree-item.tree-dir-root { color: #e6a23c; cursor: default; font-weight: 500; }
+.tree-item.tree-dir-root:hover { background: transparent; }
+.tree-name { overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
+.tree-indent { display: inline-block; width: 12px; flex-shrink: 0; }
+.tree-item-acts {
+  display: flex; align-items: center; gap: 0;
+  opacity: 0; transition: opacity 0.12s; margin-left: auto; flex-shrink: 0;
+}
+.tree-item:hover .tree-item-acts { opacity: 1; }
+.tree-item-acts .el-button { padding: 0 2px; height: 18px; }
+.dir-arrow { transition: transform 0.15s; color: #c0c4cc; flex-shrink: 0; font-size: 10px; }
+.dir-arrow.dir-open { transform: rotate(90deg); }
 
 /* File editor */
 .file-editor {
