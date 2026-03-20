@@ -10,9 +10,11 @@ import (
 )
 
 // BotPool tracks one running *TelegramBot per (agentID, channelID).
+// Also manages FeishuBot instances in a parallel map.
 type BotPool struct {
-	mu     sync.Mutex
-	bots   map[string]*botEntry
+	mu      sync.Mutex
+	bots    map[string]*botEntry
+	feishu  map[string]*feishuEntry
 	rootCtx context.Context
 }
 
@@ -21,11 +23,47 @@ type botEntry struct {
 	cancel context.CancelFunc
 }
 
+type feishuEntry struct {
+	bot    *FeishuBot
+	cancel context.CancelFunc
+}
+
 // NewBotPool creates a BotPool using the provided root context.
 func NewBotPool(ctx context.Context) *BotPool {
 	return &BotPool{
 		bots:    make(map[string]*botEntry),
+		feishu:  make(map[string]*feishuEntry),
 		rootCtx: ctx,
+	}
+}
+
+// StartFeishuBot starts (or restarts) a FeishuBot for the given (agentID, channelID).
+func (p *BotPool) StartFeishuBot(agentID, channelID string, bot *FeishuBot) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	k := poolKey(agentID, channelID)
+	if e, ok := p.feishu[k]; ok {
+		e.cancel()
+		delete(p.feishu, k)
+		log.Printf("[botpool] stopped old feishu bot agent=%s channel=%s", agentID, channelID)
+	}
+
+	ctx, cancel := context.WithCancel(p.rootCtx)
+	p.feishu[k] = &feishuEntry{bot: bot, cancel: cancel}
+	go bot.Start(ctx)
+	log.Printf("[botpool] started feishu bot agent=%s channel=%s", agentID, channelID)
+}
+
+// StopFeishuBot stops a FeishuBot.
+func (p *BotPool) StopFeishuBot(agentID, channelID string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	k := poolKey(agentID, channelID)
+	if e, ok := p.feishu[k]; ok {
+		e.cancel()
+		delete(p.feishu, k)
+		log.Printf("[botpool] stopped feishu bot agent=%s channel=%s", agentID, channelID)
 	}
 }
 
