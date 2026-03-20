@@ -175,3 +175,156 @@ func (s *ApprovedStore) save() {
 	data, _ := json.MarshalIndent(list, "", "  ")
 	_ = os.WriteFile(s.path, data, 0644)
 }
+
+// ── PendingStoreStr — string-keyed pending store (for Feishu open_ids) ────
+
+// PendingUserStr holds info about a Feishu user (open_id) who knocked.
+// Field names match PendingUser for API compatibility with the frontend.
+type PendingUserStr struct {
+	ID        string `json:"id"`
+	FirstName string `json:"firstName,omitempty"`
+	LastSeen  int64  `json:"lastSeen"`
+}
+
+// PendingStoreStr persists pending string-ID users to a JSON file per channel.
+type PendingStoreStr struct {
+	mu    sync.RWMutex
+	path  string
+	users map[string]PendingUserStr
+}
+
+// NewPendingStoreStr creates a store backed by {dir}/{channelID}-pending-str.json.
+func NewPendingStoreStr(dir, channelID string) *PendingStoreStr {
+	_ = os.MkdirAll(dir, 0755)
+	ps := &PendingStoreStr{
+		path:  filepath.Join(dir, channelID+"-pending-str.json"),
+		users: make(map[string]PendingUserStr),
+	}
+	ps.load()
+	return ps
+}
+
+// Add inserts or updates a pending user (idempotent).
+func (ps *PendingStoreStr) Add(id, firstName string) {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+	ps.users[id] = PendingUserStr{
+		ID:        id,
+		FirstName: firstName,
+		LastSeen:  time.Now().UnixMilli(),
+	}
+	ps.save()
+}
+
+// Remove deletes a user from the pending list.
+func (ps *PendingStoreStr) Remove(id string) {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+	delete(ps.users, id)
+	ps.save()
+}
+
+// List returns all pending users sorted by LastSeen desc.
+func (ps *PendingStoreStr) List() []PendingUserStr {
+	ps.mu.RLock()
+	defer ps.mu.RUnlock()
+	result := make([]PendingUserStr, 0, len(ps.users))
+	for _, u := range ps.users {
+		result = append(result, u)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].LastSeen > result[j].LastSeen
+	})
+	return result
+}
+
+func (ps *PendingStoreStr) load() {
+	data, err := os.ReadFile(ps.path)
+	if err != nil {
+		return
+	}
+	var list []PendingUserStr
+	if json.Unmarshal(data, &list) == nil {
+		for _, u := range list {
+			ps.users[u.ID] = u
+		}
+	}
+}
+
+func (ps *PendingStoreStr) save() {
+	list := make([]PendingUserStr, 0, len(ps.users))
+	for _, u := range ps.users {
+		list = append(list, u)
+	}
+	data, _ := json.MarshalIndent(list, "", "  ")
+	_ = os.WriteFile(ps.path, data, 0644)
+}
+
+// ── ApprovedStoreStr — string-keyed approved store (for Feishu open_ids) ──
+
+// ApprovedStoreStr persists approved Feishu user display info.
+type ApprovedStoreStr struct {
+	mu    sync.RWMutex
+	path  string
+	users map[string]PendingUserStr
+}
+
+// NewApprovedStoreStr creates a store backed by {dir}/{channelID}-approved-str.json.
+func NewApprovedStoreStr(dir, channelID string) *ApprovedStoreStr {
+	_ = os.MkdirAll(dir, 0755)
+	s := &ApprovedStoreStr{
+		path:  filepath.Join(dir, channelID+"-approved-str.json"),
+		users: make(map[string]PendingUserStr),
+	}
+	s.load()
+	return s
+}
+
+// Upsert inserts or updates an approved user's display info.
+func (s *ApprovedStoreStr) Upsert(u PendingUserStr) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.users[u.ID] = u
+	s.save()
+}
+
+// Get returns a user by ID, or nil if not found.
+func (s *ApprovedStoreStr) Get(id string) *PendingUserStr {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	u, ok := s.users[id]
+	if !ok {
+		return nil
+	}
+	return &u
+}
+
+// Remove deletes a user from the approved store.
+func (s *ApprovedStoreStr) Remove(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.users, id)
+	s.save()
+}
+
+func (s *ApprovedStoreStr) load() {
+	data, err := os.ReadFile(s.path)
+	if err != nil {
+		return
+	}
+	var list []PendingUserStr
+	if json.Unmarshal(data, &list) == nil {
+		for _, u := range list {
+			s.users[u.ID] = u
+		}
+	}
+}
+
+func (s *ApprovedStoreStr) save() {
+	list := make([]PendingUserStr, 0, len(s.users))
+	for _, u := range s.users {
+		list = append(list, u)
+	}
+	data, _ := json.MarshalIndent(list, "", "  ")
+	_ = os.WriteFile(s.path, data, 0644)
+}

@@ -99,8 +99,9 @@ type FeishuBot struct {
 	domain      string // "open.feishu.cn" or "open.larksuite.com"
 	getAllowFrom func() []string // open_id list; empty = pairing mode
 
-	streamFunc StreamFunc
-	client     *http.Client
+	streamFunc   StreamFunc
+	pendingStore *PendingStoreStr
+	client       *http.Client
 
 	tokenMu     sync.Mutex
 	accessToken string
@@ -115,18 +116,19 @@ type FeishuBot struct {
 }
 
 // NewFeishuBotWithStream creates a FeishuBot.
-func NewFeishuBotWithStream(appID, appSecret, agentID, agentDir, channelID string, getAllowFrom func() []string, sf StreamFunc) *FeishuBot {
+func NewFeishuBotWithStream(appID, appSecret, agentID, agentDir, channelID string, getAllowFrom func() []string, sf StreamFunc, pending *PendingStoreStr) *FeishuBot {
 	return &FeishuBot{
-		appID:       appID,
-		appSecret:   appSecret,
-		agentID:     agentID,
-		agentDir:    agentDir,
-		channelID:   channelID,
-		domain:      "open.feishu.cn",
-		getAllowFrom: getAllowFrom,
-		streamFunc:  sf,
-		client:      &http.Client{Timeout: 15 * time.Second},
-		seenEvents:  make(map[string]time.Time),
+		appID:        appID,
+		appSecret:    appSecret,
+		agentID:      agentID,
+		agentDir:     agentDir,
+		channelID:    channelID,
+		domain:       "open.feishu.cn",
+		getAllowFrom:  getAllowFrom,
+		streamFunc:   sf,
+		pendingStore: pending,
+		client:       &http.Client{Timeout: 15 * time.Second},
+		seenEvents:   make(map[string]time.Time),
 	}
 }
 
@@ -322,9 +324,12 @@ func (b *FeishuBot) handleMessageEvent(ctx context.Context, ev *feishuMessageEve
 	// Access control
 	currentAllowFrom := b.getAllowFrom()
 	if len(currentAllowFrom) == 0 {
-		// Pairing mode
+		// Pairing mode — tell user their Open ID and queue them as pending
 		log.Printf("[feishu] pairing mode — user open_id=%s", senderOpenID)
-		reply := fmt.Sprintf("👋 此 Bot 尚未完成配对。\n\n请将以下信息发给管理员：\n\n🔑 你的 Open ID：%s", senderOpenID)
+		if b.pendingStore != nil {
+			b.pendingStore.Add(senderOpenID, senderOpenID)
+		}
+		reply := fmt.Sprintf("👋 您好！此 Bot 还未完成授权配置。\n\n请将以下 Open ID 发给管理员，请求加入白名单：\n\n🔑 你的 Open ID：\n%s", senderOpenID)
 		_, _ = b.sendText(msg.ChatID, reply)
 		return
 	}
@@ -337,8 +342,19 @@ func (b *FeishuBot) handleMessageEvent(ctx context.Context, ev *feishuMessageEve
 		}
 	}
 	if !allowed {
+		// Unauthorized — add to pending and send pairing message
 		log.Printf("[feishu] unauthorized user open_id=%s", senderOpenID)
+		if b.pendingStore != nil {
+			b.pendingStore.Add(senderOpenID, senderOpenID)
+		}
+		reply := fmt.Sprintf("👋 您好！您尚未获得访问授权。\n\n请将以下 Open ID 发给管理员，请求加入白名单：\n\n🔑 你的 Open ID：\n%s", senderOpenID)
+		_, _ = b.sendText(msg.ChatID, reply)
 		return
+	}
+
+	// Authorized user — remove from pending if present
+	if b.pendingStore != nil {
+		b.pendingStore.Remove(senderOpenID)
 	}
 
 	log.Printf("[feishu] message from open_id=%s chat=%s text=%q", senderOpenID, msg.ChatID, truncateStr(text, 60))

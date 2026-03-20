@@ -213,9 +213,9 @@ export const agentChannels = {
   // Pending users
   checkToken: (agentId: string, token: string) => api.post<{ valid: boolean; botName?: string; duplicate?: boolean; usedBy?: string; usedByCh?: string; error?: string }>(`/agents/${agentId}/channels/check-token`, { token }),
   listPending: (agentId: string, chId: string) => api.get<PendingUser[]>(`/agents/${agentId}/channels/${chId}/pending`),
-  allowUser: (agentId: string, chId: string, userId: number) => api.post(`/agents/${agentId}/channels/${chId}/pending/${userId}/allow`),
-  dismissUser: (agentId: string, chId: string, userId: number) => api.delete(`/agents/${agentId}/channels/${chId}/pending/${userId}`),
-  removeAllowed: (agentId: string, chId: string, userId: number) => api.delete(`/agents/${agentId}/channels/${chId}/allowed/${userId}`),
+  allowUser: (agentId: string, chId: string, userId: number | string) => api.post(`/agents/${agentId}/channels/${chId}/pending/${userId}/allow`),
+  dismissUser: (agentId: string, chId: string, userId: number | string) => api.delete(`/agents/${agentId}/channels/${chId}/pending/${userId}`),
+  removeAllowed: (agentId: string, chId: string, userId: number | string) => api.delete(`/agents/${agentId}/channels/${chId}/allowed/${userId}`),
 }
 
 export interface PendingUser {
