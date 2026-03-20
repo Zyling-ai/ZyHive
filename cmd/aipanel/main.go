@@ -310,11 +310,33 @@ func main() {
 		botPool.StartBot(aID, cID, bot)
 	}
 
+	// startFeishuBotForChannel creates and starts a FeishuBot via the pool.
+	startFeishuBotForChannel := func(agentID, chID, appID, appSecret string) {
+		aID := agentID
+		cID := chID
+		sf := func(ctx2 context.Context, aid, msg, sessionID string, media []channel.MediaInput, fileSender channel.FileSenderFunc) (<-chan channel.StreamEvent, error) {
+			return pool.RunStreamEvents(ctx2, aid, msg, sessionID, media, fileSender)
+		}
+		getAllowFrom := func() []string {
+			raw := mgr.GetAllowFromStr(aID, cID)
+			return raw
+		}
+		agentDir := filepath.Join(agentsDir, aID)
+		bot := channel.NewFeishuBotWithStream(appID, appSecret, aID, agentDir, cID, getAllowFrom, sf)
+		bot.SetOnConnected(func(name string) {
+			mgr.UpdateChannelStatus(aID, cID, "ok", name)
+		})
+		botPool.StartFeishuBot(aID, cID, bot)
+	}
+
 	// Start Telegram bots — one per AI member (per-agent channel config)
 	for _, ag := range mgr.List() {
 		for _, ch := range ag.Channels {
 			if ch.Type == "telegram" && ch.Enabled && ch.Config["botToken"] != "" {
 				startBotForChannel(ag.ID, ch.ID, ch.Config["botToken"])
+			}
+			if ch.Type == "feishu" && ch.Enabled && ch.Config["appId"] != "" && ch.Config["appSecret"] != "" {
+				startFeishuBotForChannel(ag.ID, ch.ID, ch.Config["appId"], ch.Config["appSecret"])
 			}
 		}
 	}

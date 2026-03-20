@@ -526,6 +526,27 @@ func (m *Manager) GetAllowFrom(agentID, channelID string) []int64 {
 	return nil
 }
 
+// GetAllowFromStr returns the live allowedFrom list as strings for a specific channel.
+// Used by Feishu channels where IDs are open_id strings, not int64.
+func (m *Manager) GetAllowFromStr(agentID, channelID string) []string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	ag, ok := m.agents[agentID]
+	if !ok {
+		return nil
+	}
+	for _, ch := range ag.Channels {
+		if ch.ID == channelID {
+			raw := ch.Config["allowedFrom"]
+			if raw == "" {
+				return nil
+			}
+			return splitTrim(raw)
+		}
+	}
+	return nil
+}
+
 // EnsureSystemConfigAgent creates or updates the built-in configuration assistant.
 // It always syncs to the current default model so the config agent stays up to date.
 func (m *Manager) EnsureSystemConfigAgent(cfg *config.Config) error {
