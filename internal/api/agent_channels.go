@@ -54,10 +54,11 @@ func (h *agentChannelHandler) GetChannels(c *gin.Context) {
 		result[i].Config = mc
 	}
 	// Enrich with approved user display info (username/firstName for whitelist entries)
+	// UserInfo uses interface{} for ID to support both int64 (Telegram) and string (Feishu).
 	type UserInfo struct {
-		ID        int64  `json:"id"`
-		Username  string `json:"username,omitempty"`
-		FirstName string `json:"firstName,omitempty"`
+		ID        interface{} `json:"id"`
+		Username  string      `json:"username,omitempty"`
+		FirstName string      `json:"firstName,omitempty"`
 	}
 	type RichChannel struct {
 		config.ChannelEntry
@@ -67,23 +68,39 @@ func (h *agentChannelHandler) GetChannels(c *gin.Context) {
 	pd := pendingDir(ag)
 	for i, ch := range result {
 		rc := RichChannel{ChannelEntry: ch}
-		if ch.Type == "telegram" && ch.Config["allowedFrom"] != "" {
-			as := channel.NewApprovedStore(pd, ch.ID)
-			for _, idStr := range strings.Split(ch.Config["allowedFrom"], ",") {
-				idStr = strings.TrimSpace(idStr)
-				if idStr == "" {
-					continue
+		if ch.Config["allowedFrom"] != "" {
+			switch ch.Type {
+			case "telegram":
+				as := channel.NewApprovedStore(pd, ch.ID)
+				for _, idStr := range strings.Split(ch.Config["allowedFrom"], ",") {
+					idStr = strings.TrimSpace(idStr)
+					if idStr == "" {
+						continue
+					}
+					id, err := strconv.ParseInt(idStr, 10, 64)
+					if err != nil {
+						continue
+					}
+					ui := UserInfo{ID: id}
+					if u := as.Get(id); u != nil {
+						ui.Username = u.Username
+						ui.FirstName = u.FirstName
+					}
+					rc.AllowedFromUsers = append(rc.AllowedFromUsers, ui)
 				}
-				id, err := strconv.ParseInt(idStr, 10, 64)
-				if err != nil {
-					continue
+			case "feishu":
+				as := channel.NewApprovedStoreStr(pd, ch.ID)
+				for _, idStr := range strings.Split(ch.Config["allowedFrom"], ",") {
+					idStr = strings.TrimSpace(idStr)
+					if idStr == "" {
+						continue
+					}
+					ui := UserInfo{ID: idStr}
+					if u := as.Get(idStr); u != nil {
+						ui.FirstName = u.FirstName
+					}
+					rc.AllowedFromUsers = append(rc.AllowedFromUsers, ui)
 				}
-				ui := UserInfo{ID: id}
-				if u := as.Get(id); u != nil {
-					ui.Username = u.Username
-					ui.FirstName = u.FirstName
-				}
-				rc.AllowedFromUsers = append(rc.AllowedFromUsers, ui)
 			}
 		}
 		rich[i] = rc
@@ -330,6 +347,19 @@ func (h *agentChannelHandler) ListPending(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "agent not found"})
 		return
 	}
+	// Detect channel type
+	chType := ""
+	for _, ch := range ag.Channels {
+		if ch.ID == chID {
+			chType = ch.Type
+			break
+		}
+	}
+	if chType == "feishu" {
+		ps := channel.NewPendingStoreStr(pendingDir(ag), chID)
+		c.JSON(http.StatusOK, ps.List())
+		return
+	}
 	ps := channel.NewPendingStore(pendingDir(ag), chID)
 	c.JSON(http.StatusOK, ps.List())
 }
@@ -340,12 +370,6 @@ func (h *agentChannelHandler) AllowPending(c *gin.Context) {
 	agentID := c.Param("id")
 	chID := c.Param("chId")
 	userIDStr := c.Param("userId")
-
-	userID, err := strconv.ParseInt(userIDStr, 10, 64)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid userId"})
-		return
-	}
 
 	ag, ok := h.manager.Get(agentID)
 	if !ok {
@@ -369,6 +393,40 @@ func (h *agentChannelHandler) AllowPending(c *gin.Context) {
 	ch := &ag.Channels[chIdx]
 	if ch.Config == nil {
 		ch.Config = map[string]string{}
+	}
+
+	// Feishu: string open_id
+	if ch.Type == "feishu" {
+		existing := ch.Config["allowedFrom"]
+		ids := parseIDList(existing)
+		ids = appendUnique(ids, userIDStr)
+		ch.Config["allowedFrom"] = strings.Join(ids, ",")
+
+		if err := h.manager.UpdateChannels(agentID, ag.Channels); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		// Save to approved store and remove from pending
+		ps := channel.NewPendingStoreStr(pendingDir(ag), chID)
+		for _, pu := range ps.List() {
+			if pu.ID == userIDStr {
+				as := channel.NewApprovedStoreStr(pendingDir(ag), chID)
+				as.Upsert(pu)
+				break
+			}
+		}
+		ps.Remove(userIDStr)
+
+		c.JSON(http.StatusOK, gin.H{"ok": true, "allowedFrom": ch.Config["allowedFrom"]})
+		return
+	}
+
+	// Telegram: int64 user ID
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid userId"})
+		return
 	}
 
 	// Parse existing allowedFrom, add new ID (dedup)
@@ -416,12 +474,6 @@ func (h *agentChannelHandler) RemoveAllowed(c *gin.Context) {
 	chID := c.Param("chId")
 	userIDStr := c.Param("userId")
 
-	userID, err := strconv.ParseInt(userIDStr, 10, 64)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid userId"})
-		return
-	}
-
 	ag, ok := h.manager.Get(agentID)
 	if !ok {
 		c.JSON(http.StatusNotFound, gin.H{"error": "agent not found"})
@@ -444,6 +496,37 @@ func (h *agentChannelHandler) RemoveAllowed(c *gin.Context) {
 	ch := &ag.Channels[chIdx]
 	if ch.Config == nil {
 		ch.Config = map[string]string{}
+	}
+
+	// Feishu: string open_id
+	if ch.Type == "feishu" {
+		existing := ch.Config["allowedFrom"]
+		ids := parseIDList(existing)
+		filtered := make([]string, 0, len(ids))
+		for _, id := range ids {
+			if id != userIDStr {
+				filtered = append(filtered, id)
+			}
+		}
+		ch.Config["allowedFrom"] = strings.Join(filtered, ",")
+
+		if err := h.manager.UpdateChannels(agentID, ag.Channels); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		as := channel.NewApprovedStoreStr(pendingDir(ag), chID)
+		as.Remove(userIDStr)
+
+		log.Printf("[channels] removed feishu user=%s from whitelist of agent=%s channel=%s", userIDStr, agentID, chID)
+		c.JSON(http.StatusOK, gin.H{"ok": true, "allowedFrom": ch.Config["allowedFrom"]})
+		return
+	}
+
+	// Telegram: int64 user ID
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid userId"})
+		return
 	}
 
 	// Remove the user ID from allowedFrom
@@ -479,15 +562,31 @@ func (h *agentChannelHandler) DismissPending(c *gin.Context) {
 	chID := c.Param("chId")
 	userIDStr := c.Param("userId")
 
-	userID, err := strconv.ParseInt(userIDStr, 10, 64)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid userId"})
-		return
-	}
-
 	ag, ok := h.manager.Get(agentID)
 	if !ok {
 		c.JSON(http.StatusNotFound, gin.H{"error": "agent not found"})
+		return
+	}
+
+	// Detect channel type
+	chType := ""
+	for _, ch := range ag.Channels {
+		if ch.ID == chID {
+			chType = ch.Type
+			break
+		}
+	}
+
+	if chType == "feishu" {
+		ps := channel.NewPendingStoreStr(pendingDir(ag), chID)
+		ps.Remove(userIDStr)
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+		return
+	}
+
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid userId"})
 		return
 	}
 

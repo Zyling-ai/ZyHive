@@ -803,8 +803,8 @@
               </div>
             </div>
 
-            <!-- Telegram whitelist info -->
-            <div v-if="ch.type === 'telegram'" class="channel-card-body">
+            <!-- Whitelist info (Telegram & Feishu) -->
+            <div v-if="ch.type === 'telegram' || ch.type === 'feishu'" class="channel-card-body">
               <div class="channel-info-row">
                 <span class="channel-info-label">白名单用户</span>
                 <span class="channel-info-value">
@@ -830,10 +830,12 @@
                       closable
                       :disable-transitions="true"
                       style="margin-right: 4px; margin-bottom: 4px"
-                      @close="removeAllowed(ch.id, Number(uid.trim()))"
+                      @close="removeAllowed(ch.id, ch.type === 'feishu' ? uid.trim() : Number(uid.trim()))"
                     >{{ uid.trim() }}</el-tag>
                   </template>
-                  <el-text v-else type="warning" size="small">未设置（配对模式，向用户返回其 ID）</el-text>
+                  <el-text v-else type="warning" size="small">
+                    {{ ch.type === 'feishu' ? '未设置（配对模式，向用户返回其 Open ID）' : '未设置（配对模式，向用户返回其 ID）' }}
+                  </el-text>
                 </span>
               </div>
 
@@ -879,7 +881,12 @@
                     </div>
                   </template>
                   <div v-else class="pending-empty">
-                    暂无待审核用户。让用户向 Bot 发送 /start 即可出现在此处。
+                    <template v-if="ch.type === 'feishu'">
+                      暂无待审核用户。让用户向 Bot 发消息，其 Open ID 将出现在此处。
+                    </template>
+                    <template v-else>
+                      暂无待审核用户。让用户向 Bot 发送 /start 即可出现在此处。
+                    </template>
                   </div>
                 </div>
               </div>
@@ -2054,7 +2061,7 @@ function togglePending(chId: string) {
   }
 }
 
-async function allowUser(chId: string, userId: number) {
+async function allowUser(chId: string, userId: number | string) {
   allowingUserId.value = `${chId}-${userId}`
   try {
     await agentChannelsApi.allowUser(agentId, chId, userId)
@@ -2068,7 +2075,7 @@ async function allowUser(chId: string, userId: number) {
   }
 }
 
-async function dismissUser(chId: string, userId: number) {
+async function dismissUser(chId: string, userId: number | string) {
   try {
     await agentChannelsApi.dismissUser(agentId, chId, userId)
     ElMessage.success('已忽略')
@@ -2078,7 +2085,7 @@ async function dismissUser(chId: string, userId: number) {
   }
 }
 
-async function removeAllowed(chId: string, userId: number) {
+async function removeAllowed(chId: string, userId: number | string) {
   try {
     await ElMessageBox.confirm(
       `确定将用户 ${userId} 从白名单中移除？移除后该用户将无法使用此 Bot。`,

@@ -322,7 +322,9 @@ func main() {
 			return raw
 		}
 		agentDir := filepath.Join(agentsDir, aID)
-		bot := channel.NewFeishuBotWithStream(appID, appSecret, aID, agentDir, cID, getAllowFrom, sf)
+		pdDir := filepath.Join(agentsDir, aID, "channels-pending")
+		pending := channel.NewPendingStoreStr(pdDir, cID)
+		bot := channel.NewFeishuBotWithStream(appID, appSecret, aID, agentDir, cID, getAllowFrom, sf, pending)
 		bot.SetOnConnected(func(name string) {
 			mgr.UpdateChannelStatus(aID, cID, "ok", name)
 		})
