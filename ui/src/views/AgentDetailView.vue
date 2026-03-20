@@ -894,6 +894,7 @@
               <el-form-item label="类型" required>
                 <el-select v-model="channelForm.type" style="width: 100%">
                   <el-option label="Telegram" value="telegram" />
+                  <el-option label="飞书 / Lark" value="feishu" />
                   <el-option label="Web 聊天页" value="web" />
                   <el-option label="iMessage" value="imessage" />
                   <el-option label="WhatsApp" value="whatsapp" />
@@ -977,6 +978,28 @@
                 </el-form-item>
                 <el-form-item label="页面标题">
                   <el-input v-model="channelForm.webTitle" placeholder="AI 助手" />
+                </el-form-item>
+              </template>
+
+              <!-- Feishu channel -->
+              <template v-if="channelForm.type === 'feishu'">
+                <el-form-item label="App ID" required>
+                  <el-input v-model="channelForm.appId" placeholder="cli_xxxxxxxxxxxxxxxx" />
+                </el-form-item>
+                <el-form-item label="App Secret" required>
+                  <el-input v-model="channelForm.appSecret" type="password" show-password placeholder="从飞书开放平台获取" />
+                </el-form-item>
+                <el-form-item label="白名单用户">
+                  <el-input v-model="channelForm.allowedFrom" placeholder="填入用户 Open ID，多个用逗号分隔" />
+                  <el-text type="info" size="small" style="display:block;margin-top:4px">
+                    <el-icon style="vertical-align:-2px;margin-right:4px"><InfoFilled /></el-icon>留空时进入配对模式——向用户返回其 Open ID，引导添加白名单
+                  </el-text>
+                </el-form-item>
+                <el-form-item label="配置说明">
+                  <el-text type="info" size="small">
+                    需在飞书开放平台 → 事件订阅 → 开启「使用长连接接收事件」，无需配置 Webhook 地址。<br>
+                    订阅事件：<b>接收消息 (im.message.receive_v1)</b>
+                  </el-text>
                 </el-form-item>
               </template>
 
@@ -1803,6 +1826,8 @@ const channelForm = ref({
   webPassword: '',
   webWelcome: '',
   webTitle: '',
+  appId: '',
+  appSecret: '',
 })
 
 // ── Token inline validation ────────────────────────────────────────────────
@@ -1888,7 +1913,7 @@ function openAddChannel() {
   channelEditingId.value = ''
   const defaultName = agent.value?.name || ''
   pendingChannelId.value = genChannelId('telegram') // default, updated on type change
-  channelForm.value = { type: 'telegram', name: defaultName, enabled: true, botToken: '', allowedFrom: '', webPassword: '', webWelcome: '', webTitle: '' }
+  channelForm.value = { type: 'telegram', name: defaultName, enabled: true, botToken: '', allowedFrom: '', webPassword: '', webWelcome: '', webTitle: '', appId: '', appSecret: '' }
   tokenCheckState.value = { loading: false, status: '' }
   channelDialogVisible.value = true
 }
@@ -1904,6 +1929,8 @@ function openEditChannel(row: ChannelEntry) {
     webPassword: '',  // password always cleared on edit for security
     webWelcome: row.config?.welcomeMsg || '',
     webTitle: row.config?.title || '',
+    appId: row.config?.appId || '',
+    appSecret: '',    // secret always cleared on edit for security
   }
   tokenCheckState.value = { loading: false, status: '' }
   channelDialogVisible.value = true
@@ -1928,6 +1955,10 @@ async function saveChannelDialog() {
       if (channelForm.value.webPassword) newConfig.password = channelForm.value.webPassword
       if (channelForm.value.webWelcome) newConfig.welcomeMsg = channelForm.value.webWelcome
       if (channelForm.value.webTitle) newConfig.title = channelForm.value.webTitle
+    } else if (channelForm.value.type === 'feishu') {
+      if (channelForm.value.appId) newConfig.appId = channelForm.value.appId
+      if (channelForm.value.appSecret) newConfig.appSecret = channelForm.value.appSecret
+      if (channelForm.value.allowedFrom) newConfig.allowedFrom = channelForm.value.allowedFrom
     }
 
     if (channelEditingId.value) {
