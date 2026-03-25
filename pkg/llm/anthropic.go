@@ -40,33 +40,36 @@ func NewAnthropicClient(baseURL string) *AnthropicClient {
 	if !strings.HasSuffix(baseURL, "/v1") && !strings.Contains(baseURL, "/v1/") {
 		baseURL = baseURL + "/v1"
 	}
-	return &AnthropicClient{httpClient: &http.Client{}, baseURL: baseURL}
+	return &AnthropicClient{httpClient: newStreamingHTTPClient(), baseURL: baseURL}
 }
 
 // Stream sends a streaming Messages API request and emits events.
 // Reference: anthropic.js → streamAnthropic → client.messages.stream()
+// 使用带超时/重试的 HTTP client；流式读取增加 keepalive 心跳检测。
 func (c *AnthropicClient) Stream(ctx context.Context, req *ChatRequest) (<-chan StreamEvent, error) {
 	body, err := buildAnthropicRequest(req)
 	if err != nil {
 		return nil, fmt.Errorf("build request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, "POST",
-		c.baseURL+"/messages", bytes.NewReader(body))
-	if err != nil {
-		return nil, err
-	}
-
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("x-api-key", req.APIKey)
-	httpReq.Header.Set("anthropic-version", anthropicVersion)
+	makeReq := func() (*http.Request, error) {
+		httpReq, err := http.NewRequestWithContext(ctx, "POST",
+			c.baseURL+"/messages", bytes.NewReader(body))
+		if err != nil {
+			return nil, err
+		}
+		httpReq.Header.Set("Content-Type", "application/json")
+		httpReq.Header.Set("x-api-key", req.APIKey)
+		httpReq.Header.Set("anthropic-version", anthropicVersion)
 		httpReq.Header.Set("anthropic-beta", "extended-cache-ttl-2025-04-11")
-	for _, h := range req.BetaHeaders {
-		existing := httpReq.Header.Get("anthropic-beta")
-		httpReq.Header.Set("anthropic-beta", existing+","+h)
+		for _, h := range req.BetaHeaders {
+			existing := httpReq.Header.Get("anthropic-beta")
+			httpReq.Header.Set("anthropic-beta", existing+","+h)
+		}
+		return httpReq, nil
 	}
 
-	resp, err := c.httpClient.Do(httpReq)
+	resp, err := doWithRetry(ctx, c.httpClient, makeReq)
 	if err != nil {
 		return nil, fmt.Errorf("http request: %w", err)
 	}
@@ -80,7 +83,12 @@ func (c *AnthropicClient) Stream(ctx context.Context, req *ChatRequest) (<-chan 
 	go func() {
 		defer close(events)
 		defer resp.Body.Close()
-		parseAnthropicSSE(ctx, resp.Body, events)
+		// 用 keepaliveReader 包装 body：超过 streamKeepaliveTimeout 无数据则取消 context
+		keepCtx, keepCancel := context.WithCancel(ctx)
+		defer keepCancel()
+		kr := newKeepaliveReader(resp.Body, streamKeepaliveTimeout, keepCancel)
+		defer kr.Stop()
+		parseAnthropicSSE(keepCtx, kr, events)
 	}()
 
 	return events, nil

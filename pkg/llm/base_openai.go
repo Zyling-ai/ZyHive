@@ -29,29 +29,33 @@ func newOpenAIBase(baseURL string, extra map[string]string) openAIBase {
 	return openAIBase{
 		baseURL:      strings.TrimRight(baseURL, "/"),
 		extraHeaders: extra,
-		httpClient:   &http.Client{},
+		httpClient:   newStreamingHTTPClient(),
 	}
 }
 
 // stream 是实际发起请求并返回事件 channel 的方法。
+// 使用带超时/重试的 HTTP client；流式读取增加 keepalive 心跳检测。
 func (b *openAIBase) stream(ctx context.Context, req *ChatRequest) (<-chan StreamEvent, error) {
 	body, err := buildOpenAIRequestBody(req)
 	if err != nil {
 		return nil, fmt.Errorf("build request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, "POST",
-		b.baseURL+"/chat/completions", bytes.NewReader(body))
-	if err != nil {
-		return nil, err
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+req.APIKey)
-	for k, v := range b.extraHeaders {
-		httpReq.Header.Set(k, v)
+	makeReq := func() (*http.Request, error) {
+		httpReq, err := http.NewRequestWithContext(ctx, "POST",
+			b.baseURL+"/chat/completions", bytes.NewReader(body))
+		if err != nil {
+			return nil, err
+		}
+		httpReq.Header.Set("Content-Type", "application/json")
+		httpReq.Header.Set("Authorization", "Bearer "+req.APIKey)
+		for k, v := range b.extraHeaders {
+			httpReq.Header.Set(k, v)
+		}
+		return httpReq, nil
 	}
 
-	resp, err := b.httpClient.Do(httpReq)
+	resp, err := doWithRetry(ctx, b.httpClient, makeReq)
 	if err != nil {
 		return nil, fmt.Errorf("http request: %w", err)
 	}
@@ -69,7 +73,12 @@ func (b *openAIBase) stream(ctx context.Context, req *ChatRequest) (<-chan Strea
 	go func() {
 		defer close(events)
 		defer resp.Body.Close()
-		parseFn(ctx, resp.Body, events)
+		// 用 keepaliveReader 包装 body：超过 streamKeepaliveTimeout 无数据则取消 context
+		keepCtx, keepCancel := context.WithCancel(ctx)
+		defer keepCancel()
+		kr := newKeepaliveReader(resp.Body, streamKeepaliveTimeout, keepCancel)
+		defer kr.Stop()
+		parseFn(keepCtx, kr, events)
 	}()
 	return events, nil
 }
