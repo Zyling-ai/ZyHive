@@ -356,6 +356,12 @@ func main() {
 	// Workers run in background goroutines; closing the browser does not stop generation.
 	workerPool := session.NewWorkerPool()
 
+	// Start session reaper for every agent — cleans up stale session files every 24h.
+	for _, ag := range mgr.List() {
+		reaper := session.NewReaper(session.NewStore(ag.SessionDir))
+		reaper.Start(ctx)
+	}
+
 	// Wire pool ↔ worker pool so subagent events can be broadcast to parent SSE subscribers.
 	pool.SetWorkerPool(workerPool)
 

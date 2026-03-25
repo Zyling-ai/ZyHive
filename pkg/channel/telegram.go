@@ -187,6 +187,14 @@ type TelegramBot struct {
 	// media group buffering
 	mediaGroups   map[string]*mediaGroupEntry
 	mediaGroupsMu sync.Mutex
+
+	// message debouncer — merges rapid consecutive messages from the same chat
+	msgDebouncer *debouncer
+
+	// pendingMsgs holds the original *TelegramMessage for debounced dispatch.
+	// Only the last message per chatID is kept (for context: threadID, replyTo, etc).
+	pendingMsgsMu sync.Mutex
+	pendingMsgs   map[int64]*TelegramMessage
 }
 
 // NewTelegramBot creates a Telegram bot that supports streaming and group chats.
@@ -215,7 +223,7 @@ func NewTelegramBot(token, agentID, agentDir string, allowFrom []int64, runner R
 		return ch, nil
 	}
 	fixedList := allowFrom
-	return &TelegramBot{
+	bot := &TelegramBot{
 		token:        token,
 		agentID:      agentID,
 		agentDir:     agentDir,
@@ -224,7 +232,10 @@ func NewTelegramBot(token, agentID, agentDir string, allowFrom []int64, runner R
 		client:       &http.Client{Timeout: 90 * time.Second},
 		pendingStore: pending,
 		mediaGroups:  make(map[string]*mediaGroupEntry),
+		pendingMsgs:  make(map[int64]*TelegramMessage),
 	}
+	bot.msgDebouncer = newDebouncer(300*time.Millisecond, bot.dispatchDebouncedMessages)
+	return bot
 }
 
 // SetOnConnected sets a callback that fires once after a successful getMe.
@@ -237,7 +248,7 @@ func (b *TelegramBot) SetOnConnected(fn func(botUsername string)) {
 // getAllowFrom is called on every message so the allowlist can be updated dynamically
 // (e.g. after admin approves a pending user) without restarting the bot.
 func NewTelegramBotWithStream(token, agentID, agentDir, channelID string, getAllowFrom func() []int64, sf StreamFunc, pending *PendingStore) *TelegramBot {
-	return &TelegramBot{
+	bot := &TelegramBot{
 		token:        token,
 		agentID:      agentID,
 		agentDir:     agentDir,
@@ -247,7 +258,10 @@ func NewTelegramBotWithStream(token, agentID, agentDir, channelID string, getAll
 		client:       &http.Client{Timeout: 90 * time.Second},
 		pendingStore: pending,
 		mediaGroups:  make(map[string]*mediaGroupEntry),
+		pendingMsgs:  make(map[int64]*TelegramMessage),
 	}
+	bot.msgDebouncer = newDebouncer(300*time.Millisecond, bot.dispatchDebouncedMessages)
+	return bot
 }
 
 // SendApprovalWelcome sends a welcome message with inline buttons when a pending user is approved.
@@ -584,7 +598,46 @@ func (b *TelegramBot) handleUpdate(ctx context.Context, update TelegramUpdate) {
 		}
 	}
 
-	go b.generateAndSendWithMedia(ctx, msg, text, replyToMsgID)
+	// For media messages, skip debouncing and dispatch immediately to avoid losing attachments.
+	if hasMedia {
+		go b.generateAndSendWithMedia(ctx, msg, text, replyToMsgID)
+		return
+	}
+
+	// Debounce: buffer rapid consecutive text messages from the same chat.
+	// The last message's metadata (threadID, replyTo) is used for the dispatch.
+	b.pendingMsgsMu.Lock()
+	b.pendingMsgs[msg.Chat.ID] = msg
+	b.pendingMsgsMu.Unlock()
+
+	b.msgDebouncer.Add(msg.Chat.ID, text)
+}
+
+// dispatchDebouncedMessages is called by the debouncer when the quiet period expires.
+// It retrieves the last TelegramMessage for the chatID (for thread/reply context),
+// merges the buffered texts, and dispatches the combined message to the LLM.
+func (b *TelegramBot) dispatchDebouncedMessages(chatID int64, msgs []string) {
+	b.pendingMsgsMu.Lock()
+	msg, ok := b.pendingMsgs[chatID]
+	delete(b.pendingMsgs, chatID)
+	b.pendingMsgsMu.Unlock()
+
+	if !ok || msg == nil {
+		return
+	}
+
+	merged := mergeMessages(msgs)
+	log.Printf("[telegram] debounce dispatch: chat=%d msgs=%d merged=%q", chatID, len(msgs), truncate(merged, 80))
+
+	isGroup := msg.Chat.Type == "group" || msg.Chat.Type == "supergroup"
+	replyToMsgID := int64(0)
+	if isGroup {
+		replyToMsgID = msg.MessageID
+	}
+
+	// Use a background context derived from nothing — the HTTP poll goroutine may have moved on.
+	ctx := context.Background()
+	go b.generateAndSendWithMedia(ctx, msg, merged, replyToMsgID)
 }
 
 // handleCallbackQuery answers and processes an inline button callback.
