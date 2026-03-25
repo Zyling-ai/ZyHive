@@ -104,7 +104,12 @@ func chunkAllFiles(memTree *MemoryTree) ([]Chunk, error) {
 		if err != nil {
 			return nil // best-effort
 		}
-		chunks = append(chunks, splitIntoChunks(string(data), rel)...)
+		fileChunks := splitIntoChunks(string(data), rel)
+		// Stamp each chunk with the file's modification time for temporal decay.
+		for i := range fileChunks {
+			fileChunks[i].CreatedAt = info.ModTime()
+		}
+		chunks = append(chunks, fileChunks...)
 		return nil
 	})
 	return chunks, err

@@ -15,10 +15,18 @@ const searchIndexFile = ".search_index.gob"
 
 // Chunk is a single indexed memory fragment.
 type Chunk struct {
-	Text   string    // 段落原文
-	Source string    // 相对于 workspace 的路径，如 "memory/core/knowledge.md"
-	Line   int       // 在源文件中的起始行号（1-indexed）
-	Vec    []float32 // embedding 向量；nil = 仅 BM25 模式
+	Text      string    // 段落原文
+	Source    string    // 相对于 workspace 的路径，如 "memory/core/knowledge.md"
+	Line      int       // 在源文件中的起始行号（1-indexed）
+	Vec       []float32 // embedding 向量；nil = 仅 BM25 模式
+	CreatedAt time.Time // 来源文件的修改时间；零值表示未知
+}
+
+// SearchResult wraps a Chunk with its retrieval score and timestamp,
+// used for MMR re-ranking and temporal decay.
+type SearchResult struct {
+	Chunk
+	Score float64 // 原始检索分数（cosine 相似度或 BM25 分）
 }
 
 // SearchIndex holds all indexed chunks for one agent workspace.
@@ -100,6 +108,11 @@ func (m *MemoryTree) anyNewerThan(dir string, t time.Time) bool {
 
 // Search returns the top-K most relevant chunks for the given query.
 //
+// Pipeline:
+//  1. Retrieve topK*3 candidates via cosine similarity (if vectors available) or BM25.
+//  2. Apply temporal decay (score *= exp(-ln2 * age_days / halfLifeDays)).
+//  3. MMR re-ranking to reduce redundancy and improve diversity.
+//
 // If chunks have Vec and queryVec is non-nil → cosine similarity.
 // Otherwise → BM25 keyword scoring (Chinese + English both supported).
 func (idx *SearchIndex) Search(queryVec []float32, query string, topK int) []Chunk {
@@ -110,10 +123,28 @@ func (idx *SearchIndex) Search(queryVec []float32, query string, topK int) []Chu
 		topK = 5
 	}
 
-	type scored struct {
-		chunk Chunk
-		score float64
+	// Step 1: retrieve topK*3 candidates
+	candidates := idx.retrieveCandidates(queryVec, query, topK*3)
+	if len(candidates) == 0 {
+		return nil
 	}
+
+	// Step 2: temporal decay
+	candidates = ApplyTemporalDecay(candidates, 30)
+
+	// Step 3: MMR re-ranking
+	reranked := MMR(queryVec, candidates, 0.7, topK)
+
+	result := make([]Chunk, 0, len(reranked))
+	for _, r := range reranked {
+		result = append(result, r.Chunk)
+	}
+	return result
+}
+
+// retrieveCandidates returns up to candidateK scored results using cosine/BM25.
+func (idx *SearchIndex) retrieveCandidates(queryVec []float32, query string, candidateK int) []SearchResult {
+	type scored = SearchResult
 
 	// Decide mode: use vectors if available
 	hasVec := len(idx.Chunks) > 0 && len(idx.Chunks[0].Vec) > 0
@@ -132,8 +163,12 @@ func (idx *SearchIndex) Search(queryVec []float32, query string, topK int) []Chu
 		// ── BM25 keyword scoring ─────────────────────────────────────────
 		terms := tokenize(query)
 		if len(terms) == 0 {
-			n := min(topK, len(idx.Chunks))
-			return idx.Chunks[:n]
+			n := min(candidateK, len(idx.Chunks))
+			out := make([]SearchResult, n)
+			for i := 0; i < n; i++ {
+				out[i] = SearchResult{idx.Chunks[i], 1.0}
+			}
+			return out
 		}
 
 		N := float64(len(idx.Chunks))
@@ -179,13 +214,12 @@ func (idx *SearchIndex) Search(queryVec []float32, query string, topK int) []Chu
 		}
 	}
 
-	sort.Slice(scores, func(i, j int) bool { return scores[i].score > scores[j].score })
+	sort.Slice(scores, func(i, j int) bool { return scores[i].Score > scores[j].Score })
 
-	result := make([]Chunk, 0, topK)
-	for i := 0; i < topK && i < len(scores); i++ {
-		result = append(result, scores[i].chunk)
+	if candidateK < len(scores) {
+		scores = scores[:candidateK]
 	}
-	return result
+	return scores
 }
 
 // ── Math helpers ────────────────────────────────────────────────────────────
