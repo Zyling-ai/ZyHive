@@ -38,6 +38,10 @@ func (d *debouncer) Add(chatID int64, text string) {
 	d.buffer[chatID] = append(d.buffer[chatID], text)
 
 	if t, ok := d.timers[chatID]; ok {
+		// Stop before Reset to prevent a fired timer from also running.
+		// The AfterFunc goroutine may already be waiting for the lock; the
+		// len(msgs)==0 guard in the callback handles that race safely.
+		t.Stop()
 		t.Reset(d.delay)
 		return
 	}
