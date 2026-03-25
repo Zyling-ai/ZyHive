@@ -179,6 +179,10 @@ func (s *Store) ReadHistory(sessionID string) ([]Message, string, error) {
 			}
 		}
 	}
+	// 修复孤立 tool_use：如果尾部 assistant 消息包含 tool_use 块，
+	// 但后续消息中没有对应的 tool_result，则补一条 synthetic tool_result。
+	messages = fixOrphanedToolUse(messages)
+
 	return messages, compactionSummary, scanner.Err()
 }
 
@@ -462,4 +466,114 @@ func (s *Store) TrimToLastN(sessionID string, keepMsgs int) error {
 // nowMs returns current Unix timestamp in milliseconds.
 func nowMs() int64 {
 	return time.Now().UnixMilli()
+}
+
+// fixOrphanedToolUse 扫描尾部 assistant 消息，如果包含没有对应 tool_result 的
+// tool_use block，则自动追加一条 synthetic tool_result 消息，避免 Anthropic API
+// 因历史中存在孤立 tool_use 而返回 400 错误。
+//
+// 典型场景：runner 在执行工具调用中途崩溃，历史尾部残留 tool_use 但缺少 tool_result。
+func fixOrphanedToolUse(messages []Message) []Message {
+	if len(messages) == 0 {
+		return messages
+	}
+	// 从尾部向前找最后一条 assistant 消息
+	lastAssistantIdx := -1
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == "assistant" {
+			lastAssistantIdx = i
+			break
+		}
+	}
+	if lastAssistantIdx < 0 {
+		return messages
+	}
+
+	assistantMsg := messages[lastAssistantIdx]
+	toolUseIDs := extractToolUseIDsFromContent(assistantMsg.Content)
+	if len(toolUseIDs) == 0 {
+		return messages
+	}
+
+	// 收集后续消息中的 tool_result tool_use_id 集合
+	resolvedIDs := make(map[string]bool)
+	for i := lastAssistantIdx + 1; i < len(messages); i++ {
+		for _, id := range extractToolResultIDsFromContent(messages[i].Content) {
+			resolvedIDs[id] = true
+		}
+	}
+
+	// 找出未被 resolve 的 tool_use_id
+	var orphaned []string
+	for _, id := range toolUseIDs {
+		if !resolvedIDs[id] {
+			orphaned = append(orphaned, id)
+		}
+	}
+	if len(orphaned) == 0 {
+		return messages
+	}
+
+	// 为每个孤立 tool_use_id 构建一条 synthetic tool_result
+	syntheticBlocks := make([]json.RawMessage, 0, len(orphaned))
+	for _, id := range orphaned {
+		block := map[string]any{
+			"type":        "tool_result",
+			"tool_use_id": id,
+			"is_error":    true,
+			"content":     "interrupted",
+		}
+		if b, err := json.Marshal(block); err == nil {
+			syntheticBlocks = append(syntheticBlocks, b)
+		}
+	}
+	if len(syntheticBlocks) == 0 {
+		return messages
+	}
+	contentRaw, err := json.Marshal(syntheticBlocks)
+	if err != nil {
+		return messages
+	}
+
+	synthetic := Message{
+		Role:    "user",
+		Content: json.RawMessage(contentRaw),
+	}
+	return append(messages, synthetic)
+}
+
+// extractToolUseIDsFromContent 从 content 的 JSON 中提取所有 tool_use 块的 ID。
+func extractToolUseIDsFromContent(content json.RawMessage) []string {
+	if len(content) == 0 {
+		return nil
+	}
+	var blocks []ContentBlock
+	if err := json.Unmarshal(content, &blocks); err != nil {
+		return nil
+	}
+	var ids []string
+	for _, b := range blocks {
+		if b.Type == "tool_use" && b.ToolID != "" {
+			ids = append(ids, b.ToolID)
+		}
+	}
+	return ids
+}
+
+// extractToolResultIDsFromContent 从 content 的 JSON 中提取所有 tool_result 引用的 tool_use_id。
+func extractToolResultIDsFromContent(content json.RawMessage) []string {
+	if len(content) == 0 {
+		return nil
+	}
+	var blocks []ContentBlock
+	if err := json.Unmarshal(content, &blocks); err != nil {
+		return nil
+	}
+	var ids []string
+	for _, b := range blocks {
+		if b.Type == "tool_result" && b.ToolUseID != "" {
+			ids = append(ids, b.ToolUseID)
+		}
+	}
+	return ids
 }
