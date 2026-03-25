@@ -116,3 +116,17 @@ func (h *cronHandler) Runs(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, runs)
 }
+
+// Enable PUT /api/cron/:jobId/enable — manually re-enable a disabled job and reset error count.
+func (h *cronHandler) Enable(c *gin.Context) {
+	if h.engine == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "cron engine not initialized"})
+		return
+	}
+	jobID := c.Param("jobId")
+	if err := h.engine.EnableJob(jobID); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "message": "job re-enabled"})
+}
