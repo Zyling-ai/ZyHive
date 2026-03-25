@@ -226,6 +226,7 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, cfgPath string, mgr *agen
 		cronGroup.DELETE("/:jobId", cronH.Delete)
 		cronGroup.POST("/:jobId/run", cronH.Run)
 		cronGroup.GET("/:jobId/runs", cronH.Runs)
+		cronGroup.PUT("/:jobId/enable", cronH.Enable) // re-enable auto-disabled jobs
 	}
 
 	// ACP Agents (external coding CLIs)
@@ -319,6 +320,15 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, cfgPath string, mgr *agen
 	v1.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "healthy"})
 	})
+
+	// Public health endpoint — no auth required
+	hzH := &healthzHandler{manager: mgr, cronEngine: cronEngine, cfg: cfg}
+	r.GET("/healthz", hzH.Handle)
+
+	// Detailed status endpoint — auth required
+	stsH := &statusHandler{manager: mgr, cronEngine: cronEngine}
+	v1.GET("/status", stsH.Handle)
+
 	statsH := &statsHandler{manager: mgr}
 	v1.GET("/stats", statsH.Handle)
 
