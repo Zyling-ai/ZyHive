@@ -146,11 +146,10 @@ func (h *statusHandler) Handle(c *gin.Context) {
 	if h.cronEngine != nil {
 		for _, j := range h.cronEngine.ListJobs() {
 			schedule := j.Schedule.Expr
-			if j.Schedule.Kind == "every" {
-				schedule = j.Schedule.Expr
-				if schedule == "" {
-					schedule = j.Schedule.Kind
-				}
+			if j.Schedule.Kind == "every" && j.Schedule.EveryMs > 0 {
+				// "every" kind uses EveryMs, not Expr; display as human-readable duration
+				d := time.Duration(j.Schedule.EveryMs) * time.Millisecond
+				schedule = "@every " + d.String()
 			}
 			cronJobs = append(cronJobs, cronJobStatus{
 				ID:             j.ID,
