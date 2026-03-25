@@ -81,10 +81,11 @@ func (r *Reaper) runOnce() {
 			continue
 		}
 
-		filePath := filepath.Join(store.dir, entry.FilePath)
-		if filePath == "" {
-			filePath = filepath.Join(store.dir, sessionID+".jsonl")
+		relPath := entry.FilePath
+		if relPath == "" {
+			relPath = sessionID + ".jsonl"
 		}
+		filePath := filepath.Join(store.dir, relPath)
 
 		info, err := os.Stat(filePath)
 		if err != nil {
