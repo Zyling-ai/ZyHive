@@ -157,16 +157,13 @@ func retryDelay(attempt int, serverHint time.Duration) time.Duration {
 	if delay > retryMaxDelay {
 		delay = retryMaxDelay
 	}
-	// 加 ±25% jitter
-	jitter := time.Duration(rand.Int63n(int64(delay) / 2))
-	delay = delay/2 + jitter/2 + jitter/2
-	// 重新计算避免溢出：简化为 delay * (0.75 + rand*0.5)
+	// 加 ±25% jitter：最终范围 [base*0.75, base*1.25)
 	base := int64(delay)
 	jitterRange := base / 4
 	if jitterRange < 1 {
 		jitterRange = 1
 	}
-	return time.Duration(base + rand.Int63n(jitterRange) - jitterRange/2)
+	return time.Duration(base - jitterRange + rand.Int63n(2*jitterRange))
 }
 
 // doWithRetry 执行 HTTP 请求，失败时按策略重试。
