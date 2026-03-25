@@ -65,10 +65,15 @@ type Delivery struct {
 }
 
 type JobState struct {
-	NextRunAtMs int64  `json:"nextRunAtMs,omitempty"`
-	LastRunAtMs int64  `json:"lastRunAtMs,omitempty"`
-	LastStatus  string `json:"lastStatus,omitempty"` // "ok" | "error"
+	NextRunAtMs     int64  `json:"nextRunAtMs,omitempty"`
+	LastRunAtMs     int64  `json:"lastRunAtMs,omitempty"`
+	LastStatus      string `json:"lastStatus,omitempty"` // "ok" | "error"
+	ErrorCount      int    `json:"errorCount,omitempty"` // consecutive failure count
+	DisabledReason  string `json:"disabledReason,omitempty"` // set when auto-disabled
 }
+
+// maxConsecutiveErrors is the threshold after which a job is automatically disabled.
+const maxConsecutiveErrors = 3
 
 type RunRecord struct {
 	JobID     string `json:"jobId"`
@@ -258,6 +263,26 @@ func (e *Engine) ListJobsByAgent(agentID string) []*Job {
 	return result
 }
 
+// EnableJob re-enables a job that was manually or automatically disabled,
+// resets the consecutive error counter, and reschedules it.
+func (e *Engine) EnableJob(id string) error {
+	e.jobMu.Lock()
+	defer e.jobMu.Unlock()
+
+	j, ok := e.jobs[id]
+	if !ok {
+		return fmt.Errorf("job %q not found", id)
+	}
+
+	j.Enabled = true
+	j.State.ErrorCount = 0
+	j.State.DisabledReason = ""
+	e.unscheduleJobLocked(id) // safety: remove any stale entry
+	e.scheduleJobLocked(j)
+	fmt.Printf("cron: job %s (%s) manually re-enabled\n", j.ID, j.Name)
+	return e.saveLocked()
+}
+
 // ListRuns returns the last 50 run records for a job.
 func (e *Engine) ListRuns(jobID string) ([]RunRecord, error) {
 	path := filepath.Join(e.dataDir, "runs", jobID+".jsonl")
@@ -417,11 +442,29 @@ func (e *Engine) executeJob(job *Job) {
 		}
 	}
 
-	// Update job state
+	// Update job state and handle error counting / auto-disable
 	e.jobMu.Lock()
 	if j, ok := e.jobs[job.ID]; ok {
 		j.State.LastRunAtMs = startedAt
 		j.State.LastStatus = record.Status
+
+		if record.Status == "ok" {
+			// Success: reset consecutive error count
+			j.State.ErrorCount = 0
+			j.State.DisabledReason = ""
+		} else {
+			// Failure: increment consecutive error count
+			j.State.ErrorCount++
+			fmt.Printf("cron: job %s (%s) failed (consecutive errors: %d)\n", j.ID, j.Name, j.State.ErrorCount)
+			if j.State.ErrorCount >= maxConsecutiveErrors && j.Enabled {
+				// Auto-disable the job to prevent infinite error loops
+				j.Enabled = false
+				j.State.DisabledReason = fmt.Sprintf("auto-disabled after %d consecutive failures (last error: %s)", j.State.ErrorCount, record.Error)
+				e.unscheduleJobLocked(j.ID)
+				fmt.Printf("cron: job %s (%s) AUTO-DISABLED — %s\n", j.ID, j.Name, j.State.DisabledReason)
+			}
+		}
+
 		if entryID, ok2 := e.entryIDs[job.ID]; ok2 {
 			entry := e.cron.Entry(entryID)
 			if !entry.Next.IsZero() {
