@@ -436,6 +436,11 @@ func Load(path string) (*Config, error) {
 	// Apply any pending schema migrations and persist if changed
 	applyMigrations(&cfg, path)
 
+	// Resolve SecretRef values (e.g. {"$env": "ANTHROPIC_API_KEY"})
+	if err := ResolveSecretRefs(&cfg); err != nil {
+		return nil, fmt.Errorf("config secret resolution: %w", err)
+	}
+
 	return &cfg, nil
 }
 
