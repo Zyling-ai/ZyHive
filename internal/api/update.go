@@ -336,19 +336,32 @@ func isURLReachable(url string) bool {
 	return resp.StatusCode < 500
 }
 
-// semverGt 比较 a > b（形如 v0.9.26 vs v0.9.24）
+// semverGt 比较 a > b
+// 支持两种格式：
+//   - 语义版本：v0.9.26（三段）
+//   - 日期版本：26.3.25v1（YY.M.D + vN 修订号）
 func semverGt(a, b string) bool {
-	parse := func(s string) [3]int {
+	parse := func(s string) [4]int {
 		s = strings.TrimPrefix(s, "v")
+		// 处理日期版本末尾的 vN 修订号，如 26.3.25v1 → 26.3.25 + 1
+		var revision int
+		if idx := strings.LastIndexAny(s, "vV"); idx > 0 {
+			rev, err := strconv.Atoi(s[idx+1:])
+			if err == nil {
+				revision = rev
+				s = s[:idx]
+			}
+		}
 		parts := strings.SplitN(s, ".", 3)
-		var r [3]int
+		var r [4]int
 		for i := 0; i < 3 && i < len(parts); i++ {
 			r[i], _ = strconv.Atoi(parts[i])
 		}
+		r[3] = revision
 		return r
 	}
 	av, bv := parse(a), parse(b)
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 4; i++ {
 		if av[i] > bv[i] {
 			return true
 		}
