@@ -639,7 +639,10 @@ function scrollBottom() {
 function autoGrow() {
   if (!inputRef.value) return
   inputRef.value.style.height = 'auto'
-  inputRef.value.style.height = Math.min(inputRef.value.scrollHeight, 160) + 'px'
+  const maxH = 200
+  const newH = Math.min(inputRef.value.scrollHeight, maxH)
+  inputRef.value.style.height = newH + 'px'
+  inputRef.value.style.overflowY = inputRef.value.scrollHeight > maxH ? 'auto' : 'hidden'
 }
 
 function fillInput(text: string) {
@@ -2166,6 +2169,8 @@ onMounted(() => {
   box-sizing: border-box;
   line-height: 1.5;
   overflow-y: hidden;
+  max-height: 200px;
+  scrollbar-width: thin;
 }
 .chat-textarea:focus { border-color: #409eff; background: #fff; }
 .chat-textarea:disabled { opacity: .6; cursor: not-allowed; }
