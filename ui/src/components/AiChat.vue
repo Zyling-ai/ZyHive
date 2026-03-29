@@ -70,7 +70,7 @@
       <template v-for="(msg, i) in (streaming ? messages.slice(0, -1) : messages)" :key="i">
 
         <!-- 用户消息 -->
-        <div v-if="msg.role === 'user'" class="msg-row user">
+        <div v-if="msg.role === 'user' && (msg.text?.trim() || msg.images?.length)" class="msg-row user">
           <div class="msg-bubble user">
             <!-- 图片附件 -->
             <div v-if="msg.images?.length" class="msg-images">
@@ -81,7 +81,7 @@
         </div>
 
         <!-- AI 消息 -->
-        <div v-else-if="msg.role === 'assistant'" class="msg-row assistant">
+        <div v-else-if="msg.role === 'assistant' && (msg.text?.trim() || msg.toolCalls?.length || msg.thinking)" class="msg-row assistant">
           <div class="msg-col">
             <!-- 思考过程 -->
             <details v-if="msg.thinking" class="thinking-block" :open="showThinking">
