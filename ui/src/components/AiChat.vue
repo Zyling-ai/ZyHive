@@ -1396,6 +1396,7 @@ async function resumeSession(sessionId: string) {
     }
     for (const m of parsed) {
       if (m.role === 'compaction') continue  // skip raw compaction entries
+      if (!m.text?.trim() && !(m.toolCalls?.length)) continue  // skip empty messages
       loaded.push({
         role: m.role as 'user' | 'assistant',
         text: m.text,
