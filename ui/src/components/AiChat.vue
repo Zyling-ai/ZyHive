@@ -118,6 +118,7 @@
                     <span v-if="tc.taskStatus === 'pending'">🟡 排队中</span>
                     <span v-else-if="tc.taskStatus === 'running'">
                       <span class="tool-spin">⟳</span> 执行中
+                      <span v-if="tc.taskStartedAt" class="task-elapsed">{{ fmtElapsed(tc.taskStartedAt) }}</span>
                     </span>
                     <span v-else-if="tc.taskStatus === 'done'">✅ 完成</span>
                     <span v-else-if="tc.taskStatus === 'error'">❌ 失败</span>
@@ -247,7 +248,10 @@
                 <span v-if="tc.duration" class="tool-step-dur">{{ tc.duration }}</span>
                 <span v-if="tc.taskId" class="task-badge" :class="tc.taskStatus">
                   <span v-if="tc.taskStatus === 'pending'">🟡 排队中</span>
-                  <span v-else-if="tc.taskStatus === 'running'"><span class="tool-spin">⟳</span> 执行中</span>
+                  <span v-else-if="tc.taskStatus === 'running'">
+                    <span class="tool-spin">⟳</span> 执行中
+                    <span v-if="tc.taskStartedAt" class="task-elapsed">{{ fmtElapsed(tc.taskStartedAt) }}</span>
+                  </span>
                   <span v-else-if="tc.taskStatus === 'done'">✅ 完成</span>
                   <span v-else-if="tc.taskStatus === 'error'">❌ 失败</span>
                   <span v-else-if="tc.taskStatus === 'killed'">🛑 已终止</span>
@@ -420,6 +424,7 @@ interface ToolCallEntry {
   // agent_spawn specific: background task tracking
   taskId?: string
   taskStatus?: 'pending' | 'running' | 'done' | 'error' | 'killed'
+  taskStartedAt?: number
   // show_image tool: URL to render as an <img> in the tool card
   mediaUrl?: string
   // send_file tool (web UI): file download card
@@ -467,6 +472,9 @@ const spawnedTaskMap = reactive<Map<string, string>>(new Map())
 // Tasks re-attached after page reload (no tool call card, just status tracking)
 const resumedTasks = ref<Array<{ id: string; label: string; status: string }>>([])
 let taskPollTimer: ReturnType<typeof setInterval> | null = null
+// Elapsed time ticker — incremented every second while tasks are running
+const elapsedTick = ref(0)
+let elapsedTimer: ReturnType<typeof setInterval> | null = null
 
 const runningTaskCount = computed(() => {
   let count = 0
@@ -501,9 +509,20 @@ const rootStyle = computed(() => ({
 // ── Helpers ───────────────────────────────────────────────────────────────
 // ── agent_spawn task polling ────────────────────────────────────────────────
 
+function fmtElapsed(startMs: number): string {
+  // depend on elapsedTick so Vue re-renders every second
+  void elapsedTick.value
+  const s = Math.floor((Date.now() - startMs) / 1000)
+  if (s < 60) return `${s}s`
+  return `${Math.floor(s / 60)}m${s % 60}s`
+}
+
 function startTaskPolling() {
   if (taskPollTimer) return
   taskPollTimer = setInterval(pollTasks, 3000)
+  if (!elapsedTimer) {
+    elapsedTimer = setInterval(() => { elapsedTick.value++ }, 1000)
+  }
 }
 
 async function pollTasks() {
@@ -524,7 +543,12 @@ async function pollTasks() {
         const tc = msg.toolCalls?.find(t => t.id === tcId)
         if (tc) {
           const wasRunning = !['done','error','killed'].includes(tc.taskStatus ?? '')
+          const prevStatus = tc.taskStatus
           tc.taskStatus = info.status as ToolCallEntry['taskStatus']
+          // Record when task first becomes running
+          if (info.status === 'running' && prevStatus !== 'running' && !tc.taskStartedAt) {
+            tc.taskStartedAt = Date.now()
+          }
           if (['done','error','killed'].includes(info.status)) {
             doneIds.push(tcId)
             if (wasRunning) spawnedJustCompleted = true
@@ -554,6 +578,9 @@ async function pollTasks() {
   if (!stillRunning && taskPollTimer) {
     clearInterval(taskPollTimer); taskPollTimer = null
   }
+  if (!stillRunning && elapsedTimer) {
+    clearInterval(elapsedTimer); elapsedTimer = null
+  }
 
   // When any task just completed, reload session messages to pick up the [后台任务完成] notification
   if ((anyJustCompleted || spawnedJustCompleted) && currentSessionId.value && !streaming.value) {
@@ -576,13 +603,34 @@ async function pollTasks() {
         }
         messages.value = loaded
         scrollBottom()
+        // After reload, trigger LLM to summarize the completed task result
+        await nextTick()
+        if (!streaming.value && currentSessionId.value === sid) {
+          await sendContinueAfterSpawn()
+        }
       } catch {}
     }, 1500) // small delay to let server write the notification first
   }
 }
 
+// Trigger LLM to report back on just-completed background task
+async function sendContinueAfterSpawn() {
+  if (streaming.value || !currentSessionId.value) return
+  // Check last assistant message — if it already looks like a completion report, skip
+  const lastMsg = [...messages.value].reverse().find(m => m.role === 'assistant')
+  if (lastMsg?.text && (
+    lastMsg.text.includes('任务完成') ||
+    lastMsg.text.includes('已完成') ||
+    lastMsg.text.includes('执行完毕') ||
+    lastMsg.text.includes('完成了')
+  )) return
+  // Use runChat in silent mode (no user bubble) with a hidden continue prompt
+  runChat('派遣的后台任务已完成，请根据任务结果向我汇报。', [], true)
+}
+
 onUnmounted(() => {
   if (taskPollTimer) { clearInterval(taskPollTimer); taskPollTimer = null }
+  if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null }
 })
 
 // After page reload, re-attach any still-running tasks spawned in this session
@@ -1852,6 +1900,7 @@ onMounted(() => {
 .task-badge.done     { background: #dcfce7; color: #15803d; }
 .task-badge.error    { background: #fee2e2; color: #b91c1c; }
 .task-badge.killed   { background: #f1f5f9; color: #475569; }
+.task-elapsed        { margin-left: 4px; font-size: 11px; opacity: 0.75; font-variant-numeric: tabular-nums; }
 
 /* ── Running tasks banner ── */
 .running-tasks-banner {
