@@ -599,7 +599,7 @@ async function pollTasks() {
         }
         for (const m of parsed) {
           if (m.role === 'compaction') continue
-          loaded.push({ role: m.role as 'user' | 'assistant', text: m.text, toolCalls: m.toolCalls?.map((tc: any) => ({ id: tc.id, name: tc.name, input: tc.input, result: tc.result, status: 'done' as const, _expanded: false, ...processToolResult(tc.result ?? '') })) })
+          if (m.text?.trim() || (m.toolCalls && m.toolCalls.length > 0)) loaded.push({ role: m.role as 'user' | 'assistant', text: m.text, toolCalls: m.toolCalls?.map((tc: any) => ({ id: tc.id, name: tc.name, input: tc.input, result: tc.result, status: 'done' as const, _expanded: false, ...processToolResult(tc.result ?? '') })) })
         }
         messages.value = loaded
         scrollBottom()
@@ -658,7 +658,7 @@ async function reattachSessionTasks(sessionId: string) {
           }
           for (const m of parsed) {
             if (m.role === 'compaction') continue
-            loaded.push({ role: m.role as 'user' | 'assistant', text: m.text, toolCalls: m.toolCalls?.map((tc: any) => ({ id: tc.id, name: tc.name, input: tc.input, result: tc.result, status: 'done' as const, _expanded: false, ...processToolResult(tc.result ?? '') })) })
+            if (m.text?.trim() || (m.toolCalls && m.toolCalls.length > 0)) loaded.push({ role: m.role as 'user' | 'assistant', text: m.text, toolCalls: m.toolCalls?.map((tc: any) => ({ id: tc.id, name: tc.name, input: tc.input, result: tc.result, status: 'done' as const, _expanded: false, ...processToolResult(tc.result ?? '') })) })
           }
           messages.value = loaded
           scrollBottom()
@@ -1461,7 +1461,7 @@ async function reconnectIfGenerating(sessionId: string) {
         }
         for (const m of parsed) {
           if (m.role === 'compaction') continue
-          loaded.push({ role: m.role as 'user' | 'assistant', text: m.text, toolCalls: m.toolCalls?.map((tc: any) => ({ id: tc.id, name: tc.name, input: tc.input, result: tc.result, status: 'done' as const, _expanded: false, ...processToolResult(tc.result ?? '') })) })
+          if (m.text?.trim() || (m.toolCalls && m.toolCalls.length > 0)) loaded.push({ role: m.role as 'user' | 'assistant', text: m.text, toolCalls: m.toolCalls?.map((tc: any) => ({ id: tc.id, name: tc.name, input: tc.input, result: tc.result, status: 'done' as const, _expanded: false, ...processToolResult(tc.result ?? '') })) })
         }
         messages.value = loaded
         scrollBottom()
