@@ -28,7 +28,9 @@ type RunFunc func(ctx context.Context, agentID, model, sessionID, parentSessionI
 
 // NotifyFunc is called when a task completes. It can inject a system message
 // back into the parent session / send a Telegram notification.
-type NotifyFunc func(spawnedBy, spawnedBySession, taskID, label, output string, status TaskStatus)
+// The xml parameter contains the pre-formatted <task-notification> XML block
+// that should be injected as a user-role message into the parent session.
+type NotifyFunc func(spawnedBy, spawnedBySession, taskID, label, output, xml string, status TaskStatus)
 
 // ContextReadFn reads the last N conversation turns from the given session.
 type ContextReadFn func(sessionID string, lastN int) string
@@ -482,9 +484,11 @@ func (m *Manager) runTask(ctx context.Context, task *Task, enrichedTask string) 
 		Timestamp:         time.Now().UnixMilli(),
 	})
 
-	// Notify parent
+	// Notify parent with task-notification XML (Coordinator pattern)
 	if m.notify != nil && task.SpawnedBy != "" {
-		m.notify(task.SpawnedBy, task.SpawnedBySession, task.ID, task.Label, outputBuf, task.Status)
+		notif := BuildTaskNotification(task)
+		notifXML := notif.FormatXML()
+		m.notify(task.SpawnedBy, task.SpawnedBySession, task.ID, task.Label, outputBuf, notifXML, task.Status)
 	}
 }
 

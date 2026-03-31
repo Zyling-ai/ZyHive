@@ -164,3 +164,14 @@ func BuildProjectContext(mgr *project.Manager, agentID string) string {
 	sb.WriteString("\n工具：project_create 新建项目，project_list 列出项目，project_read 读取文件，project_write 写入文件（需写入权限），project_glob 列举文件。")
 	return sb.String()
 }
+
+// InjectSessionMemory appends the session memory content to an existing system prompt.
+// Called during compaction or when a new conversation starts to restore context continuity.
+// Returns the original prompt unchanged if sessionMemory is empty.
+func InjectSessionMemory(systemPrompt, sessionMemory string) string {
+	if strings.TrimSpace(sessionMemory) == "" {
+		return systemPrompt
+	}
+	truncated := truncateForPrompt(strings.TrimSpace(sessionMemory), "session-memory.md")
+	return systemPrompt + fmt.Sprintf("\n\n--- 会话记忆（上次对话摘要）---\n%s\n", truncated)
+}
