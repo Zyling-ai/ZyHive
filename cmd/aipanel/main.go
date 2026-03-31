@@ -170,7 +170,7 @@ func main() {
 
 	// Wire up completion notify: when a background task finishes, inject a message
 	// into the parent session so the user sees the result on next open.
-	subagentMgr.SetNotify(func(spawnedBy, spawnedBySession, taskID, label, output string, status subagent.TaskStatus) {
+	subagentMgr.SetNotify(func(spawnedBy, spawnedBySession, taskID, label, output, notifXML string, status subagent.TaskStatus) {
 		if spawnedBy == "" || spawnedBySession == "" {
 			return
 		}
@@ -179,6 +179,16 @@ func main() {
 			return
 		}
 		store := session.NewStore(ag.SessionDir)
+
+		// Inject <task-notification> XML as a user-role message into the parent session.
+		// This follows the Coordinator pattern: the XML block is delivered as a
+		// "user" message so the Coordinator agent sees it on its next turn and can
+		// continue or spawn follow-up workers accordingly.
+		//
+		// Format: <task-notification>...</task-notification> (see subagent/coordinator.go)
+		//
+		// Legacy fallback: also append a human-readable assistant message so the UI
+		// shows the result even if the agent hasn't processed the XML yet.
 		var statusIcon string
 		switch status {
 		case subagent.TaskDone:
@@ -194,10 +204,18 @@ func main() {
 		if taskLabel == "" {
 			taskLabel = taskID
 		}
+
+		// 1. Inject XML notification as "user" message (for Coordinator to process)
+		if notifXML != "" {
+			xmlContent, _ := json.Marshal(notifXML)
+			_ = store.AppendMessage(spawnedBySession, "user", xmlContent)
+		}
+
+		// 2. Append human-readable summary as "assistant" for UI display
 		msg := fmt.Sprintf("[后台任务完成] %s **%s**（任务 ID: %s）\n\n%s", statusIcon, taskLabel, taskID, output)
 		content, _ := json.Marshal(msg)
-		// Save as "assistant" so it renders on the left side (not as a user bubble)
 		_ = store.AppendMessage(spawnedBySession, "assistant", content)
+
 		log.Printf("[subagent] notify: task %s (%s) → session %s", taskID, status, spawnedBySession)
 	})
 
