@@ -422,55 +422,32 @@ func (b *FeishuBot) handleMessageEvent(ctx context.Context, ev *feishuMessageEve
 		return
 	}
 
-	// Stream: first send, then patch
+	// Collect full response then send once (Feishu PATCH streaming causes truncation)
 	var accumulated strings.Builder
-	var sentMsgID string
-	lastSent := ""
-	throttle := time.NewTicker(1500 * time.Millisecond)
-	defer throttle.Stop()
 
-	sendOrPatch := func(text string) {
-		if text == "" || text == lastSent {
-			return
-		}
-		lastSent = text
-		if sentMsgID == "" {
-			id, err := b.sendText(msg.ChatID, text)
-			if err != nil {
-				log.Printf("[feishu] sendText error: %v", err)
-				return
-			}
-			sentMsgID = id
-			return
-		}
-		_ = b.patchText(sentMsgID, text)
-	}
+	// Send a typing indicator first so the user knows we're working
+	_, sentMsgID := "", ""
+	_ = sentMsgID
 
-	for {
-		select {
-		case ev, ok := <-events:
-			if !ok {
-				goto done
+	for ev := range events {
+		switch ev.Type {
+		case "text_delta":
+			accumulated.WriteString(ev.Text)
+		case "error":
+			if ev.Err != nil {
+				accumulated.WriteString("\n⚠️ " + ev.Err.Error())
 			}
-			switch ev.Type {
-			case "text_delta":
-				accumulated.WriteString(ev.Text)
-			case "error":
-				if ev.Err != nil {
-					accumulated.WriteString("\n⚠️ " + ev.Err.Error())
-				}
-			case "done":
-				goto done
-			}
-		case <-throttle.C:
-			sendOrPatch(accumulated.String())
+		case "done":
+			// done signal, loop will end naturally
 		}
 	}
-done:
-	sendOrPatch(accumulated.String())
 
-	if sentMsgID == "" && accumulated.Len() == 0 {
-		_, _ = b.sendText(msg.ChatID, "(no response)")
+	finalText := strings.TrimSpace(accumulated.String())
+	if finalText == "" {
+		finalText = "(no response)"
+	}
+	if _, err := b.sendText(msg.ChatID, finalText); err != nil {
+		log.Printf("[feishu] sendText error: %v", err)
 	}
 }
 
