@@ -112,7 +112,9 @@ type FeishuBot struct {
 
 	botOpenID string // bot's own open_id (fetched on start)
 
-	onConnected func(name string)
+	onConnected  func(name string)
+	// panelBaseURL is the ZyHive panel URL shown in pairing messages (e.g. "https://hive.example.com")
+	panelBaseURL string
 }
 
 // NewFeishuBotWithStream creates a FeishuBot.
@@ -135,6 +137,11 @@ func NewFeishuBotWithStream(appID, appSecret, agentID, agentDir, channelID strin
 // SetOnConnected sets a callback fired once the bot connects (gets its open_id).
 func (b *FeishuBot) SetOnConnected(fn func(name string)) {
 	b.onConnected = fn
+}
+
+// SetPanelBaseURL sets the ZyHive panel URL shown in pairing messages.
+func (b *FeishuBot) SetPanelBaseURL(url string) {
+	b.panelBaseURL = url
 }
 
 // Start runs the WebSocket loop, reconnecting on error.
@@ -347,12 +354,18 @@ func (b *FeishuBot) handleMessageEvent(ctx context.Context, ev *feishuMessageEve
 	// Access control
 	currentAllowFrom := b.getAllowFrom()
 	if len(currentAllowFrom) == 0 {
-		// Pairing mode — tell user their Open ID and queue them as pending
+		// Pairing mode — guide user to authorize via panel
 		log.Printf("[feishu] pairing mode — user open_id=%s", senderOpenID)
 		if b.pendingStore != nil {
 			b.pendingStore.Add(senderOpenID, senderOpenID)
 		}
-		reply := fmt.Sprintf("👋 您好！此 Bot 还未完成授权配置。\n\n请将以下 Open ID 发给管理员，请求加入白名单：\n\n🔑 你的 Open ID：\n%s", senderOpenID)
+		authURL := b.panelBaseURL
+		if authURL == "" {
+			authURL = "ZyHive 管理面板"
+		} else {
+			authURL = authURL + "/#/agents/" + b.agentID + "/channels"
+		}
+		reply := fmt.Sprintf("👋 您好！请前往管理面板授权后即可开始对话：\n\n%s\n\n授权完成后直接发消息即可。", authURL)
 		_, _ = b.sendText(msg.ChatID, reply)
 		return
 	}
@@ -365,12 +378,18 @@ func (b *FeishuBot) handleMessageEvent(ctx context.Context, ev *feishuMessageEve
 		}
 	}
 	if !allowed {
-		// Unauthorized — add to pending and send pairing message
+		// Unauthorized — add to pending and guide to authorize
 		log.Printf("[feishu] unauthorized user open_id=%s", senderOpenID)
 		if b.pendingStore != nil {
 			b.pendingStore.Add(senderOpenID, senderOpenID)
 		}
-		reply := fmt.Sprintf("👋 您好！您尚未获得访问授权。\n\n请将以下 Open ID 发给管理员，请求加入白名单：\n\n🔑 你的 Open ID：\n%s", senderOpenID)
+		authURL := b.panelBaseURL
+		if authURL == "" {
+			authURL = "ZyHive 管理面板"
+		} else {
+			authURL = authURL + "/#/agents/" + b.agentID + "/channels"
+		}
+		reply := fmt.Sprintf("👋 您好！您尚未获得访问授权，请联系管理员在以下地址为您开通：\n\n%s\n\n授权完成后直接发消息即可。", authURL)
 		_, _ = b.sendText(msg.ChatID, reply)
 		return
 	}
@@ -686,4 +705,47 @@ func TestFeishuBot(appID, appSecret string) (string, error) {
 		return botInfo.Bot.AppName, nil
 	}
 	return "feishu", nil
+}
+
+// SendFeishuApprovedNotice sends an approval notification to a Feishu user via DM.
+// Used by the API when an admin approves a pending user.
+func SendFeishuApprovedNotice(appID, appSecret, openID string) error {
+	// Get app_access_token
+	type tokenResp struct {
+		Code           int    `json:"code"`
+		AppAccessToken string `json:"app_access_token"`
+	}
+	payload := fmt.Sprintf(`{"app_id":%q,"app_secret":%q}`, appID, appSecret)
+	resp, err := http.Post(
+		"https://open.feishu.cn/open-apis/auth/v3/app_access_token/internal",
+		"application/json",
+		strings.NewReader(payload),
+	)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	var tr tokenResp
+	if err := json.NewDecoder(resp.Body).Decode(&tr); err != nil {
+		return err
+	}
+	if tr.Code != 0 || tr.AppAccessToken == "" {
+		return fmt.Errorf("token error code=%d", tr.Code)
+	}
+
+	// Send message to user's open_id
+	msgBody := `{"receive_id":"` + openID + `","msg_type":"text","content":"{\"text\":\"✅ 授权成功！您已获得访问权限，现在可以直接发消息开始对话了。\"}"}`
+	req, _ := http.NewRequest("POST",
+		"https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=open_id",
+		strings.NewReader(msgBody))
+	req.Header.Set("Authorization", "Bearer "+tr.AppAccessToken)
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	r2, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer r2.Body.Close()
+	return nil
 }
