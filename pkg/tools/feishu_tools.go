@@ -263,7 +263,7 @@ func (r *Registry) WithFeishu(appID, appSecret string) {
 	// 4b. feishu_create_bitable_app (create a new Bitable)
 	r.register(lllm.ToolDef{
 		Name:        "feishu_create_bitable_app",
-		Description: "Create a new Feishu Bitable (multi-dimensional spreadsheet) app.",
+		Description: "Create a new Feishu Bitable (multi-dimensional spreadsheet) app. After creation, send the user a card with a button to open it using feishu_send_bitable_card.",
 		InputSchema: json.RawMessage(`{
 			"type":"object",
 			"properties":{
@@ -288,6 +288,89 @@ func (r *Registry) WithFeishu(appID, appSecret string) {
 			return "", err
 		}
 		return fJSON(result["data"]), nil
+	})
+
+	// 4d. feishu_send_bitable_card — send a card with open button for a Bitable
+	r.register(lllm.ToolDef{
+		Name:        "feishu_send_bitable_card",
+		Description: "Send a Feishu card message with a button to open a Bitable. Use this after creating a Bitable to share it with the user.",
+		InputSchema: json.RawMessage(`{
+			"type":"object",
+			"properties":{
+				"chat_id":{"type":"string","description":"chat_id to send the card to"},
+				"title":{"type":"string","description":"Card title, e.g. name of the Bitable"},
+				"description":{"type":"string","description":"Short description shown in the card"},
+				"url":{"type":"string","description":"URL of the Bitable (from app.url field)"}
+			},
+			"required":["chat_id","title","url"]
+		}`),
+	}, func(ctx context.Context, input json.RawMessage) (string, error) {
+		var p struct {
+			ChatID      string `json:"chat_id"`
+			Title       string `json:"title"`
+			Description string `json:"description"`
+			URL         string `json:"url"`
+		}
+		if err := json.Unmarshal(input, &p); err != nil {
+			return "", err
+		}
+		desc := p.Description
+		if desc == "" {
+			desc = "点击按钮直接打开表格"
+		}
+		// Use schema 1.0 card with action button (schema 2.0 does not support action tag)
+		card := map[string]interface{}{
+			"config": map[string]interface{}{"wide_screen_mode": true},
+			"header": map[string]interface{}{
+				"title":    map[string]string{"tag": "plain_text", "content": "📊 " + p.Title},
+				"template": "green",
+			},
+			"elements": []interface{}{
+				map[string]interface{}{
+					"tag":  "div",
+					"text": map[string]string{"tag": "lark_md", "content": desc},
+				},
+				map[string]interface{}{
+					"tag": "action",
+					"actions": []interface{}{
+						map[string]interface{}{
+							"tag":  "button",
+							"text": map[string]string{"tag": "plain_text", "content": "🔗 打开多维表格"},
+							"type": "primary",
+							"url":  p.URL,
+						},
+					},
+				},
+			},
+		}
+		cardJSON, _ := json.Marshal(card)
+		payload := map[string]interface{}{
+			"receive_id": p.ChatID,
+			"msg_type":   "interactive",
+			"content":    string(cardJSON),
+		}
+		data, _ := json.Marshal(payload)
+
+		token, err := fc.getToken()
+		if err != nil {
+			return "", err
+		}
+		req, _ := http.NewRequest("POST",
+			"https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id",
+			bytes.NewReader(data))
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := fc.hc.Do(req)
+		if err != nil {
+			return "", err
+		}
+		defer resp.Body.Close()
+		var result map[string]interface{}
+		_ = json.NewDecoder(resp.Body).Decode(&result)
+		if code, ok := result["code"].(float64); ok && code != 0 {
+			return "", fmt.Errorf("send card error %d: %s", int(code), result["msg"])
+		}
+		return "卡片已发送", nil
 	})
 
 	// 4c. feishu_create_bitable_table (create a new table in existing Bitable)
