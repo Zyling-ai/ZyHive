@@ -136,7 +136,8 @@ Choose msg_type based on content:
   - elements: div(text/fields), hr, action(buttons with url or callback), img, note
   - div.text: {tag:"lark_md", content:"**bold** [link](url) <at id=open_id></at>"}
   - div.fields: [{is_short:true, text:{tag:"lark_md",content:"**Label**\nvalue"}}, ...]
-  - action: [{tag:"button", text:{tag:"plain_text",content:"OK"}, type:"primary|default|danger", url:"...", value:{...}}]
+  - action: [{tag:"button", text:{tag:"plain_text",content:"OK"}, type:"primary|default|danger", url:"...", value:{"agent_id":"AGENT_ID","session_id":"SESSION_ID","action":"confirm","label":"确认",...custom fields}}]
+    IMPORTANT: For interactive buttons (no url), ALWAYS include agent_id and session_id in value so callbacks route correctly. Get session_id from the current feishu session context (feishu-{chat_id}).
   - note: {elements:[{tag:"plain_text",content:"footer text"}]}
 - "image": single image (requires image_key from upload API, not available yet)
 
