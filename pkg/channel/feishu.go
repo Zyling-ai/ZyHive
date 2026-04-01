@@ -115,6 +115,9 @@ type FeishuBot struct {
 	onConnected  func(name string)
 	// panelBaseURL is the ZyHive panel URL shown in pairing messages (e.g. "https://hive.example.com")
 	panelBaseURL string
+
+	// chatMu serializes processing per chatID to avoid concurrent LLM calls for the same chat
+	chatMu sync.Map // chatID → *sync.Mutex
 }
 
 // NewFeishuBotWithStream creates a FeishuBot.
@@ -317,6 +320,12 @@ func (b *FeishuBot) handleMessageEvent(ctx context.Context, ev *feishuMessageEve
 	if msg.MessageType != "text" {
 		return
 	}
+
+	// Serialize per chatID: only one LLM call at a time per chat
+	muVal, _ := b.chatMu.LoadOrStore(msg.ChatID, &sync.Mutex{})
+	mu := muVal.(*sync.Mutex)
+	mu.Lock()
+	defer mu.Unlock()
 
 	// Parse content: {"text":"hello"}
 	var contentObj struct {
