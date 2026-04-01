@@ -6,7 +6,7 @@
 [![GitHub Forks](https://img.shields.io/github/forks/Zyling-ai/zyhive?style=flat&logo=github&color=orange)](https://github.com/Zyling-ai/zyhive/network/members)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 [![Go 1.22+](https://img.shields.io/badge/Go-1.22+-00ADD8.svg)](https://golang.org)
-[![Version](https://img.shields.io/badge/version-26.3.18v8-brightgreen.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-26.4.1v20-brightgreen.svg)](CHANGELOG.md)
 [![官网](https://img.shields.io/badge/官网-zyling.ai-6366f1?logo=globe)](https://zyling.ai)
 
 **以团队为核心，每个 AI Agent 是团队成员。**
@@ -28,7 +28,7 @@ curl -sSL https://install.zyling.ai/install | bash
 
 ```
 ╔══════════════════════════════════════════════╗
-║  ✅  ZyHive 安装成功！版本: 26.3.18v8         ║
+║  ✅  ZyHive 安装成功！版本: 26.4.1v20         ║
 ╚══════════════════════════════════════════════╝
 
   📍 本地访问：  http://localhost:8080
@@ -299,6 +299,9 @@ make release
 | 26.3.17v2 | 对话区高度修复（is-chat-page flex 链）| ✅ |
 | 26.3.17v3 | AgentDetailView + WorkspaceChatLayout 深色主题统一 | ✅ |
 | **26.3.18v1–v8** | **全站浅色主题**：移除 dark mode，恢复所有页面浅色配色；侧边栏折叠按钮；Token 用量 SSE 正确透传；LogsView 浅色终端风格 | ✅ |
+| **26.3.29v1–v15** | **派遣任务体验**：计时显示、LLM 续写汇报；空白气泡彻底修复；输入框超长滚动 | ✅ |
+| **26.3.31v1** | **Coordinator 模式**：多 Agent 协调者提示词、task-notification XML、AgentDefinition 标准化、SessionMemory 后台提取 | ✅ |
+| **26.4.1v1–v20** | **飞书渠道全面接入**：WS 长连接（protobuf）、流式卡片回复、7 大飞书能力工具、群聊模式配置、配对授权优化、多人对话上下文区分 | ✅ |
 | v0.11（规划中）| 团队规划系统增强、会议系统、ChatsView 统一重写、共享工作区权限 UI | 🔜 |
 
 ---
