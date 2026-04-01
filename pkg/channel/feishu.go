@@ -439,11 +439,25 @@ func (b *FeishuBot) handleMessageEvent(ctx context.Context, ev *feishuMessageEve
 	// Prefix with "feishu-" to namespace from other channel sessions
 	feishuSessionID := "feishu-" + msg.ChatID
 
-	// Inject sender identity as extra system context (NOT in the user message — invisible to users)
-	// The AI can reference open_id in tool calls (e.g. "add me to a group")
-	extraCtx := fmt.Sprintf("当前飞书用户信息：open_id=%s，chat_id=%s", senderOpenID, msg.ChatID)
+	// Build the message text with sender attribution for group chats
+	// For group chats: prepend sender name so AI knows who is speaking
+	// For DMs: just use the original text
+	finalText := text
+	if isGroup {
+		// Try to get sender's display name (cached)
+		senderName := b.getSenderName(senderOpenID)
+		if senderName != "" {
+			finalText = fmt.Sprintf("[%s]: %s", senderName, text)
+		} else {
+			finalText = fmt.Sprintf("[%s]: %s", senderOpenID[:min(8, len(senderOpenID))], text)
+		}
+	}
 
-	events, err := b.streamFunc(runCtx, b.agentID, text, feishuSessionID, nil, nil, extraCtx)
+	// Inject sender identity as extra system context (NOT in the user message — invisible to users)
+	extraCtx := fmt.Sprintf("当前飞书用户信息：open_id=%s，chat_id=%s，chat_type=%s",
+		senderOpenID, msg.ChatID, msg.ChatType)
+
+	events, err := b.streamFunc(runCtx, b.agentID, finalText, feishuSessionID, nil, nil, extraCtx)
 	if err != nil {
 		_, _ = b.sendText(msg.ChatID, "⚠️ 出错了："+err.Error())
 		return
@@ -487,17 +501,17 @@ func (b *FeishuBot) handleMessageEvent(ctx context.Context, ev *feishuMessageEve
 	}
 done:
 	// Final update with complete text
-	finalText := strings.TrimSpace(accumulated.String())
-	if finalText == "" {
-		finalText = "(no response)"
+	replyText := strings.TrimSpace(accumulated.String())
+	if replyText == "" {
+		replyText = "(no response)"
 	}
 	if sentMsgID == "" {
 		// Placeholder failed — send directly
-		if _, err := b.sendCard(msg.ChatID, finalText); err != nil {
+		if _, err := b.sendCard(msg.ChatID, replyText); err != nil {
 			log.Printf("[feishu] sendCard error: %v", err)
 		}
 	} else {
-		patchCard(finalText)
+		patchCard(replyText)
 	}
 }
 
@@ -995,4 +1009,66 @@ func (b *FeishuBot) persistSeenEvents() {
 	b.seenMu.Unlock()
 	data, _ := json.Marshal(m)
 	_ = os.WriteFile(b.seenEventPath(), data, 0600)
+}
+
+// ── Sender name cache ─────────────────────────────────────────────────────
+
+var (
+	senderNameCache   sync.Map // openID → name
+	senderNameFetched sync.Map // openID → bool (fetch attempted)
+)
+
+// getSenderName returns the display name for a Feishu user, fetching if needed.
+func (b *FeishuBot) getSenderName(openID string) string {
+	if v, ok := senderNameCache.Load(openID); ok {
+		return v.(string)
+	}
+	// Only fetch once per openID per process lifetime
+	if _, attempted := senderNameFetched.LoadOrStore(openID, true); attempted {
+		return ""
+	}
+	go func() {
+		token, err := b.refreshToken()
+		if err != nil {
+			return
+		}
+		req, _ := http.NewRequest("GET",
+			b.apiBase()+"/contact/v3/users/"+openID+"?user_id_type=open_id", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp, err := b.client.Do(req)
+		if err != nil {
+			return
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		var result struct {
+			Code int `json:"code"`
+			Data struct {
+				User struct {
+					Name        string `json:"name"`
+					DisplayName string `json:"display_name"`
+					Nickname    string `json:"nickname"`
+					EnName      string `json:"en_name"`
+				} `json:"user"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(body, &result); err != nil || result.Code != 0 {
+			return
+		}
+		u := result.Data.User
+		name := u.Name
+		if name == "" {
+			name = u.DisplayName
+		}
+		if name == "" {
+			name = u.Nickname
+		}
+		if name == "" {
+			name = u.EnName
+		}
+		if name != "" {
+			senderNameCache.Store(openID, name)
+		}
+	}()
+	return ""
 }
