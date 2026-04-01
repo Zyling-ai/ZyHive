@@ -477,23 +477,12 @@ func (b *FeishuBot) refreshToken() (string, error) {
 }
 
 func (b *FeishuBot) getWsEndpoint(token string) (string, error) {
-	req, _ := http.NewRequest("GET",
-		b.apiBase()+"/event/v1/ws/endpoint?app_id="+b.appID, nil)
-	req.Header.Set("Authorization", "Bearer "+token)
-	resp, err := b.client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	var result feishuWsEndpointResp
-	if err := json.Unmarshal(body, &result); err != nil {
-		return "", fmt.Errorf("parse ws endpoint: %w", err)
-	}
-	if result.Code != 0 {
-		return "", fmt.Errorf("feishu ws endpoint error %d: %s", result.Code, result.Msg)
-	}
-	return result.Data.URL, nil
+	// Feishu long connection WS URL — built directly from appId and token.
+	// The SDK does NOT use an HTTP API to obtain the endpoint; it connects
+	// directly to wss://open.feishu.cn/event/v2/websocket with credentials
+	// embedded as query parameters.
+	base := strings.Replace(b.apiBase(), "https://", "wss://", 1)
+	return base + "/event/v2/websocket?app_id=" + b.appID + "&access_token=" + token, nil
 }
 
 func (b *FeishuBot) fetchBotOpenID(token string) (string, error) {
