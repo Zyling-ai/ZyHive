@@ -67,6 +67,16 @@ func (s *Store) GetOrCreate(sessionID, agentID string) (string, bool, error) {
 		return "", false, err
 	}
 
+	// Infer source from sessionID prefix for channel-originated sessions
+	source := "web"
+	if strings.HasPrefix(sessionID, "feishu-") {
+		source = "feishu"
+	} else if strings.HasPrefix(sessionID, "telegram-") || strings.HasPrefix(sessionID, "tg-") {
+		source = "telegram"
+	} else if strings.HasPrefix(sessionID, "ses-") {
+		source = "web"
+	}
+
 	idx, _ := s.loadIndex()
 	idx.Sessions[sessionID] = SessionIndexEntry{
 		ID:        sessionID,
@@ -74,6 +84,7 @@ func (s *Store) GetOrCreate(sessionID, agentID string) (string, bool, error) {
 		FilePath:  sessionID + ".jsonl",
 		CreatedAt: nowMs(),
 		LastAt:    nowMs(),
+		Source:    source,
 	}
 	if err := s.saveIndex(idx); err != nil {
 		return "", false, err
