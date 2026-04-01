@@ -152,6 +152,8 @@ func (b *FeishuBot) SetPanelBaseURL(url string) {
 // Start runs the WebSocket loop, reconnecting on error.
 func (b *FeishuBot) Start(ctx context.Context) {
 	log.Printf("[feishu] starting agent=%s", b.agentID)
+	// Load previously seen event IDs to avoid reprocessing on restart
+	b.loadSeenEvents()
 	for {
 		if ctx.Err() != nil {
 			return
@@ -297,6 +299,8 @@ func (b *FeishuBot) handleWsMessage(ctx context.Context, conn *websocket.Conn, r
 				}
 			}
 			b.seenMu.Unlock()
+			// Persist seen events so restarts don't reprocess old events
+			go b.persistSeenEvents()
 		}
 		if ev.Header.EventType == "im.message.receive_v1" {
 			var msgEvent feishuMessageEvent
@@ -962,4 +966,43 @@ func (b *FeishuBot) handleGroupCommand(chatID, text string) bool {
 		return true
 	}
 	return false
+}
+
+// ── Persistent event dedup ────────────────────────────────────────────────
+// Saves seen event IDs to disk so they survive restarts.
+
+func (b *FeishuBot) seenEventPath() string {
+	dir := filepath.Join(b.agentDir, "feishu-seen-events")
+	_ = os.MkdirAll(dir, 0700)
+	return filepath.Join(dir, b.channelID+".json")
+}
+
+func (b *FeishuBot) loadSeenEvents() {
+	data, err := os.ReadFile(b.seenEventPath())
+	if err != nil {
+		return
+	}
+	var m map[string]int64
+	if err := json.Unmarshal(data, &m); err != nil {
+		return
+	}
+	b.seenMu.Lock()
+	defer b.seenMu.Unlock()
+	cutoff := time.Now().Add(-30 * time.Minute).UnixMilli()
+	for id, ts := range m {
+		if ts > cutoff {
+			b.seenEvents[id] = time.UnixMilli(ts)
+		}
+	}
+}
+
+func (b *FeishuBot) persistSeenEvents() {
+	b.seenMu.Lock()
+	m := make(map[string]int64, len(b.seenEvents))
+	for id, t := range b.seenEvents {
+		m[id] = t.UnixMilli()
+	}
+	b.seenMu.Unlock()
+	data, _ := json.Marshal(m)
+	_ = os.WriteFile(b.seenEventPath(), data, 0600)
 }
