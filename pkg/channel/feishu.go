@@ -449,9 +449,9 @@ func (b *FeishuBot) handleMessageEvent(ctx context.Context, ev *feishuMessageEve
 		return
 	}
 
-	// Stream: send card first, then patch card content (Feishu only supports PATCH on cards)
+	// Immediately send a "typing" placeholder card so the user sees a response is coming
 	var accumulated strings.Builder
-	var sentMsgID string
+	sentMsgID, _ := b.sendCard(msg.ChatID, "⌛ 正在思考...")
 	lastPatched := ""
 
 	throttle := time.NewTicker(1200 * time.Millisecond)
@@ -474,16 +474,6 @@ func (b *FeishuBot) handleMessageEvent(ctx context.Context, ev *feishuMessageEve
 			switch ev.Type {
 			case "text_delta":
 				accumulated.WriteString(ev.Text)
-				// Send initial card on first content
-				if sentMsgID == "" && accumulated.Len() > 0 {
-					id, err := b.sendCard(msg.ChatID, accumulated.String())
-					if err != nil {
-						log.Printf("[feishu] sendCard error: %v", err)
-					} else {
-						sentMsgID = id
-						lastPatched = accumulated.String()
-					}
-				}
 			case "error":
 				if ev.Err != nil {
 					accumulated.WriteString("\n⚠️ " + ev.Err.Error())
@@ -502,7 +492,7 @@ done:
 		finalText = "(no response)"
 	}
 	if sentMsgID == "" {
-		// Never sent anything yet
+		// Placeholder failed — send directly
 		if _, err := b.sendCard(msg.ChatID, finalText); err != nil {
 			log.Printf("[feishu] sendCard error: %v", err)
 		}
