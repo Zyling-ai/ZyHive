@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 📖 查看文档
+    url: https://github.com/Zyling-ai/ZyHive/blob/main/README.md
+    about: 先看文档，也许已经有答案了
