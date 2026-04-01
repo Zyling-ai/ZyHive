@@ -483,6 +483,14 @@ func (p *Pool) configureToolRegistry(reg *tools.Registry, ag *Agent, fileSender 
 		reg.WithACPAgents(func() []config.ACPAgentEntry { return acpAgents })
 	}
 
+	// Register Feishu tools if the agent has a Feishu channel configured.
+	for _, ch := range ag.Channels {
+		if ch.Type == "feishu" && ch.Enabled && ch.Config["appId"] != "" && ch.Config["appSecret"] != "" {
+			reg.WithFeishu(ch.Config["appId"], ch.Config["appSecret"])
+			break // only use the first Feishu channel
+		}
+	}
+
 	// Apply tool permission policy (allow/deny/profile).
 	// Parse raw JSON policies from config; nil-safe.
 	var globalPolicy, agentPolicy *tools.ToolPolicy
