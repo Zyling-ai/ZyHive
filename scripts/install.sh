@@ -60,32 +60,7 @@ _dl() {
   fi
 }
 
-# ══════════════════════════════════════════════════════════════════════════
-# Windows 环境检测（Git Bash / MSYS2 / Cygwin）
-# 在这些环境里 uname -s 返回 MINGW64_NT / MSYS_NT / CYGWIN_NT 等
-# 直接把控制权交给系统 PowerShell，避免路径和权限问题
-# ══════════════════════════════════════════════════════════════════════════
-_raw_os=$(uname -s 2>/dev/null || echo "unknown")
-case "$_raw_os" in
-  MINGW*|MSYS*|CYGWIN*)
-    echo ""
-    echo "  检测到 Windows 环境（Git Bash / MSYS2 / Cygwin）"
-    echo "  自动转交 PowerShell 安装，请在弹出的 UAC 对话框中点击「是」…"
-    echo ""
-    PS1_URL="${INSTALL_BASE}/zyhive.ps1"
-    # 优先用 pwsh (PowerShell 7)，其次用 powershell.exe (Windows 内置 5.x)
-    if command -v pwsh &>/dev/null; then
-      pwsh -ExecutionPolicy Bypass -Command "irm '${PS1_URL}' | iex"
-    elif command -v powershell.exe &>/dev/null; then
-      powershell.exe -ExecutionPolicy Bypass -Command "irm '${PS1_URL}' | iex"
-    else
-      echo "  ❌ 未找到 PowerShell，请以管理员身份在 PowerShell 中运行："
-      echo "     irm ${PS1_URL} | iex"
-      exit 1
-    fi
-    exit $?
-    ;;
-esac
+# 仅支持 macOS 和 Linux，不支持 Windows
 
 SERVICE_NAME="zyhive"
 BINARY_NAME="zyhive"
