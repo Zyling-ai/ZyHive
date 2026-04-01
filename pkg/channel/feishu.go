@@ -422,32 +422,65 @@ func (b *FeishuBot) handleMessageEvent(ctx context.Context, ev *feishuMessageEve
 		return
 	}
 
-	// Collect full response then send once (Feishu PATCH streaming causes truncation)
+	// Stream: send card first, then patch card content (Feishu only supports PATCH on cards)
 	var accumulated strings.Builder
+	var sentMsgID string
+	lastPatched := ""
 
-	// Send a typing indicator first so the user knows we're working
-	_, sentMsgID := "", ""
-	_ = sentMsgID
+	throttle := time.NewTicker(1200 * time.Millisecond)
+	defer throttle.Stop()
 
-	for ev := range events {
-		switch ev.Type {
-		case "text_delta":
-			accumulated.WriteString(ev.Text)
-		case "error":
-			if ev.Err != nil {
-				accumulated.WriteString("\n⚠️ " + ev.Err.Error())
-			}
-		case "done":
-			// done signal, loop will end naturally
+	patchCard := func(text string) {
+		if text == "" || text == lastPatched || sentMsgID == "" {
+			return
 		}
+		lastPatched = text
+		_ = b.patchCard(sentMsgID, text)
 	}
 
+	for {
+		select {
+		case ev, ok := <-events:
+			if !ok {
+				goto done
+			}
+			switch ev.Type {
+			case "text_delta":
+				accumulated.WriteString(ev.Text)
+				// Send initial card on first content
+				if sentMsgID == "" && accumulated.Len() > 0 {
+					id, err := b.sendCard(msg.ChatID, accumulated.String())
+					if err != nil {
+						log.Printf("[feishu] sendCard error: %v", err)
+					} else {
+						sentMsgID = id
+						lastPatched = accumulated.String()
+					}
+				}
+			case "error":
+				if ev.Err != nil {
+					accumulated.WriteString("\n⚠️ " + ev.Err.Error())
+				}
+			case "done":
+				goto done
+			}
+		case <-throttle.C:
+			patchCard(accumulated.String())
+		}
+	}
+done:
+	// Final update with complete text
 	finalText := strings.TrimSpace(accumulated.String())
 	if finalText == "" {
 		finalText = "(no response)"
 	}
-	if _, err := b.sendText(msg.ChatID, finalText); err != nil {
-		log.Printf("[feishu] sendText error: %v", err)
+	if sentMsgID == "" {
+		// Never sent anything yet
+		if _, err := b.sendCard(msg.ChatID, finalText); err != nil {
+			log.Printf("[feishu] sendCard error: %v", err)
+		}
+	} else {
+		patchCard(finalText)
 	}
 }
 
@@ -736,5 +769,112 @@ func SendFeishuApprovedNotice(appID, appSecret, openID string) error {
 		return err
 	}
 	defer r2.Body.Close()
+	return nil
+}
+
+// sendCard sends a markdown card message and returns the message_id.
+func (b *FeishuBot) sendCard(chatID, text string) (string, error) {
+	token, err := b.refreshToken()
+	if err != nil {
+		return "", err
+	}
+
+	// Build an interactive card with a single markdown element
+	card := map[string]interface{}{
+		"schema": "2.0",
+		"body": map[string]interface{}{
+			"elements": []interface{}{
+				map[string]interface{}{
+					"tag":     "markdown",
+					"content": text,
+				},
+			},
+		},
+		"config": map[string]interface{}{
+			"update_multi": true,
+		},
+	}
+	cardJSON, _ := json.Marshal(card)
+
+	payload := map[string]interface{}{
+		"receive_id": chatID,
+		"msg_type":   "interactive",
+		"content":    string(cardJSON),
+	}
+	data, _ := json.Marshal(payload)
+
+	req, _ := http.NewRequest("POST",
+		b.apiBase()+"/im/v1/messages?receive_id_type=chat_id",
+		bytes.NewReader(data))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := b.client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	var result struct {
+		Code int    `json:"code"`
+		Msg  string `json:"msg"`
+		Data struct {
+			MessageID string `json:"message_id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return "", err
+	}
+	if result.Code != 0 {
+		// Fallback to plain text
+		return b.sendText(chatID, text)
+	}
+	return result.Data.MessageID, nil
+}
+
+// patchCard updates an existing card message with new markdown content.
+func (b *FeishuBot) patchCard(messageID, text string) error {
+	token, err := b.refreshToken()
+	if err != nil {
+		return err
+	}
+
+	runes := []rune(text)
+	if len(runes) > 4000 {
+		text = string(runes[:4000]) + "..."
+	}
+
+	card := map[string]interface{}{
+		"schema": "2.0",
+		"body": map[string]interface{}{
+			"elements": []interface{}{
+				map[string]interface{}{
+					"tag":     "markdown",
+					"content": text,
+				},
+			},
+		},
+		"config": map[string]interface{}{
+			"update_multi": true,
+		},
+	}
+	cardJSON, _ := json.Marshal(card)
+
+	payload := map[string]interface{}{
+		"content": string(cardJSON),
+	}
+	data, _ := json.Marshal(payload)
+
+	req, _ := http.NewRequest("PATCH",
+		b.apiBase()+"/im/v1/messages/"+messageID,
+		bytes.NewReader(data))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := b.client.Do(req)
+	if err != nil {
+		return err
+	}
+	resp.Body.Close()
 	return nil
 }
