@@ -325,6 +325,11 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, cfgPath string, mgr *agen
 	hzH := &healthzHandler{manager: mgr, cronEngine: cronEngine, cfg: cfg}
 	r.GET("/healthz", hzH.Handle)
 
+	// Feishu card action callback — no auth (Feishu calls this with its own token)
+	feishuCbH := &feishuCardCallbackHandler{manager: mgr, pool: pool}
+	r.POST("/feishu/card-callback", feishuCbH.Handle)
+	r.GET("/feishu/card-callback", feishuCbH.Handle) // URL verification also comes as GET sometimes
+
 	// Detailed status endpoint — auth required
 	stsH := &statusHandler{manager: mgr, cronEngine: cronEngine}
 	v1.GET("/status", stsH.Handle)
