@@ -315,8 +315,8 @@ func main() {
 		cID := chID
 		pdDir := filepath.Join(agentsDir, aID, "channels-pending")
 		pending := channel.NewPendingStore(pdDir, cID)
-		sf := func(ctx2 context.Context, aid, msg, sessionID string, media []channel.MediaInput, fileSender channel.FileSenderFunc) (<-chan channel.StreamEvent, error) {
-			return pool.RunStreamEvents(ctx2, aid, msg, sessionID, media, fileSender)
+		sf := func(ctx2 context.Context, aid, msg, sessionID string, media []channel.MediaInput, fileSender channel.FileSenderFunc, extraCtx ...string) (<-chan channel.StreamEvent, error) {
+			return pool.RunStreamEvents(ctx2, aid, msg, sessionID, media, fileSender, extraCtx...)
 		}
 		getAllowFrom := func() []int64 { return mgr.GetAllowFrom(aID, cID) }
 		agentDir := filepath.Join(agentsDir, aID)
@@ -332,8 +332,8 @@ func main() {
 	startFeishuBotForChannel := func(agentID, chID, appID, appSecret string) {
 		aID := agentID
 		cID := chID
-		sf := func(ctx2 context.Context, aid, msg, sessionID string, media []channel.MediaInput, fileSender channel.FileSenderFunc) (<-chan channel.StreamEvent, error) {
-			return pool.RunStreamEvents(ctx2, aid, msg, sessionID, media, fileSender)
+		sf := func(ctx2 context.Context, aid, msg, sessionID string, media []channel.MediaInput, fileSender channel.FileSenderFunc, extraCtx ...string) (<-chan channel.StreamEvent, error) {
+			return pool.RunStreamEvents(ctx2, aid, msg, sessionID, media, fileSender, extraCtx...)
 		}
 		getAllowFrom := func() []string {
 			raw := mgr.GetAllowFromStr(aID, cID)

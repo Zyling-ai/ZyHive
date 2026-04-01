@@ -417,12 +417,11 @@ func (b *FeishuBot) handleMessageEvent(ctx context.Context, ev *feishuMessageEve
 	// Prefix with "feishu-" to namespace from other channel sessions
 	feishuSessionID := "feishu-" + msg.ChatID
 
-	// Inject sender identity as a system prefix so the AI can reference the user's open_id
-	// in tool calls (e.g. "add me to a group" → AI knows the open_id automatically)
-	userCtxPrefix := fmt.Sprintf("[系统信息] 当前对话用户信息：open_id=%s，chat_id=%s\n\n", senderOpenID, msg.ChatID)
-	textWithCtx := userCtxPrefix + text
+	// Inject sender identity as extra system context (NOT in the user message — invisible to users)
+	// The AI can reference open_id in tool calls (e.g. "add me to a group")
+	extraCtx := fmt.Sprintf("当前飞书用户信息：open_id=%s，chat_id=%s", senderOpenID, msg.ChatID)
 
-	events, err := b.streamFunc(runCtx, b.agentID, textWithCtx, feishuSessionID, nil, nil)
+	events, err := b.streamFunc(runCtx, b.agentID, text, feishuSessionID, nil, nil, extraCtx)
 	if err != nil {
 		_, _ = b.sendText(msg.ChatID, "⚠️ 出错了："+err.Error())
 		return

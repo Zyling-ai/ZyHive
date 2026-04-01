@@ -52,7 +52,9 @@ type FileSenderFunc func(filePath string) (string, error)
 // sessionID is used for persistent per-chat history (e.g. "telegram-{chatID}").
 // Pass "" to use an auto-generated ephemeral session.
 // fileSender is optional (may be nil); if provided, the runner's send_file tool uses it.
-type StreamFunc func(ctx context.Context, agentID, message, sessionID string, media []MediaInput, fileSender FileSenderFunc) (<-chan StreamEvent, error)
+// StreamFunc executes a message against an agent and returns a live event stream.
+// extraSystemContext is injected into the system prompt (invisible to users, for metadata like sender open_id).
+type StreamFunc func(ctx context.Context, agentID, message, sessionID string, media []MediaInput, fileSender FileSenderFunc, extraSystemContext ...string) (<-chan StreamEvent, error)
 
 // ── Telegram API types ────────────────────────────────────────────────────
 
@@ -200,7 +202,7 @@ type TelegramBot struct {
 // NewTelegramBot creates a Telegram bot that supports streaming and group chats.
 func NewTelegramBot(token, agentID, agentDir string, allowFrom []int64, runner RunnerFunc, pending *PendingStore) *TelegramBot {
 	// Wrap the sync runner in a StreamFunc for backward compat when no stream func is set
-	sf := func(ctx context.Context, agentID, message, _ string, media []MediaInput, _ FileSenderFunc) (<-chan StreamEvent, error) {
+	sf := func(ctx context.Context, agentID, message, _ string, media []MediaInput, _ FileSenderFunc, _ ...string) (<-chan StreamEvent, error) {
 		ch := make(chan StreamEvent, 1)
 		go func() {
 			defer close(ch)
