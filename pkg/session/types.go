@@ -91,4 +91,5 @@ type SessionIndexEntry struct {
 	LastAt        int64  `json:"lastAt"`                 // last activity timestamp
 	TokenEstimate int    `json:"tokenEstimate"`          // rough token count, triggers compaction
 	Active        bool   `json:"active,omitempty"`       // if true, reaper will never delete this session
+	Source        string `json:"source,omitempty"`       // "web" | "telegram" | "feishu" | "whatsapp" etc.
 }
