@@ -180,9 +180,8 @@ func (b *FeishuBot) runOnce(ctx context.Context) error {
 
 	// Connect
 	dialer := websocket.DefaultDialer
-	header := http.Header{}
-	header.Set("Authorization", "Bearer "+token)
-	conn, _, err := dialer.DialContext(ctx, wsURL, header)
+	// Feishu WS does not accept Authorization header; token is in the URL
+	conn, _, err := dialer.DialContext(ctx, wsURL, nil)
 	if err != nil {
 		return fmt.Errorf("ws dial: %w", err)
 	}
@@ -232,51 +231,75 @@ func (b *FeishuBot) runOnce(ctx context.Context) error {
 }
 
 func (b *FeishuBot) handleWsMessage(ctx context.Context, conn *websocket.Conn, raw []byte) {
-	var frame feishuWsFrame
-	if err := json.Unmarshal(raw, &frame); err != nil {
-		return
-	}
-	// type=0: ping/pong, type=1: data event
-	if frame.Type == 0 {
-		// pong back
-		conn.WriteMessage(websocket.TextMessage, raw)
-		return
-	}
-	if frame.Type != 1 || frame.Data == nil {
+	// Feishu WS uses protobuf-encoded frames (pbbp2.Frame), not JSON.
+	frame, err := parseFeishuFrame(raw)
+	if err != nil {
+		// Fallback: try legacy JSON format (should not happen with msg-frontier)
+		var jframe feishuWsFrame
+		if jerr := json.Unmarshal(raw, &jframe); jerr == nil && jframe.Type == 0 {
+			conn.WriteMessage(websocket.BinaryMessage, raw)
+		}
 		return
 	}
 
-	var ev feishuEvent
-	if err := json.Unmarshal(frame.Data, &ev); err != nil {
+	switch frame.Method {
+	case feishuFrameMethodPing:
+		// Respond with pong
+		pong := encodeFeishuPong(frame.SeqID)
+		conn.WriteMessage(websocket.BinaryMessage, pong)
 		return
-	}
 
-	// Dedup by event_id
-	if ev.Header.EventID != "" {
-		b.seenMu.Lock()
-		if _, seen := b.seenEvents[ev.Header.EventID]; seen {
-			b.seenMu.Unlock()
+	case feishuFrameMethodPong:
+		// Nothing to do
+		return
+
+	case feishuFrameMethodControl:
+		// Handshake / config update — log but ignore for now
+		log.Printf("[feishu] control frame: payload_type=%s", frame.PayloadType)
+		return
+
+	case feishuFrameMethodData:
+		// Event data — decode JSON payload
+		if len(frame.Payload) == 0 {
 			return
 		}
-		b.seenEvents[ev.Header.EventID] = time.Now()
-		// Prune old events (keep last 500)
-		if len(b.seenEvents) > 500 {
-			cutoff := time.Now().Add(-30 * time.Minute)
-			for k, t := range b.seenEvents {
-				if t.Before(cutoff) {
-					delete(b.seenEvents, k)
+		var ev feishuEvent
+		if err := json.Unmarshal(frame.Payload, &ev); err != nil {
+			log.Printf("[feishu] event json error: %v payload=%s", err, string(frame.Payload[:min(200, len(frame.Payload))]))
+			return
+		}
+		// Dedup by event_id
+		if ev.Header.EventID != "" {
+			b.seenMu.Lock()
+			if _, seen := b.seenEvents[ev.Header.EventID]; seen {
+				b.seenMu.Unlock()
+				return
+			}
+			b.seenEvents[ev.Header.EventID] = time.Now()
+			if len(b.seenEvents) > 500 {
+				cutoff := time.Now().Add(-30 * time.Minute)
+				for k, t := range b.seenEvents {
+					if t.Before(cutoff) {
+						delete(b.seenEvents, k)
+					}
 				}
 			}
+			b.seenMu.Unlock()
 		}
-		b.seenMu.Unlock()
+		if ev.Header.EventType == "im.message.receive_v1" {
+			var msgEvent feishuMessageEvent
+			if err := json.Unmarshal(ev.Event, &msgEvent); err == nil {
+				go b.handleMessageEvent(ctx, &msgEvent)
+			}
+		}
 	}
+}
 
-	if ev.Header.EventType == "im.message.receive_v1" {
-		var msgEvent feishuMessageEvent
-		if err := json.Unmarshal(ev.Event, &msgEvent); err == nil {
-			go b.handleMessageEvent(ctx, &msgEvent)
-		}
+func min(a, b int) int {
+	if a < b {
+		return a
 	}
+	return b
 }
 
 func (b *FeishuBot) handleMessageEvent(ctx context.Context, ev *feishuMessageEvent) {
@@ -476,13 +499,31 @@ func (b *FeishuBot) refreshToken() (string, error) {
 	return b.accessToken, nil
 }
 
-func (b *FeishuBot) getWsEndpoint(token string) (string, error) {
-	// Feishu long connection WS URL — built directly from appId and token.
-	// The SDK does NOT use an HTTP API to obtain the endpoint; it connects
-	// directly to wss://open.feishu.cn/event/v2/websocket with credentials
-	// embedded as query parameters.
-	base := strings.Replace(b.apiBase(), "https://", "wss://", 1)
-	return base + "/event/v2/websocket?app_id=" + b.appID + "&access_token=" + token, nil
+func (b *FeishuBot) getWsEndpoint(_ string) (string, error) {
+	// Feishu WS long connection: POST /callback/ws/endpoint with AppID + AppSecret
+	// This returns a wss://msg-frontier.feishu.cn/ws/v2?... URL.
+	// The SDK does NOT use app_access_token for this call.
+	reqBody, _ := json.Marshal(map[string]string{
+		"AppID":     b.appID,
+		"AppSecret": b.appSecret,
+	})
+	req, _ := http.NewRequest("POST", "https://"+b.domain+"/callback/ws/endpoint", bytes.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("locale", "zh")
+	resp, err := b.client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	var result feishuWsEndpointResp
+	if err := json.Unmarshal(body, &result); err != nil {
+		return "", fmt.Errorf("parse ws endpoint: %w", err)
+	}
+	if result.Code != 0 {
+		return "", fmt.Errorf("feishu ws endpoint error %d: %s", result.Code, result.Msg)
+	}
+	return result.Data.URL, nil
 }
 
 func (b *FeishuBot) fetchBotOpenID(token string) (string, error) {
