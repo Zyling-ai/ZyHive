@@ -123,6 +123,77 @@ func (r *Registry) WithFeishu(appID, appSecret string) {
 	}
 	fc := newFeishuClient(appID, appSecret)
 
+	// 0. feishu_send_rich_message — unified rich message sender with format guidance
+	r.register(lllm.ToolDef{
+		Name: "feishu_send_rich_message",
+		Description: `Send a rich Feishu message using the most appropriate native format.
+
+Choose msg_type based on content:
+- "text": plain text, supports @mention with <at user_id="open_id"></at>
+- "post": rich text with title, supports bold/link/at/image in structured content
+- "interactive": card with header/sections/buttons/columns (schema 1.0)
+  - header: {title:{tag:"plain_text",content:"Title"}, template:"blue|green|red|orange|grey|purple"}
+  - elements: div(text/fields), hr, action(buttons with url or callback), img, note
+  - div.text: {tag:"lark_md", content:"**bold** [link](url) <at id=open_id></at>"}
+  - div.fields: [{is_short:true, text:{tag:"lark_md",content:"**Label**\nvalue"}}, ...]
+  - action: [{tag:"button", text:{tag:"plain_text",content:"OK"}, type:"primary|default|danger", url:"...", value:{...}}]
+  - note: {elements:[{tag:"plain_text",content:"footer text"}]}
+- "image": single image (requires image_key from upload API, not available yet)
+
+For post format content structure:
+[[{tag:"text",text:"line1"},{tag:"a",text:"link",href:"url"},{tag:"at",user_id:"open_id"}]]
+Each inner array is a paragraph, elements are inline.`,
+		InputSchema: json.RawMessage(`{
+			"type":"object",
+			"properties":{
+				"receive_id":{"type":"string","description":"open_id of user or chat_id of group"},
+				"receive_id_type":{"type":"string","enum":["open_id","chat_id"],"description":"ID type"},
+				"msg_type":{"type":"string","enum":["text","post","interactive"],"description":"Message format type"},
+				"content":{"type":"object","description":"Message content object (structure depends on msg_type). For text: {\"text\":\"hello\"}. For post: {\"zh_cn\":{\"title\":\"Title\",\"content\":[[...]]}}. For interactive: card JSON (schema 1.0)."}
+			},
+			"required":["receive_id","receive_id_type","msg_type","content"]
+		}`),
+	}, func(ctx context.Context, input json.RawMessage) (string, error) {
+		var p struct {
+			ReceiveID     string          `json:"receive_id"`
+			ReceiveIDType string          `json:"receive_id_type"`
+			MsgType       string          `json:"msg_type"`
+			Content       json.RawMessage `json:"content"`
+		}
+		if err := json.Unmarshal(input, &p); err != nil {
+			return "", err
+		}
+		token, err := fc.getToken()
+		if err != nil {
+			return "", err
+		}
+		payload, _ := json.Marshal(map[string]interface{}{
+			"receive_id": p.ReceiveID,
+			"msg_type":   p.MsgType,
+			"content":    string(p.Content),
+		})
+		req, _ := http.NewRequest("POST",
+			"https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type="+p.ReceiveIDType,
+			bytes.NewReader(payload))
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := fc.hc.Do(req)
+		if err != nil {
+			return "", err
+		}
+		defer resp.Body.Close()
+		var result map[string]interface{}
+		_ = json.NewDecoder(resp.Body).Decode(&result)
+		if code, ok := result["code"].(float64); ok && code != 0 {
+			return "", fmt.Errorf("send message error %d: %s", int(code), result["msg"])
+		}
+		data, _ := result["data"].(map[string]interface{})
+		if msgID, ok := data["message_id"].(string); ok {
+			return fmt.Sprintf("消息已发送，message_id=%s", msgID), nil
+		}
+		return "消息已发送", nil
+	})
+
 	// 1. feishu_send_message
 	r.register(lllm.ToolDef{
 		Name:        "feishu_send_message",
