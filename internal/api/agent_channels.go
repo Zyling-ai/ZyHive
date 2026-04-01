@@ -418,6 +418,16 @@ func (h *agentChannelHandler) AllowPending(c *gin.Context) {
 		}
 		ps.Remove(userIDStr)
 
+		// Notify the user via Feishu that they have been approved
+		go func(appID, appSecret, openID string) {
+			if appID == "" || appSecret == "" || openID == "" {
+				return
+			}
+			if err := channel.SendFeishuApprovedNotice(appID, appSecret, openID); err != nil {
+				log.Printf("[api] feishu approved notice error: %v", err)
+			}
+		}(ch.Config["appId"], ch.Config["appSecret"], userIDStr)
+
 		c.JSON(http.StatusOK, gin.H{"ok": true, "allowedFrom": ch.Config["allowedFrom"]})
 		return
 	}
