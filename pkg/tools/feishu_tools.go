@@ -260,6 +260,69 @@ func (r *Registry) WithFeishu(appID, appSecret string) {
 		return fJSON(result["data"]), nil
 	})
 
+	// 4b. feishu_create_bitable_app (create a new Bitable)
+	r.register(lllm.ToolDef{
+		Name:        "feishu_create_bitable_app",
+		Description: "Create a new Feishu Bitable (multi-dimensional spreadsheet) app.",
+		InputSchema: json.RawMessage(`{
+			"type":"object",
+			"properties":{
+				"name":{"type":"string","description":"Name of the new Bitable"},
+				"folder_token":{"type":"string","description":"Folder token to create in (optional, defaults to root)"}
+			},
+			"required":["name"]
+		}`),
+	}, func(ctx context.Context, input json.RawMessage) (string, error) {
+		var p struct {
+			Name        string `json:"name"`
+			FolderToken string `json:"folder_token"`
+		}
+		if err := json.Unmarshal(input, &p); err != nil {
+			return "", err
+		}
+		result, err := fc.do("POST", "/bitable/v1/apps", map[string]string{
+			"name":         p.Name,
+			"folder_token": p.FolderToken,
+		})
+		if err != nil {
+			return "", err
+		}
+		return fJSON(result["data"]), nil
+	})
+
+	// 4c. feishu_create_bitable_table (create a new table in existing Bitable)
+	r.register(lllm.ToolDef{
+		Name:        "feishu_create_bitable_table",
+		Description: "Create a new table inside an existing Feishu Bitable app.",
+		InputSchema: json.RawMessage(`{
+			"type":"object",
+			"properties":{
+				"app_token":{"type":"string","description":"Bitable app token"},
+				"name":{"type":"string","description":"Table name"},
+				"fields":{"type":"array","description":"Initial fields definition (optional)","items":{"type":"object"}}
+			},
+			"required":["app_token","name"]
+		}`),
+	}, func(ctx context.Context, input json.RawMessage) (string, error) {
+		var p struct {
+			AppToken string                   `json:"app_token"`
+			Name     string                   `json:"name"`
+			Fields   []map[string]interface{} `json:"fields"`
+		}
+		if err := json.Unmarshal(input, &p); err != nil {
+			return "", err
+		}
+		body := map[string]interface{}{"table": map[string]interface{}{"name": p.Name}}
+		if len(p.Fields) > 0 {
+			body["table"].(map[string]interface{})["fields"] = p.Fields
+		}
+		result, err := fc.do("POST", fmt.Sprintf("/bitable/v1/apps/%s/tables", p.AppToken), body)
+		if err != nil {
+			return "", err
+		}
+		return fJSON(result["data"]), nil
+	})
+
 	// 5. feishu_get_user_info
 	r.register(lllm.ToolDef{
 		Name:        "feishu_get_user_info",
