@@ -14,6 +14,8 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -336,9 +338,10 @@ func (b *FeishuBot) handleMessageEvent(ctx context.Context, ev *feishuMessageEve
 	}
 	text := strings.TrimSpace(contentObj.Text)
 
-	// Group chat: only respond when @mentioned
+	// Group chat handling
 	isGroup := msg.ChatType == "group"
 	if isGroup {
+		// Check if this bot is @mentioned
 		mentioned := false
 		for _, m := range msg.Mentions {
 			if m.ID.OpenID == b.botOpenID {
@@ -346,14 +349,29 @@ func (b *FeishuBot) handleMessageEvent(ctx context.Context, ev *feishuMessageEve
 				break
 			}
 		}
-		if !mentioned {
-			return
+
+		if mentioned {
+			// Strip all @mention tokens from text
+			for _, m := range msg.Mentions {
+				text = strings.ReplaceAll(text, m.Key, "")
+			}
+			text = strings.TrimSpace(text)
+
+			// Handle bot commands first (e.g. /listen all, /status, /help)
+			// Commands are only triggered when @this bot — ensures multi-bot safety
+			if b.handleGroupCommand(msg.ChatID, text) {
+				return
+			}
+			// Not a command — fall through to normal LLM processing
+		} else {
+			// Not mentioned — check per-chat listenAll config
+			chatCfg := b.loadChatConfig(msg.ChatID)
+			if !chatCfg.ListenAll {
+				return // default: only respond when @mentioned
+			}
+			// listenAll mode: respond to all messages (no @mention needed)
+			// Don't strip mentions since we weren't mentioned
 		}
-		// Strip @mention keys from text (e.g. "@_user_1 ")
-		for _, m := range msg.Mentions {
-			text = strings.ReplaceAll(text, m.Key, "")
-		}
-		text = strings.TrimSpace(text)
 	}
 
 	if text == "" {
@@ -882,4 +900,66 @@ func (b *FeishuBot) patchCard(messageID, text string) error {
 	}
 	resp.Body.Close()
 	return nil
+}
+
+// ── Per-chat configuration ─────────────────────────────────────────────────
+// Stored in {agentDir}/feishu-chat-config/{chatID}.json
+
+type feishuChatConfig struct {
+	ListenAll bool `json:"listenAll"` // true = respond to all group messages; false = @mention only (default)
+}
+
+func (b *FeishuBot) chatConfigPath(chatID string) string {
+	dir := filepath.Join(b.agentDir, "feishu-chat-config")
+	_ = os.MkdirAll(dir, 0700)
+	return filepath.Join(dir, strings.ReplaceAll(chatID, "/", "_")+".json")
+}
+
+func (b *FeishuBot) loadChatConfig(chatID string) feishuChatConfig {
+	data, err := os.ReadFile(b.chatConfigPath(chatID))
+	if err != nil {
+		return feishuChatConfig{}
+	}
+	var cfg feishuChatConfig
+	_ = json.Unmarshal(data, &cfg)
+	return cfg
+}
+
+func (b *FeishuBot) saveChatConfig(chatID string, cfg feishuChatConfig) {
+	data, _ := json.Marshal(cfg)
+	_ = os.WriteFile(b.chatConfigPath(chatID), data, 0600)
+}
+
+// handleGroupCommand checks if the @mentioned text is a bot command and handles it.
+// Returns true if the text was a command (caller should not process it further).
+func (b *FeishuBot) handleGroupCommand(chatID, text string) bool {
+	cmd := strings.ToLower(strings.TrimSpace(text))
+
+	switch {
+	case cmd == "/listen all" || cmd == "/监听全部" || cmd == "/全部消息":
+		cfg := feishuChatConfig{ListenAll: true}
+		b.saveChatConfig(chatID, cfg)
+		_, _ = b.sendText(chatID, "✅ 已切换为**全部消息模式**：我将回复群里的所有消息。\n\n发送 `/listen mention` 可切换回仅响应 @ 模式。")
+		return true
+
+	case cmd == "/listen mention" || cmd == "/监听@" || cmd == "/仅@":
+		cfg := feishuChatConfig{ListenAll: false}
+		b.saveChatConfig(chatID, cfg)
+		_, _ = b.sendText(chatID, "✅ 已切换为 **@提及模式**：我只响应 @ 我的消息。\n\n发送 `/listen all` 可切换为响应全部消息。")
+		return true
+
+	case cmd == "/status" || cmd == "/状态":
+		chatCfg := b.loadChatConfig(chatID)
+		mode := "仅响应 @ 提及"
+		if chatCfg.ListenAll {
+			mode = "响应所有消息"
+		}
+		_, _ = b.sendText(chatID, fmt.Sprintf("ℹ️ 当前模式：**%s**\n\n可用命令：\n• `/listen all` — 响应全部消息\n• `/listen mention` — 仅响应 @\n• `/status` — 查看当前状态", mode))
+		return true
+
+	case cmd == "/help" || cmd == "/帮助":
+		_, _ = b.sendText(chatID, "📖 群聊命令（需 @ 我）：\n\n• `/listen all` — 响应群里所有消息\n• `/listen mention` — 仅响应 @ 我的消息（默认）\n• `/status` — 查看当前配置\n• `/help` — 显示帮助")
+		return true
+	}
+	return false
 }
