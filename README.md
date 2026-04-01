@@ -17,12 +17,7 @@
 
 ## 🚀 快速开始
 
-> 一条命令，自动识别平台（Windows / macOS / Linux 通用）
-
-**Windows（PowerShell）：**
-```powershell
-irm https://install.zyling.ai/install | iex
-```
+> 支持 macOS / Linux（x86_64 / ARM64）
 
 **macOS / Linux：**
 ```bash
@@ -48,9 +43,8 @@ curl -sSL https://install.zyling.ai/install | bash
 
 | URL | 说明 |
 |-----|------|
-| `https://install.zyling.ai/install` | **通用端点**，按 User-Agent 自动返回 `.sh` 或 `.ps1` |
+| `https://install.zyling.ai/install` | **通用端点**，返回 Linux/macOS bash 脚本 |
 | `https://install.zyling.ai/zyhive.sh` | Linux / macOS bash 脚本 |
-| `https://install.zyling.ai/zyhive.ps1` | Windows PowerShell 脚本 |
 | `https://install.zyling.ai/latest` | 最新版本号 JSON |
 | `https://install.zyling.ai/dl/{ver}/{file}` | 二进制下载代理（国内加速） |
 
@@ -211,7 +205,6 @@ zyhive/
 默认位置（一键安装后自动生成）：
 - Linux / macOS root：`/etc/zyhive/zyhive.json`
 - macOS 用户：`~/.config/zyhive/zyhive.json`
-- Windows：`C:\ProgramData\ZyHive\zyhive.json`
 
 ```json
 {
@@ -292,14 +285,14 @@ make release
 | v0.7 | 消息渠道下沉成员级别、per-agent 独立 Bot | ✅ |
 | v0.8 | SkillStudio 技能工作室、Web 多渠道隔离、历史对话系统 | ✅ |
 | v0.9.0 | 团队图谱交互、全局项目系统、成员管理增强 | ✅ |
-| v0.9.1–v0.9.11 | 后台任务系统、移动端响应式、Telegram 持久会话、CF 加速节点、Windows 完整支持 | ✅ |
+| v0.9.1–v0.9.11 | 后台任务系统、移动端响应式、Telegram 持久会话、CF 加速节点、稳定版 | ✅ |
 | v0.9.12–v0.9.17 | 三级记忆系统、多 Provider 支持、Config migration v1→v2、OpenAI-compat 工具修复 | ✅ |
 | v0.9.18–v0.9.23 | MiniMax / DeepSeek 修复、Provider API Key 管理 UI、Goals 目标规划（甘特图）、Cron 隔离会话 | ✅ |
 | v0.9.24 | 甘特图全面重构（7 级缩放、惯性拖拽、今日锚定、v-for key 重复修复）、memory_search 工具 | ✅ |
 | v0.9.25 | 浏览器自动化（go-rod，16 工具，ARIA 快照）、Cron 隔离 session、send_message 工具 | ✅ |
 | v0.9.26 | localStorage 版本检查缓存 bug 修复（semver 比较）| ✅ |
 | v0.9.27 | 58 个工具单元测试、agent_spawn 始终注册修复 | ✅ |
-| v0.10.x | Provider 测试修复、MiniMax POST 探测、Windows 安装脚本双修、新登录页 | ✅ |
+| v0.10.x | Provider 测试修复、MiniMax POST 探测、新登录页 | ✅ |
 | v0.10.15 | CLI 子命令（zyhive start / stop / restart / status / enable / disable / token） | ✅ |
 | v0.10.16–v0.10.20 | 全新聊天首页（ChatHomeView）、历史会话选择、成员下拉、Token 用量显示 | ✅ |
 | 26.3.17v1 | 版本号格式变更（年.月.日vN）；工具生态全面升级（web_search / image / process / cron_* / sessions_* / acp_*）；工具权限策略系统；内置心跳；ACP 编程代理 | ✅ |
