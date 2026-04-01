@@ -723,7 +723,7 @@ func (p *Pool) Run(ctx context.Context, agentID, message string) (string, error)
 // sessionID — if non-empty, history is loaded/saved under this key (enables per-chat persistent memory).
 // media is an optional list of downloaded files (images/PDFs) to pass to the LLM as base64 data URIs.
 // fileSender is optional; if non-nil, the agent's send_file tool is registered and can deliver files.
-func (p *Pool) RunStreamEvents(ctx context.Context, agentID, message, sessionID string, media []channel.MediaInput, fileSender channel.FileSenderFunc) (<-chan channel.StreamEvent, error) {
+func (p *Pool) RunStreamEvents(ctx context.Context, agentID, message, sessionID string, media []channel.MediaInput, fileSender channel.FileSenderFunc, extraSystemContext ...string) (<-chan channel.StreamEvent, error) {
 	ag, ok := p.manager.Get(agentID)
 	if !ok {
 		return nil, fmt.Errorf("agent %q not found", agentID)
@@ -784,6 +784,7 @@ func (p *Pool) RunStreamEvents(ctx context.Context, agentID, message, sessionID 
 		ProjectContext: p.buildProjectContext(ag.ID),
 		AgentEnv:       ag.Env,
 		UsageRecorder:  p.usageRecorder(),
+		ExtraContext:   strings.Join(extraSystemContext, "\n"),
 	})
 
 	raw := r.Run(ctx, message)
