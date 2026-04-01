@@ -4,6 +4,61 @@
 
 ---
 
+## [26.4.1v20] — 2026-04-01 · 飞书渠道全面接入
+
+### 新功能
+
+#### 飞书长连接（WebSocket）
+- 实现飞书 WS 长连接，基于 protobuf 帧解码（pbbp2.Frame）
+- 无需公网 Webhook，本地服务器直连飞书推送
+- 自动 token 刷新、断线重连
+
+#### 飞书流式回复（卡片模式）
+- 收到消息立即显示「⌛ 正在思考...」占位卡片（类 Telegram typing 效果）
+- 使用飞书 Interactive Card + PATCH 实现流式更新
+- 支持 Markdown 渲染（加粗、列表、表格、代码块）
+
+#### 飞书 7 大能力工具（配置渠道后自动注入）
+- `feishu_send_message` — 发送消息（文本/卡片）给用户或群组
+- `feishu_create_chat` — 创建群聊并邀请成员
+- `feishu_create_bitable_app` — 创建新多维表格应用
+- `feishu_create_bitable_table` — 在已有 Bitable 中创建表格
+- `feishu_list_bitable_records` — 读取多维表格记录
+- `feishu_create_bitable_record` — 新增多维表格记录
+- `feishu_get_user_info` — 查询用户信息
+- `feishu_create_calendar_event` — 创建日历日程
+- `feishu_create_task` — 创建任务
+
+#### 飞书群聊响应模式配置
+- 默认：仅响应 @提及
+- 支持 `@机器人 /listen all` 切换为响应全部消息
+- 支持 `@机器人 /listen mention` 切换回仅响应 @
+- 支持 `@机器人 /status` 查看当前模式
+- 每个群独立配置，持久化到磁盘
+- 多机器人共存：命令只有被 @ 的机器人处理
+
+#### 飞书配对授权体验优化
+- 未授权用户直接引导至管理面板授权链接
+- 管理员在面板一键批准，用户立即收到「✅ 授权成功」通知
+- 无需重启即可生效
+
+### 修复
+
+- **飞书会话持久化**：修复 feishu- 前缀 session 未写入索引导致对话列表不显示的问题
+- **用户信息感知**：AI 通过 ExtraContext 自动感知当前用户 open_id，无需手动告知
+- **群聊多人区分**：群聊消息加 `[发送者名字]:` 前缀，AI 能区分多人对话上下文
+- **事件去重持久化**：seenEvents 写入磁盘，重启后不再重复处理积压消息
+- **并发串行化**：同一聊天的消息串行处理，避免并发 LLM 调用互相覆盖
+
+### 技术细节
+
+- 飞书 WS 端点：`POST /callback/ws/endpoint`（AppID + AppSecret）→ 返回 `wss://msg-frontier.feishu.cn/ws/v2?...`
+- 帧格式：protobuf pbbp2.Frame（method: 1=data, 2=control, 3=ping, 4=pong）
+- 卡片 schema: `2.0`，元素类型 `markdown`，config `update_multi: true`
+- session ID 格式：`feishu-{chat_id}`（群/私聊统一前缀）
+- 工具注册：配置飞书渠道后 `configureToolRegistry` 自动调用 `WithFeishu(appID, appSecret)`
+
+
 ## [26.3.18v8] — 2026-03-18 · WorkspaceChatLayout + AgentDetailView 全站浅色主题
 
 ### 修复
