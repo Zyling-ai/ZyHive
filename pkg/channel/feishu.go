@@ -404,7 +404,10 @@ func (b *FeishuBot) handleMessageEvent(ctx context.Context, ev *feishuMessageEve
 	runCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 
-	events, err := b.streamFunc(runCtx, b.agentID, text, "", nil, nil)
+	// Use chatID as sessionID so conversations persist per Feishu chat
+	// Prefix with "feishu-" to namespace from other channel sessions
+	feishuSessionID := "feishu-" + msg.ChatID
+	events, err := b.streamFunc(runCtx, b.agentID, text, feishuSessionID, nil, nil)
 	if err != nil {
 		_, _ = b.sendText(msg.ChatID, "⚠️ 出错了："+err.Error())
 		return
