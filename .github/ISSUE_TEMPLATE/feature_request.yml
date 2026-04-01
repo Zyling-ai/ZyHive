@@ -1,0 +1,44 @@
+name: 💡 功能建议
+description: 有好点子？欢迎告诉我们
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢你的建议！请描述清楚你希望实现的功能。
+
+  - type: textarea
+    id: description
+    attributes:
+      label: 功能描述
+      description: 你希望添加什么功能？
+      placeholder: "例如：希望能给 Agent 设置自定义系统提示词模板，每次新建会话时自动套用"
+    validations:
+      required: true
+
+  - type: textarea
+    id: scenario
+    attributes:
+      label: 使用场景
+      description: 什么情况下会用到这个功能？
+      placeholder: "例如：我管理多个不同用途的 Agent，每次都要重新配置系统提示词，很麻烦"
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望效果
+      description: 这个功能应该怎么运作？
+      placeholder: "例如：在 Agent 设置里添加一个「默认系统提示词」字段，新建会话时自动填入"
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: 对你来说重要程度
+      options:
+        - 🔴 很重要，严重影响使用
+        - 🟡 一般，有了会更好
+        - 🟢 锦上添花
+    validations:
+      required: true

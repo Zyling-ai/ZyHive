@@ -1,0 +1,88 @@
+name: 🐛 Bug 报告
+description: 发现了问题？告诉我们
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢提交 Bug 报告！请尽量填写完整，方便我们快速复现和修复。
+
+  - type: input
+    id: version
+    attributes:
+      label: ZyHive 版本
+      placeholder: "例如：26.3.29v5（在面板设置→关于中查看）"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: 操作系统
+      options:
+        - Linux (Ubuntu)
+        - Linux (CentOS/RHEL)
+        - Linux (其他)
+        - macOS
+        - 其他
+    validations:
+      required: true
+
+  - type: input
+    id: browser
+    attributes:
+      label: 浏览器及版本
+      placeholder: "例如：Chrome 123 / Safari 17 / Firefox 124"
+
+  - type: textarea
+    id: description
+    attributes:
+      label: 问题描述
+      description: 简单描述发生了什么
+      placeholder: "例如：点击发送按钮后，消息发出去了但没有 AI 回复，页面卡住了"
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 一步一步描述如何触发这个问题
+      placeholder: |
+        1. 打开主界面
+        2. 选择某个 Agent
+        3. 输入消息并点击发送
+        4. 观察到...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 预期结果
+      placeholder: "应该发生什么"
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际结果
+      placeholder: "实际发生了什么"
+    validations:
+      required: true
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: 截图或录屏
+      description: 如果有截图可以直接拖拽到这里
+      placeholder: "（可选）"
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 相关日志
+      description: 如果有报错日志，请粘贴在这里
+      render: shell
+      placeholder: "（可选）systemctl status zyhive 或浏览器控制台报错"
