@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -910,6 +911,491 @@ Each inner array is a paragraph, elements are inline.`,
 		return fmt.Sprintf("消息已发送并置顶，message_id=%s", msgID), nil
 	})
 
+	// ── Bitable 补全 ──────────────────────────────────────────────────────
+
+	// feishu_bitable_get_meta — 从 URL 提取 app_token
+	r.register(lllm.ToolDef{
+		Name:        "feishu_bitable_get_meta",
+		Description: "从飞书 Bitable URL 中解析提取 app_token，支持 /base/XXX 和 /wiki/XXX 格式。",
+		InputSchema: json.RawMessage(`{
+			"type":"object",
+			"properties":{
+				"url":{"type":"string","description":"飞书 Bitable 页面 URL"}
+			},
+			"required":["url"]
+		}`),
+	}, func(ctx context.Context, input json.RawMessage) (string, error) {
+		var p struct{ URL string `json:"url"` }
+		if err := json.Unmarshal(input, &p); err != nil {
+			return "", err
+		}
+		re := regexp.MustCompile(`/(?:base|wiki)/([A-Za-z0-9]+)`)
+		m := re.FindStringSubmatch(p.URL)
+		if m == nil {
+			return "", fmt.Errorf("无法从 URL 中提取 app_token: %s", p.URL)
+		}
+		return fJSON(map[string]string{"app_token": m[1], "url": p.URL}), nil
+	})
+
+	// feishu_bitable_list_fields — 列出表格字段
+	r.register(lllm.ToolDef{
+		Name:        "feishu_bitable_list_fields",
+		Description: "列出 Feishu Bitable 表格的所有字段定义。",
+		InputSchema: json.RawMessage(`{
+			"type":"object",
+			"properties":{
+				"app_token":{"type":"string","description":"Bitable app token"},
+				"table_id":{"type":"string","description":"表格 ID"}
+			},
+			"required":["app_token","table_id"]
+		}`),
+	}, func(ctx context.Context, input json.RawMessage) (string, error) {
+		var p struct {
+			AppToken string `json:"app_token"`
+			TableID  string `json:"table_id"`
+		}
+		if err := json.Unmarshal(input, &p); err != nil {
+			return "", err
+		}
+		path := fmt.Sprintf("/bitable/v1/apps/%s/tables/%s/fields", p.AppToken, p.TableID)
+		result, err := fc.do("GET", path, nil)
+		if err != nil {
+			return "", err
+		}
+		return fJSON(result["data"]), nil
+	})
+
+	// feishu_bitable_get_record — 获取单条记录
+	r.register(lllm.ToolDef{
+		Name:        "feishu_bitable_get_record",
+		Description: "获取 Feishu Bitable 表格中的单条记录。",
+		InputSchema: json.RawMessage(`{
+			"type":"object",
+			"properties":{
+				"app_token":{"type":"string","description":"Bitable app token"},
+				"table_id":{"type":"string","description":"表格 ID"},
+				"record_id":{"type":"string","description":"记录 ID"}
+			},
+			"required":["app_token","table_id","record_id"]
+		}`),
+	}, func(ctx context.Context, input json.RawMessage) (string, error) {
+		var p struct {
+			AppToken string `json:"app_token"`
+			TableID  string `json:"table_id"`
+			RecordID string `json:"record_id"`
+		}
+		if err := json.Unmarshal(input, &p); err != nil {
+			return "", err
+		}
+		path := fmt.Sprintf("/bitable/v1/apps/%s/tables/%s/records/%s", p.AppToken, p.TableID, p.RecordID)
+		result, err := fc.do("GET", path, nil)
+		if err != nil {
+			return "", err
+		}
+		return fJSON(result["data"]), nil
+	})
+
+	// feishu_bitable_update_record — 更新单条记录
+	r.register(lllm.ToolDef{
+		Name:        "feishu_bitable_update_record",
+		Description: "更新 Feishu Bitable 表格中的单条记录字段。",
+		InputSchema: json.RawMessage(`{
+			"type":"object",
+			"properties":{
+				"app_token":{"type":"string","description":"Bitable app token"},
+				"table_id":{"type":"string","description":"表格 ID"},
+				"record_id":{"type":"string","description":"记录 ID"},
+				"fields":{"type":"object","description":"要更新的字段键值对，例如 {\"状态\":\"已完成\"}"}
+			},
+			"required":["app_token","table_id","record_id","fields"]
+		}`),
+	}, func(ctx context.Context, input json.RawMessage) (string, error) {
+		var p struct {
+			AppToken string                 `json:"app_token"`
+			TableID  string                 `json:"table_id"`
+			RecordID string                 `json:"record_id"`
+			Fields   map[string]interface{} `json:"fields"`
+		}
+		if err := json.Unmarshal(input, &p); err != nil {
+			return "", err
+		}
+		path := fmt.Sprintf("/bitable/v1/apps/%s/tables/%s/records/%s", p.AppToken, p.TableID, p.RecordID)
+		result, err := fc.do("PUT", path, map[string]interface{}{"fields": p.Fields})
+		if err != nil {
+			return "", err
+		}
+		return fJSON(result["data"]), nil
+	})
+
+	// feishu_bitable_delete_record — 删除单条记录
+	r.register(lllm.ToolDef{
+		Name:        "feishu_bitable_delete_record",
+		Description: "删除 Feishu Bitable 表格中的单条记录。",
+		InputSchema: json.RawMessage(`{
+			"type":"object",
+			"properties":{
+				"app_token":{"type":"string","description":"Bitable app token"},
+				"table_id":{"type":"string","description":"表格 ID"},
+				"record_id":{"type":"string","description":"记录 ID"}
+			},
+			"required":["app_token","table_id","record_id"]
+		}`),
+	}, func(ctx context.Context, input json.RawMessage) (string, error) {
+		var p struct {
+			AppToken string `json:"app_token"`
+			TableID  string `json:"table_id"`
+			RecordID string `json:"record_id"`
+		}
+		if err := json.Unmarshal(input, &p); err != nil {
+			return "", err
+		}
+		token, err := fc.getToken()
+		if err != nil {
+			return "", err
+		}
+		url := fmt.Sprintf("https://open.feishu.cn/open-apis/bitable/v1/apps/%s/tables/%s/records/%s",
+			p.AppToken, p.TableID, p.RecordID)
+		req, _ := http.NewRequest("DELETE", url, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp, err := fc.hc.Do(req)
+		if err != nil {
+			return "", err
+		}
+		defer resp.Body.Close()
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 16*1024))
+		var result map[string]interface{}
+		_ = json.Unmarshal(raw, &result)
+		if code, ok := result["code"].(float64); ok && code != 0 {
+			msg, _ := result["msg"].(string)
+			return "", fmt.Errorf("feishu error %d: %s", int(code), msg)
+		}
+		return fmt.Sprintf(`{"deleted":true,"record_id":%q}`, p.RecordID), nil
+	})
+
+	// feishu_bitable_create_field — 创建表格字段
+	r.register(lllm.ToolDef{
+		Name:        "feishu_bitable_create_field",
+		Description: "在 Feishu Bitable 表格中创建新字段。",
+		InputSchema: json.RawMessage(`{
+			"type":"object",
+			"properties":{
+				"app_token":{"type":"string","description":"Bitable app token"},
+				"table_id":{"type":"string","description":"表格 ID"},
+				"field_name":{"type":"string","description":"字段名称"},
+				"field_type":{"type":"integer","description":"字段类型（默认 1=文本，2=数字，3=单选，4=多选，5=日期，7=复选框，11=人员，15=超链接，17=附件，18=关联，20=公式，21=双向关联，22=地理位置，23=群，1001=创建时间，1002=最后更新时间，1003=创建人，1004=修改人，1005=自动编号）","default":1}
+			},
+			"required":["app_token","table_id","field_name"]
+		}`),
+	}, func(ctx context.Context, input json.RawMessage) (string, error) {
+		var p struct {
+			AppToken  string `json:"app_token"`
+			TableID   string `json:"table_id"`
+			FieldName string `json:"field_name"`
+			FieldType int    `json:"field_type"`
+		}
+		if err := json.Unmarshal(input, &p); err != nil {
+			return "", err
+		}
+		if p.FieldType == 0 {
+			p.FieldType = 1
+		}
+		path := fmt.Sprintf("/bitable/v1/apps/%s/tables/%s/fields", p.AppToken, p.TableID)
+		result, err := fc.do("POST", path, map[string]interface{}{
+			"field_name": p.FieldName,
+			"type":       p.FieldType,
+		})
+		if err != nil {
+			return "", err
+		}
+		return fJSON(result["data"]), nil
+	})
+
+	// ── 云文档 feishu_doc（多 action） ─────────────────────────────────────
+
+	r.register(lllm.ToolDef{
+		Name: "feishu_doc",
+		Description: `飞书云文档操作，支持 action: read/write/create/list_blocks。
+- read: 读取文档纯文本内容，需要 doc_token
+- create: 创建新文档，需要 title，可选 folder_token
+- list_blocks: 列出文档所有块，需要 doc_token
+- write: 向文档末尾追加文本块，需要 doc_token 和 content`,
+		InputSchema: json.RawMessage(`{
+			"type":"object",
+			"properties":{
+				"action":{"type":"string","enum":["read","write","create","list_blocks"],"description":"操作类型"},
+				"doc_token":{"type":"string","description":"文档 token（create 外必填）"},
+				"content":{"type":"string","description":"追加的文本内容（write 用）"},
+				"title":{"type":"string","description":"文档标题（create 用）"},
+				"folder_token":{"type":"string","description":"目标文件夹 token（create 可选）"}
+			},
+			"required":["action"]
+		}`),
+	}, func(ctx context.Context, input json.RawMessage) (string, error) {
+		var p struct {
+			Action      string `json:"action"`
+			DocToken    string `json:"doc_token"`
+			Content     string `json:"content"`
+			Title       string `json:"title"`
+			FolderToken string `json:"folder_token"`
+		}
+		if err := json.Unmarshal(input, &p); err != nil {
+			return "", err
+		}
+		switch p.Action {
+		case "read":
+			if p.DocToken == "" {
+				return "", fmt.Errorf("doc_token 必填")
+			}
+			result, err := fc.do("GET", fmt.Sprintf("/docx/v1/documents/%s/raw_content", p.DocToken), nil)
+			if err != nil {
+				return "", err
+			}
+			return fJSON(result["data"]), nil
+
+		case "create":
+			if p.Title == "" {
+				return "", fmt.Errorf("title 必填")
+			}
+			body := map[string]string{"title": p.Title}
+			if p.FolderToken != "" {
+				body["folder_token"] = p.FolderToken
+			}
+			result, err := fc.do("POST", "/docx/v1/documents", body)
+			if err != nil {
+				return "", err
+			}
+			return fJSON(result["data"]), nil
+
+		case "list_blocks":
+			if p.DocToken == "" {
+				return "", fmt.Errorf("doc_token 必填")
+			}
+			result, err := fc.do("GET", fmt.Sprintf("/docx/v1/documents/%s/blocks", p.DocToken), nil)
+			if err != nil {
+				return "", err
+			}
+			return fJSON(result["data"]), nil
+
+		case "write":
+			if p.DocToken == "" {
+				return "", fmt.Errorf("doc_token 必填")
+			}
+			if p.Content == "" {
+				return "", fmt.Errorf("content 必填")
+			}
+			// 先获取 document_block_id
+			docResult, err := fc.do("GET", fmt.Sprintf("/docx/v1/documents/%s", p.DocToken), nil)
+			if err != nil {
+				return "", err
+			}
+			blockID := ""
+			if data, ok := docResult["data"].(map[string]interface{}); ok {
+				if doc, ok := data["document"].(map[string]interface{}); ok {
+					blockID, _ = doc["document_block_id"].(string)
+				}
+			}
+			if blockID == "" {
+				return "", fmt.Errorf("无法获取 document_block_id")
+			}
+			// 插入文本 block
+			textBlock := map[string]interface{}{
+				"block_type": 2, // paragraph
+				"paragraph": map[string]interface{}{
+					"elements": []interface{}{
+						map[string]interface{}{
+							"type": "text_run",
+							"text_run": map[string]interface{}{
+								"content": p.Content,
+							},
+						},
+					},
+				},
+			}
+			result, err := fc.do("POST",
+				fmt.Sprintf("/docx/v1/documents/%s/blocks/%s/children", p.DocToken, blockID),
+				map[string]interface{}{"children": []interface{}{textBlock}})
+			if err != nil {
+				return "", err
+			}
+			return fJSON(result["data"]), nil
+
+		default:
+			return "", fmt.Errorf("不支持的 action: %s，可选: read/write/create/list_blocks", p.Action)
+		}
+	})
+
+	// ── 云盘 feishu_drive（多 action） ────────────────────────────────────
+
+	r.register(lllm.ToolDef{
+		Name: "feishu_drive",
+		Description: `飞书云盘操作，支持 action: list/info/create_folder。
+- list: 列出文件夹内文件，folder_token 为空时列出根目录
+- info: 获取单个文件信息，需要 file_token
+- create_folder: 创建文件夹，需要 name，可选 folder_token`,
+		InputSchema: json.RawMessage(`{
+			"type":"object",
+			"properties":{
+				"action":{"type":"string","enum":["list","info","create_folder"],"description":"操作类型"},
+				"folder_token":{"type":"string","description":"文件夹 token（list/create_folder 用，为空则用根目录）"},
+				"file_token":{"type":"string","description":"文件 token（info 用）"},
+				"name":{"type":"string","description":"文件夹名称（create_folder 用）"}
+			},
+			"required":["action"]
+		}`),
+	}, func(ctx context.Context, input json.RawMessage) (string, error) {
+		var p struct {
+			Action      string `json:"action"`
+			FolderToken string `json:"folder_token"`
+			FileToken   string `json:"file_token"`
+			Name        string `json:"name"`
+		}
+		if err := json.Unmarshal(input, &p); err != nil {
+			return "", err
+		}
+		switch p.Action {
+		case "list":
+			path := "/drive/v1/files"
+			if p.FolderToken != "" {
+				path += "?folder_token=" + p.FolderToken
+			}
+			result, err := fc.do("GET", path, nil)
+			if err != nil {
+				return "", err
+			}
+			return fJSON(result["data"]), nil
+
+		case "info":
+			if p.FileToken == "" {
+				return "", fmt.Errorf("file_token 必填")
+			}
+			result, err := fc.do("GET", fmt.Sprintf("/drive/v1/files/%s", p.FileToken), nil)
+			if err != nil {
+				return "", err
+			}
+			return fJSON(result["data"]), nil
+
+		case "create_folder":
+			if p.Name == "" {
+				return "", fmt.Errorf("name 必填")
+			}
+			body := map[string]string{"name": p.Name}
+			if p.FolderToken != "" {
+				body["folder_token"] = p.FolderToken
+			}
+			result, err := fc.do("POST", "/drive/v1/files/create_folder", body)
+			if err != nil {
+				return "", err
+			}
+			return fJSON(result["data"]), nil
+
+		default:
+			return "", fmt.Errorf("不支持的 action: %s，可选: list/info/create_folder", p.Action)
+		}
+	})
+
+	// ── 知识库 feishu_wiki（多 action） ───────────────────────────────────
+
+	r.register(lllm.ToolDef{
+		Name: "feishu_wiki",
+		Description: `飞书知识库操作，支持 action: spaces/nodes/get。
+- spaces: 列出所有知识空间
+- nodes: 列出指定知识空间的节点，需要 space_id
+- get: 获取指定节点信息，需要 node_token`,
+		InputSchema: json.RawMessage(`{
+			"type":"object",
+			"properties":{
+				"action":{"type":"string","enum":["spaces","nodes","get"],"description":"操作类型"},
+				"space_id":{"type":"string","description":"知识空间 ID（nodes 用）"},
+				"node_token":{"type":"string","description":"节点 token（get 用）"}
+			},
+			"required":["action"]
+		}`),
+	}, func(ctx context.Context, input json.RawMessage) (string, error) {
+		var p struct {
+			Action    string `json:"action"`
+			SpaceID   string `json:"space_id"`
+			NodeToken string `json:"node_token"`
+		}
+		if err := json.Unmarshal(input, &p); err != nil {
+			return "", err
+		}
+		switch p.Action {
+		case "spaces":
+			result, err := fc.do("GET", "/wiki/v2/spaces", nil)
+			if err != nil {
+				return "", err
+			}
+			return fJSON(result["data"]), nil
+
+		case "nodes":
+			if p.SpaceID == "" {
+				return "", fmt.Errorf("space_id 必填")
+			}
+			result, err := fc.do("GET", fmt.Sprintf("/wiki/v2/spaces/%s/nodes", p.SpaceID), nil)
+			if err != nil {
+				return "", err
+			}
+			return fJSON(result["data"]), nil
+
+		case "get":
+			if p.NodeToken == "" {
+				return "", fmt.Errorf("node_token 必填")
+			}
+			result, err := fc.do("GET", fmt.Sprintf("/wiki/v2/spaces/get_node?token=%s", p.NodeToken), nil)
+			if err != nil {
+				return "", err
+			}
+			return fJSON(result["data"]), nil
+
+		default:
+			return "", fmt.Errorf("不支持的 action: %s，可选: spaces/nodes/get", p.Action)
+		}
+	})
+
+	// ── feishu_app_scopes — 验证应用权限 ──────────────────────────────────
+
+	r.register(lllm.ToolDef{
+		Name:        "feishu_app_scopes",
+		Description: "验证飞书应用 token 权限，返回 token 过期时间（expire > 0 表示权限正常）。",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
+	}, func(ctx context.Context, input json.RawMessage) (string, error) {
+		type tokenResp struct {
+			Code           int    `json:"code"`
+			Msg            string `json:"msg"`
+			AppAccessToken string `json:"app_access_token"`
+			Expire         int    `json:"expire"`
+		}
+		body, _ := json.Marshal(map[string]string{
+			"app_id":     fc.appID,
+			"app_secret": fc.appSecret,
+		})
+		resp, err := fc.hc.Post(
+			"https://open.feishu.cn/open-apis/auth/v3/app_access_token/internal",
+			"application/json", bytes.NewReader(body))
+		if err != nil {
+			return "", err
+		}
+		defer resp.Body.Close()
+		var tr tokenResp
+		if err := json.NewDecoder(resp.Body).Decode(&tr); err != nil {
+			return "", err
+		}
+		if tr.Code != 0 {
+			return "", fmt.Errorf("权限验证失败 code=%d: %s", tr.Code, tr.Msg)
+		}
+		return fJSON(map[string]interface{}{
+			"status": "ok",
+			"expire": tr.Expire,
+			"token_preview": func() string {
+				if len(tr.AppAccessToken) > 8 {
+					return tr.AppAccessToken[:8] + "..."
+				}
+				return tr.AppAccessToken
+			}(),
+		}), nil
+	})
+
 	// suppress unused import warning
 	_ = strings.TrimSpace
+	_ = regexp.MustCompile
 }
