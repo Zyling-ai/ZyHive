@@ -1183,41 +1183,45 @@ Each inner array is a paragraph, elements are inline.`,
 			if p.Content == "" {
 				return "", fmt.Errorf("content 必填")
 			}
-			// The root block ID equals the document_id itself (confirmed by API)
-			blockID := p.DocToken
-			// Use batch_update to insert paragraph blocks (children API requires user token)
-			result, err := fc.do("POST",
-				fmt.Sprintf("/docx/v1/documents/%s/blocks/batch_update", p.DocToken),
-				map[string]interface{}{
-					"requests": []interface{}{
-						map[string]interface{}{
-							"insert_blocks": map[string]interface{}{
-								"block_id": blockID,
-								"index":    1,
-								"blocks": []interface{}{
-									map[string]interface{}{
-										"block_type": 2,
-										"paragraph": map[string]interface{}{
-											"elements": []interface{}{
-												map[string]interface{}{
-													"text_run": map[string]interface{}{
-														"content": p.Content,
-													},
-												},
-											},
-											"style": map[string]interface{}{"align": 1},
-										},
-									},
-								},
-							},
-						},
-					},
-					"revision_id": -1,
-				})
+			// Step 1: Convert Markdown to Feishu block format
+			convertResult, err := fc.do("POST", "/docx/v1/documents/blocks/convert",
+				map[string]string{"content_type": "markdown", "content": p.Content})
+			if err != nil {
+				return "", fmt.Errorf("Markdown 转换失败: %w", err)
+			}
+			data, _ := convertResult["data"].(map[string]interface{})
+			blocks, _ := data["blocks"].([]interface{})
+			firstIDs, _ := data["first_level_block_ids"].([]interface{})
+			if len(blocks) == 0 {
+				return "", fmt.Errorf("内容为空，无法写入")
+			}
+			// Step 2: Filter to first-level blocks only
+			var insertBlocks []interface{}
+			if len(firstIDs) > 0 {
+				firstIDSet := make(map[string]bool)
+				for _, id := range firstIDs {
+					firstIDSet[fmt.Sprintf("%v", id)] = true
+				}
+				for _, b := range blocks {
+					bm, ok := b.(map[string]interface{})
+					if !ok { continue }
+					if firstIDSet[fmt.Sprintf("%v", bm["block_id"])] {
+						insertBlocks = append(insertBlocks, b)
+					}
+				}
+			}
+			if len(insertBlocks) == 0 {
+				insertBlocks = blocks
+			}
+			// Step 3: Insert into document
+			insertResult, err := fc.do("POST",
+				fmt.Sprintf("/docx/v1/documents/%s/blocks/%s/children", p.DocToken, p.DocToken),
+				map[string]interface{}{"children": insertBlocks})
 			if err != nil {
 				return "", err
 			}
-			return fJSON(result["data"]), nil
+			_ = insertResult
+			return fmt.Sprintf("写入成功，插入了 %d 个内容块", len(insertBlocks)), nil
 
 		default:
 			return "", fmt.Errorf("不支持的 action: %s，可选: read/write/create/list_blocks", p.Action)
