@@ -813,6 +813,103 @@ Each inner array is a paragraph, elements are inline.`,
 		return fJSON(result["data"]), nil
 	})
 
+	// feishu_pin_message — pin a message in a chat
+	r.register(lllm.ToolDef{
+		Name:        "feishu_pin_message",
+		Description: "Pin (置顶) a message in a Feishu chat. The message will be shown at the top of the chat.",
+		InputSchema: json.RawMessage(`{
+			"type":"object",
+			"properties":{
+				"message_id":{"type":"string","description":"Message ID to pin (starts with om_)"}
+			},
+			"required":["message_id"]
+		}`),
+	}, func(ctx context.Context, input json.RawMessage) (string, error) {
+		var p struct{ MessageID string `json:"message_id"` }
+		if err := json.Unmarshal(input, &p); err != nil { return "", err }
+		result, err := fc.do("POST", "/im/v1/pins", map[string]string{"message_id": p.MessageID})
+		if err != nil { return "", err }
+		return fJSON(result["data"]), nil
+	})
+
+	// feishu_unpin_message — unpin a message
+	r.register(lllm.ToolDef{
+		Name:        "feishu_unpin_message",
+		Description: "Unpin (取消置顶) a previously pinned message.",
+		InputSchema: json.RawMessage(`{
+			"type":"object",
+			"properties":{
+				"message_id":{"type":"string","description":"Message ID to unpin"}
+			},
+			"required":["message_id"]
+		}`),
+	}, func(ctx context.Context, input json.RawMessage) (string, error) {
+		var p struct{ MessageID string `json:"message_id"` }
+		if err := json.Unmarshal(input, &p); err != nil { return "", err }
+		token, err := fc.getToken()
+		if err != nil { return "", err }
+		req, _ := http.NewRequest("DELETE",
+			"https://open.feishu.cn/open-apis/im/v1/pins/"+p.MessageID, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp, err := fc.hc.Do(req)
+		if err != nil { return "", err }
+		defer resp.Body.Close()
+		return "已取消置顶", nil
+	})
+
+	// feishu_list_pins — list pinned messages in a chat
+	r.register(lllm.ToolDef{
+		Name:        "feishu_list_pins",
+		Description: "List all pinned messages in a Feishu chat.",
+		InputSchema: json.RawMessage(`{
+			"type":"object",
+			"properties":{
+				"chat_id":{"type":"string","description":"Group chat ID"}
+			},
+			"required":["chat_id"]
+		}`),
+	}, func(ctx context.Context, input json.RawMessage) (string, error) {
+		var p struct{ ChatID string `json:"chat_id"` }
+		if err := json.Unmarshal(input, &p); err != nil { return "", err }
+		result, err := fc.do("GET", fmt.Sprintf("/im/v1/pins?chat_id=%s", p.ChatID), nil)
+		if err != nil { return "", err }
+		return fJSON(result["data"]), nil
+	})
+
+	// feishu_send_and_pin — send a message and immediately pin it
+	r.register(lllm.ToolDef{
+		Name:        "feishu_send_and_pin",
+		Description: "Send a text message to a chat and immediately pin it. Useful for announcements.",
+		InputSchema: json.RawMessage(`{
+			"type":"object",
+			"properties":{
+				"chat_id":{"type":"string","description":"Group chat ID"},
+				"text":{"type":"string","description":"Message text content"}
+			},
+			"required":["chat_id","text"]
+		}`),
+	}, func(ctx context.Context, input json.RawMessage) (string, error) {
+		var p struct {
+			ChatID string `json:"chat_id"`
+			Text   string `json:"text"`
+		}
+		if err := json.Unmarshal(input, &p); err != nil { return "", err }
+		// Send message
+		content, _ := json.Marshal(map[string]string{"text": p.Text})
+		sendResult, err := fc.do("POST", "/im/v1/messages?receive_id_type=chat_id",
+			map[string]string{"receive_id": p.ChatID, "msg_type": "text", "content": string(content)})
+		if err != nil { return "", err }
+		msgID := ""
+		if data, ok := sendResult["data"].(map[string]interface{}); ok {
+			msgID, _ = data["message_id"].(string)
+		}
+		if msgID == "" { return "消息已发送（置顶失败：无法获取消息ID）", nil }
+		// Pin it
+		_, err = fc.do("POST", "/im/v1/pins", map[string]string{"message_id": msgID})
+		if err != nil { return fmt.Sprintf("消息已发送（message_id=%s），但置顶失败: %v", msgID, err), nil }
+		return fmt.Sprintf("消息已发送并置顶，message_id=%s", msgID), nil
+	})
+
 	// suppress unused import warning
 	_ = strings.TrimSpace
 }
