@@ -316,3 +316,42 @@ func appendStringField(b []byte, fieldNum uint64, s string) []byte {
 
 // suppress unused import
 var _ = binary.LittleEndian
+
+// encodeFeishuAck encodes an ACK response frame for a received data frame.
+// Feishu requires the server to echo back the same frame with:
+// - method = feishuFrameMethodData (1)
+// - headers: original headers + {key:"biz_rt", value:"<processing_time_ms>"}
+// - payload: JSON {"code":200} (or {"code":500} on error)
+// Without this ACK, Feishu will retry the event on every reconnect.
+func encodeFeishuAck(received *feishuFrame, responseJSON string) []byte {
+	var b []byte
+
+	// SeqID (field 1)
+	b = appendVarintField(b, 1, received.SeqID)
+
+	// Service (field 3) — echo original
+	if received.Service != 0 {
+		b = appendVarintField(b, 3, uint64(received.Service))
+	}
+
+	// Method (field 4) = 1 (data)
+	b = appendVarintField(b, 4, feishuFrameMethodData)
+
+	// Headers (field 5) — echo all original headers, add biz_rt
+	for _, h := range received.Headers {
+		b = appendHeaderField(b, 5, h.Key, h.Value)
+	}
+	// biz_rt header indicates processing time (use 0 for simplicity)
+	b = appendHeaderField(b, 5, "biz_rt", "0")
+
+	// PayloadType (field 7)
+	b = appendStringField(b, 7, "response")
+
+	// Payload (field 8) — response JSON
+	respBytes := []byte(responseJSON)
+	b = appendVarint(b, (8<<3)|2) // field 8, wire type 2
+	b = appendVarint(b, uint64(len(respBytes)))
+	b = append(b, respBytes...)
+
+	return b
+}
