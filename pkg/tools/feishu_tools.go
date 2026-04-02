@@ -1183,37 +1183,37 @@ Each inner array is a paragraph, elements are inline.`,
 			if p.Content == "" {
 				return "", fmt.Errorf("content 必填")
 			}
-			// 先获取 document_block_id
-			docResult, err := fc.do("GET", fmt.Sprintf("/docx/v1/documents/%s", p.DocToken), nil)
-			if err != nil {
-				return "", err
-			}
-			blockID := ""
-			if data, ok := docResult["data"].(map[string]interface{}); ok {
-				if doc, ok := data["document"].(map[string]interface{}); ok {
-					blockID, _ = doc["document_block_id"].(string)
-				}
-			}
-			if blockID == "" {
-				return "", fmt.Errorf("无法获取 document_block_id")
-			}
-			// 插入文本 block
-			textBlock := map[string]interface{}{
-				"block_type": 2, // paragraph
-				"paragraph": map[string]interface{}{
-					"elements": []interface{}{
+			// The root block ID equals the document_id itself (confirmed by API)
+			blockID := p.DocToken
+			// Use batch_update to insert paragraph blocks (children API requires user token)
+			result, err := fc.do("POST",
+				fmt.Sprintf("/docx/v1/documents/%s/blocks/batch_update", p.DocToken),
+				map[string]interface{}{
+					"requests": []interface{}{
 						map[string]interface{}{
-							"type": "text_run",
-							"text_run": map[string]interface{}{
-								"content": p.Content,
+							"insert_blocks": map[string]interface{}{
+								"block_id": blockID,
+								"index":    1,
+								"blocks": []interface{}{
+									map[string]interface{}{
+										"block_type": 2,
+										"paragraph": map[string]interface{}{
+											"elements": []interface{}{
+												map[string]interface{}{
+													"text_run": map[string]interface{}{
+														"content": p.Content,
+													},
+												},
+											},
+											"style": map[string]interface{}{"align": 1},
+										},
+									},
+								},
 							},
 						},
 					},
-				},
-			}
-			result, err := fc.do("POST",
-				fmt.Sprintf("/docx/v1/documents/%s/blocks/%s/children", p.DocToken, blockID),
-				map[string]interface{}{"children": []interface{}{textBlock}})
+					"revision_id": -1,
+				})
 			if err != nil {
 				return "", err
 			}
