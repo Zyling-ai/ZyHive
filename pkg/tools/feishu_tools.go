@@ -667,26 +667,45 @@ Each inner array is a paragraph, elements are inline.`,
 	// feishu_list_users — list enterprise users from contact directory
 	r.register(lllm.ToolDef{
 		Name:        "feishu_list_users",
-		Description: "List users from the Feishu enterprise contact directory.",
+		Description: "List users from the Feishu enterprise contact directory. IMPORTANT: Must provide department_id. Use '0' for root department (lists all users). Use feishu_list_departments to get department IDs first.",
 		InputSchema: json.RawMessage(`{
 			"type":"object",
 			"properties":{
-				"page_size":{"type":"integer","description":"Max users to return (default 20, max 50)"},
-				"department_id":{"type":"string","description":"Filter by department ID (optional)"}
-			}
+				"department_id":{"type":"string","description":"Department ID to list users from. Use '0' for root (all users). Required."},
+				"page_size":{"type":"integer","description":"Max users to return (default 50, max 50)"}
+			},
+			"required":["department_id"]
 		}`),
 	}, func(ctx context.Context, input json.RawMessage) (string, error) {
 		var p struct {
-			PageSize     int    `json:"page_size"`
 			DepartmentID string `json:"department_id"`
+			PageSize     int    `json:"page_size"`
 		}
 		if err := json.Unmarshal(input, &p); err != nil { return "", err }
+		if p.DepartmentID == "" { p.DepartmentID = "0" }
 		ps := p.PageSize
-		if ps <= 0 || ps > 50 { ps = 20 }
-		path := fmt.Sprintf("/contact/v3/users?user_id_type=open_id&page_size=%d", ps)
-		if p.DepartmentID != "" {
-			path += "&department_id=" + p.DepartmentID
-		}
+		if ps <= 0 || ps > 50 { ps = 50 }
+		path := fmt.Sprintf("/contact/v3/users?user_id_type=open_id&department_id=%s&page_size=%d", p.DepartmentID, ps)
+		result, err := fc.do("GET", path, nil)
+		if err != nil { return "", err }
+		return fJSON(result["data"]), nil
+	})
+
+	// feishu_list_departments — list departments
+	r.register(lllm.ToolDef{
+		Name:        "feishu_list_departments",
+		Description: "List departments in the Feishu enterprise. Use department_id='0' for root to get all top-level departments.",
+		InputSchema: json.RawMessage(`{
+			"type":"object",
+			"properties":{
+				"parent_department_id":{"type":"string","description":"Parent department ID. Use '0' for root (default)."}
+			}
+		}`),
+	}, func(ctx context.Context, input json.RawMessage) (string, error) {
+		var p struct{ ParentDepartmentID string `json:"parent_department_id"` }
+		if err := json.Unmarshal(input, &p); err != nil { return "", err }
+		if p.ParentDepartmentID == "" { p.ParentDepartmentID = "0" }
+		path := fmt.Sprintf("/contact/v3/departments?user_id_type=open_id&department_id_type=department_id&parent_department_id=%s", p.ParentDepartmentID)
 		result, err := fc.do("GET", path, nil)
 		if err != nil { return "", err }
 		return fJSON(result["data"]), nil
