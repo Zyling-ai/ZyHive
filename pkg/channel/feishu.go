@@ -275,14 +275,23 @@ func (b *FeishuBot) handleWsMessage(ctx context.Context, conn *websocket.Conn, r
 	case feishuFrameMethodData:
 		// Event data — decode JSON payload
 		if len(frame.Payload) == 0 {
+			// Send ACK even for empty payload
+			conn.WriteMessage(websocket.BinaryMessage, encodeFeishuAck(frame, `{"code":200}`))
 			return
 		}
 		var ev feishuEvent
 		if err := json.Unmarshal(frame.Payload, &ev); err != nil {
 			log.Printf("[feishu] event json error: %v payload=%s", err, string(frame.Payload[:min(200, len(frame.Payload))]))
+			// Send ACK even on parse error so Feishu stops retrying
+			conn.WriteMessage(websocket.BinaryMessage, encodeFeishuAck(frame, `{"code":500}`))
 			return
 		}
-		// Dedup by event_id
+
+		// CRITICAL: Send ACK immediately so Feishu marks event as delivered and stops retrying.
+		// Without this, Feishu re-pushes all unacknowledged events on every reconnect.
+		conn.WriteMessage(websocket.BinaryMessage, encodeFeishuAck(frame, `{"code":200}`))
+
+		// Dedup by event_id (defense in depth — ACK is the primary dedup mechanism)
 		if ev.Header.EventID != "" {
 			b.seenMu.Lock()
 			if _, seen := b.seenEvents[ev.Header.EventID]; seen {
@@ -290,8 +299,8 @@ func (b *FeishuBot) handleWsMessage(ctx context.Context, conn *websocket.Conn, r
 				return
 			}
 			b.seenEvents[ev.Header.EventID] = time.Now()
-			if len(b.seenEvents) > 500 {
-				cutoff := time.Now().Add(-30 * time.Minute)
+			if len(b.seenEvents) > 1000 {
+				cutoff := time.Now().Add(-2 * time.Hour)
 				for k, t := range b.seenEvents {
 					if t.Before(cutoff) {
 						delete(b.seenEvents, k)
@@ -299,7 +308,6 @@ func (b *FeishuBot) handleWsMessage(ctx context.Context, conn *websocket.Conn, r
 				}
 			}
 			b.seenMu.Unlock()
-			// Persist seen events so restarts don't reprocess old events
 			go b.persistSeenEvents()
 		}
 		if ev.Header.EventType == "im.message.receive_v1" {
