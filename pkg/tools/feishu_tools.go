@@ -614,6 +614,184 @@ Each inner array is a paragraph, elements are inline.`,
 		return fJSON(result["data"]), nil
 	})
 
+	// ── Chat & Contact tools ───────────────────────────────────────────────
+
+	// feishu_list_chat_members — list members of a group chat
+	r.register(lllm.ToolDef{
+		Name:        "feishu_list_chat_members",
+		Description: "List all members of a Feishu group chat.",
+		InputSchema: json.RawMessage(`{
+			"type":"object",
+			"properties":{
+				"chat_id":{"type":"string","description":"Group chat ID (e.g. oc_xxx)"},
+				"page_size":{"type":"integer","description":"Max members to return (default 50)"}
+			},
+			"required":["chat_id"]
+		}`),
+	}, func(ctx context.Context, input json.RawMessage) (string, error) {
+		var p struct {
+			ChatID   string `json:"chat_id"`
+			PageSize int    `json:"page_size"`
+		}
+		if err := json.Unmarshal(input, &p); err != nil {
+			return "", err
+		}
+		ps := p.PageSize
+		if ps <= 0 { ps = 50 }
+		path := fmt.Sprintf("/im/v1/chats/%s/members?member_id_type=open_id&page_size=%d", p.ChatID, ps)
+		result, err := fc.do("GET", path, nil)
+		if err != nil { return "", err }
+		return fJSON(result["data"]), nil
+	})
+
+	// feishu_list_chats — list all chats the bot is in
+	r.register(lllm.ToolDef{
+		Name:        "feishu_list_chats",
+		Description: "List all group chats the bot has joined.",
+		InputSchema: json.RawMessage(`{
+			"type":"object",
+			"properties":{
+				"page_size":{"type":"integer","description":"Max chats to return (default 20)"}
+			}
+		}`),
+	}, func(ctx context.Context, input json.RawMessage) (string, error) {
+		var p struct{ PageSize int `json:"page_size"` }
+		if err := json.Unmarshal(input, &p); err != nil { return "", err }
+		ps := p.PageSize
+		if ps <= 0 { ps = 20 }
+		result, err := fc.do("GET", fmt.Sprintf("/im/v1/chats?user_id_type=open_id&page_size=%d", ps), nil)
+		if err != nil { return "", err }
+		return fJSON(result["data"]), nil
+	})
+
+	// feishu_list_users — list enterprise users from contact directory
+	r.register(lllm.ToolDef{
+		Name:        "feishu_list_users",
+		Description: "List users from the Feishu enterprise contact directory.",
+		InputSchema: json.RawMessage(`{
+			"type":"object",
+			"properties":{
+				"page_size":{"type":"integer","description":"Max users to return (default 20, max 50)"},
+				"department_id":{"type":"string","description":"Filter by department ID (optional)"}
+			}
+		}`),
+	}, func(ctx context.Context, input json.RawMessage) (string, error) {
+		var p struct {
+			PageSize     int    `json:"page_size"`
+			DepartmentID string `json:"department_id"`
+		}
+		if err := json.Unmarshal(input, &p); err != nil { return "", err }
+		ps := p.PageSize
+		if ps <= 0 || ps > 50 { ps = 20 }
+		path := fmt.Sprintf("/contact/v3/users?user_id_type=open_id&page_size=%d", ps)
+		if p.DepartmentID != "" {
+			path += "&department_id=" + p.DepartmentID
+		}
+		result, err := fc.do("GET", path, nil)
+		if err != nil { return "", err }
+		return fJSON(result["data"]), nil
+	})
+
+	// feishu_get_chat_info — get detailed info about a chat
+	r.register(lllm.ToolDef{
+		Name:        "feishu_get_chat_info",
+		Description: "Get detailed information about a Feishu group chat (name, description, member count, etc.).",
+		InputSchema: json.RawMessage(`{
+			"type":"object",
+			"properties":{
+				"chat_id":{"type":"string","description":"Group chat ID"}
+			},
+			"required":["chat_id"]
+		}`),
+	}, func(ctx context.Context, input json.RawMessage) (string, error) {
+		var p struct{ ChatID string `json:"chat_id"` }
+		if err := json.Unmarshal(input, &p); err != nil { return "", err }
+		result, err := fc.do("GET", fmt.Sprintf("/im/v1/chats/%s", p.ChatID), nil)
+		if err != nil { return "", err }
+		return fJSON(result["data"]), nil
+	})
+
+	// feishu_create_doc — create a new cloud document
+	r.register(lllm.ToolDef{
+		Name:        "feishu_create_doc",
+		Description: "Create a new Feishu cloud document (飞书文档).",
+		InputSchema: json.RawMessage(`{
+			"type":"object",
+			"properties":{
+				"title":{"type":"string","description":"Document title"},
+				"folder_token":{"type":"string","description":"Folder token to create in (optional)"}
+			},
+			"required":["title"]
+		}`),
+	}, func(ctx context.Context, input json.RawMessage) (string, error) {
+		var p struct {
+			Title       string `json:"title"`
+			FolderToken string `json:"folder_token"`
+		}
+		if err := json.Unmarshal(input, &p); err != nil { return "", err }
+		body := map[string]string{"title": p.Title}
+		if p.FolderToken != "" { body["folder_token"] = p.FolderToken }
+		result, err := fc.do("POST", "/docx/v1/documents", body)
+		if err != nil { return "", err }
+		return fJSON(result["data"]), nil
+	})
+
+	// feishu_add_chat_members — add users to a group chat
+	r.register(lllm.ToolDef{
+		Name:        "feishu_add_chat_members",
+		Description: "Add users to a Feishu group chat.",
+		InputSchema: json.RawMessage(`{
+			"type":"object",
+			"properties":{
+				"chat_id":{"type":"string","description":"Group chat ID"},
+				"user_ids":{"type":"array","items":{"type":"string"},"description":"List of open_ids to add"}
+			},
+			"required":["chat_id","user_ids"]
+		}`),
+	}, func(ctx context.Context, input json.RawMessage) (string, error) {
+		var p struct {
+			ChatID  string   `json:"chat_id"`
+			UserIDs []string `json:"user_ids"`
+		}
+		if err := json.Unmarshal(input, &p); err != nil { return "", err }
+		members := make([]map[string]string, len(p.UserIDs))
+		for i, uid := range p.UserIDs {
+			members[i] = map[string]string{"member_id": uid, "member_type": "user", "member_id_type": "open_id"}
+		}
+		result, err := fc.do("POST", fmt.Sprintf("/im/v1/chats/%s/members", p.ChatID),
+			map[string]interface{}{"id_list": p.UserIDs})
+		if err != nil { return "", err }
+		return fJSON(result["data"]), nil
+	})
+
+	// feishu_update_chat — update group chat name/description
+	r.register(lllm.ToolDef{
+		Name:        "feishu_update_chat",
+		Description: "Update a Feishu group chat's name or description.",
+		InputSchema: json.RawMessage(`{
+			"type":"object",
+			"properties":{
+				"chat_id":{"type":"string","description":"Group chat ID"},
+				"name":{"type":"string","description":"New chat name (optional)"},
+				"description":{"type":"string","description":"New description (optional)"}
+			},
+			"required":["chat_id"]
+		}`),
+	}, func(ctx context.Context, input json.RawMessage) (string, error) {
+		var p struct {
+			ChatID      string `json:"chat_id"`
+			Name        string `json:"name"`
+			Description string `json:"description"`
+		}
+		if err := json.Unmarshal(input, &p); err != nil { return "", err }
+		body := map[string]string{}
+		if p.Name != "" { body["name"] = p.Name }
+		if p.Description != "" { body["description"] = p.Description }
+		result, err := fc.do("PUT", fmt.Sprintf("/im/v1/chats/%s", p.ChatID), body)
+		if err != nil { return "", err }
+		return fJSON(result["data"]), nil
+	})
+
 	// suppress unused import warning
 	_ = strings.TrimSpace
 }
