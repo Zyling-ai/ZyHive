@@ -516,12 +516,12 @@ Each inner array is a paragraph, elements are inline.`,
 	// 6. feishu_create_calendar_event
 	r.register(lllm.ToolDef{
 		Name:        "feishu_create_calendar_event",
-		Description: "Create a calendar event in the primary Feishu calendar.",
+		Description: "Create a calendar event in the Feishu calendar. Returns app_link to open in Feishu. After creation, send the app_link to users using feishu_send_rich_message.",
 		InputSchema: json.RawMessage(`{
 			"type":"object",
 			"properties":{
 				"summary":{"type":"string","description":"Event title"},
-				"start_time":{"type":"string","description":"Start time in RFC3339, e.g. 2026-04-01T14:00:00+08:00"},
+				"start_time":{"type":"string","description":"Start time in RFC3339, e.g. 2026-04-02T14:00:00+08:00"},
 				"end_time":{"type":"string","description":"End time in RFC3339"},
 				"description":{"type":"string","description":"Event description (optional)"},
 				"attendees":{"type":"array","items":{"type":"string"},"description":"List of attendee open_ids (optional)"}
@@ -551,28 +551,30 @@ Each inner array is a paragraph, elements are inline.`,
 		if err != nil {
 			return "", err
 		}
-		// Add attendees if provided
-		if len(p.Attendees) > 0 {
-			eventID := ""
-			if data, ok := result["data"].(map[string]interface{}); ok {
-				if ev, ok := data["event"].(map[string]interface{}); ok {
-					eventID, _ = ev["event_id"].(string)
-				}
-			}
-			if eventID != "" {
-				attendees := make([]map[string]interface{}, len(p.Attendees))
-				for i, uid := range p.Attendees {
-					attendees[i] = map[string]interface{}{"type": "user", "user_id": uid}
-				}
-				_, _ = fc.do("POST",
-					fmt.Sprintf("/calendar/v4/calendars/primary/events/%s/attendees/batch_delete", eventID),
-					nil) // ignore
-				_, _ = fc.do("POST",
-					fmt.Sprintf("/calendar/v4/calendars/primary/events/%s/attendees", eventID),
-					map[string]interface{}{"attendees": attendees})
+
+		// Extract event info
+		eventID := ""
+		appLink := ""
+		if data, ok := result["data"].(map[string]interface{}); ok {
+			if ev, ok := data["event"].(map[string]interface{}); ok {
+				eventID, _ = ev["event_id"].(string)
+				appLink, _ = ev["app_link"].(string)
 			}
 		}
-		return fJSON(result["data"]), nil
+
+		// Add attendees if provided
+		if len(p.Attendees) > 0 && eventID != "" {
+			attendees := make([]map[string]interface{}, len(p.Attendees))
+			for i, uid := range p.Attendees {
+				attendees[i] = map[string]interface{}{"type": "user", "user_id": uid, "user_id_type": "open_id"}
+			}
+			_, _ = fc.do("POST",
+				fmt.Sprintf("/calendar/v4/calendars/primary/events/%s/attendees", eventID),
+				map[string]interface{}{"attendees": attendees})
+		}
+
+		return fmt.Sprintf(`{"event_id":%q,"app_link":%q,"summary":%q,"start":%q,"end":%q}`,
+			eventID, appLink, p.Summary, p.StartTime, p.EndTime), nil
 	})
 
 	// 7. feishu_create_task
