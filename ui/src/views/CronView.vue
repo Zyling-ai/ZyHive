@@ -243,14 +243,35 @@ function openCreate() {
   showCreate.value = true
 }
 
+// #16 fix: validate cron expression before submit
+function isValidCronExpr(expr: string): boolean {
+  if (!expr || !expr.trim()) return false
+  const parts = expr.trim().split(/\s+/)
+  if (parts.length < 5 || parts.length > 6) return false
+  // basic field range check (loose)
+  return parts.every(p => /^[\d,\-\*\/]+$/.test(p) || p === '?')
+}
+
 async function createCron() {
+  if (!form.name?.trim()) {
+    ElMessage.warning('请填写任务名称')
+    return
+  }
+  if (!isValidCronExpr(form.expr)) {
+    ElMessage.error('Cron 表达式格式错误，格式为：分 时 日 月 周（如 0 9 * * 1）')
+    return
+  }
+  if (!form.message?.trim()) {
+    ElMessage.warning('请填写任务内容')
+    return
+  }
   try {
     await cronApi.create({
       name: form.name,
       remark: form.remark || undefined,
       agentId: form.agentId || undefined,
       enabled: form.enabled,
-      schedule: { kind: 'cron', expr: form.expr, tz: form.tz },
+      schedule: { kind: 'cron', expr: form.expr.trim(), tz: form.tz },
       payload: { kind: 'agentTurn', message: form.message },
       delivery: { mode: 'announce' },
     } as any)
