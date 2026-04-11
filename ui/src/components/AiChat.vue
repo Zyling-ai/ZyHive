@@ -36,7 +36,7 @@
       </span>
     </div>
 
-    <div class="chat-messages" ref="msgListRef">
+    <div class="chat-messages" ref="msgListRef" @scroll="onMsgListScroll">
       <!-- 历史加载中 -->
       <div v-if="historyLoading" class="history-loading">
         <div class="history-loading-dots">
@@ -67,7 +67,8 @@
       </div>
 
       <!-- streaming 期间跳过最后一条（正在构建的 assistant 消息），由流式占位符渲染 -->
-      <template v-for="(msg, i) in (streaming ? messages.slice(0, -1) : messages)" :key="i">
+      <!-- #15 fix: skip messages with no visible content (empty bubbles) -->
+      <template v-for="(msg, i) in (streaming ? messages.slice(0, -1) : messages).filter(m => m.text?.trim() || m.images?.length || m.toolCalls?.length || m.options?.length || m.noModelError)" :key="i">
 
         <!-- 用户消息 -->
         <div v-if="msg.role === 'user' && (msg.text?.trim() || msg.images?.length)" class="msg-row user">
@@ -162,7 +163,7 @@
                 <div class="no-model-body">
                   <div class="no-model-title">还没有配置 AI 模型</div>
                   <div class="no-model-desc">需要先添加一个模型（如 Claude、GPT-4 等）并填写 API Key，才能开始对话。</div>
-                  <router-link to="/models" class="no-model-btn">去配置模型 →</router-link>
+                  <router-link to="/config/models" class="no-model-btn">去配置模型 →</router-link>
                 </div>
               </div>
               <!-- 正文 -->
@@ -462,6 +463,8 @@ const pendingImages = ref<string[]>([])
 const pendingFiles = ref<PendingFile[]>([])
 const streaming = ref(false)
 watch(streaming, (v) => emit('streaming-change', v))
+// #14 fix: track user scroll intention during streaming
+const userScrolledUp = ref(false)
 const streamText = ref('')
 const streamThinking = ref('')
 const streamToolCalls = ref<ToolCallEntry[]>([])  // active tool calls during streaming
@@ -676,12 +679,21 @@ async function reattachSessionTasks(sessionId: string) {
   } catch { /* ignore */ }
 }
 
-function scrollBottom() {
+function scrollBottom(force = false) {
   nextTick(() => {
-    if (msgListRef.value) {
-      msgListRef.value.scrollTop = msgListRef.value.scrollHeight
-    }
+    if (!msgListRef.value) return
+    // #14 fix: if user scrolled up during streaming, don't force scroll down
+    if (!force && userScrolledUp.value) return
+    msgListRef.value.scrollTop = msgListRef.value.scrollHeight
   })
+}
+
+// #14 fix: detect user scroll during streaming
+function onMsgListScroll() {
+  if (!msgListRef.value || !streaming.value) return
+  const el = msgListRef.value
+  const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+  userScrolledUp.value = distFromBottom > 80
 }
 
 function autoGrow() {
@@ -1217,7 +1229,15 @@ function runChat(text: string, imgs: string[], silent = false) {
     history: historyParam,
   }
 
+  // #13 fix: capture session at send time; discard events if session changed
+  const sendSessionId = currentSessionId.value
+
   chatSSE(props.agentId, text, (ev) => {
+    // #13 fix: if user switched session, discard this response
+    if (currentSessionId.value !== sendSessionId) {
+      streaming.value = false
+      return
+    }
     switch (ev.type) {
       case 'thinking_delta':
         streamThinking.value += ev.text
@@ -1364,8 +1384,9 @@ function runChat(text: string, imgs: string[], silent = false) {
         streamText.value = ''
         streamThinking.value = ''
         streamToolCalls.value = []
+        userScrolledUp.value = false  // #14 fix: reset on stream end
         emit('response', cur.text)
-        scrollBottom()
+        scrollBottom(true)  // force scroll to bottom when done
         break
       }
     }
