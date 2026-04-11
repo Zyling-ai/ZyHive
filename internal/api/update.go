@@ -163,11 +163,11 @@ func runUpdate(targetVersion string) {
 		targetVersion, filename,
 	)
 
-	// 优先直连，超时或失败则走镜像
-	url := directURL
-	if !isURLReachable(directURL) {
-		log.Printf("[update] direct GitHub unreachable, switching to mirror")
-		url = mirrorURL
+	// 优先走镜像（install.zyling.ai 内置国内加速），失败才回退 GitHub 直连
+	url := mirrorURL
+	if !isURLReachable(mirrorURL) {
+		log.Printf("[update] mirror unreachable, falling back to direct GitHub")
+		url = directURL
 	}
 
 	// 3. 下载到临时文件
@@ -278,7 +278,8 @@ func fetchLatestRelease() (string, string, error) {
 
 // downloadFile 下载 url 到 dest，progress 回调 0-100
 func downloadFile(url, dest string, progress func(int)) error {
-	resp, err := http.Get(url)
+	client := &http.Client{Timeout: 120 * time.Second}
+	resp, err := client.Get(url)
 	if err != nil {
 		return err
 	}
