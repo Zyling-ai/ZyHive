@@ -252,15 +252,31 @@ func runUpdate(targetVersion string) {
 
 // ── 工具函数 ──────────────────────────────────────────────────────────────────
 
-// fetchLatestRelease 查询 GitHub releases/latest，返回 (tag, htmlURL, error)
+// fetchLatestRelease 查询最新版本，优先用 CF 镜像（国内可访问），失败才回退 GitHub API
 func fetchLatestRelease() (string, string, error) {
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := &http.Client{Timeout: 8 * time.Second}
+
+	// 优先：install.zyling.ai/latest（CF Worker，国内可访问）
+	if resp, err := client.Get("https://install.zyling.ai/latest"); err == nil {
+		defer resp.Body.Close()
+		if resp.StatusCode == 200 {
+			var data struct {
+				Version string `json:"version"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&data); err == nil && data.Version != "" {
+				releaseURL := fmt.Sprintf("https://github.com/Zyling-ai/ZyHive/releases/tag/%s", data.Version)
+				return data.Version, releaseURL, nil
+			}
+		}
+	}
+
+	// 回退：GitHub API
 	req, _ := http.NewRequest("GET",
 		"https://api.github.com/repos/Zyling-ai/zyhive/releases/latest", nil)
 	req.Header.Set("Accept", "application/vnd.github+json")
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", "", err
+		return "", "", fmt.Errorf("无法获取版本信息（镜像和 GitHub 均不可达）: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
