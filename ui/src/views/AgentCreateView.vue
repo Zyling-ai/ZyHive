@@ -237,6 +237,7 @@
           :compact="true"
           :show-thinking="true"
           :applyable="true"
+          :no-model="modelsLoaded && modelList.length === 0"
           @apply="applyToForm"
         />
         <div v-else class="no-agent-hint">
@@ -467,6 +468,7 @@ async function save() {
 
 // ── Config lists ─────────────────────────────────────────────────────────
 const modelList = ref<ModelEntry[]>([])
+const modelsLoaded = ref(false)
 const channelList = ref<ChannelEntry[]>([])
 const toolList = ref<ToolEntry[]>([])
 const skillList = ref<SkillEntry[]>([])
@@ -526,6 +528,7 @@ onMounted(async () => {
     models.list(), channels.list(), tools.list(), skills.list(), agentsApi.list()
   ])
   if (ml.status === 'fulfilled') modelList.value = ml.value.data
+  modelsLoaded.value = true
   if (cl.status === 'fulfilled') channelList.value = cl.value.data
   if (tl.status === 'fulfilled') toolList.value = tl.value.data
   if (sl.status === 'fulfilled') skillList.value = sl.value.data
