@@ -336,10 +336,47 @@ onUnmounted(() => {
 /* ─── Reset ──────────────────────────────────────────────────────────────── */
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  background: #f5f7fa;
+  font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'PingFang SC', 'Segoe UI', Roboto, sans-serif;
+  background: #fafafa;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  color: #222;
 }
 #app { min-height: 100vh; }
+
+/* ─── 全局细滚动条（WebKit / Blink）──────────────────────────────────────
+   目的: 替换 Element Plus 默认的粗白色滚动条, 参考 Cursor 风格极简 */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.08);
+  border-radius: 3px;
+  transition: background 0.15s;
+}
+::-webkit-scrollbar-thumb:hover { background: rgba(0, 0, 0, 0.25); }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-corner { background: transparent; }
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.1) transparent;
+}
+/* 深色容器（sidebar 等）的滚动条用白色半透明 */
+.app-sidebar ::-webkit-scrollbar-thumb,
+.sidebar-menu::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); }
+.app-sidebar ::-webkit-scrollbar-thumb:hover,
+.sidebar-menu::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+.app-sidebar, .sidebar-menu {
+  scrollbar-color: rgba(255,255,255,0.1) transparent;
+}
+
+/* Element Plus 组件内滚动条继承 */
+.el-scrollbar__bar { opacity: 0.4 !important; }
+.el-scrollbar__bar:hover { opacity: 0.9 !important; }
+.el-scrollbar__thumb { background: rgba(0,0,0,0.15) !important; }
 
 /* ─── Layout ─────────────────────────────────────────────────────────────── */
 .app-layout {
@@ -478,13 +515,13 @@ body {
   flex-direction: column;
 }
 .sidebar-logo {
-  height: 60px;
+  height: 52px;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
   cursor: pointer;
-  border-bottom: 1px solid rgba(255,255,255,0.08);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
   flex-shrink: 0;
 }
 .logo-icon {
@@ -501,26 +538,48 @@ body {
   background: transparent !important;
   flex: 1;
   overflow-y: auto;
+  padding: 4px 8px;
 }
 .sidebar-menu .el-menu-item,
 .sidebar-menu .el-sub-menu__title {
-  color: rgba(255,255,255,0.65) !important;
+  color: rgba(255,255,255,0.6) !important;
+  height: 40px !important;
+  line-height: 40px !important;
+  border-radius: 6px;
+  margin: 2px 0;
+  position: relative;
+  font-size: 13px !important;
+  transition: background 0.15s, color 0.15s;
 }
 .sidebar-menu .el-menu-item:hover,
 .sidebar-menu .el-sub-menu__title:hover {
-  background: rgba(255,255,255,0.08) !important;
-  color: #fff !important;
+  background: rgba(255,255,255,0.06) !important;
+  color: rgba(255,255,255,0.95) !important;
 }
+/* Active: 左侧 2px 高亮条 + 柔和高亮背景, 不再是整块蓝色 */
 .sidebar-menu .el-menu-item.is-active {
-  background: #409eff !important;
+  background: rgba(99,102,241,0.12) !important;
   color: #fff !important;
-  border-radius: 4px;
-  margin: 2px 8px;
-  width: calc(100% - 16px);
+  font-weight: 500;
+}
+.sidebar-menu .el-menu-item.is-active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 20%;
+  bottom: 20%;
+  width: 2px;
+  background: #818cf8;
+  border-radius: 2px;
+}
+.sidebar-menu .el-menu-item .el-icon,
+.sidebar-menu .el-sub-menu__title .el-icon {
+  font-size: 15px !important;
+  margin-right: 10px !important;
 }
 .sidebar-menu .el-sub-menu .el-menu { background: transparent !important; }
-.sidebar-menu .el-sub-menu .el-menu .el-menu-item { padding-left: 48px !important; }
-.sidebar-menu .el-divider { border-color: rgba(255,255,255,0.08); }
+.sidebar-menu .el-sub-menu .el-menu .el-menu-item { padding-left: 42px !important; }
+.sidebar-menu .el-divider { border-color: rgba(255,255,255,0.06); margin: 8px 6px !important; }
 .sidebar-footer {
   padding: 12px 16px;
   border-top: 1px solid rgba(255,255,255,0.08);
