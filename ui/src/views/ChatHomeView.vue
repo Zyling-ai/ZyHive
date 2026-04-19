@@ -365,7 +365,7 @@ function fmtTime(ts: number): string {
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  background: #f4f6f9;
+  background: #fafafa;
 }
 
 /* ── 顶部工具条 ───────────────────────────────────────────────────────── */
@@ -375,8 +375,9 @@ function fmtTime(ts: number): string {
   gap: 8px;
   padding: 8px 16px;
   background: #fff;
-  border-bottom: 1px solid #e4e7ed;
+  border-bottom: 1px solid #ececec;
   flex-shrink: 0;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.02);
 }
 
 .sidebar-toggle-btn {
