@@ -13,6 +13,7 @@
   - `TestAgentManager` 适配四层 memory tree 目录结构（`workspace/memory/{INDEX.md,core,projects,daily,topics}` 取代平面 `MEMORY.md`）
 - **仓库清理**：移除 `projects/zyhive/` 下 15 个冗余 Go 源码快照（-5300 行），解决 `go build ./...` 失败于 `pattern all:ui_dist: no matching files found`
 - **Agent 创建页 UX**：新建 agent 时若无模型配置，禁用输入框并显示提示卡片（b0ba1cc）
+- **构建系统**：`make release` 所有目标平台加 `CGO_ENABLED=0`，产出**纯静态二进制**。此前 Ubuntu 24.04（glibc 2.39）构建的 linux 二进制无法在 CentOS 7（glibc 2.17）上运行（`GLIBC_2.34 not found`），影响生产部署
 
 ### 验证矩阵
 
