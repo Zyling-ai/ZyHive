@@ -91,12 +91,16 @@ func TestAgentManager(t *testing.T) {
 		t.Errorf("expected status 'idle', got %q", a.Status)
 	}
 
-	// Verify directory structure
+	// Verify directory structure (hierarchical memory tree replaced MEMORY.md)
 	for _, path := range []string{
 		filepath.Join(tmpDir, "test-agent", "config.json"),
 		filepath.Join(tmpDir, "test-agent", "workspace", "IDENTITY.md"),
 		filepath.Join(tmpDir, "test-agent", "workspace", "SOUL.md"),
-		filepath.Join(tmpDir, "test-agent", "workspace", "MEMORY.md"),
+		filepath.Join(tmpDir, "test-agent", "workspace", "memory", "INDEX.md"),
+		filepath.Join(tmpDir, "test-agent", "workspace", "memory", "core"),
+		filepath.Join(tmpDir, "test-agent", "workspace", "memory", "projects"),
+		filepath.Join(tmpDir, "test-agent", "workspace", "memory", "daily"),
+		filepath.Join(tmpDir, "test-agent", "workspace", "memory", "topics"),
 		filepath.Join(tmpDir, "test-agent", "sessions"),
 	} {
 		if _, err := os.Stat(path); os.IsNotExist(err) {
