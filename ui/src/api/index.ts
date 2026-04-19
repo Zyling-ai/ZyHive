@@ -431,6 +431,8 @@ export interface SessionSummary {
   messageCount: number
   lastAt: number
   tokenEstimate: number
+  /** 来源渠道："web" | "telegram" | "feishu" | "whatsapp"；空=面板 */
+  source?: string
 }
 
 export interface SavedToolCall {

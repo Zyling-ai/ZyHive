@@ -40,12 +40,13 @@
                   @click="selectSidebarItem(item)"
                 >
                   <div class="session-item-header">
-                    <el-tag v-if="item.channelType === 'telegram'"
-                      type="success" size="small" effect="plain" class="session-source-tag">TG</el-tag>
-                    <el-tag v-else-if="item.type === 'channel'"
-                      type="warning" size="small" effect="plain" class="session-source-tag">Web渠道</el-tag>
-                    <el-tag v-else
-                      type="primary" size="small" effect="plain" class="session-source-tag">面板</el-tag>
+                    <el-tag
+                      :type="sourceTag(item.source).type"
+                      size="small"
+                      effect="plain"
+                      :class="['session-source-tag', sourceTag(item.source).className]">
+                      {{ sourceTag(item.source).label }}
+                    </el-tag>
                     <span class="session-item-time">{{ formatRelative(item.lastAt) }}</span>
                   </div>
                   <div class="session-item-title">{{ item.label }}</div>
@@ -133,11 +134,8 @@
               <!-- Read-only history viewer (channel sessions) -->
               <div v-if="viewMode === 'history'" class="history-viewer">
                 <div class="source-banner" v-if="selectedItem">
-                  <span v-if="selectedItem.channelType === 'telegram'">
-                    来自 Telegram · {{ selectedItem.id }} · 只读
-                  </span>
-                  <span v-else-if="selectedItem.type === 'channel'">
-                    来自网页渠道 · {{ selectedItem.id }} · 只读
+                  <span>
+                    来自 {{ sourceTag(selectedItem.source).label }} · {{ selectedItem.id }} · 只读
                   </span>
                 </div>
                 <div class="history-msg-list" v-loading="historyLoading">
@@ -1227,6 +1225,8 @@ const mobileSessionOpen = ref(false)
 interface SidebarItem {
   id: string
   type: 'panel' | 'channel'
+  /** 实际渠道来源："feishu" | "telegram" | "web" | "panel" 等 */
+  source: string
   channelType?: string
   label: string
   messageCount: number
@@ -1234,6 +1234,56 @@ interface SidebarItem {
   tokenEstimate?: number
   _panel?: SessionSummary
   _channel?: ChannelSummary
+}
+
+// 规范化 source：把后端返回的 source 字段（或从 session ID 前缀推断）映射为标准值
+function normalizeSource(raw: string | undefined, sessionId: string): string {
+  const s = (raw || '').toLowerCase()
+  if (s === 'feishu' || s === 'telegram' || s === 'web') return s
+  // 兜底：从 ID 前缀推断（后端老数据可能没 source）
+  if (sessionId.startsWith('feishu-')) return 'feishu'
+  if (sessionId.startsWith('tg-')) return 'telegram'
+  if (sessionId.startsWith('web-')) return 'web'
+  return 'panel'
+}
+
+// 当 session 没有 title 时，根据 ID 前缀生成友好标签
+function sessionLabelFromId(id: string): string {
+  if (id.startsWith('feishu-')) {
+    const rest = id.slice(7)
+    return '飞书聊天 · ' + (rest.length > 10 ? rest.slice(0, 8) + '…' : rest)
+  }
+  if (id.startsWith('tg-')) return 'Telegram · ' + id.slice(3, 11)
+  if (id.startsWith('web-')) return '网页聊天 · ' + id.slice(4, 12)
+  return '新对话'
+}
+
+// 去掉群聊消息里自动附加的发送者 ID 前缀（形如 "[ou_xxxxx]: 正文" 或 "[userName]: 正文"）
+// 这样在侧边栏标题里显示更干净的正文
+function cleanTitleForSidebar(raw: string | undefined, source: string): string {
+  if (!raw) return ''
+  const trimmed = raw.trim()
+  // 只对渠道来源的 session 做前缀剥离（面板对话一般不会带 [xxx]:）
+  if (source !== 'feishu' && source !== 'telegram') return trimmed
+  const m = trimmed.match(/^\[([^\]]{1,60})\]\s*[:：]\s*(.+)$/)
+  if (m && m[2]) return m[2].trim()
+  return trimmed
+}
+
+// source → tag 配置映射（label/type/class）
+interface SourceTagCfg { label: string; type: 'primary' | 'success' | 'warning' | 'info' | 'danger'; className: string }
+const SOURCE_TAG_PANEL: SourceTagCfg    = { label: '面板', type: 'info',    className: 'tag-panel' }
+const SOURCE_TAG_FEISHU: SourceTagCfg   = { label: '飞书', type: 'primary', className: 'tag-feishu' }
+const SOURCE_TAG_TELEGRAM: SourceTagCfg = { label: 'TG',   type: 'success', className: 'tag-telegram' }
+const SOURCE_TAG_WEB: SourceTagCfg      = { label: 'Web',  type: 'warning', className: 'tag-web' }
+
+function sourceTag(source: string): SourceTagCfg {
+  switch (source) {
+    case 'feishu':   return SOURCE_TAG_FEISHU
+    case 'telegram': return SOURCE_TAG_TELEGRAM
+    case 'web':      return SOURCE_TAG_WEB
+    default:         return SOURCE_TAG_PANEL
+  }
 }
 
 const aiChatRef = ref<InstanceType<typeof AiChat>>()
@@ -1256,19 +1306,25 @@ async function loadSidebarItems() {
 
     const panelItems: SidebarItem[] = (sesRes.data.sessions || [])
       .filter(s => !s.id.startsWith('subagent-') && !s.id.startsWith('goal-') && !s.id.startsWith('__'))
-      .map(s => ({
-        id: s.id,
-        type: 'panel' as const,
-        label: s.title || '新对话',
-        messageCount: s.messageCount,
-        lastAt: typeof s.lastAt === 'string' ? new Date(s.lastAt).getTime() : (s.lastAt || 0),
-        tokenEstimate: s.tokenEstimate,
-        _panel: s,
-      }))
+      .map(s => {
+        const src = normalizeSource(s.source, s.id)
+        const cleanTitle = cleanTitleForSidebar(s.title, src)
+        return {
+          id: s.id,
+          type: 'panel' as const,
+          source: src,
+          label: cleanTitle || sessionLabelFromId(s.id),
+          messageCount: s.messageCount,
+          lastAt: typeof s.lastAt === 'string' ? new Date(s.lastAt).getTime() : (s.lastAt || 0),
+          tokenEstimate: s.tokenEstimate,
+          _panel: s,
+        }
+      })
 
     const channelItems: SidebarItem[] = (chRes.data || []).map(ch => ({
       id: ch.channelId,
       type: 'channel' as const,
+      source: (ch.channelType || 'web').toLowerCase(),
       channelType: ch.channelType,
       label: ch.channelId,
       messageCount: ch.messageCount,
@@ -1300,7 +1356,8 @@ async function selectSidebarItem(item: SidebarItem) {
     historyLoading.value = true
     try {
       const res = await agentConversations.messages(agentId, item.id, { limit: 100, offset: 0 })
-      historyMessages.value = res.data.messages || []
+      // 过滤内部协议 XML（保险：一般渠道 convlog 不会有，但 defensive）
+      historyMessages.value = (res.data.messages || []).filter(m => !(m.content || '').trim().startsWith('<task-notification>'))
     } catch {}
     finally { historyLoading.value = false }
   }
@@ -2548,10 +2605,33 @@ async function openCronLogs(job: any) {
 }
 .session-source-tag {
   font-size: 10px !important;
-  padding: 0 4px !important;
-  height: 16px !important;
-  line-height: 16px !important;
+  padding: 0 6px !important;
+  height: 17px !important;
+  line-height: 17px !important;
   flex-shrink: 0;
+  font-weight: 600 !important;
+  letter-spacing: 0.2px;
+}
+/* 渠道专属色（覆盖 Element Plus 默认 type 样式）*/
+.session-source-tag.tag-feishu {
+  background: #eef2ff !important;
+  border-color: #c7d2fe !important;
+  color: #4f46e5 !important;
+}
+.session-source-tag.tag-telegram {
+  background: #dcfce7 !important;
+  border-color: #86efac !important;
+  color: #15803d !important;
+}
+.session-source-tag.tag-web {
+  background: #fef3c7 !important;
+  border-color: #fcd34d !important;
+  color: #b45309 !important;
+}
+.session-source-tag.tag-panel {
+  background: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+  color: #475569 !important;
 }
 .session-item-time {
   font-size: 10px;

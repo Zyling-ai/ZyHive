@@ -24,11 +24,12 @@
         <el-option v-for="ag in agentList" :key="ag.id" :label="ag.name" :value="ag.id" />
       </el-select>
 
-      <!-- 渠道类型（仅渠道有效） -->
-      <el-select v-model="filterChannel" placeholder="全部渠道" clearable size="small" style="width:130px"
-        @change="loadAll">
+      <!-- 渠道来源（按 source 过滤）-->
+      <el-select v-model="filterChannel" placeholder="全部渠道" clearable size="small" style="width:130px">
+        <el-option label="飞书" value="feishu" />
         <el-option label="Telegram" value="telegram" />
         <el-option label="Web 聊天" value="web" />
+        <el-option label="面板（本地）" value="panel" />
       </el-select>
 
       <!-- 关键词搜索 -->
@@ -58,14 +59,14 @@
         size="default"
       >
         <!-- 类型标识 -->
-        <el-table-column label="类型" width="90" align="center">
+        <el-table-column label="渠道" width="90" align="center">
           <template #default="{ row }">
-            <el-tag v-if="row.source === 'channel'"
-              :type="row.channelType === 'telegram' ? 'success' : 'warning'"
+            <el-tag
+              :type="tagFor(row.source).type"
+              :class="['src-tag', 'src-' + row.source]"
               size="small" effect="plain">
-              {{ row.channelType === 'telegram' ? 'TG' : 'Web' }}
+              {{ tagFor(row.source).label }}
             </el-tag>
-            <el-tag v-else type="primary" size="small" effect="plain">面板</el-tag>
           </template>
         </el-table-column>
 
@@ -99,7 +100,7 @@
         <!-- Token（仅面板会话有） -->
         <el-table-column label="Token" width="100" align="center">
           <template #default="{ row }">
-            <el-tag v-if="row.source === 'session' && row.tokenEstimate"
+            <el-tag v-if="row.kind === 'session' && row.tokenEstimate"
               :type="row.tokenEstimate > 60000 ? 'danger' : row.tokenEstimate > 30000 ? 'warning' : 'info'"
               size="small" effect="plain">
               {{ formatTokens(row.tokenEstimate) }}
@@ -126,7 +127,7 @@
         <el-table-column label="操作" width="160" @click.stop>
           <template #default="{ row }">
             <el-button size="small" link @click.stop="openDetail(row)">查看</el-button>
-            <template v-if="row.source === 'session'">
+            <template v-if="row.kind === 'session'">
               <el-button size="small" link type="primary" @click.stop="continueSession(row)">继续</el-button>
               <el-popconfirm title="确认删除此对话？" @confirm="deleteSession(row)" width="180">
                 <template #reference>
@@ -148,7 +149,7 @@
       <template #header>
         <div>
           <div style="font-weight:600;font-size:15px">
-            {{ drawerChannelRow?.channelType === 'telegram' ? 'Telegram' : 'Web' }} · {{ drawerChannelRow?.channelId }}
+            {{ tagFor((drawerChannelRow?.channelType || 'web').toLowerCase()).label }} · {{ drawerChannelRow?.channelId }}
           </div>
           <div style="font-size:12px;color:#909399;margin-top:3px">
             {{ drawerChannelRow?.agentName }} · {{ drawerChannelRow?.messageCount }} 条消息
@@ -265,7 +266,10 @@ const router = useRouter()
 
 // ── 统一行类型 ────────────────────────────────────────────────────────────
 interface UnifiedRow {
-  source: 'channel' | 'session'
+  /** channel = 渠道会话记录（convlog）, session = 面板/agent 会话 */
+  kind: 'channel' | 'session'
+  /** 实际来源："feishu" | "telegram" | "web" | "panel" */
+  source: string
   id: string
   agentId: string
   agentName: string
@@ -284,6 +288,37 @@ interface UnifiedRow {
   _session?: SessionSummary
 }
 
+// source → tag 配置
+type SrcTagType = 'primary' | 'success' | 'warning' | 'info'
+interface SrcTag { label: string; type: SrcTagType }
+function tagFor(source: string): SrcTag {
+  switch ((source || '').toLowerCase()) {
+    case 'feishu':   return { label: '飞书', type: 'primary' }
+    case 'telegram': return { label: 'TG',   type: 'success' }
+    case 'web':      return { label: 'Web',  type: 'warning' }
+    default:         return { label: '面板', type: 'info'    }
+  }
+}
+
+function normalizeSessionSource(raw: string | undefined, sessionId: string): string {
+  const s = (raw || '').toLowerCase()
+  if (s === 'feishu' || s === 'telegram' || s === 'web') return s
+  if (sessionId.startsWith('feishu-')) return 'feishu'
+  if (sessionId.startsWith('tg-')) return 'telegram'
+  if (sessionId.startsWith('web-')) return 'web'
+  return 'panel'
+}
+
+function sessionLabelFromId(id: string): string {
+  if (id.startsWith('feishu-')) {
+    const rest = id.slice(7)
+    return '飞书 · ' + (rest.length > 14 ? rest.slice(0, 12) + '…' : rest)
+  }
+  if (id.startsWith('tg-')) return 'Telegram · ' + id.slice(3, 11)
+  if (id.startsWith('web-')) return '网页 · ' + id.slice(4, 12)
+  return ''
+}
+
 // ── 状态 ─────────────────────────────────────────────────────────────────
 const agentList   = ref<AgentInfo[]>([])
 const loading     = ref(false)
@@ -300,9 +335,9 @@ const sortBy        = ref('lastAt')
 const filteredRows = computed(() => {
   let list = allRows.value
 
-  if (filterType.value)  list = list.filter(r => r.source === filterType.value)
+  if (filterType.value)  list = list.filter(r => r.kind === filterType.value)
   if (filterAgent.value) list = list.filter(r => r.agentId === filterAgent.value)
-  if (filterChannel.value) list = list.filter(r => r.channelType === filterChannel.value)
+  if (filterChannel.value) list = list.filter(r => r.source === filterChannel.value)
 
   if (searchKw.value) {
     const kw = searchKw.value.toLowerCase()
@@ -334,7 +369,8 @@ async function loadAll() {
   try {
     const [agRes, chRes, sesRes] = await Promise.all([
       agentsApi.list().catch(() => ({ data: [] as AgentInfo[] })),
-      agentConversations.globalList({ agentId: filterAgent.value || undefined, channelType: filterChannel.value || undefined })
+      // globalList 的 channelType 只认 telegram/web；feishu 和 panel 走 sessions 分支，前端统一过滤
+      agentConversations.globalList({ agentId: filterAgent.value || undefined, channelType: (filterChannel.value === 'telegram' || filterChannel.value === 'web') ? filterChannel.value : undefined })
         .catch(() => ({ data: [] as GlobalConvRow[] })),
       sessionsApi.list({ agentId: filterAgent.value || undefined, limit: 300 })
         .catch(() => ({ data: { sessions: [] as SessionSummary[], total: 0 } })),
@@ -344,9 +380,10 @@ async function loadAll() {
     const agentNameMap: Record<string, string> = {}
     agentList.value.forEach(a => { agentNameMap[a.id] = a.name })
 
-    // 渠道对话
+    // 渠道对话（channelType 就是 source）
     const chRows: UnifiedRow[] = (chRes.data || []).map(r => ({
-      source: 'channel' as const,
+      kind: 'channel' as const,
+      source: (r.channelType || 'web').toLowerCase(),
       id: r.channelId,
       agentId: r.agentId,
       agentName: r.agentName || agentNameMap[r.agentId] || r.agentId,
@@ -359,17 +396,19 @@ async function loadAll() {
     }))
 
     // 面板会话（过滤掉内部系统 session）
+    // 注意：source 从 session.source 取（后端已写入），缺失时用 ID 前缀兜底
     const sesRows: UnifiedRow[] = (sesRes.data?.sessions || [])
       .filter(s => !s.id.startsWith('subagent-') && !s.id.startsWith('goal-') && !s.id.startsWith('__'))
       .map(s => ({
-        source: 'session' as const,
+        kind: 'session' as const,
+        source: normalizeSessionSource(s.source, s.id),
         id: s.id,
         agentId: s.agentId,
         agentName: s.agentName || agentNameMap[s.agentId] || s.agentId,
         messageCount: s.messageCount,
         lastAt: typeof s.lastAt === 'string' ? new Date(s.lastAt).getTime() : (s.lastAt || 0),
         createdAt: typeof s.createdAt === 'string' ? new Date(s.createdAt).getTime() : (s.createdAt || 0),
-        title: s.title,
+        title: s.title || sessionLabelFromId(s.id),
         tokenEstimate: s.tokenEstimate,
         _session: s,
       }))
@@ -384,15 +423,15 @@ async function loadAll() {
 
 // ── 打开详情 ─────────────────────────────────────────────────────────────
 function openDetail(row: UnifiedRow) {
-  if (row.source === 'channel' && row._channel) {
+  if (row.kind === 'channel' && row._channel) {
     openChannelDetail(row._channel)
-  } else if (row.source === 'session' && row._session) {
+  } else if (row.kind === 'session' && row._session) {
     openSessionDetail(row._session)
   }
 }
 
 function rowClassName({ row }: { row: UnifiedRow }) {
-  if (row.source === 'session' && row._session && drawerSession.value?.id === row._session.id) return 'active-row'
+  if (row.kind === 'session' && row._session && drawerSession.value?.id === row._session.id) return 'active-row'
   return ''
 }
 
@@ -444,12 +483,18 @@ async function openSessionDetail(row: SessionSummary) {
   detailLoading.value = true
   try {
     const res = await sessionsApi.get(row.agentId, row.id)
-    detailMessages.value = res.data.messages
+    // 过滤内部 <task-notification> XML 协议消息（Coordinator 注入，用户不应看到）
+    detailMessages.value = (res.data.messages || []).filter(m => !isSystemSignalMsg(m.text || ''))
   } catch (e: any) {
     ElMessage.error('加载对话失败')
   } finally {
     detailLoading.value = false
   }
+}
+
+function isSystemSignalMsg(text: string): boolean {
+  const t = (text || '').trim()
+  return t.startsWith('<task-notification>')
 }
 
 function continueSession(row: SessionSummary) {
@@ -463,7 +508,7 @@ async function deleteSession(row: UnifiedRow) {
     await sessionsApi.delete(row._session.agentId, row._session.id)
     ElMessage.success('已删除')
     if (drawerSession.value?.id === row._session.id) sessionDrawer.value = false
-    allRows.value = allRows.value.filter(r => r.id !== row.id || r.source !== 'session')
+    allRows.value = allRows.value.filter(r => r.id !== row.id || r.kind !== 'session')
   } catch { ElMessage.error('删除失败') }
 }
 
@@ -477,7 +522,7 @@ async function saveTitle() {
   try {
     await sessionsApi.rename(drawerSession.value.agentId, drawerSession.value.id, editTitle.value)
     drawerSession.value.title = editTitle.value
-    const row = allRows.value.find(r => r.source === 'session' && r.id === drawerSession.value!.id)
+    const row = allRows.value.find(r => r.kind === 'session' && r.id === drawerSession.value!.id)
     if (row) row.title = editTitle.value
     editingTitle.value = false
     ElMessage.success('已重命名')
@@ -572,6 +617,13 @@ onMounted(() => loadAll())
 /* 行样式 */
 .row-title-cell { display: flex; flex-direction: column; gap: 2px; }
 .row-title { font-size: 13px; font-weight: 500; color: #303133; }
+
+/* 渠道 tag 专属色 */
+.src-tag { font-weight: 600 !important; letter-spacing: 0.3px; }
+.src-feishu   { background: #eef2ff !important; border-color: #c7d2fe !important; color: #4f46e5 !important; }
+.src-telegram { background: #dcfce7 !important; border-color: #86efac !important; color: #15803d !important; }
+.src-web      { background: #fef3c7 !important; border-color: #fcd34d !important; color: #b45309 !important; }
+.src-panel    { background: #f1f5f9 !important; border-color: #cbd5e1 !important; color: #475569 !important; }
 .row-id   { font-size: 11px; color: #c0c4cc; font-family: monospace; }
 
 .agent-cell {
