@@ -40,11 +40,24 @@ var Version = "dev"
 var embeddedUI embed.FS
 
 func main() {
+	// ── help/--help/-h 提前拦截 ────────────────────────────────────────────
+	// Go flag.Parse() 会把 --help/-h 当作 "帮助请求" 并打印它自己的 Usage，
+	// 导致永远走不到后面的 case "help"。这里在 Parse 前先检查，统一用
+	// printSubcmdHelp() 给出中文帮助。
+	for _, a := range os.Args[1:] {
+		if a == "help" || a == "--help" || a == "-help" || a == "-h" {
+			printSubcmdHelp()
+			os.Exit(0)
+		}
+	}
+
 	// Parse flags
 	defaultCfg := "aipanel.json"
 	if env := os.Getenv("AIPANEL_CONFIG"); env != "" {
 		defaultCfg = env
 	}
+	// 自定义 Usage（万一有人用 `zyhive -unknownflag` 触发 flag 包自己的 Usage）
+	flag.Usage = printSubcmdHelp
 	configPath := flag.String("config", defaultCfg, "path to aipanel.json config file")
 	serveMode := flag.Bool("serve", false, "直接启动服务（跳过 CLI 菜单）")
 	showVersion := flag.Bool("version", false, "打印版本号并退出")
