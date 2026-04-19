@@ -379,7 +379,7 @@ func menuConfigManage() {
 			} else {
 				fmt.Println(ansiCyan + string(data) + ansiReset)
 			}
-			pause()
+			// 注意：尾部 pause() 会统一触发，这里不要再 pause，否则用户要敲两次 Enter
 		case "2":
 			newToken := readInput("输入新访问令牌（直接回车生成随机令牌）")
 			newToken = strings.TrimSpace(newToken)
@@ -448,6 +448,8 @@ func menuConfigManage() {
 			cmd.Run()
 		case "7":
 			menuProviderConfig()
+			// Providers 子菜单有自己的 pause 循环，返回后不要再 pause
+			continue
 		case "0", "q":
 			return
 		}
@@ -798,27 +800,37 @@ func menuAgentManage() {
 
 		printKV("成员目录", agentsDir)
 
-		// 列出成员
+		// 列出成员：只统计真正的 agent 目录（跳过隐藏目录 .xxx，它们通常是
+		// 子 agent / 任务跟踪器等内部元数据，不是 AI 成员实体）
 		entries, err := os.ReadDir(agentsDir)
 		if err != nil {
 			printError("无法读取成员目录：" + err.Error())
 		} else {
-			fmt.Printf("\n  %s已有 %d 个 AI 成员：%s\n", ansiBold, len(entries), ansiReset)
-			for i, e := range entries {
-				if e.IsDir() {
-					// 读取 identity.json 获取名称
-					name := e.Name()
-					idPath := filepath.Join(agentsDir, e.Name(), "identity.json")
-					if data, err := os.ReadFile(idPath); err == nil {
-						var id struct {
-							Name string `json:"name"`
-						}
-						if json.Unmarshal(data, &id) == nil && id.Name != "" {
-							name = id.Name + " (" + e.Name() + ")"
-						}
-					}
-					fmt.Printf("    %s%d.%s %s\n", ansiCyan, i+1, ansiReset, name)
+			// 先收集有效成员，拿到准确计数，再以 1 为基的序号打印
+			type agentRow struct{ id, label string }
+			var rows []agentRow
+			for _, e := range entries {
+				if !e.IsDir() {
+					continue
 				}
+				if strings.HasPrefix(e.Name(), ".") {
+					continue // 隐藏目录（如 .subagent-tasks）不算成员
+				}
+				name := e.Name()
+				idPath := filepath.Join(agentsDir, e.Name(), "identity.json")
+				if data, err := os.ReadFile(idPath); err == nil {
+					var id struct {
+						Name string `json:"name"`
+					}
+					if json.Unmarshal(data, &id) == nil && id.Name != "" {
+						name = id.Name + " (" + e.Name() + ")"
+					}
+				}
+				rows = append(rows, agentRow{id: e.Name(), label: name})
+			}
+			fmt.Printf("\n  %s已有 %d 个 AI 成员：%s\n", ansiBold, len(rows), ansiReset)
+			for i, r := range rows {
+				fmt.Printf("    %s%d.%s %s\n", ansiCyan, i+1, ansiReset, r.label)
 			}
 		}
 
@@ -965,6 +977,8 @@ func menuUpdate() {
 
 	fmt.Println()
 	if !confirm("确认从 " + Version + " 更新到 " + latest + "？服务将短暂中断") {
+		printWarn("已取消更新")
+		pause()
 		return
 	}
 
@@ -975,8 +989,9 @@ func menuUpdate() {
 	if osName == "windows" {
 		suffix = ".exe"
 	}
+	// 注意: release asset 文件名是 zyhive-{os}-{arch}[.exe]（参见 Makefile release target）
 	url := fmt.Sprintf(
-		"https://github.com/Zyling-ai/zyhive/releases/download/%s/aipanel-%s-%s%s",
+		"https://github.com/Zyling-ai/zyhive/releases/download/%s/zyhive-%s-%s%s",
 		latest, osName, arch, suffix,
 	)
 
@@ -1192,6 +1207,31 @@ func menuSSL() {
 	}
 }
 
+// backupDirStateFile 返回保存"备份目录"偏好的文件路径。与 config 文件同目录。
+func backupDirStateFile() string {
+	return filepath.Join(filepath.Dir(findConfigPath()), "backup-dir")
+}
+
+// loadBackupDir 读取用户配置的备份目录，默认 /var/backups/zyhive。
+func loadBackupDir() string {
+	if data, err := os.ReadFile(backupDirStateFile()); err == nil {
+		s := strings.TrimSpace(string(data))
+		if s != "" {
+			return s
+		}
+	}
+	return "/var/backups/zyhive"
+}
+
+// saveBackupDir 持久化用户配置的备份目录。
+func saveBackupDir(dir string) error {
+	path := backupDirStateFile()
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(dir), 0644)
+}
+
 // ── 9. 备份与恢复 ──────────────────────────────────────────────────────────
 func menuBackup() {
 	for {
@@ -1204,7 +1244,7 @@ func menuBackup() {
 			agentsDir = cfg.Agents.Dir
 		}
 		configPath := findConfigPath()
-		backupDir := "/var/backups/zyhive"
+		backupDir := loadBackupDir()
 
 		printKV("成员目录", agentsDir)
 		printKV("配置文件", configPath)
@@ -1264,10 +1304,17 @@ func menuBackup() {
 		case "4":
 			newDir := readInput("输入新备份目录")
 			newDir = strings.TrimSpace(newDir)
-			if newDir != "" {
-				backupDir = newDir
-				os.MkdirAll(backupDir, 0755)
-				printSuccess("备份目录已设置为：" + backupDir)
+			if newDir == "" {
+				printError("路径不能为空")
+			} else {
+				if err := os.MkdirAll(newDir, 0755); err != nil {
+					printError("创建目录失败：" + err.Error())
+				} else if err := saveBackupDir(newDir); err != nil {
+					printError("持久化失败：" + err.Error())
+				} else {
+					backupDir = newDir
+					printSuccess("备份目录已设置为：" + backupDir)
+				}
 			}
 			pause()
 		case "0", "q":
