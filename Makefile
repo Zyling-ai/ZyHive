@@ -26,14 +26,16 @@ run:
 	AIPANEL_CONFIG=aipanel.json ./bin/aipanel
 
 # 交叉编译所有平台（需先 make ui sync-ui）
+# 使用 CGO_ENABLED=0 产出 **纯静态二进制**，这样不依赖目标机 glibc 版本
+# （否则在 CentOS 7 / glibc 2.17 上会报 `GLIBC_2.34 not found`）。
 release: sync-ui
 	mkdir -p bin/release
-	GOOS=linux  GOARCH=amd64  go build -ldflags "$(LDFLAGS)" -o bin/release/zyhive-linux-amd64   ./cmd/aipanel/
-	GOOS=linux  GOARCH=arm64  go build -ldflags "$(LDFLAGS)" -o bin/release/zyhive-linux-arm64   ./cmd/aipanel/
-	GOOS=darwin GOARCH=arm64  go build -ldflags "$(LDFLAGS)" -o bin/release/zyhive-darwin-arm64  ./cmd/aipanel/
-	GOOS=darwin GOARCH=amd64  go build -ldflags "$(LDFLAGS)" -o bin/release/zyhive-darwin-amd64  ./cmd/aipanel/
-	GOOS=windows GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o bin/release/zyhive-windows-amd64.exe ./cmd/aipanel/
-	GOOS=windows GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o bin/release/zyhive-windows-arm64.exe ./cmd/aipanel/
+	CGO_ENABLED=0 GOOS=linux   GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o bin/release/zyhive-linux-amd64      ./cmd/aipanel/
+	CGO_ENABLED=0 GOOS=linux   GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o bin/release/zyhive-linux-arm64      ./cmd/aipanel/
+	CGO_ENABLED=0 GOOS=darwin  GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o bin/release/zyhive-darwin-arm64     ./cmd/aipanel/
+	CGO_ENABLED=0 GOOS=darwin  GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o bin/release/zyhive-darwin-amd64     ./cmd/aipanel/
+	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o bin/release/zyhive-windows-amd64.exe ./cmd/aipanel/
+	CGO_ENABLED=0 GOOS=windows GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o bin/release/zyhive-windows-arm64.exe ./cmd/aipanel/
 	ls -lh bin/release/
 
 clean:
