@@ -68,7 +68,8 @@
 
       <!-- streaming 期间跳过最后一条（正在构建的 assistant 消息），由流式占位符渲染 -->
       <!-- #15 fix: skip messages with no visible content (empty bubbles) -->
-      <template v-for="(msg, i) in (streaming ? messages.slice(0, -1) : messages).filter(m => m.text?.trim() || m.images?.length || m.toolCalls?.length || m.options?.length || m.noModelError)" :key="i">
+      <!-- #16 fix: filter out internal <task-notification> XML injected for Coordinator — 不应作为用户气泡呈现 -->
+      <template v-for="(msg, i) in (streaming ? messages.slice(0, -1) : messages).filter(m => (m.text?.trim() || m.images?.length || m.toolCalls?.length || m.options?.length || m.noModelError) && !isSystemSignalMsg(m.text))" :key="i">
 
         <!-- 用户消息 -->
         <div v-if="msg.role === 'user' && (msg.text?.trim() || msg.images?.length)" class="msg-row user">
@@ -510,6 +511,16 @@ const rootStyle = computed(() => ({
 }))
 
 // ── Helpers ───────────────────────────────────────────────────────────────
+// ── System signal detector ─────────────────────────────────────────────────
+// Coordinator 模式下，后端会把 <task-notification> XML 以 role=user 写入 session，
+// 让 LLM 在下一轮感知到子任务完成。但用户不应在聊天界面看到这种内部协议气泡。
+// 命中条件：消息文本 trim 后以 <task-notification> 开头。
+function isSystemSignalMsg(text: string | undefined): boolean {
+  if (!text) return false
+  const t = text.trim()
+  return t.startsWith('<task-notification>') || t.startsWith('&lt;task-notification&gt;')
+}
+
 // ── agent_spawn task polling ────────────────────────────────────────────────
 
 function fmtElapsed(startMs: number): string {
@@ -602,7 +613,7 @@ async function pollTasks() {
         }
         for (const m of parsed) {
           if (m.role === 'compaction') continue
-          if (m.text?.trim() || (m.toolCalls && m.toolCalls.length > 0)) loaded.push({ role: m.role as 'user' | 'assistant', text: m.text, toolCalls: m.toolCalls?.map((tc: any) => ({ id: tc.id, name: tc.name, input: tc.input, result: tc.result, status: 'done' as const, _expanded: false, ...processToolResult(tc.result ?? '') })) })
+          if ((m.text?.trim() || (m.toolCalls && m.toolCalls.length > 0)) && !isSystemSignalMsg(m.text)) loaded.push({ role: m.role as 'user' | 'assistant', text: m.text, toolCalls: m.toolCalls?.map((tc: any) => ({ id: tc.id, name: tc.name, input: tc.input, result: tc.result, status: 'done' as const, _expanded: false, ...processToolResult(tc.result ?? '') })) })
         }
         messages.value = loaded
         scrollBottom()
@@ -661,7 +672,7 @@ async function reattachSessionTasks(sessionId: string) {
           }
           for (const m of parsed) {
             if (m.role === 'compaction') continue
-            if (m.text?.trim() || (m.toolCalls && m.toolCalls.length > 0)) loaded.push({ role: m.role as 'user' | 'assistant', text: m.text, toolCalls: m.toolCalls?.map((tc: any) => ({ id: tc.id, name: tc.name, input: tc.input, result: tc.result, status: 'done' as const, _expanded: false, ...processToolResult(tc.result ?? '') })) })
+            if ((m.text?.trim() || (m.toolCalls && m.toolCalls.length > 0)) && !isSystemSignalMsg(m.text)) loaded.push({ role: m.role as 'user' | 'assistant', text: m.text, toolCalls: m.toolCalls?.map((tc: any) => ({ id: tc.id, name: tc.name, input: tc.input, result: tc.result, status: 'done' as const, _expanded: false, ...processToolResult(tc.result ?? '') })) })
           }
           messages.value = loaded
           scrollBottom()
@@ -1418,6 +1429,7 @@ async function resumeSession(sessionId: string) {
     for (const m of parsed) {
       if (m.role === 'compaction') continue  // skip raw compaction entries
       if (!m.text?.trim() && !(m.toolCalls?.length)) continue  // skip empty messages
+      if (isSystemSignalMsg(m.text)) continue  // skip <task-notification> internal signals
       loaded.push({
         role: m.role as 'user' | 'assistant',
         text: m.text,
@@ -1483,7 +1495,7 @@ async function reconnectIfGenerating(sessionId: string) {
         }
         for (const m of parsed) {
           if (m.role === 'compaction') continue
-          if (m.text?.trim() || (m.toolCalls && m.toolCalls.length > 0)) loaded.push({ role: m.role as 'user' | 'assistant', text: m.text, toolCalls: m.toolCalls?.map((tc: any) => ({ id: tc.id, name: tc.name, input: tc.input, result: tc.result, status: 'done' as const, _expanded: false, ...processToolResult(tc.result ?? '') })) })
+          if ((m.text?.trim() || (m.toolCalls && m.toolCalls.length > 0)) && !isSystemSignalMsg(m.text)) loaded.push({ role: m.role as 'user' | 'assistant', text: m.text, toolCalls: m.toolCalls?.map((tc: any) => ({ id: tc.id, name: tc.name, input: tc.input, result: tc.result, status: 'done' as const, _expanded: false, ...processToolResult(tc.result ?? '') })) })
         }
         messages.value = loaded
         scrollBottom()
@@ -1717,16 +1729,17 @@ onMounted(() => {
   word-break: break-word;
 }
 .msg-bubble.user {
-  background: #409eff;
+  background: linear-gradient(135deg, #4a9aff 0%, #3a8ae6 100%);
   color: #fff;
   border-bottom-right-radius: 4px;
   max-width: 72cqi; /* container query units */
+  box-shadow: 0 1px 3px rgba(64, 158, 255, .2);
 }
 .msg-bubble.assistant {
   background: #fff;
   color: #303133;
   border-bottom-left-radius: 4px;
-  box-shadow: 0 1px 4px rgba(0,0,0,.08);
+  box-shadow: 0 1px 3px rgba(0,0,0,.06), 0 0 0 1px rgba(0,0,0,.04);
 }
 
 /* ── 未配置模型提示卡 ── */

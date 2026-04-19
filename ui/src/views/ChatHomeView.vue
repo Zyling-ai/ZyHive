@@ -211,17 +211,38 @@ function syncModel() {
   }
 }
 
+// 渠道来源 → 友好标签（用于会话下拉选项）
+function channelLabel(source: string): string {
+  const map: Record<string, string> = { feishu: '飞书', telegram: 'TG', web: 'Web', panel: '面板' }
+  return map[source] || '面板'
+}
+
+function inferSessionSource(raw: string | undefined, id: string): string {
+  const s = (raw || '').toLowerCase()
+  if (s === 'feishu' || s === 'telegram' || s === 'web') return s
+  if (id.startsWith('feishu-')) return 'feishu'
+  if (id.startsWith('tg-')) return 'telegram'
+  if (id.startsWith('web-')) return 'web'
+  return 'panel'
+}
+
 async function loadSessions(agentId: string) {
   try {
     const res = await sessApi.list({ agentId, limit: 30 })
-    sessions.value = (res.data.sessions || []).map((s: any) => ({
-      key: s.id || s.key,
-      preview: (s.title || s.id || '').slice(0, 40) || '对话',
-      createdAt: s.createdAt || 0,
-      lastAt: s.lastAt || s.createdAt || 0,
-      messageCount: s.messageCount || 0,
-      channel: s.channel || s.source || 'web',
-    }))
+    sessions.value = (res.data.sessions || [])
+      .filter(s => !s.id.startsWith('subagent-') && !s.id.startsWith('goal-') && !s.id.startsWith('__'))
+      .map(s => {
+        const src = inferSessionSource(s.source, s.id)
+        const preview = (s.title && s.title.trim()) || (src === 'feishu' ? '飞书 · ' + s.id.slice(7, 15) : src === 'telegram' ? 'TG · ' + s.id.slice(3, 11) : '对话')
+        return {
+          key: s.id,
+          preview: preview.slice(0, 40),
+          createdAt: s.createdAt || 0,
+          lastAt: s.lastAt || s.createdAt || 0,
+          messageCount: s.messageCount || 0,
+          channel: channelLabel(src),
+        }
+      })
   } catch {}
 }
 
