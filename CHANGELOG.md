@@ -4,6 +4,34 @@
 
 ---
 
+## [26.4.19v1] — 2026-04-19 · 测试基础设施修复与仓库清理
+
+### 修复（仓库维护）
+
+- **测试套件全绿**：修正 `cmd/aipanel/main_test.go`
+  - `TestConfigLoad` 适配 `Config.Models` 新结构（`[]ModelEntry` 取代旧 `legacyModelsConfig{Primary}`），解决 `go vet ./cmd/...` 与 `go test ./cmd/aipanel/...` 构建失败
+  - `TestAgentManager` 适配四层 memory tree 目录结构（`workspace/memory/{INDEX.md,core,projects,daily,topics}` 取代平面 `MEMORY.md`）
+- **仓库清理**：移除 `projects/zyhive/` 下 15 个冗余 Go 源码快照（-5300 行），解决 `go build ./...` 失败于 `pattern all:ui_dist: no matching files found`
+- **Agent 创建页 UX**：新建 agent 时若无模型配置，禁用输入框并显示提示卡片（b0ba1cc）
+
+### 验证矩阵
+
+| 命令 | 结果 |
+|------|------|
+| `go build ./...` | ✅ exit 0 |
+| `go vet ./...` | ✅ exit 0 |
+| `go test -count=1 ./...` | ✅ 6/6 包 PASS |
+| `go test -race -count=1 ./...` | ✅ 6/6 包 PASS（无 race） |
+| `npx vue-tsc -b` | ✅ |
+| `npx vite build` | ✅ |
+| `make release` | ✅ 6 个平台二进制 |
+
+### 备注
+
+本版本仅涉及测试套件修复与仓库清理，**无运行时行为变更**。
+
+---
+
 ## [26.4.1v20] — 2026-04-01 · 飞书渠道全面接入
 
 ### 新功能
