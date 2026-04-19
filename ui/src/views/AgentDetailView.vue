@@ -37,24 +37,18 @@
                   v-for="item in allSidebarItems"
                   :key="item.type + ':' + item.id"
                   :class="['session-item', { active: isSelectedItem(item) }]"
+                  :style="{ '--src-color': sourceColor(item.source) }"
+                  :title="sourceTag(item.source).label + ' · ' + item.label"
                   @click="selectSidebarItem(item)"
                 >
-                  <div class="session-item-header">
-                    <el-tag
-                      :type="sourceTag(item.source).type"
-                      size="small"
-                      effect="plain"
-                      :class="['session-source-tag', sourceTag(item.source).className]">
-                      {{ sourceTag(item.source).label }}
-                    </el-tag>
-                    <span class="session-item-time">{{ formatRelative(item.lastAt) }}</span>
-                  </div>
                   <div class="session-item-title">{{ item.label }}</div>
                   <div class="session-item-meta">
-                    <span>{{ item.messageCount }} 条</span>
-                    <el-tag v-if="item.tokenEstimate && item.tokenEstimate > 60000"
-                      size="small" type="warning" effect="plain" style="font-size:10px;padding:0 4px">
-                      ~{{ Math.round(item.tokenEstimate / 1000) }}k</el-tag>
+                    <span class="session-src-dot" :style="{ background: sourceColor(item.source) }" />
+                    <span class="session-item-src-text">{{ sourceTag(item.source).label }}</span>
+                    <span class="session-meta-dot">·</span>
+                    <span>{{ item.messageCount }}</span>
+                    <span class="session-meta-dot">·</span>
+                    <span class="session-item-time">{{ formatRelative(item.lastAt) }}</span>
                   </div>
                 </div>
 
@@ -1285,6 +1279,15 @@ function sourceTag(source: string): SourceTagCfg {
     default:         return SOURCE_TAG_PANEL
   }
 }
+// 渠道主色（用于侧边栏左侧色条与小圆点）
+function sourceColor(source: string): string {
+  switch (source) {
+    case 'feishu':   return '#6366f1'
+    case 'telegram': return '#10b981'
+    case 'web':      return '#f59e0b'
+    default:         return '#94a3b8'
+  }
+}
 
 const aiChatRef = ref<InstanceType<typeof AiChat>>()
 const agentSessions = ref<SessionSummary[]>([])
@@ -2413,11 +2416,12 @@ async function openCronLogs(job: any) {
 }
 .detail-header {
   background: #fff;
-  border-bottom: 1px solid #e4e7ed;
+  border-bottom: 1px solid #ececec;
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 20px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.02);
 }
 .header-left {
   display: flex;
@@ -2524,11 +2528,11 @@ async function openCronLogs(job: any) {
 }
 
 .session-sidebar {
-  width: 220px;
+  width: 240px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid #e4e7ed;
+  border-right: 1px solid #ececec;
   background: #fafafa;
   overflow: hidden;
 }
@@ -2537,57 +2541,82 @@ async function openCronLogs(job: any) {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 12px;
-  border-bottom: 1px solid #e4e7ed;
+  padding: 12px 14px;
+  border-bottom: 1px solid #ececec;
   flex-shrink: 0;
 }
 
 .sidebar-title {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
-  color: #303133;
+  color: #64748b;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
 }
 
 .session-list {
   flex: 1;
   overflow-y: auto;
-  padding: 6px 4px;
+  padding: 6px 8px;
 }
 
+/* 极简 session item: 左侧 2px 渠道色条 + 标题 + 小字元数据 */
 .session-item {
-  padding: 8px 10px;
+  position: relative;
+  padding: 8px 10px 8px 12px;
   border-radius: 6px;
   cursor: pointer;
-  margin-bottom: 2px;
-  transition: background 0.15s;
+  margin-bottom: 1px;
+  transition: background 0.12s;
+  border-left: 2px solid transparent;
 }
-
+.session-item::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 10px;
+  bottom: 10px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--src-color, transparent);
+  opacity: 0.55;
+  transition: opacity 0.15s;
+}
 .session-item:hover {
-  background: #f0f2f5;
+  background: rgba(0, 0, 0, 0.035);
 }
-
+.session-item:hover::before { opacity: 1; }
 .session-item.active {
-  background: #ecf5ff;
-  border-left: 3px solid #409eff;
+  background: rgba(99, 102, 241, 0.08);
 }
+.session-item.active::before { opacity: 1; width: 3px; }
+.session-item.active .session-item-title { color: #1e293b; font-weight: 600; }
 
 .session-item-title {
   font-size: 13px;
-  color: #303133;
+  color: #334155;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   line-height: 1.4;
-  margin-bottom: 4px;
+  margin-bottom: 3px;
 }
 
 .session-item-meta {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   font-size: 11px;
-  color: #909399;
+  color: #94a3b8;
 }
+.session-src-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.session-item-src-text { font-weight: 500; color: #64748b; }
+.session-meta-dot { opacity: 0.4; }
 
 .session-empty {
   text-align: center;
@@ -2595,48 +2624,8 @@ async function openCronLogs(job: any) {
   font-size: 12px;
   padding: 20px 0;
 }
-
-/* Session item header with source tag + time */
-.session-item-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 3px;
-}
-.session-source-tag {
-  font-size: 10px !important;
-  padding: 0 6px !important;
-  height: 17px !important;
-  line-height: 17px !important;
-  flex-shrink: 0;
-  font-weight: 600 !important;
-  letter-spacing: 0.2px;
-}
-/* 渠道专属色（覆盖 Element Plus 默认 type 样式）*/
-.session-source-tag.tag-feishu {
-  background: #eef2ff !important;
-  border-color: #c7d2fe !important;
-  color: #4f46e5 !important;
-}
-.session-source-tag.tag-telegram {
-  background: #dcfce7 !important;
-  border-color: #86efac !important;
-  color: #15803d !important;
-}
-.session-source-tag.tag-web {
-  background: #fef3c7 !important;
-  border-color: #fcd34d !important;
-  color: #b45309 !important;
-}
-.session-source-tag.tag-panel {
-  background: #f1f5f9 !important;
-  border-color: #cbd5e1 !important;
-  color: #475569 !important;
-}
-.session-item-time {
-  font-size: 10px;
-  color: #c0c4cc;
-}
+/* (极简设计: session-source-tag 和 session-item-time 由新 meta 行替代) */
+.session-item-time { font-size: 11px; color: #94a3b8; }
 
 /* History viewer */
 .history-viewer {

@@ -778,37 +778,105 @@ function filterActionBlocks(text: string): string {
   return text.trim()
 }
 
+// 极简 syntax highlight：只做通用关键字/字符串/数字/注释染色，不依赖第三方库
+function highlightCode(code: string, lang: string): string {
+  const l = (lang || '').toLowerCase()
+  // 先转义 HTML（code 已经是 escape 后的字符串，但为保险再做一次 <>&）
+  let src = code
+
+  // 通用 token：字符串 / 数字 / 注释 / 关键字
+  const keywordsByLang: Record<string, string[]> = {
+    js: ['const','let','var','function','return','if','else','for','while','class','new','async','await','import','export','from','default','try','catch','finally','throw','typeof','instanceof','this','null','true','false','undefined'],
+    ts: ['const','let','var','function','return','if','else','for','while','class','new','async','await','import','export','from','default','try','catch','finally','throw','typeof','instanceof','this','null','true','false','undefined','interface','type','enum','as','readonly','public','private','protected'],
+    go: ['func','package','import','var','const','type','struct','interface','return','if','else','for','range','switch','case','default','break','continue','go','defer','chan','map','true','false','nil'],
+    py: ['def','class','import','from','return','if','elif','else','for','while','try','except','finally','raise','with','as','lambda','None','True','False','and','or','not','in','is','pass','yield','async','await','self'],
+    sh: ['if','then','else','elif','fi','for','do','done','while','case','esac','function','return','export','echo','cd','ls','pwd','local','readonly'],
+    bash: ['if','then','else','elif','fi','for','do','done','while','case','esac','function','return','export','echo','cd','ls','pwd','local','readonly'],
+    rust: ['fn','let','mut','pub','use','mod','struct','enum','impl','trait','match','if','else','for','while','loop','return','self','Self','true','false','as'],
+    json: [],
+  }
+  const base = l.split('-')[0] || ''
+  const kwList = keywordsByLang[l] || (base ? keywordsByLang[base] : undefined) || []
+
+  // 注意顺序：先注释 → 字符串 → 数字 → 关键字（避免关键字替换破坏字符串）
+  // 注释: // ...\n  |  # ...\n  |  /* ... */
+  src = src.replace(/(\/\/[^\n]*|#[^\n]*|\/\*[\s\S]*?\*\/)/g, '<span class="tok-c">$1</span>')
+  // 字符串: "..." / '...' / `...`  (避免跨越已经高亮的 span)
+  src = src.replace(/("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`)/g, '<span class="tok-s">$1</span>')
+  // 数字
+  src = src.replace(/\b(\d+\.?\d*)\b/g, '<span class="tok-n">$1</span>')
+  // 关键字
+  if (kwList.length) {
+    const re = new RegExp('\\b(' + kwList.join('|') + ')\\b', 'g')
+    src = src.replace(re, '<span class="tok-k">$1</span>')
+  }
+  return src
+}
+
 function renderMd(text: string): string {
   if (!text) return ''
   // In skill-studio, hide protocol JSON from the user — actions are handled silently
   if (props.scenario === 'skill-studio') text = filterActionBlocks(text)
+
+  // 1. 预抽取代码块（避免内层 markdown 干扰）
+  const codeBlocks: string[] = []
   let html = text
-    // Escape HTML first
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    // Code blocks (```lang\n...\n```)
-    .replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) =>
-      `<pre class="code-block${lang ? ' lang-' + lang : ''}"><code>${code}</code></pre>`)
+    .replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
+      const highlighted = highlightCode(code, lang)
+      const header = lang ? `<div class="code-lang">${lang}</div>` : ''
+      const i = codeBlocks.length
+      codeBlocks.push(`<div class="code-wrap${lang ? ' lang-' + lang : ''}">${header}<pre class="code-block"><code>${highlighted}</code></pre></div>`)
+      return `\x00CODEBLOCK${i}\x00`
+    })
+
+  // 2. 表格（GFM 样式）: 先用多行正则识别 |a|b| + |---|---| + 数据行
+  html = html.replace(/(^\|[^\n]+\|\n\|[\s\-:|]+\|\n(?:\|[^\n]*\|\n?)+)/gm, (block) => {
+    const lines = block.trim().split('\n')
+    if (lines.length < 2) return block
+    const parseRow = (line: string) => line.replace(/^\||\|$/g, '').split('|').map(c => c.trim())
+    const headers = parseRow(lines[0]!)
+    const rows = lines.slice(2).map(parseRow)
+    const thead = '<tr>' + headers.map(h => `<th>${h}</th>`).join('') + '</tr>'
+    const tbody = rows.map(r => '<tr>' + r.map(c => `<td>${c}</td>`).join('') + '</tr>').join('')
+    return `<div class="md-table-wrap"><table class="md-table"><thead>${thead}</thead><tbody>${tbody}</tbody></table></div>`
+  })
+
+  // 3. 标题 / 引用块 / 列表 / 行内元素
+  html = html
+    // 引用块 (> ...)
+    .replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>')
+    // 合并相邻 blockquote
+    .replace(/(<\/blockquote>\n<blockquote>)/g, '<br>')
     // Inline code
-    .replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>')
+    .replace(/`([^`\n]+)`/g, '<code class="inline-code">$1</code>')
     // Bold
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    // Italic
-    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
+    // Italic (避开 bold 的 **)
+    .replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1<em>$2</em>')
     // Links
     .replace(/\[(.+?)\]\((https?:\/\/[^\)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
     // Headings
+    .replace(/^###### (.+)$/gm, '<h4 class="md-h6">$1</h4>')
+    .replace(/^##### (.+)$/gm, '<h4 class="md-h5">$1</h4>')
+    .replace(/^#### (.+)$/gm, '<h4>$1</h4>')
     .replace(/^### (.+)$/gm, '<h3>$1</h3>')
     .replace(/^## (.+)$/gm, '<h2>$1</h2>')
     .replace(/^# (.+)$/gm, '<h1>$1</h1>')
-    // Unordered list items
+    // 水平线
+    .replace(/^---+$/gm, '<hr />')
+    // 有序列表
+    .replace(/^(\d+)\. (.+)$/gm, '<li data-ol="1">$2</li>')
+    // 无序列表
     .replace(/^[-*] (.+)$/gm, '<li>$1</li>')
-    // Ordered list items
-    .replace(/^\d+\. (.+)$/gm, '<li>$1</li>')
-    // Wrap consecutive <li> in <ul>
-    .replace(/(<li>[\s\S]+?<\/li>)(\n(?!<li>)|$)/g, '<ul>$1</ul>$2')
-    // Newlines → <br> (outside block elements)
-    .replace(/([^>])\n([^<])/g, '$1<br>$2')
+    // 将连续 li 包起来（区分有序/无序）
+    .replace(/(<li data-ol="1">[\s\S]*?<\/li>)(?=\n?(?!<li data-ol="1">))/g, (m) => `<ol>${m.replace(/ data-ol="1"/g, '')}</ol>`)
+    .replace(/(<li>(?:(?!data-ol="1").)*?<\/li>(?:\n<li>(?:(?!data-ol="1").)*?<\/li>)*)/g, (m) => `<ul>${m}</ul>`)
+    // 普通换行 → <br>
+    .replace(/([^>\n])\n([^<\n])/g, '$1<br>$2')
 
+  // 4. 恢复代码块
+  html = html.replace(/\x00CODEBLOCK(\d+)\x00/g, (_, i) => codeBlocks[parseInt(i)] || '')
   return html
 }
 
@@ -1670,7 +1738,7 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: var(--bg, transparent);
+  background: var(--bg, #fafafa);
   container-type: inline-size;
   font-size: 14px;
 }
@@ -1679,11 +1747,19 @@ onMounted(() => {
 .chat-messages {
   flex: 1;
   overflow-y: auto;
-  padding: 16px;
+  padding: 18px 24px 24px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
   scroll-behavior: smooth;
+  max-width: 920px;
+  width: 100%;
+  margin: 0 auto;
+  box-sizing: border-box;
+}
+/* 容器窄时压缩内边距 */
+@container (max-width: 600px) {
+  .chat-messages { padding: 14px 16px; }
 }
 
 .chat-empty {
@@ -1710,7 +1786,8 @@ onMounted(() => {
 .msg-row.user  { justify-content: flex-end; }
 .msg-row.assistant { justify-content: flex-start; }
 .msg-row.system { justify-content: center; }
-.msg-col { display: flex; flex-direction: column; gap: 6px; max-width: 82%; }
+.msg-col { display: flex; flex-direction: column; gap: 6px; max-width: 92%; }
+.msg-row.assistant .msg-col { max-width: 100%; width: 100%; }
 
 .msg-system {
   background: #fdf6ec;
@@ -1720,26 +1797,27 @@ onMounted(() => {
   font-size: 12px;
 }
 
-/* ── Bubbles ── */
+/* ── Bubbles (极简风: AI 消息直接铺底, 用户消息浅灰胶囊) ── */
 .msg-bubble {
   position: relative;
-  padding: 10px 14px;
-  border-radius: 14px;
-  line-height: 1.65;
+  padding: 8px 14px;
+  line-height: 1.7;
   word-break: break-word;
+  font-size: 14px;
 }
 .msg-bubble.user {
-  background: linear-gradient(135deg, #4a9aff 0%, #3a8ae6 100%);
-  color: #fff;
+  background: #e8f3ff;
+  color: #1e293b;
+  border-radius: 14px;
   border-bottom-right-radius: 4px;
-  max-width: 72cqi; /* container query units */
-  box-shadow: 0 1px 3px rgba(64, 158, 255, .2);
+  max-width: 72cqi;
 }
+/* AI 消息: 无气泡背景, 直接贴底, 只保留左右留白 */
 .msg-bubble.assistant {
-  background: #fff;
-  color: #303133;
-  border-bottom-left-radius: 4px;
-  box-shadow: 0 1px 3px rgba(0,0,0,.06), 0 0 0 1px rgba(0,0,0,.04);
+  background: transparent;
+  color: #1e293b;
+  padding: 2px 0;
+  border-radius: 0;
 }
 
 /* ── 未配置模型提示卡 ── */
@@ -1868,17 +1946,18 @@ onMounted(() => {
   margin-bottom: 4px;
 }
 .tool-step {
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.02);
+  border: 1px solid transparent;
+  border-radius: 6px;
   overflow: hidden;
   cursor: pointer;
-  transition: border-color .15s, background .15s;
+  transition: border-color .12s, background .12s;
   user-select: none;
 }
-.tool-step:hover { border-color: #cbd5e1; background: #f1f5f9; }
-.tool-step.running { border-color: #fbbf24; background: #fffbeb; }
-.tool-step.done    { border-color: #86efac; }
+.tool-step:hover { border-color: #e2e8f0; background: rgba(0,0,0,0.04); }
+.tool-step.running { border-color: #fcd34d; background: #fffbeb; }
+.tool-step.done    { /* 默认态，不强调 */ }
+.tool-step.done:hover { border-color: #d1fae5; }
 .tool-step.error   { border-color: #fca5a5; background: #fff5f5; }
 
 .tool-step-header {
@@ -2007,28 +2086,109 @@ onMounted(() => {
 .tool-file-size { color: #64748b; font-size: 12px; }
 .tool-file-dl { color: #38bdf8; font-size: 12px; font-weight: 600; margin-left: 4px; }
 
-/* ── Markdown ── */
-.msg-text :deep(pre.code-block) {
-  background: #1e1e2e;
-  color: #cdd6f4;
+/* ── Markdown 渲染样式（AI 消息正文） ── */
+/* Code block with language badge */
+.msg-text :deep(.code-wrap) {
+  position: relative;
+  margin: 10px 0;
   border-radius: 8px;
-  padding: 12px;
+  overflow: hidden;
+  background: #1e1e2e;
+}
+.msg-text :deep(.code-lang) {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  font-size: 10.5px;
+  color: rgba(205, 214, 244, 0.55);
+  font-family: 'Menlo', 'Monaco', monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  user-select: none;
+  pointer-events: none;
+}
+.msg-text :deep(pre.code-block) {
+  background: transparent;
+  color: #cdd6f4;
+  padding: 14px 16px;
   overflow-x: auto;
   font-size: 13px;
-  margin: 8px 0;
+  line-height: 1.6;
+  margin: 0;
+  font-family: 'Menlo', 'Monaco', 'Cascadia Code', 'Consolas', monospace;
 }
+/* Syntax token colors (与 VSCode one-dark 风接近) */
+.msg-text :deep(.tok-k) { color: #c678dd; }   /* keyword — 紫 */
+.msg-text :deep(.tok-s) { color: #98c379; }   /* string — 绿 */
+.msg-text :deep(.tok-n) { color: #d19a66; }   /* number — 橙 */
+.msg-text :deep(.tok-c) { color: #7f848e; font-style: italic; } /* comment — 灰 */
+
 .msg-text :deep(.inline-code) {
-  background: rgba(0,0,0,.08);
-  padding: 1px 5px;
+  background: rgba(0, 0, 0, .06);
+  padding: 1.5px 6px;
   border-radius: 4px;
-  font-family: monospace;
-  font-size: 0.9em;
+  font-family: 'Menlo', 'Monaco', 'Consolas', monospace;
+  font-size: 0.88em;
+  color: #c7254e;
 }
-.msg-bubble.user .msg-text :deep(.inline-code) { background: rgba(255,255,255,.25); }
-.msg-text :deep(ul)  { margin: 4px 0 4px 16px; }
-.msg-text :deep(li)  { margin: 2px 0; }
-.msg-text :deep(h1, h2, h3) { margin: 8px 0 4px; }
-.msg-text :deep(a)   { color: #409eff; }
+.msg-bubble.user .msg-text :deep(.inline-code) {
+  background: rgba(30, 58, 138, 0.1);
+  color: #1e3a8a;
+}
+
+/* Tables */
+.msg-text :deep(.md-table-wrap) {
+  overflow-x: auto;
+  margin: 10px 0;
+  border-radius: 6px;
+  border: 1px solid #e4e7ed;
+}
+.msg-text :deep(.md-table) {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.msg-text :deep(.md-table th) {
+  background: #f8fafc;
+  color: #334155;
+  font-weight: 600;
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 1px solid #e2e8f0;
+}
+.msg-text :deep(.md-table td) {
+  padding: 7px 12px;
+  border-bottom: 1px solid #f1f5f9;
+  color: #475569;
+}
+.msg-text :deep(.md-table tr:nth-child(even) td) { background: #fafbfc; }
+.msg-text :deep(.md-table tr:last-child td) { border-bottom: none; }
+
+/* Blockquote */
+.msg-text :deep(blockquote) {
+  border-left: 3px solid #c7d2fe;
+  padding: 4px 12px;
+  margin: 8px 0;
+  color: #64748b;
+  background: #f8fafc;
+  border-radius: 0 6px 6px 0;
+  font-style: italic;
+}
+
+/* Headings */
+.msg-text :deep(h1) { font-size: 1.4em; margin: 16px 0 8px; font-weight: 700; color: #1e293b; }
+.msg-text :deep(h2) { font-size: 1.2em; margin: 14px 0 6px; font-weight: 700; color: #1e293b; }
+.msg-text :deep(h3) { font-size: 1.08em; margin: 12px 0 4px; font-weight: 600; color: #334155; }
+.msg-text :deep(h4) { font-size: 1em;    margin: 10px 0 4px; font-weight: 600; color: #475569; }
+
+/* Lists */
+.msg-text :deep(ul),
+.msg-text :deep(ol) { margin: 6px 0 6px 20px; padding: 0; }
+.msg-text :deep(li) { margin: 3px 0; line-height: 1.7; }
+.msg-text :deep(hr) { border: none; border-top: 1px solid #e4e7ed; margin: 14px 0; }
+.msg-text :deep(a) { color: #3b82f6; text-decoration: none; border-bottom: 1px dotted rgba(59,130,246,.4); }
+.msg-text :deep(a:hover) { color: #1d4ed8; border-bottom-color: #1d4ed8; }
+.msg-text :deep(strong) { color: #1e293b; font-weight: 600; }
 
 /* ── Apply card ── */
 .apply-card {
@@ -2151,12 +2311,18 @@ onMounted(() => {
 @keyframes blink { 50% { opacity: 0; } }
 .blink { animation: blink .8s infinite; font-size: 12px; }
 
-/* ── Input area ── */
+/* ── Input area (极简风: 无硬边框, 居中容器) ── */
 .chat-input-area {
   flex-shrink: 0;
-  background: #fff;
-  border-top: 1px solid #e4e7ed;
-  padding: 10px 12px;
+  background: transparent;
+  padding: 10px 24px 16px;
+  max-width: 920px;
+  width: 100%;
+  margin: 0 auto;
+  box-sizing: border-box;
+}
+@container (max-width: 600px) {
+  .chat-input-area { padding: 8px 14px 12px; }
 }
 
 .attachments-bar {
@@ -2236,28 +2402,38 @@ onMounted(() => {
 }
 .attach-file-remove:hover { color: #f56c6c; }
 
-.input-row { display: flex; gap: 8px; align-items: flex-end; }
+.input-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  background: #fff;
+  border: 1px solid #e4e7ed;
+  border-radius: 14px;
+  padding: 8px 8px 8px 14px;
+  transition: border-color .15s, box-shadow .15s;
+}
+.input-row:focus-within {
+  border-color: #94a3b8;
+  box-shadow: 0 0 0 3px rgba(99,102,241,0.08);
+}
 .textarea-wrap { flex: 1; }
 .chat-textarea {
   width: 100%;
   resize: none;
-  border: 1px solid #dcdfe6;
-  border-radius: 10px;
-  padding: 9px 12px;
+  border: none;
+  padding: 4px 0;
   font-size: 14px;
   font-family: inherit;
-  color: #303133;
-  background: #f5f7fa;
+  color: #1e293b;
+  background: transparent;
   outline: none;
-  transition: border-color .2s;
   box-sizing: border-box;
-  line-height: 1.5;
+  line-height: 1.6;
   overflow-y: hidden;
   max-height: 200px;
-  scrollbar-width: thin;
 }
-.chat-textarea:focus { border-color: #409eff; background: #fff; }
 .chat-textarea:disabled { opacity: .6; cursor: not-allowed; }
+.chat-textarea::placeholder { color: #94a3b8; }
 
 .input-actions { display: flex; flex-direction: column; gap: 4px; }
 .icon-btn {
@@ -2284,7 +2460,7 @@ onMounted(() => {
 .send-btn:hover:not(:disabled) { background: #337ecc; }
 .send-btn:disabled { background: #c0c4cc; cursor: not-allowed; }
 
-.input-hint { font-size: 11px; color: #c0c4cc; margin-top: 5px; text-align: right; }
+.input-hint { font-size: 11px; color: #cbd5e1; margin-top: 6px; text-align: center; }
 
 /* ── Spinner ── */
 @keyframes spin { to { transform: rotate(360deg); } }
