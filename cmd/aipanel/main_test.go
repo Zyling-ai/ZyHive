@@ -27,8 +27,23 @@ func TestConfigLoad(t *testing.T) {
 	if cfg.Agents.Dir != "./agents" {
 		t.Errorf("expected default agents dir './agents', got %q", cfg.Agents.Dir)
 	}
-	if cfg.Models.Primary != "anthropic/claude-sonnet-4-6" {
-		t.Errorf("expected default model, got %q", cfg.Models.Primary)
+	// Default config should start with an empty Models registry; users configure
+	// their own providers / models via the panel.
+	if len(cfg.Models) != 0 {
+		t.Errorf("expected empty default Models, got %d entries", len(cfg.Models))
+	}
+
+	// Add a default model entry and verify DefaultModel() resolves it correctly.
+	cfg.Models = append(cfg.Models, config.ModelEntry{
+		ID:        "test-model-1",
+		Name:      "Claude Sonnet 4.6",
+		Provider:  "anthropic",
+		Model:     "claude-sonnet-4-6",
+		IsDefault: true,
+		Status:    "untested",
+	})
+	if dm := cfg.DefaultModel(); dm == nil || dm.ProviderModel() != "anthropic/claude-sonnet-4-6" {
+		t.Errorf("DefaultModel() = %+v, want provider model anthropic/claude-sonnet-4-6", dm)
 	}
 
 	// Test save and load round-trip
@@ -44,6 +59,10 @@ func TestConfigLoad(t *testing.T) {
 	}
 	if loaded.Auth.Token != "test-token-123" {
 		t.Errorf("expected token 'test-token-123', got %q", loaded.Auth.Token)
+	}
+	// IsDefault flag must survive the round-trip.
+	if dm := loaded.DefaultModel(); dm == nil || !dm.IsDefault || dm.ProviderModel() != "anthropic/claude-sonnet-4-6" {
+		t.Errorf("DefaultModel() after Save/Load = %+v, want IsDefault=true provider model anthropic/claude-sonnet-4-6", dm)
 	}
 }
 
