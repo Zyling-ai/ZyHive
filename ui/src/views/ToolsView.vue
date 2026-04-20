@@ -238,7 +238,9 @@ async function loadList() {
   try {
     const res = await toolsApi.list()
     list.value = res.data
-  } catch {}
+  } catch (e: any) {
+    ElMessage.error('加载能力列表失败: ' + (e?.response?.data?.error || e?.message || '未知错误'))
+  }
 }
 
 function openAdd() {
@@ -367,7 +369,9 @@ async function loadACPList() {
   try {
     const res = await api.get<ACPEntry[]>('/acp')
     acpList.value = res.data
-  } catch {}
+  } catch (e: any) {
+    ElMessage.error('加载 ACP 代理列表失败: ' + (e?.response?.data?.error || e?.message || '未知错误'))
+  }
 }
 
 function openAddACP() {

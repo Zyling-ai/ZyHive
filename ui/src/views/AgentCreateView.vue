@@ -540,7 +540,9 @@ onMounted(async () => {
 <style scoped>
 .create-layout {
   display: flex;
-  height: 100vh;
+  /* 逃脱 app-main 的 padding(20px 24px)，撑满视口高度（减去 header 44px）*/
+  height: calc(100vh - 44px);
+  margin: -20px -24px;
   overflow: hidden;
 }
 

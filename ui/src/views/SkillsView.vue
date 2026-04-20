@@ -303,7 +303,7 @@ onMounted(loadAll)
 </script>
 
 <style scoped>
-.skills-page { padding: 24px; }
+.skills-page { /* 依赖 .app-main 提供外部 padding: 20px 24px，此处不再重复加 */ }
 
 .page-header {
   display: flex;
