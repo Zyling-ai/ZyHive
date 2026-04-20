@@ -866,6 +866,11 @@ async function loadGoals() {
   try {
     const res = await goalsApi.list()
     goals.value = res.data || []
+  } catch (e: any) {
+    ElMessage.error('加载目标失败: ' + (e?.message || '未知错误'))
+    return
+  }
+  try {
     // Refresh selectedGoal if still present
     if (selectedGoal.value) {
       const updated = goals.value.find(g => g.id === selectedGoal.value!.id)
