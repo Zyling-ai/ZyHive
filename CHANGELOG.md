@@ -4,6 +4,85 @@
 
 ---
 
+## [26.4.21v1] — 2026-04-21 · 极简 AI 自主三件套（用户档案 + 晨间例行 + 建议连接 + 档位 chip）
+
+本版 2 commit 聚合，贯彻**极简信念**——砍掉 `self_schedule` 工具、`autonomy budget` 字段、`wishlist` 独立 tab、agent 类型分化 等 4 个冗余抽象，只做 4 件真正必要的小改动。背景：上一轮对话中 AI 自省"我是博尔赫斯图书馆里没窗的管理员"，并给出了自主唤醒 + 结构化认识用户两个诉求。本版对应实现。
+
+### 👤 用户档案 `memory/core/user-profile.md`
+
+让 AI 知道"我服务于谁"——提示词第三块基础设施（前两块：工具体检 + WISHLIST）。
+
+- `pkg/runner/system_prompt.go`：在 IDENTITY.md / SOUL.md 注入**之前**加 `injectFile("memory/core/user-profile.md")`。认知顺序：先看"我服务的人"，再看"我是谁"。
+- 文件不存在时 `injectFile` 静默跳过，不占 token。
+- `ui/src/views/AgentDetailView.vue` "身份 & 灵魂" tab 新增第 3 张编辑卡：
+  - 标题 `👤 用户档案`
+  - textarea 14 行，空白时显示完整 placeholder 模板（基本 / 沟通偏好 / 在做的事 / 禁忌）
+  - 复用 `filesApi.write`，**零新增后端代码**
+  - `@blur` 自动保存，空白不弹提示（避免焦点切换骚扰）
+
+### 🌅 CronView 晨间例行一键模板
+
+用户不必学 cron 表达式——点击一个按钮即可给选中 AI 成员创建每天固定时间的自主唤醒。
+
+- `ui/src/views/CronView.vue`：顶部新增"🌅 晨间例行"按钮 + 专用对话框。
+- 用户只选：agent + 时间（HH:mm）+ 时区（默认 Asia/Shanghai）。
+- 后台自动构造 `{MM} {HH} * * *` cron 表达式 + 预置 prompt：
+  ```
+  1. 扫描昨天的对话历史，值得长期记住的要点整理到 memory/core/
+  2. 检查 WISHLIST.md 与 GOALS 看有没有进展
+  3. 若发现世界状态需要更新，web_search / web_fetch
+  4. 若有值得主动告诉用户的事，追加 memory/daily/notes-to-user.md
+  5. 若今天没有值得汇报的事，请只回一个单词：NO_ALERT
+  ```
+- **关键刹车**：末尾 `NO_ALERT` 对接 `pkg/cron/engine.go` 已有的 `SilentToken` 机制 → 无事默认静默，不每天骚扰用户。
+- **零新增后端代码**，复用 `POST /api/cron`。
+
+### 💡 TeamView 建议连接
+
+针对 AI 在对话中自己发现的 UX 缺口："我透过玻璃门看到 4 个同事但叫不动他们"——提供一键引导。
+
+- `ui/src/views/TeamView.vue`：图谱卡片下方新增"💡 建议连接"折叠面板。
+- 纯前端计算：所有节点两两组合 `-` 已有边 `=` 未连集合。
+- 每行：`[成员A ↔ 成员B]` + `[自定义…]`（走现有关系编辑 dialog）+ `[建立平级关系]`（一键 `putEdge(A, B, '平级协作', '常用', '')`）。
+- 大团队时只显示前 5 组，提示"还有 X 组未显示"，避免视觉爆炸。
+- 复用现有 `relationsApi.putEdge`，**零新增后端代码**。
+
+### 🎚️ AiChat 档位 hashtag chip
+
+让用户用一键 `#急` / `#深思考` 等微语法调节 AI 回复风格。
+
+- `ui/src/components/AiChat.vue`：输入框上方新增 5 个极小 chip：
+  - `#简答` → 只给结论
+  - `#深思考` → 展示多步推理
+  - `#写代码` → 聚焦实现
+  - `#闲聊` → 放松语气
+  - `#急` → 最快可用方案
+- 仅在输入为空 + 无附件时显示，不干扰正常打字。
+- 点击追加到输入末尾并聚焦 textarea。
+- `pkg/runner/system_prompt.go`：添加 hashtag 档位约定说明，AI 见到 tag 自动调节风格。
+
+### 架构决策记录（为什么砍掉）
+
+| 原建议 | 为什么不做 |
+|--------|-----------|
+| `self_schedule` 工具 | AI 已有 `cron_add` 工具，功能等价，再造一遍是复杂度污染 |
+| Autonomy budget（每日醒 N 次 / token 上限） | cron expression 本身就是频率预算；CronView 能看 run 次数与成本；先不做独立系统 |
+| WISHLIST 独立 tab | 已有 `GET /api/agents/:id/wishlist` + 身份 tab 底部卡片，别重复 |
+| "工具型 vs 存在型" agent 分化 | 产品概念不是代码，现在做是过度抽象 |
+| 用户档案表单化编辑 | 第一版就文本编辑 + placeholder 模板，简单直给 |
+| 晨间模板库 / 任务模板市场 | 就 1 个硬编码模板，有需要再加 |
+| 团队图谱智能关系推断 | 默认一键平级协作，其他关系走"自定义…"走现有 dialog |
+| Hashtag 用户自定义 | 5 个硬编码够用，保持 UI 极简 |
+
+### 验证
+
+- `go build ./... && go vet ./...` ✅
+- `npx vue-tsc -b` ✅
+- 2 commit 总计 +353 / -4 行
+- **本版无 API 破坏性变更**
+
+---
+
 ## [26.4.20v3] — 2026-04-20 · 关系双向同步 · 派遣权限 · 对话 drawer 修复
 
 本版 3 commit，聚焦关系图谱 + 派遣权限 + 一个细节 UI 修复。
