@@ -4,6 +4,78 @@
 
 ---
 
+## [26.4.20v2] — 2026-04-20 · AI 能力扩展 · 关键 bug 修复 · UI 全面升级
+
+本版 13 commit 聚合，分 4 主题。
+
+### 🎯 AI 能力扩展（新特性）
+
+- **工具体检（Tool Health Check）**：新 API `GET /api/agents/:id/tool-health`，检查每个工具的 ready / blocked 状态
+  - 识别 `web_search` 需 Brave API Key、`image` 需视觉模型、`feishu_*` 需飞书渠道、`send_message` 至少一个渠道
+  - AgentDetailView 「工具权限」tab 新增「🏥 工具体检」卡片，一键检查 + 列出受阻工具 + 解决提示
+  - 解决用户发现的"AI 不知道自己有哪些工具可用"问题
+- **能力愿望清单（WISHLIST）**
+  - 新 tools：`wish_add({title, reason, priority?})` / `wish_list({limit?})`
+  - AI 主动写入 `workspace/WISHLIST.md`，表达能力需求
+  - 新 API `GET /api/agents/:id/wishlist`，AgentDetailView 「身份 & 灵魂」tab 底部展示愿望卡片（P0/P1/P2 优先级 + 时间 + 理由）
+  - 把 AI 从"被动执行者"升级为"能主动表达诉求的团队成员"
+- **系统提示词注入"当下信息"**
+  - 详细时间（含周几、年度第 N 天、ISO 周数）
+  - `Platform: 你运行在 ZyHive ...`
+  - ⚠️ 今天可能晚于训练截止，时事请用 `web_search` / `web_fetch`
+  - 💡 缺能力请用 `wish_add` 记录愿望
+  - 让 AI 意识到"此刻的位置"，不再被训练截止日期锁在过去
+
+### 🐛 关键 Bug 修复
+
+- **🔥 `output_tokens` 全 0 真·根因**（anthropic `message_delta`）
+  - 之前所有对话的 output token 记录均为 0，523 条历史数据全错
+  - 根因：`pkg/llm/anthropic.go` 的 `message_delta` 从 `event.Delta` 找 usage，但 Anthropic 实际结构是 `{type, delta, usage}` — `usage` 在**顶层**
+  - `event.Usage` `json.RawMessage` 字段已声明但从未使用
+  - 修复后新对话的 output 正确记录（验证 input=5604 / **output=4** ✅）
+- **🔥 并行工具调用状态不更新**
+  - 并行调用 3+ 个 tool 时，前两个卡永远显示空心圆 ○ 无时长
+  - 根因：`RunEvent` 的 `tool_result` 只带 Text 无 ToolCallID，前端单一 `activeToolId` 会被后来的 tool_call 覆盖
+  - 修复：`RunEvent.ToolCallID` + SSE `tool_call_id` 字段 + 前端按 ID 精准匹配
+- **chat API 缺 UsageRecorder**：`internal/api/chat.go` 构造 `runner.Config` 漏了 `UsageRecorder`，所有 Web 聊天的 usage 根本未写入 usageStore。补上 + provider 字段
+- **日志页面显示"暂无日志内容"**：`/api/logs` 只读 `/tmp/aipanel.log`，但 systemd 模式下日志在 journal。改为优先文件 → journalctl → `log show`（macOS）三级降级
+- **Web source 面板自建对话被误判只读**：之前 `source !== 'panel'` 一律只读，但 `ses-xxx` session 会被 normalize 成 `web` → 误判。改为明确枚举外部客户端：`['feishu', 'telegram']`
+
+### 🎨 UI 全面升级
+
+- **全站菜单视觉一致性**
+  - 双 padding 问题修复（SkillsView / SettingsView / CronView 自带 padding 与 `.app-main` 叠加）
+  - 全屏 view 统一 `margin: -20px -24px; height: calc(100vh - 44px)` 逃脱 padding（Projects / Subagents / AgentCreate）
+  - Dashboard stat cards 改 `::before` 色条 + hover 抬起，新配色盘
+  - AgentsView 卡片加描边 + hover 抬起
+  - AgentDetailView 多层 el-card 统一：去 box-shadow + 1px #ececec + card__header 浅灰底
+  - 边框色全站批量 `#e4e7ed` → `#ececec`
+  - 全局 6px 细滚动条（替换 Element 粗白滚动条）
+- **对话管理 drawer 重构**：两个 drawer（渠道/面板会话）统一用 `<AiChat read-only>` 渲染，消除空气泡 + 对齐新 markdown 解析（代码高亮 / 表格 / blockquote / 工具卡可展开）
+- **渠道识别 + 只读模式**：侧边栏 tag 按 session.source（飞书/TG/Web/面板 4 色区分），飞书/TG 会话自动只读 + 锁图标提示条
+- **无效 provider 模型过滤**：Provider status=error 的模型不在下拉中出现；agent 绑定的模型失效时，AiChat 顶部显示黄色警告 + 前往配置按钮
+- **聊天输入框 Cursor 风克制**：背景 `#f6f6f7`、去蓝色 focus 环、发送按钮默认灰透明 → 有内容时变 Cursor 经典深黑 `#18181b`、尺寸 36→28px
+- **Enter 发送 / Shift+Enter 换行**：对齐主流聊天 App；IME 组词期间不拦截
+- **task-notification XML 过滤**：Coordinator 内部协议 XML 不再以用户气泡暴露给用户（AiChat + ChatsView + AgentDetailView 多处过滤）
+
+### 📊 UsageView 升级
+
+- stat cards `::before` 色条（蓝/绿/橙/红）+ hover 描边
+- chart / records 卡片去 shadow + 1px 描边 + 统一 card__header 浅灰底
+- 厂商分布 / 成员用量饼图：legend 加 `type: scroll` 防挤压、pie center 给 legend 更多空间、白色 1px 描边
+- stat-value 字号 22→24 + letter-spacing -0.5px（Cursor 风数字）
+
+### 🚀 部署基建
+
+- `scripts/deploy-hive.sh` 强制 sync-ui + 二进制完整性 marker 检查
+- `logs` endpoint 改 journalctl 后 `systemd` 下线上日志也能流畅查看
+
+### 备注
+
+本版**无 API 破坏性变更**，完全向后兼容。重点是修好了历史上一直没发现的 `output_tokens=0` 与并行工具状态两个深层 bug。
+
+---
+
 ## [26.4.20v1] — 2026-04-20 · CLI 全面测试 · 聊天 UI 重构 · 部署基建
 
 ### 🖥️ CLI 交互面板修复（6 处 bug）
