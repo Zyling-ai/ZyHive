@@ -367,7 +367,16 @@ async function confirmDelete(id: string, name: string) {
 <style scoped>
 .agent-card {
   margin-bottom: 14px;
+  border: 1px solid #ececec;
+  border-radius: 10px;
+  transition: border-color .15s, box-shadow .15s, transform .15s;
 }
+.agent-card:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+  transform: translateY(-1px);
+}
+:deep(.agent-card .el-card__body) { padding: 16px; }
 .agent-card-info {
   flex: 1;
   min-width: 0;

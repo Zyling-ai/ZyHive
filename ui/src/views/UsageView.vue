@@ -292,10 +292,7 @@ function onResize() {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  padding: 20px 24px;
-  height: calc(100vh - 44px);
-  overflow-y: auto;
-  box-sizing: border-box;
+  /* padding 由 .app-main 统一提供 */
 }
 .usage-filter {
   background: var(--el-bg-color);

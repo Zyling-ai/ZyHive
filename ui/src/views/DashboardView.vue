@@ -214,18 +214,31 @@ function formatTokens(n: number): string {
 }
 .no-model-banner-btn:hover { background: #d97706; }
 
-.stat-card--members { border-left: 3px solid #409eff !important; }
-.stat-card--sessions { border-left: 3px solid #67c23a !important; }
-.stat-card--messages { border-left: 3px solid #e6a23c !important; }
-.stat-card--tokens   { border-left: 3px solid #f56c6c !important; }
 .stat-card {
   display: flex;
   align-items: center;
   padding: 0;
+  border: 1px solid #ececec !important;
+  border-radius: 10px !important;
+  position: relative;
+  overflow: hidden;
+  transition: border-color .15s, box-shadow .15s;
 }
+.stat-card:hover { border-color: #d1d5db !important; box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
+.stat-card::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: var(--stat-color, #cbd5e1);
+}
+.stat-card--members  { --stat-color: #6366f1; }
+.stat-card--sessions { --stat-color: #10b981; }
+.stat-card--messages { --stat-color: #f59e0b; }
+.stat-card--tokens   { --stat-color: #ef4444; }
 .stat-card :deep(.el-card__body) { padding: 16px 20px !important; }
-.stat-value { font-size: 28px; font-weight: 700; color: #303133; margin-top: 6px; }
-.stat-label { font-size: 12px; color: #909399; text-transform: uppercase; letter-spacing: 0.5px; }
+.stat-value { font-size: 26px; font-weight: 700; color: #1e293b; margin-top: 6px; letter-spacing: -0.5px; }
+.stat-label { font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 500; }
 .avatar-dot {
   width: 32px;
   height: 32px;

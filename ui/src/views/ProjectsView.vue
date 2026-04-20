@@ -532,8 +532,11 @@ function fmtTime(t: string | undefined): string {
 <style scoped>
 .projects-layout {
   display: flex;
-  height: calc(100vh - 60px);
+  /* 逃脱 app-main 的 padding(20px 24px)，撑满视口高度 */
+  height: calc(100vh - 44px);
+  margin: -20px -24px;
   overflow: hidden;
+  background: #fafafa;
 }
 
 /* 左栏 */

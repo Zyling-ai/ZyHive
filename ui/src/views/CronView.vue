@@ -215,7 +215,9 @@ async function loadJobs() {
   try {
     const res = await cronApi.list(filterAgentId.value || undefined)
     jobs.value = res.data || []
-  } catch {}
+  } catch (e: any) {
+    ElMessage.error('加载定时任务失败: ' + (e?.message || '未知错误'))
+  }
 }
 
 function formatTime(ms: number) {
@@ -321,6 +323,6 @@ async function openLogs(job: CronJob) {
 
 <style scoped>
 .cron-page {
-  padding: 20px;
+  /* 外层 padding 由 .app-main 统一提供 */
 }
 </style>

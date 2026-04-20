@@ -552,9 +552,11 @@ function relativeTime(ts: number) {
 /* ── 整体三栏容器 ─────────────────────────────────────────────────────── */
 .dispatch-studio {
   display: flex;
-  height: 100%;
+  /* 逃脱 app-main 的 padding(20px 24px)，撑满视口高度 */
+  height: calc(100vh - 44px);
+  margin: -20px -24px;
   overflow: hidden;
-  background: #f5f7fa;
+  background: #fafafa;
   user-select: none;
 }
 
