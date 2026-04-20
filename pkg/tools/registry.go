@@ -1018,25 +1018,49 @@ func (r *Registry) handleAgentSpawn(_ context.Context, input json.RawMessage) (s
 		return "", fmt.Errorf("task is required — provide a detailed task description")
 	}
 	// Validate agentID against known agents
+	var targetIsUserAgent bool // true = user-managed agent (需走关系检查); false = built-in agentType (豁免)
 	if r.agentLister != nil {
 		agents := r.agentLister()
-		found := false
 		for _, a := range agents {
 			if a.ID == p.AgentID {
-				found = true
+				targetIsUserAgent = true
 				break
 			}
 		}
-		if !found {
-			var available []string
-			for _, a := range agents {
-				available = append(available, fmt.Sprintf("%s (id: %s)", a.Name, a.ID))
+		if !targetIsUserAgent {
+			// 可能是 coordinator 模式的内置 agent type (explore/plan/general-purpose 等)
+			// 这些不在 agentLister 里, 豁免关系检查
+			builtInAgentTypes := map[string]bool{
+				"general-purpose": true,
+				"explore":         true,
+				"plan":            true,
+				"verification":    true,
+				"coordinator":     true,
 			}
-			hint := strings.Join(available, ", ")
-			if hint == "" {
-				hint = "（无可用成员）"
+			if !builtInAgentTypes[p.AgentID] {
+				var available []string
+				for _, a := range agents {
+					available = append(available, fmt.Sprintf("%s (id: %s)", a.Name, a.ID))
+				}
+				hint := strings.Join(available, ", ")
+				if hint == "" {
+					hint = "（无可用成员）"
+				}
+				return "", fmt.Errorf("agent %q not found.\nAvailable agents: %s\nUse agent_list for full details.", p.AgentID, hint)
 			}
-			return "", fmt.Errorf("agent %q not found.\nAvailable agents: %s\nUse agent_list for full details.", p.AgentID, hint)
+		}
+	}
+
+	// ── 关系权限检查 ────────────────────────────────────────────────────
+	// 规则: 派遣用户 agent 时, 必须在当前 agent 的 RELATIONS.md 里有记录.
+	// 豁免: built-in agent type (上面 targetIsUserAgent==false 的分支)
+	if targetIsUserAgent {
+		peers := allowedPeersFromRelations(r.workspaceDir)
+		if peers == nil || !peers[p.AgentID] {
+			return "", fmt.Errorf("❌ 你与成员 %q 之间没有建立关系，无法派遣。\n"+
+				"请先前往「团队」页面在成员图谱上给你们建立关系（上下级/平级协作/支持等），\n"+
+				"或使用 wish_add 工具把这个需求写入愿望清单告知用户。",
+				p.AgentID)
 		}
 	}
 
