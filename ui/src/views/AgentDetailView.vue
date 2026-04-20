@@ -1342,19 +1342,29 @@ const historyLoading = ref(false)
 const sessionsLoading = ref(false)
 const activeSessionId = ref<string | undefined>()
 
-// 判断当前选中的 session 是否应只读（来自飞书/TG/Web 等外部渠道，不应在面板内直接回复）
+// 判断当前选中的 session 是否应只读。
+// 只读条件:
+//   1. type === 'channel' (convlog 存储的访客对话, 没有可续接的 session 上下文)
+//   2. source 是飞书/Telegram 等外部客户端渠道 (面板这边发消息也回不到对方客户端)
+// 不只读 (可继续对话):
+//   - type === 'panel' 且 source === 'panel' 或 'web': 面板自建会话
+//     (web 指 'ses-xxx' 前缀的面板内新建会话, 完全可继续)
+const EXTERNAL_CHANNEL_SOURCES = ['feishu', 'telegram']
 const isReadOnlySession = computed(() => {
   const it = selectedItem.value
   if (!it) return false
-  if (it.type === 'channel') return true
-  // type === 'panel' 但 source 不是面板时（如 feishu-xxx session）也只读
-  return it.source !== 'panel'
+  if (it.type === 'channel') return true  // convlog 型访客对话, 只读
+  return EXTERNAL_CHANNEL_SOURCES.includes(it.source)
 })
 const readOnlyReason = computed(() => {
   const it = selectedItem.value
   if (!it) return ''
+  if (it.type === 'channel') {
+    const src = sourceTag(it.source).label
+    return `此对话来自${src}访客链接，仅可查看历史 · 无法在面板内直接回复访客`
+  }
   const src = sourceTag(it.source).label
-  return `此对话来自${src}渠道，仅可查看历史 · 要回复请前往对应客户端或使用"新建"面板对话`
+  return `此对话来自${src}客户端，仅可查看历史 · 要回复请前往 ${src} 客户端操作`
 })
 
 async function loadSidebarItems() {
