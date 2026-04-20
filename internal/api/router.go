@@ -8,6 +8,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -505,8 +507,14 @@ func (h *statsHandler) Handle(c *gin.Context) {
 	})
 }
 
-// logsHandler reads /tmp/aipanel.log and returns the last N lines.
+// logsHandler 返回最近 N 条日志。
 // GET /api/logs?limit=200
+//
+// 来源优先级：
+//   1. 文件 /tmp/aipanel.log（历史兼容，legacy 直跑模式）
+//   2. journalctl -u zyhive（Linux systemd 运行时的标准日志源）
+//   3. log show --predicate 'subsystem == "zyhive"' (macOS launchd)
+//   4. 文件都没有时返回空数组
 func logsHandler(c *gin.Context) {
 	limitStr := c.DefaultQuery("limit", "200")
 	limit, _ := strconv.Atoi(limitStr)
@@ -514,29 +522,99 @@ func logsHandler(c *gin.Context) {
 		limit = 200
 	}
 
-	const logPath = "/tmp/aipanel.log"
-	f, err := os.Open(logPath)
-	if err != nil {
-		// Return empty lines if file doesn't exist
-		c.JSON(http.StatusOK, gin.H{"lines": []string{}})
+	// 1) 优先文件日志（legacy/开发模式常用）
+	if lines, ok := readLogFile("/tmp/aipanel.log", limit); ok && len(lines) > 0 {
+		c.JSON(http.StatusOK, gin.H{"lines": lines, "source": "file"})
 		return
 	}
-	defer f.Close()
 
-	var lines []string
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		lines = append(lines, scanner.Text())
+	// 2) Linux systemd journal
+	if runtime.GOOS == "linux" {
+		if lines := readJournalctl(limit); len(lines) > 0 {
+			c.JSON(http.StatusOK, gin.H{"lines": lines, "source": "journal"})
+			return
+		}
 	}
 
-	// Return last N lines
+	// 3) macOS launchd log (best-effort)
+	if runtime.GOOS == "darwin" {
+		if lines := readMacLog(limit); len(lines) > 0 {
+			c.JSON(http.StatusOK, gin.H{"lines": lines, "source": "oslog"})
+			return
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"lines": []string{}, "source": "none"})
+}
+
+// readLogFile reads last N lines from a text log file. Returns (lines, ok).
+// ok=false 表示文件不存在或读取失败（非关键错误，降级到下一个源）。
+func readLogFile(path string, limit int) ([]string, bool) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, false
+	}
+	defer f.Close()
+	var all []string
+	scanner := bufio.NewScanner(f)
+	// 扩大 scanner buffer 以免超长行 panic
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, 1024*1024)
+	for scanner.Scan() {
+		all = append(all, scanner.Text())
+	}
+	if len(all) > limit {
+		all = all[len(all)-limit:]
+	}
+	return all, true
+}
+
+// readJournalctl 用 journalctl 命令拉取 zyhive 服务最近的 N 条日志。
+// 如果 journalctl 不可用 / 服务没对应 unit 会返回空 slice。
+func readJournalctl(limit int) []string {
+	if _, err := exec.LookPath("journalctl"); err != nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "journalctl", "-u", "zyhive",
+		"-n", strconv.Itoa(limit), "--no-pager", "--output=short-iso")
+	out, err := cmd.Output()
+	if err != nil {
+		return nil
+	}
+	return splitNonEmpty(string(out))
+}
+
+// readMacLog 用 macOS 的 log show 尝试拉日志（粗略实现，best-effort）。
+func readMacLog(limit int) []string {
+	if _, err := exec.LookPath("log"); err != nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "log", "show", "--predicate",
+		`processImagePath CONTAINS "zyhive"`, "--last", "1h", "--style", "compact")
+	out, err := cmd.Output()
+	if err != nil {
+		return nil
+	}
+	lines := splitNonEmpty(string(out))
 	if len(lines) > limit {
 		lines = lines[len(lines)-limit:]
 	}
-	if lines == nil {
-		lines = []string{}
+	return lines
+}
+
+func splitNonEmpty(s string) []string {
+	raw := strings.Split(strings.TrimSpace(s), "\n")
+	out := make([]string, 0, len(raw))
+	for _, line := range raw {
+		if strings.TrimSpace(line) != "" {
+			out = append(out, line)
+		}
 	}
-	c.JSON(http.StatusOK, gin.H{"lines": lines})
+	return out
 }
 
 func wsHandler(c *gin.Context) {
