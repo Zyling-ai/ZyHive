@@ -229,6 +229,31 @@
             </el-col>
           </el-row>
 
+          <!-- ══ 用户档案（给 AI 看的"你正在服务谁"）═══════════════════════════ -->
+          <el-card style="margin-top: 16px;">
+            <template #header>
+              <div style="display:flex;align-items:center;justify-content:space-between;">
+                <span style="font-weight:600;font-size:14px;">
+                  👤 用户档案
+                  <span style="margin-left:6px;font-size:12px;color:#64748b;font-weight:400;">
+                    写一份简短的自我介绍给 AI · 每次对话开始时会自动读取
+                  </span>
+                </span>
+                <el-text size="small" type="info">memory/core/user-profile.md</el-text>
+              </div>
+            </template>
+            <el-input
+              v-model="userProfileContent"
+              type="textarea"
+              :rows="14"
+              :placeholder="userProfilePlaceholder"
+              @blur="saveUserProfile"
+            />
+            <div style="margin-top: 8px; font-size: 12px; color: #94a3b8;">
+              💡 写你愿意让 AI 知道的任何信息：称呼、时区、工作、兴趣、沟通偏好、禁忌。空着也 OK，AI 不会假装认识你。
+            </div>
+          </el-card>
+
           <!-- ══ 能力愿望清单（AI 自主表达）════════════════════════════════════ -->
           <el-card v-if="wishlist && wishlist.total > 0" style="margin-top: 16px;">
             <template #header>
@@ -1548,6 +1573,28 @@ async function sendAtMessage() {
 // Identity/Soul
 const identityContent = ref('')
 const soulContent = ref('')
+const userProfileContent = ref('')
+const userProfilePlaceholder = `# 用户档案
+
+> 这份档案写给服务你的 AI。它会在每次对话开始时被读取。
+> 你可以随时修改，只写你愿意让 AI 知道的部分。留空也完全可以。
+
+## 基本
+- 称呼：
+- 所在地 / 时区：
+- 主要语言：
+
+## 沟通偏好
+- 回答长度：简洁 / 中等 / 详尽
+- 风格：正式 / 轻松 / 直给不啰嗦
+- emoji：要 / 不要 / 少量
+- 不确定时：直说"不知道" / 给出最佳猜测并标记
+
+## 在做的事 / 长期关心
+-
+
+## 禁忌
+-`
 
 // ── AI 能力扩展：愿望清单 + 工具体检 ──────────────────────────────────────
 interface WishItem { title: string; reason: string; priority: string; createdAt: string }
@@ -2339,6 +2386,13 @@ async function loadIdentityFiles() {
     identityContent.value = id.data?.content || ''
     soulContent.value = soul.data?.content || ''
   } catch {}
+  // user-profile.md 可能不存在，单独 try 不阻塞 identity/soul 加载
+  try {
+    const up = await filesApi.read(agentId, 'memory/core/user-profile.md')
+    userProfileContent.value = up.data?.content || ''
+  } catch {
+    userProfileContent.value = ''
+  }
   loadMemoryTree()
 }
 
@@ -2348,6 +2402,20 @@ async function saveFile(name: string, content: string) {
     ElMessage.success(`${name} 已保存`)
   } catch {
     ElMessage.error(`保存 ${name} 失败`)
+  }
+}
+
+// 保存用户档案到 memory/core/user-profile.md
+// 空白 = 不创建文件（saveFile 空串也会写空文件，这里不额外优化，保持一致）
+async function saveUserProfile() {
+  try {
+    await filesApi.write(agentId, 'memory/core/user-profile.md', userProfileContent.value || '')
+    // 空白保存不弹提示（用户可能只是 blur 聚焦切换）
+    if (userProfileContent.value) {
+      ElMessage.success('用户档案已保存')
+    }
+  } catch {
+    ElMessage.error('保存用户档案失败')
   }
 }
 
