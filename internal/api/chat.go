@@ -343,23 +343,30 @@ func (h *chatHandler) execRunner(
 			_ = us.Append(rec)
 		}
 	}
+	// 构造能力上下文（工具体检 + WISHLIST）让 AI 感知真实能力边界
+	ag, _ := h.manager.Get(agentID)
+	capCtx := ""
+	if ag != nil {
+		capCtx = agent.BuildCapabilitiesContext(toolRegistry, ag, h.cfg, workspaceDir)
+	}
 	r := runner.New(runner.Config{
-		AgentID:          agentID,
-		WorkspaceDir:     workspaceDir,
-		Model:            model,
-		APIKey:           apiKey,
-		Provider:         provider,
-		SessionID:        sessionID,
-		LLM:              llmClient,
-		Tools:            toolRegistry,
-		SupportsTools:    supportsTools,
-		Session:          store,
-		ExtraContext:     extraContext,
-		Images:           images,
-		PreloadedHistory: preHistory,
-		ProjectContext:   runner.BuildProjectContext(h.projectMgr, agentID),
-		AgentEnv:         agEnv,
-		UsageRecorder:    usageRec,
+		AgentID:             agentID,
+		WorkspaceDir:        workspaceDir,
+		Model:               model,
+		APIKey:              apiKey,
+		Provider:            provider,
+		SessionID:           sessionID,
+		LLM:                 llmClient,
+		Tools:               toolRegistry,
+		SupportsTools:       supportsTools,
+		Session:             store,
+		ExtraContext:        extraContext,
+		Images:              images,
+		PreloadedHistory:    preHistory,
+		ProjectContext:      runner.BuildProjectContext(h.projectMgr, agentID),
+		AgentEnv:            agEnv,
+		UsageRecorder:       usageRec,
+		CapabilitiesContext: capCtx,
 	})
 
 	// Chatlog: write user message entry
