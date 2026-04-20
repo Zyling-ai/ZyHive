@@ -4,6 +4,59 @@
 
 ---
 
+## [26.4.20v1] — 2026-04-20 · CLI 全面测试 · 聊天 UI 重构 · 部署基建
+
+### 🖥️ CLI 交互面板修复（6 处 bug）
+
+- **双 pause 修复**：配置管理菜单选项 1（查看完整配置）和选项 7（Providers 子菜单）返回后会触发两次 `pause()`，用户要按两次 Enter 才能返回。
+- **成员列表隐藏目录 + 序号跳号**：`menuAgentManage` 不再列出 `.subagent-tasks` 等隐藏内部目录；序号改为基于有效成员列表的 1-based 索引，不再跳号。
+- **在线更新 URL 文件名错误**：下载地址拼 `aipanel-{os}-{arch}`，但实际 release asset 叫 `zyhive-{os}-{arch}`。整个在线更新功能之前一直 404，现修复。
+- **备份目录修改未持久化**：`menuBackup` 选项 4 修改目录下次进入就被重置为 `/var/backups/zyhive`。新增 `loadBackupDir` / `saveBackupDir`，写入 config 同目录的 `backup-dir` 状态文件。
+- **`--help`/`-h` 显示英文 Go flag Usage**：Go `flag.Parse()` 抢先处理 help 参数，`case "help"` 走不到。在 Parse 前拦截，并设置 `flag.Usage = printSubcmdHelp`。
+- **在线更新拒绝无反馈立即清屏**：`confirm` 返回 false 时直接 `return`，无视觉提示。加 "已取消更新" + pause。
+
+### 🧪 CLI 回归测试脚本
+
+- 新增 `scripts/test/cli_regression.sh`（161 行，42 个 stdin 驱动断言），覆盖 9 大主菜单 + 全部子菜单。
+- 可通过 `TEST_BIN` / `TEST_HOME` / `TEST_DATA` 环境变量覆盖默认路径。
+- 自动识别"已是最新"和"已取消更新"两种在线更新分支。
+
+### 🎨 聊天界面 UI 全面重构（Cursor 极简风）
+
+- **全局细滚动条**（替换 Element Plus 默认白色粗滚动条）：6px，`rgba(0,0,0,0.08)` 半透明，hover 加深；深色容器用白色半透明。
+- **Sidebar active 态**：从整块蓝色填充改为**左侧 2px 色条 + 柔和高亮**，菜单项高度 50px→40px。
+- **AI 消息去气泡**：完全移除白色卡片背景和阴影，直接铺在 `#fafafa` 背景上，Cursor 风"文档流式"阅读。
+- **用户消息弱化**：从渐变蓝大块改为浅蓝胶囊 `#e8f3ff`，文字深色。
+- **Markdown 渲染增强**：
+  - GFM 表格（斑马纹 + 圆角边框 + 浅色 thead）
+  - Blockquote（左 3px 蓝条 + 斜体灰字）
+  - 代码块右上角 language badge（大写小字）
+  - 极简 syntax highlight（无第三方库，手写 regex）：js/ts/go/py/sh/bash/rust 关键字 + 字符串 + 数字 + 注释 4 色
+  - h1-h4 清晰层次、水平线、列表行距统一
+- **工具卡淡化**：默认无边框 + 透底 `rgba(0,0,0,0.02)`，只 hover/running/error 态显边框。
+- **输入区重构**：单个圆角 14px 胶囊，focus 时 3px 柔光环。
+
+### 🔐 渠道识别与只读模式
+
+- **后端 `session.source` 正确透传前端**：`SessionSummary` 接口补 `source?: string`。
+- **AgentDetailView / ChatsView / ChatHomeView 按 source 统一识别**：飞书（紫）/ TG（绿）/ Web（橙）/ 面板（灰）。
+- **session 标题剥离 `[发送者]:` 前缀**：飞书群聊标题更干净。
+- **`<task-notification>` XML 过滤**：Coordinator 注入给 LLM 的内部协议 XML 不再以用户气泡暴露给用户。应用到 AiChat 主渲染 + 3 处历史加载 + ChatsView drawer + AgentDetailView。
+- **非面板会话只读**：AiChat 新增 `readOnly` + `readOnlyReason` props；非 panel 来源 session（feishu/telegram/web）输入区被替换为锁图标提示条："此对话来自 XX 渠道 · 仅可查看历史"。`send()` 加双保险。
+- **统一只读渲染**：`type='channel'`（convlog）和 `type='panel'` 但 `source!=='panel'` 的会话**都走 AiChat** 渲染；移除冗余的 history-viewer DOM（-80 行）。AiChat 新增 `loadHistoryMessages(msgs)` 方法：清空 streaming → 替换 messages → nextTick 后强制 scrollBottom(true) 自动滚底。
+- **对话侧边栏极简化**：每项左侧 2px 渠道色条代替 `el-tag`；meta 行小圆点 + 渠道名 + 时间紧凑排版。
+
+### 🚀 部署基建
+
+- **修复 CGO glibc 兼容**：`make release` 所有平台加 `CGO_ENABLED=0` 产出**纯静态二进制**，解决 Ubuntu 24.04 glibc 2.39 构建在 CentOS 7 glibc 2.17 上 `GLIBC_2.34 not found` 的部署问题（已在 26.4.19v1 合并，本版强化）。
+- **新增 `scripts/deploy-hive.sh`**：一键热部署脚本，**强制 sync ui_dist → cmd/aipanel/ui_dist** 再编译，避免二进制内嵌旧 UI 的坑；内置 `readonly-banner` marker 的二进制完整性检查。
+
+### 备注
+
+本版为维护 + UI 体验版。所有后端 API 保持向后兼容，运行时行为变更仅在 UI 层（渠道识别 / 只读模式 / 消息渲染）。
+
+---
+
 ## [26.4.19v1] — 2026-04-19 · 测试基础设施修复与仓库清理
 
 ### 修复（仓库维护）
