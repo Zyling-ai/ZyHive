@@ -59,7 +59,13 @@ func BuildSystemPrompt(workspaceDir string) (string, error) {
 		now.Format("2006-01-02 15:04:05 MST"), weekdayZh[now.Weekday()], isoWeek, now.YearDay()))
 	sb.WriteString("Platform: 你运行在 ZyHive (https://zyling.ai) — 一个自托管的 AI 团队操作系统。\n")
 	sb.WriteString("⚠️ 今天的日期可能晚于你的训练截止日期。涉及时事、最新数据、实时信息时，请主动调用 web_search / web_fetch 工具获取最新内容，不要凭训练记忆猜测。\n")
-	sb.WriteString("💡 如果你希望拥有某项尚未具备的能力（如新工具 / API 接入），可以调用 wish_add 工具把愿望写入 WISHLIST.md，用户会看到并可能为你启用。\n\n")
+	sb.WriteString("💡 如果你希望拥有某项尚未具备的能力（如新工具 / API 接入），可以调用 wish_add 工具把愿望写入 WISHLIST.md，用户会看到并可能为你启用。\n")
+	sb.WriteString("🎚️ 档位提示：若用户消息中出现下列任一 hashtag，请相应调节回复风格——\n")
+	sb.WriteString("  · #简答 → 直给结论，一两句话，不扩展\n")
+	sb.WriteString("  · #深思考 → 展示多步推理链、权衡利弊\n")
+	sb.WriteString("  · #写代码 → 聚焦代码实现，必要时简短注释，少闲话\n")
+	sb.WriteString("  · #闲聊 → 放松语气，不必严格结构化\n")
+	sb.WriteString("  · #急 → 先给最快可用的解决方案，后续细节能省则省\n\n")
 
 	// injectFile 是内部辅助：读取文件并以截断保护注入到系统提示词。
 	injectFile := func(path, label string) {

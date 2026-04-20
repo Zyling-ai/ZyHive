@@ -346,6 +346,17 @@
         </div>
       </div>
 
+      <!-- 轻量档位 chip：点击追加 hashtag 到输入末尾, AI 据此调节回复风格 -->
+      <div v-if="!inputText && !pendingImages.length && !pendingFiles.length" class="mode-chips">
+        <span
+          v-for="chip in modeChips"
+          :key="chip.tag"
+          class="mode-chip"
+          :title="chip.hint"
+          @click="appendModeChip(chip.tag)"
+        >{{ chip.tag }}</span>
+      </div>
+
       <div class="input-row">
         <div class="textarea-wrap">
           <textarea
@@ -490,6 +501,27 @@ const messages = ref<ChatMsg[]>(props.initialMessages ? [...props.initialMessage
 const inputText = ref('')
 const pendingImages = ref<string[]>([])
 const pendingFiles = ref<PendingFile[]>([])
+
+// ── 档位 chip（极简版：5 个硬编码，追加 hashtag 到输入末尾；system prompt 约定识别） ──
+const modeChips = [
+  { tag: '#简答', hint: '只给结论，不啰嗦' },
+  { tag: '#深思考', hint: '多步推理，展示思路' },
+  { tag: '#写代码', hint: '聚焦代码实现' },
+  { tag: '#闲聊', hint: '轻松聊天，不必严谨' },
+  { tag: '#急', hint: '优先给最快的解决方案' },
+]
+
+function appendModeChip(tag: string) {
+  inputText.value = (inputText.value ? inputText.value.trim() + ' ' : '') + tag + ' '
+  nextTick(() => {
+    const el = inputRef.value
+    if (el) {
+      el.focus()
+      el.setSelectionRange(el.value.length, el.value.length)
+      autoGrow()
+    }
+  })
+}
 const streaming = ref(false)
 watch(streaming, (v) => emit('streaming-change', v))
 // #14 fix: track user scroll intention during streaming
@@ -2597,6 +2629,29 @@ onMounted(() => {
 .send-btn:disabled { background: #c0c4cc; cursor: not-allowed; }
 
 .input-hint { font-size: 11px; color: #cbd5e1; margin-top: 6px; text-align: center; }
+
+/* 档位 chip 轻量排 —— 仅在输入为空时显示，不干扰正常打字 */
+.mode-chips {
+  display: flex; gap: 6px; flex-wrap: wrap;
+  margin: 0 2px 8px;
+}
+.mode-chip {
+  padding: 2px 9px;
+  font-size: 11px;
+  color: #64748b;
+  background: transparent;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.15s;
+  line-height: 18px;
+}
+.mode-chip:hover {
+  color: #18181b;
+  border-color: #d4d4d8;
+  background: #fafafa;
+}
 
 /* ── Spinner ── */
 @keyframes spin { to { transform: rotate(360deg); } }
