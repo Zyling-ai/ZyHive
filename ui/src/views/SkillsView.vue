@@ -330,7 +330,7 @@ onMounted(loadAll)
 }
 .skill-card {
   background: #fff;
-  border: 1px solid #e4e7ed;
+  border: 1px solid #ececec;
   border-radius: 8px;
   padding: 14px;
   display: flex;

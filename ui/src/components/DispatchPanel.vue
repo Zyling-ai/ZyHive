@@ -337,7 +337,7 @@ async function viewArtifact(art: ArtifactEntry) {
 /* ── Panel container ─────────────────────────────────────────────────────── */
 .dispatch-panel {
   background: var(--el-bg-color-overlay, #fff);
-  border-bottom: 1px solid var(--el-border-color, #e4e7ed);
+  border-bottom: 1px solid var(--el-border-color, #ececec);
   flex-shrink: 0;
 }
 
@@ -535,7 +535,7 @@ async function viewArtifact(art: ArtifactEntry) {
   font-size: 12px;
   color: var(--el-text-color-secondary, #909399);
   font-style: italic;
-  border-left: 2px solid var(--el-border-color, #e4e7ed);
+  border-left: 2px solid var(--el-border-color, #ececec);
   padding-left: 6px;
   transition: background 0.4s;
   border-radius: 0 3px 3px 0;
@@ -685,7 +685,7 @@ async function viewArtifact(art: ArtifactEntry) {
   padding: 14px 18px;
   font-weight: 600;
   font-size: 14px;
-  border-bottom: 1px solid var(--el-border-color, #e4e7ed);
+  border-bottom: 1px solid var(--el-border-color, #ececec);
 }
 .dp-dialog-close {
   background: none;

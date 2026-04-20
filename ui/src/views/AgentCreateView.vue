@@ -551,7 +551,7 @@ onMounted(async () => {
   width: 52%;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid #e4e7ed;
+  border-right: 1px solid #ececec;
   background: #fff;
 }
 
@@ -636,7 +636,7 @@ onMounted(async () => {
   padding: 12px 16px;
   background: #f5f7fa;
   border-radius: 8px;
-  border: 1px solid #e4e7ed;
+  border: 1px solid #ececec;
 }
 
 .create-footer {
@@ -661,7 +661,7 @@ onMounted(async () => {
 /* Agent Tab Bar */
 .agent-tabs-bar {
   background: #fff;
-  border-bottom: 1px solid #e4e7ed;
+  border-bottom: 1px solid #ececec;
   flex-shrink: 0;
   overflow: hidden;
 }
@@ -807,7 +807,7 @@ onMounted(async () => {
 .chat-input-area {
   padding: 12px;
   background: #fff;
-  border-top: 1px solid #e4e7ed;
+  border-top: 1px solid #ececec;
   flex-shrink: 0;
   display: flex;
   gap: 8px;

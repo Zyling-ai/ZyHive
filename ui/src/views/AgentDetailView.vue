@@ -2492,7 +2492,7 @@ async function openCronLogs(job: any) {
 }
 .chat-msg.assistant .msg-bubble {
   background: #fff;
-  border: 1px solid #e4e7ed;
+  border: 1px solid #ececec;
   border-bottom-left-radius: 4px;
 }
 .chat-msg.tool .msg-bubble {
@@ -2713,7 +2713,7 @@ async function openCronLogs(job: any) {
   align-items: flex-start;
   gap: 12px;
   padding: 10px 12px;
-  border: 1px solid #e4e7ed;
+  border: 1px solid #ececec;
   border-radius: 8px;
   background: #fafafa;
 }
@@ -2752,7 +2752,7 @@ async function openCronLogs(job: any) {
 
 /* Channel cards */
 .channel-card {
-  border: 1px solid #e4e7ed;
+  border: 1px solid #ececec;
   border-radius: 8px;
   margin-bottom: 16px;
   overflow: hidden;
@@ -2808,7 +2808,7 @@ async function openCronLogs(job: any) {
   align-items: center;
   gap: 8px;
   background: #f5f7fa;
-  border: 1px solid #e4e7ed;
+  border: 1px solid #ececec;
   border-radius: 6px;
   padding: 7px 10px;
   width: 100%;
@@ -2821,7 +2821,7 @@ async function openCronLogs(job: any) {
   font-family: monospace;
 }
 .pending-section {
-  border: 1px solid #e4e7ed;
+  border: 1px solid #ececec;
   border-radius: 6px;
   overflow: hidden;
 }
@@ -2958,7 +2958,7 @@ async function openCronLogs(job: any) {
 /* ─── Mobile session toggle ─────────────────────────────────────────────── */
 .mobile-session-toggle { display: none; }
 .session-count-badge {
-  background: #e4e7ed;
+  background: #ececec;
   color: #606266;
   font-size: 11px;
   border-radius: 8px;
@@ -3055,7 +3055,7 @@ async function openCronLogs(job: any) {
     padding: 8px 12px;
     background: #f5f7fa;
     border: none;
-    border-bottom: 1px solid #e4e7ed;
+    border-bottom: 1px solid #ececec;
     font-size: 13px;
     color: #606266;
     cursor: pointer;
@@ -3066,7 +3066,7 @@ async function openCronLogs(job: any) {
   .session-sidebar {
     width: 100% !important;
     border-right: none !important;
-    border-bottom: 1px solid #e4e7ed;
+    border-bottom: 1px solid #ececec;
     max-height: 0;
     overflow: hidden;
     transition: max-height 0.25s ease;

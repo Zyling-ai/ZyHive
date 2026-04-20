@@ -1259,7 +1259,7 @@ function formatDateTime(val?: string) {
   display: flex;
   flex-direction: column;
   background: #fff;
-  border-right: 1px solid #e4e7ed;
+  border-right: 1px solid #ececec;
   overflow: hidden;
 }
 .sidebar-top {
@@ -1387,7 +1387,7 @@ function formatDateTime(val?: string) {
 /* ── 拖拽手柄 ────────────────────────────────────────────────────────── */
 .gs-handle {
   width: 4px;
-  background: #e4e7ed;
+  background: #ececec;
   cursor: col-resize;
   flex-shrink: 0;
   display: flex;
@@ -1411,7 +1411,7 @@ function formatDateTime(val?: string) {
   flex-direction: column;
   overflow: hidden;
   background: #fff;
-  border-right: 1px solid #e4e7ed;
+  border-right: 1px solid #ececec;
 }
 
 /* 工具栏 */
@@ -1592,12 +1592,12 @@ function formatDateTime(val?: string) {
   align-items: stretch;
   height: 42px;
   margin-bottom: 0;
-  border-bottom: 1px solid #e4e7ed;
+  border-bottom: 1px solid #ececec;
 }
 .gantt-label-col {
   width: 200px;
   flex-shrink: 0;
-  border-right: 1px solid #e4e7ed;
+  border-right: 1px solid #ececec;
   display: flex;
   align-items: center;
 }
