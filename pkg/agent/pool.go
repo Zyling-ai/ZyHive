@@ -699,6 +699,7 @@ func (p *Pool) Run(ctx context.Context, agentID, message string) (string, error)
 		ProjectContext: p.buildProjectContext(ag.ID),
 		AgentEnv:      ag.Env,
 		UsageRecorder: p.usageRecorder(),
+		CapabilitiesContext: BuildCapabilitiesContext(toolRegistry, ag, p.cfg, ag.WorkspaceDir),
 	})
 
 	// Run and collect all text
@@ -784,6 +785,7 @@ func (p *Pool) RunStreamEvents(ctx context.Context, agentID, message, sessionID 
 		ProjectContext: p.buildProjectContext(ag.ID),
 		AgentEnv:       ag.Env,
 		UsageRecorder:  p.usageRecorder(),
+		CapabilitiesContext: BuildCapabilitiesContext(toolRegistry, ag, p.cfg, ag.WorkspaceDir),
 		ExtraContext:   strings.Join(extraSystemContext, "\n"),
 	})
 
@@ -843,6 +845,7 @@ func (p *Pool) RunStream(ctx context.Context, agentID, message, sessionID string
 		ProjectContext: p.buildProjectContext(ag.ID),
 		AgentEnv:       ag.Env,
 		UsageRecorder:  p.usageRecorder(),
+		CapabilitiesContext: BuildCapabilitiesContext(toolRegistry, ag, p.cfg, ag.WorkspaceDir),
 	})
 
 	return r.Run(ctx, message), nil
@@ -996,6 +999,7 @@ func (p *Pool) subagentRunFuncExt() subagent.RunFuncExt {
 				ProjectContext:  p.buildProjectContext(ag.ID),
 				AgentEnv:        ag.Env,
 				UsageRecorder:   p.usageRecorder(),
+				CapabilitiesContext: BuildCapabilitiesContext(toolRegistry, ag, p.cfg, ag.WorkspaceDir),
 			})
 
 			for ev := range r.Run(ctx, enrichedTask) {
@@ -1079,6 +1083,7 @@ func (p *Pool) SubagentRunFunc() subagent.RunFunc {
 				ProjectContext:  p.buildProjectContext(ag.ID),
 				AgentEnv:        ag.Env,
 				UsageRecorder:   p.usageRecorder(),
+				CapabilitiesContext: BuildCapabilitiesContext(toolRegistry, ag, p.cfg, ag.WorkspaceDir),
 			})
 
 			for ev := range r.Run(ctx, task) {

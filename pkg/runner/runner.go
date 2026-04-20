@@ -51,6 +51,12 @@ type Config struct {
 	Provider string
 	// Optional: called after each LLM turn with token usage data.
 	UsageRecorder func(inputTokens, outputTokens int, provider, model, agentID string)
+
+	// Optional: pre-formatted capabilities block (tool health + wishlist summary)
+	// injected into the system prompt so the AI has accurate self-awareness about
+	// what it can / cannot do. Built by internal/api or pkg/agent using
+	// tools.FormatCapabilitiesForPrompt + tools.FormatWishlistForPrompt.
+	CapabilitiesContext string
 }
 
 // Runner drives a single agent's conversation lifecycle.
@@ -417,6 +423,10 @@ func (r *Runner) run(ctx context.Context, userMsg string, out chan<- RunEvent) e
 	// 2. Build system prompt once (identity files + env + runtime metadata).
 	//    Prompt is static for the lifetime of this run — no need to re-read files per iteration.
 	systemPrompt, _ := BuildSystemPrompt(r.cfg.WorkspaceDir)
+	// 能力上下文（工具体检 + 愿望清单）— 让 AI 感知真实能力边界
+	if r.cfg.CapabilitiesContext != "" {
+		systemPrompt = systemPrompt + "\n\n" + r.cfg.CapabilitiesContext
+	}
 	if r.cfg.ProjectContext != "" {
 		systemPrompt = systemPrompt + "\n\n" + r.cfg.ProjectContext
 	}
