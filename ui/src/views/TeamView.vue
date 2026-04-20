@@ -160,6 +160,36 @@
       </div>
     </el-card>
 
+    <!-- Suggestions: 未建立关系的成员对 -->
+    <el-card v-if="suggestions.length" class="suggest-card">
+      <div class="suggest-head" @click="suggestOpen = !suggestOpen">
+        <span class="suggest-title">
+          💡 建议连接
+          <span class="suggest-count">{{ suggestions.length }} 组成员尚未建立关系</span>
+        </span>
+        <el-icon class="suggest-toggle"><component :is="suggestOpen ? 'ArrowUp' : 'ArrowDown'" /></el-icon>
+      </div>
+      <div v-if="suggestOpen" class="suggest-body">
+        <div v-for="(s, idx) in suggestions.slice(0, 5)" :key="idx" class="suggest-row">
+          <span class="suggest-pair">
+            <span class="suggest-name">{{ s.fromName }}</span>
+            <span class="suggest-arrow">↔</span>
+            <span class="suggest-name">{{ s.toName }}</span>
+          </span>
+          <div class="suggest-actions">
+            <el-button size="small" @click="openCreateRel(s.from, s.to)">自定义…</el-button>
+            <el-button size="small" type="primary" :loading="suggestSaving === `${s.from}|${s.to}`"
+              @click="quickConnect(s.from, s.to)">
+              建立平级关系
+            </el-button>
+          </div>
+        </div>
+        <div v-if="suggestions.length > 5" class="suggest-more">
+          还有 {{ suggestions.length - 5 }} 组未显示（先处理前几组即可）
+        </div>
+      </div>
+    </el-card>
+
     <!-- Legend -->
     <el-card v-if="graph.nodes.length" class="legend-card">
       <div class="legend">
@@ -278,6 +308,50 @@ function computeLevels(nodes: TeamGraphNode[], edges: TeamGraphEdge[]): Record<s
 }
 
 const levelMap = computed(() => computeLevels(graph.value.nodes, graph.value.edges))
+
+// ── 建议连接：未建立关系的 agent 对 ────────────────────────────────────────
+const suggestOpen = ref(true)
+const suggestSaving = ref<string>('')
+
+const suggestions = computed<{ from: string; to: string; fromName: string; toName: string }[]>(() => {
+  const nodes = graph.value.nodes
+  if (nodes.length < 2) return []
+  const edgeSet = new Set<string>()
+  for (const e of graph.value.edges) {
+    // 用 "小id|大id" 做无向归一化 key
+    const a = e.from < e.to ? e.from : e.to
+    const b = e.from < e.to ? e.to : e.from
+    edgeSet.add(`${a}|${b}`)
+  }
+  const out: { from: string; to: string; fromName: string; toName: string }[] = []
+  for (let i = 0; i < nodes.length; i++) {
+    for (let j = i + 1; j < nodes.length; j++) {
+      const na = nodes[i]!
+      const nb = nodes[j]!
+      const key = na.id < nb.id ? `${na.id}|${nb.id}` : `${nb.id}|${na.id}`
+      if (!edgeSet.has(key)) {
+        out.push({ from: na.id, to: nb.id, fromName: na.name, toName: nb.name })
+      }
+    }
+  }
+  return out
+})
+
+// 一键建立平级协作关系（默认 strength=常用, desc 空）
+async function quickConnect(from: string, to: string) {
+  const key = `${from}|${to}`
+  if (suggestSaving.value) return
+  suggestSaving.value = key
+  try {
+    await relationsApi.putEdge(from, to, '平级协作', '常用', '')
+    ElMessage.success('关系已建立（平级协作）')
+    await loadGraph()
+  } catch {
+    ElMessage.error('建立失败')
+  } finally {
+    suggestSaving.value = ''
+  }
+}
 
 const svgH = computed(() => {
   const maxLevel = Object.values(levelMap.value).reduce((m, v) => Math.max(m, v), 0)
@@ -665,6 +739,37 @@ onUnmounted(() => {
 .rel-node { font-weight: 600; font-size: 14px; color: #303133; }
 
 /* Legend */
+.suggest-card {
+  margin-bottom: 12px;
+  border: 1px solid #ececec;
+}
+.suggest-head {
+  display: flex; align-items: center; justify-content: space-between;
+  cursor: pointer; user-select: none;
+}
+.suggest-title { font-weight: 600; font-size: 14px; color: #303133; }
+.suggest-count {
+  margin-left: 8px; font-weight: 400; font-size: 12px; color: #64748b;
+}
+.suggest-toggle { color: #94a3b8; font-size: 14px; }
+.suggest-body { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+.suggest-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 12px;
+  background: #fafafa;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  transition: border-color 0.15s;
+}
+.suggest-row:hover { border-color: #e2e8f0; }
+.suggest-pair { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.suggest-name { font-weight: 500; color: #1e293b; }
+.suggest-arrow { color: #94a3b8; font-size: 14px; }
+.suggest-actions { display: flex; gap: 6px; }
+.suggest-more {
+  margin-top: 4px; padding: 6px 4px; font-size: 12px; color: #94a3b8; text-align: center;
+}
+
 .legend-card { padding: 0; }
 .legend { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; font-size: 13px; color: #606266; }
 .legend-title { font-weight: 600; color: #303133; }
