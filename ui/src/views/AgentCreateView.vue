@@ -527,7 +527,7 @@ onMounted(async () => {
   const [ml, cl, tl, sl, al] = await Promise.allSettled([
     models.list(), channels.list(), tools.list(), skills.list(), agentsApi.list()
   ])
-  if (ml.status === 'fulfilled') modelList.value = ml.value.data
+  if (ml.status === 'fulfilled') modelList.value = (ml.value.data || []).filter((m: any) => m.providerStatus !== 'error')
   modelsLoaded.value = true
   if (cl.status === 'fulfilled') channelList.value = cl.value.data
   if (tl.status === 'fulfilled') toolList.value = tl.value.data

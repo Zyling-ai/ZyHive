@@ -13,7 +13,7 @@
     </el-header>
 
     <el-main>
-      <el-tabs v-model="activeTab" type="border-card">
+      <el-tabs v-model="activeTab" class="agent-tabs">
         <!-- Tab 1: Chat with session sidebar -->
         <el-tab-pane label="对话" name="chat">
           <div class="chat-layout">
@@ -122,6 +122,7 @@
                 :no-model="modelsLoaded && modelList.length === 0"
                 :read-only="isReadOnlySession"
                 :read-only-reason="readOnlyReason"
+                :model-unavailable="currentModelUnavailable?.reason"
                 @session-change="onSessionChange"
               />
               <!-- 加载历史时的浮层（避免 AiChat 在底下闪烁）-->
@@ -2224,12 +2225,11 @@ async function saveFile(name: string, content: string) {
 async function loadModels() {
   try {
     const res = await modelsApi.list()
-    modelList.value = res.data || []
-    // Init selector from current agent
+    // 过滤掉 provider API Key 已测试失败的模型
+    modelList.value = (res.data || []).filter((m: ModelEntry) => m.providerStatus !== 'error')
     if (agent.value?.modelId) {
       agentModelId.value = agent.value.modelId
     } else {
-      // Try to match by model string
       const matched = modelList.value.find(m => m.provider + '/' + m.model === agent.value?.model || m.id === agent.value?.model)
       agentModelId.value = matched?.id || ''
     }
@@ -2239,6 +2239,20 @@ async function loadModels() {
     modelsLoaded.value = true
   }
 }
+
+// 当前 agent 绑定的模型是否指向了 error 状态的 provider（用于在对话页顶部显示警告条）
+const currentModelUnavailable = computed(() => {
+  if (!agent.value?.modelId) return null
+  // modelList 已经过滤掉了 error provider，所以 modelList 找不到 = error
+  const inList = modelList.value.find(m => m.id === agent.value!.modelId)
+  if (inList) return null
+  // 检查是否只是"没有模型配置"（未设置 modelId）—— 这种 AiChat 已有 no-model 引导
+  if (modelList.value.length === 0) return null
+  return {
+    modelId: agent.value.modelId,
+    reason: '当前成员绑定的 AI 模型 API Key 已失效，请在「模型配置」页重新测试或更换 Key 后再继续对话',
+  }
+})
 
 async function saveAgentModel() {
   if (!agentModelId.value) return
@@ -2535,8 +2549,7 @@ async function openCronLogs(job: any) {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 14px;
-  border-bottom: 1px solid #ececec;
+  padding: 10px 14px 8px;
   flex-shrink: 0;
 }
 
@@ -2644,23 +2657,21 @@ async function openCronLogs(job: any) {
 /* @ 其他成员面板 */
 .at-panel {
   flex-shrink: 0;
-  border-top: 1px solid #e4e7ed;
-  padding: 8px 8px 10px;
-  background: #f5f7fa;
+  padding: 8px 10px 12px;
+  background: transparent;
 }
-
 .at-toggle-btn {
   width: 100%;
   justify-content: flex-start;
-  color: #909399;
+  color: #64748b !important;
   font-size: 12px;
-  border-color: #dcdfe6;
+  border: 1px dashed #cbd5e1 !important;
+  background: transparent !important;
 }
-
 .at-toggle-btn:hover {
-  color: #409eff;
-  border-color: #b3d8ff;
-  background: #ecf5ff;
+  color: #6366f1 !important;
+  border-color: #a5b4fc !important;
+  background: rgba(99,102,241,0.04) !important;
 }
 
 .at-icon {
@@ -2948,10 +2959,8 @@ async function openCronLogs(job: any) {
   .detail-model-desktop { display: none; }
 
   /* ── Tabs: horizontal scroll ───────────────────────────────────────────── */
-  /* Force Element Plus border-card tabs header to scroll horizontally */
-  :deep(.el-tabs--border-card > .el-tabs__header) {
-    overflow: hidden;
-  }
+  /* Tabs header: mobile 水平滚动 */
+  :deep(.el-tabs__header) { overflow: hidden; }
   :deep(.el-tabs__nav-scroll) {
     overflow-x: auto !important;
     -webkit-overflow-scrolling: touch;
@@ -2961,41 +2970,42 @@ async function openCronLogs(job: any) {
   :deep(.el-tabs__nav-wrap) { overflow: visible !important; }
   :deep(.el-tabs__nav-wrap::after) { display: none !important; }
   :deep(.el-tabs__nav) { white-space: nowrap !important; }
-  :deep(.el-tabs--border-card > .el-tabs__header .el-tabs__item) {
-    padding: 0 10px;
-    font-size: 12px;
-    height: 36px;
-    line-height: 36px;
+  :deep(.el-tabs__item) {
+    padding: 0 10px !important;
+    font-size: 12px !important;
+    height: 36px !important;
+    line-height: 36px !important;
     white-space: nowrap;
   }
   :deep(.el-tab-pane) { padding: 0 !important; }
 
-  /* ── Tabs 浅色主题（覆盖 El Plus border-card 默认样式） ─────────────────── */
-  :deep(.el-tabs--border-card) {
+  /* ── Tabs: 极简样式（不用 border-card, 去掉重复边框） ─────────────────── */
+  .agent-tabs :deep(.el-tabs__header) {
+    margin: 0 !important;
+    border-bottom: 1px solid #ececec !important;
     background: #fff !important;
-    border-color: #e4e7ed !important;
   }
-  :deep(.el-tabs--border-card > .el-tabs__header) {
-    background: #f5f7fa !important;
-    border-bottom-color: #e4e7ed !important;
+  .agent-tabs :deep(.el-tabs__nav-wrap::after) { display: none !important; }
+  .agent-tabs :deep(.el-tabs__item) {
+    color: #64748b !important;
+    font-size: 13px;
+    height: 40px !important;
+    line-height: 40px !important;
+    padding: 0 18px !important;
+    transition: color 0.15s;
   }
-  :deep(.el-tabs--border-card > .el-tabs__header .el-tabs__item) {
-    color: #909399 !important;
-    border-color: transparent !important;
+  .agent-tabs :deep(.el-tabs__item:hover) { color: #334155 !important; }
+  .agent-tabs :deep(.el-tabs__item.is-active) {
+    color: #3b82f6 !important;
+    font-weight: 600;
   }
-  :deep(.el-tabs--border-card > .el-tabs__header .el-tabs__item.is-active) {
-    color: #409eff !important;
-    background: #fff !important;
-    border-bottom-color: #fff !important;
-    border-right-color: #e4e7ed !important;
-    border-left-color: #e4e7ed !important;
+  .agent-tabs :deep(.el-tabs__active-bar) {
+    background: #3b82f6 !important;
+    height: 2px !important;
   }
-  :deep(.el-tabs--border-card > .el-tabs__header .el-tabs__item:hover) {
-    color: #606266 !important;
-  }
-  :deep(.el-tabs--border-card > .el-tabs__content) {
-    background: #fff !important;
+  .agent-tabs :deep(.el-tabs__content) {
     padding: 0 !important;
+    background: #fafafa;
   }
 
   /* ── Page layout ───────────────────────────────────────────────────────── */

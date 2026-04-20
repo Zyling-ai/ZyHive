@@ -83,6 +83,8 @@ export interface ModelEntry {
   isDefault: boolean
   status: string // "ok" | "error" | "untested"
   supportsTools?: boolean // false = 不支持工具调用（如 deepseek-reasoner）
+  /** 绑定 provider 的测试状态（后端 join 附加） */
+  providerStatus?: string // "ok" | "error" | "untested"
 }
 
 export interface ProbeModelInfo {

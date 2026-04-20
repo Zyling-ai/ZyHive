@@ -23,6 +23,18 @@
       ref="dispatchPanelRef"
     />
 
+    <!-- 模型不可用警告 banner -->
+    <div v-if="props.modelUnavailable" class="model-unavail-banner">
+      <span class="mub-icon">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 9v4"/><circle cx="12" cy="17" r=".5"/>
+          <path d="M10.3 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+        </svg>
+      </span>
+      <span>{{ props.modelUnavailable }}</span>
+      <router-link to="/config/models" class="mub-action">前往配置 →</router-link>
+    </div>
+
     <!-- ── 消息列表 ── -->
     <!-- 后台任务运行中 banner -->
     <div v-if="runningTaskCount > 0" class="running-tasks-banner">
@@ -408,6 +420,8 @@ interface Props {
   readOnly?: boolean
   /** 只读模式的提示文字（覆盖默认文案） */
   readOnlyReason?: string
+  /** 模型不可用警告文案（如绑定的 API Key 已失效），传此字符串即显示顶部警告条 */
+  modelUnavailable?: string | null
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -2048,6 +2062,30 @@ onMounted(() => {
 .task-badge.error    { background: #fee2e2; color: #b91c1c; }
 .task-badge.killed   { background: #f1f5f9; color: #475569; }
 .task-elapsed        { margin-left: 4px; font-size: 11px; opacity: 0.75; font-variant-numeric: tabular-nums; }
+
+/* ── 模型不可用警告条 ── */
+.model-unavail-banner {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 16px;
+  background: #fef3c7;
+  border-bottom: 1px solid #fcd34d;
+  font-size: 12.5px; color: #92400e; font-weight: 500;
+  flex-shrink: 0;
+}
+.mub-icon { display: inline-flex; color: #d97706; flex-shrink: 0; }
+.mub-action {
+  margin-left: auto;
+  color: #b45309;
+  font-weight: 600;
+  text-decoration: none;
+  padding: 2px 10px;
+  border-radius: 4px;
+  background: rgba(255,255,255,0.5);
+  border: 1px solid #fcd34d;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+.mub-action:hover { background: #fff; border-color: #f59e0b; }
 
 /* ── Running tasks banner ── */
 .running-tasks-banner {
