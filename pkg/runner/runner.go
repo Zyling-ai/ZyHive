@@ -100,6 +100,9 @@ type RunEvent struct {
 	Text          string
 	ToolCall      *llm.ToolCall
 	Error         error
+	// tool_result 专属：对应的 tool_call ID（并行 tool 场景下前端必须按 ID 匹配，
+	// 不能靠顺序或 activeToolId）
+	ToolCallID string
 	// Done event extras
 	SessionID     string
 	TokenEstimate int
@@ -681,7 +684,7 @@ func (r *Runner) executeTools(ctx context.Context, calls []llm.ToolCall, out cha
 			"content":     s.result,
 		}
 		records[i] = s.record
-		out <- RunEvent{Type: "tool_result", Text: s.result}
+		out <- RunEvent{Type: "tool_result", Text: s.result, ToolCallID: calls[i].ID}
 	}
 	return results, records
 }
