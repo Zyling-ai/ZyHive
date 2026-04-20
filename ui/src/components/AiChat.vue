@@ -1733,7 +1733,22 @@ function continueAfterSpawn(agentName: string, label: string, output: string) {
   })
 }
 
-defineExpose({ clearMessages, appendMessage, sendText, sendSilent, fillInput, messages, streaming, currentSessionId, resumeSession, startNewSession, continueAfterSpawn })
+/**
+ * 显式装入一组历史消息并强制滚到底部（用于 AgentDetailView 点击渠道会话时，
+ * 把 convlog 数据渲染进 AiChat 的只读气泡流里）。
+ */
+function loadHistoryMessages(msgs: ChatMsg[]) {
+  currentSessionId.value = undefined  // 不启任何 session 订阅
+  messages.value = msgs
+  streaming.value = false
+  streamText.value = ''
+  streamThinking.value = ''
+  streamToolCalls.value = []
+  userScrolledUp.value = false
+  nextTick(() => scrollBottom(true))
+}
+
+defineExpose({ clearMessages, appendMessage, sendText, sendSilent, fillInput, messages, streaming, currentSessionId, resumeSession, startNewSession, continueAfterSpawn, loadHistoryMessages })
 
 // ── Init ─────────────────────────────────────────────────────────────────
 onMounted(() => {
