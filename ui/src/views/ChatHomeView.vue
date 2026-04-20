@@ -193,7 +193,8 @@ async function loadAgents() {
 async function loadModels() {
   try {
     const res = await modelsApi.list()
-    allModels.value = res.data
+    // 过滤掉 provider API Key 已测失败的模型（避免用户选了又报错）
+    allModels.value = (res.data || []).filter((m: ModelEntry) => m.providerStatus !== 'error')
     syncModel()
   } catch {}
 }
