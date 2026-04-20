@@ -351,12 +351,11 @@
           <textarea
             ref="inputRef"
             v-model="inputText"
-            :placeholder="props.noModel ? '请先配置 AI 模型才能开始对话…' : (placeholder || '输入消息… 支持拖拽图片或文件 (Ctrl+Enter 发送)')"
+            :placeholder="props.noModel ? '请先配置 AI 模型才能开始对话…' : (placeholder || '输入消息… (Enter 发送 · Shift+Enter 换行 · 支持拖拽图片/文件)')"
             :disabled="streaming || historyLoading || props.noModel"
             rows="1"
             class="chat-textarea"
-            @keydown.enter.ctrl.prevent="send"
-            @keydown.enter.meta.prevent="send"
+            @keydown="onTextareaKeydown"
             @paste="handlePaste"
             @input="autoGrow"
           />
@@ -376,7 +375,7 @@
         </div>
       </div>
 
-      <div class="input-hint">Ctrl+Enter 发送 · 支持拖拽图片/文件</div>
+      <div class="input-hint">Enter 发送 · Shift + Enter 换行 · 支持拖拽图片/文件</div>
     </div>
 
   </div>
@@ -1251,6 +1250,18 @@ function readImageFile(file: File) {
 }
 
 function removeImage(i: number) { pendingImages.value.splice(i, 1) }
+
+// ── Keyboard handling ─────────────────────────────────────────────────────
+// Enter = 发送 | Shift+Enter = 换行 | IME 组词期间 (isComposing) 不拦截
+function onTextareaKeydown(e: KeyboardEvent) {
+  if (e.key !== 'Enter') return
+  // Shift / Ctrl / Meta / Alt + Enter = 允许原生换行行为
+  if (e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return
+  // 中文输入法组词过程中不拦截 Enter (用 isComposing + keyCode 229 双保险)
+  if (e.isComposing || (e as any).keyCode === 229) return
+  e.preventDefault()
+  send()
+}
 
 // ── Send ──────────────────────────────────────────────────────────────────
 function send() {
@@ -2508,21 +2519,23 @@ onMounted(() => {
 }
 .attach-file-remove:hover { color: #f56c6c; }
 
+/* Cursor 风输入区: 克制灰调, 无蓝色 focus 环, 依靠边框深浅暗示状态 */
 .input-row {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   align-items: flex-end;
-  background: #fff;
-  border: 1px solid #ececec;
-  border-radius: 14px;
-  padding: 8px 8px 8px 14px;
-  transition: border-color .15s, box-shadow .15s;
+  background: #f6f6f7;
+  border: 1px solid #e6e6e8;
+  border-radius: 10px;
+  padding: 8px 8px 8px 12px;
+  transition: border-color .12s, background .12s;
 }
+.input-row:hover { border-color: #d4d4d8; }
 .input-row:focus-within {
-  border-color: #94a3b8;
-  box-shadow: 0 0 0 3px rgba(99,102,241,0.08);
+  border-color: #9ca3af;
+  background: #fff;
 }
-.textarea-wrap { flex: 1; }
+.textarea-wrap { flex: 1; min-width: 0; }
 .chat-textarea {
   width: 100%;
   resize: none;
@@ -2538,32 +2551,49 @@ onMounted(() => {
   overflow-y: hidden;
   max-height: 200px;
 }
-.chat-textarea:disabled { opacity: .6; cursor: not-allowed; }
-.chat-textarea::placeholder { color: #94a3b8; }
+.chat-textarea:disabled { opacity: .55; cursor: not-allowed; }
+.chat-textarea::placeholder { color: #a1a1aa; font-weight: 400; }
 
-.input-actions { display: flex; flex-direction: column; gap: 4px; }
-.icon-btn {
-  width: 32px; height: 32px;
-  display: flex; align-items: center; justify-content: center;
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 16px;
-  transition: background .15s;
+/* Cursor 风操作区: 克制灰调, 无蓝色主色 */
+.input-actions {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-end;
+  gap: 4px;
 }
-.icon-btn:hover { background: #f0f2f5; }
-.send-btn {
-  width: 36px; height: 36px;
-  background: #409eff;
-  color: #fff;
-  border: none;
-  border-radius: 10px;
-  cursor: pointer;
-  font-size: 18px;
+.icon-btn {
+  width: 28px; height: 28px;
   display: flex; align-items: center; justify-content: center;
-  transition: background .15s;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  color: #71717a;
+  background: transparent;
+  border: none;
+  transition: background .12s, color .12s;
+}
+.icon-btn:hover { background: rgba(0,0,0,0.04); color: #3f3f46; }
+.send-btn {
+  width: 28px; height: 28px;
+  background: transparent;
+  color: #a1a1aa;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .12s, color .12s, border-color .12s;
   flex-shrink: 0;
 }
-.send-btn:hover:not(:disabled) { background: #337ecc; }
+.send-btn:hover:not(:disabled) { background: rgba(0,0,0,0.04); color: #3f3f46; }
+/* 有内容 / 非 disabled → 变深色实心按钮（即 Cursor 里"可发送"的那种强调态） */
+.send-btn:not(:disabled) {
+  background: #18181b;
+  color: #fff;
+  border-color: #18181b;
+}
+.send-btn:not(:disabled):hover { background: #27272a; border-color: #27272a; }
+.send-btn:disabled { background: transparent; color: #d4d4d8; border-color: transparent; cursor: not-allowed; }
 .send-btn:disabled { background: #c0c4cc; cursor: not-allowed; }
 
 .input-hint { font-size: 11px; color: #cbd5e1; margin-top: 6px; text-align: center; }
@@ -2614,7 +2644,7 @@ onMounted(() => {
 @media (max-width: 768px) {
   .chat-input-area { padding: 8px 10px 10px; }
   .chat-textarea { font-size: 15px; min-height: 44px; padding: 10px 12px; }
-  .send-btn { min-width: 48px; height: 48px; font-size: 20px; border-radius: 12px; }
+  .send-btn { min-width: 40px; height: 40px; font-size: 16px; border-radius: 8px; }
   .input-hint { display: none; }
   .msg-bubble { font-size: 15px; line-height: 1.6; }
   .msg-bubble.user { border-radius: 18px 18px 4px 18px; }
