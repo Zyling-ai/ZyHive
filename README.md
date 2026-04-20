@@ -6,7 +6,7 @@
 [![GitHub Forks](https://img.shields.io/github/forks/Zyling-ai/zyhive?style=flat&logo=github&color=orange)](https://github.com/Zyling-ai/zyhive/network/members)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 [![Go 1.22+](https://img.shields.io/badge/Go-1.22+-00ADD8.svg)](https://golang.org)
-[![Version](https://img.shields.io/badge/version-26.4.20v2-brightgreen.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-26.4.20v3-brightgreen.svg)](CHANGELOG.md)
 [![官网](https://img.shields.io/badge/官网-zyling.ai-6366f1?logo=globe)](https://zyling.ai)
 
 **以团队为核心，每个 AI Agent 是团队成员。**
@@ -302,6 +302,10 @@ make release
 | **26.3.29v1–v15** | **派遣任务体验**：计时显示、LLM 续写汇报；空白气泡彻底修复；输入框超长滚动 | ✅ |
 | **26.3.31v1** | **Coordinator 模式**：多 Agent 协调者提示词、task-notification XML、AgentDefinition 标准化、SessionMemory 后台提取 | ✅ |
 | **26.4.1v1–v20** | **飞书渠道全面接入**：WS 长连接（protobuf）、流式卡片回复、7 大飞书能力工具、群聊模式配置、配对授权优化、多人对话上下文区分 | ✅ |
+| **26.4.11–26.4.19** | **会话与内存增强**：四层分层记忆树（core/projects/daily/topics + INDEX.md）、Consolidator 蒸馏、一键安装脚本加固、测试基础设施修复、CGO_ENABLED=0 静态二进制（CentOS 7 兼容） | ✅ |
+| **26.4.20v1** | **CLI 全面测试**：6 处 CLI 交互 bug 修复（双 pause / 隐藏目录 / 更新 URL / 备份目录持久化 / 中文 help / 取消更新提示）+ 42 断言回归脚本；**聊天 UI 重构**：Cursor 极简风（细滚动条 / 气泡 / Markdown GFM+ 代码高亮 / 工具卡淡化 / 输入区胶囊 / Enter 发送）；渠道识别 + 只读模式 | ✅ |
+| **26.4.20v2** | **AI 能力扩展**：工具体检（ready/blocked）+ 愿望清单（wish_add/wish_list）+ 系统提示词注入"当下信息"；修复 anthropic `output_tokens=0` 真·根因 + 并行工具调用状态 + UsageView 饼图 legend 挤压 + Web 面板会话误判只读；全站视觉一致性 + 边框色统一 | ✅ |
+| **26.4.20v3** | **关系双向同步 & 派遣权限**：RELATIONS.md 全类型双向（上下级/平级/支持/其他）、agent_spawn 必须在关系表内（built-in 类型豁免）、前端切换 tab 自动刷新、派遣规则写入系统提示词；**对话管理 drawer 历史消息**修复（AiChat 始终 mount + loading overlay）；capabilities context 完整注入 runner | ✅ |
 | v0.11（规划中）| 团队规划系统增强、会议系统、ChatsView 统一重写、共享工作区权限 UI | 🔜 |
 
 ---
