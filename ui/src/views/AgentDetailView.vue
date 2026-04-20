@@ -111,50 +111,23 @@
 
             <!-- Chat Area -->
             <div class="chat-area">
-              <!-- Interactive panel session (always mounted, hidden when history view) -->
-              <div v-show="viewMode !== 'history'" style="height:100%">
-                <AiChat
-                  ref="aiChatRef"
-                  :agent-id="agentId"
-                  :scenario="'agent-detail'"
-                  :welcome-message="`你好！我是 **${agent?.name || 'AI'}**，有什么可以帮你的？`"
-                  height="calc(100vh - 145px)"
-                  :show-thinking="true"
-                  :no-model="modelsLoaded && modelList.length === 0"
-                  :read-only="isReadOnlySession"
-                  :read-only-reason="readOnlyReason"
-                  @session-change="onSessionChange"
-                />
-              </div>
-
-              <!-- Read-only history viewer (channel sessions) -->
-              <div v-if="viewMode === 'history'" class="history-viewer">
-                <div class="source-banner" v-if="selectedItem">
-                  <span>
-                    来自 {{ sourceTag(selectedItem.source).label }} · {{ selectedItem.id }} · 只读
-                  </span>
-                </div>
-                <div class="history-msg-list" v-loading="historyLoading">
-                  <div
-                    v-for="(msg, idx) in historyMessages"
-                    :key="idx"
-                    :class="['message-item', msg.role === 'user' ? 'msg-user' : 'msg-assistant']"
-                  >
-                    <div class="msg-avatar">
-                      <el-avatar :size="28" :style="{ background: msg.role === 'user' ? '#409eff' : '#67c23a', fontSize: '12px' }">
-                        {{ msg.role === 'user' ? '用' : 'AI' }}
-                      </el-avatar>
-                    </div>
-                    <div class="msg-body">
-                      <div class="msg-meta">
-                        <span class="msg-role">{{ msg.role === 'user' ? (msg.sender || '用户') : 'AI' }}</span>
-                        <span class="msg-time">{{ msg.ts ? formatDate(new Date(msg.ts).getTime()) : '' }}</span>
-                      </div>
-                      <div class="msg-text" style="background:#f4f4f5;border-radius:8px;padding:8px 12px;font-size:13px;line-height:1.6;word-break:break-word;white-space:pre-wrap">{{ msg.content }}</div>
-                    </div>
-                  </div>
-                  <el-empty v-if="!historyLoading && !historyMessages.length" description="暂无消息记录" />
-                </div>
+              <!-- 所有对话统一用 AiChat 渲染 —— 面板会话可输入，渠道会话只读 -->
+              <AiChat
+                ref="aiChatRef"
+                :agent-id="agentId"
+                :scenario="'agent-detail'"
+                :welcome-message="`你好！我是 **${agent?.name || 'AI'}**，有什么可以帮你的？`"
+                height="calc(100vh - 145px)"
+                :show-thinking="true"
+                :no-model="modelsLoaded && modelList.length === 0"
+                :read-only="isReadOnlySession"
+                :read-only-reason="readOnlyReason"
+                @session-change="onSessionChange"
+              />
+              <!-- 加载历史时的浮层（避免 AiChat 在底下闪烁）-->
+              <div v-if="historyLoading" class="history-loading-overlay">
+                <el-icon class="is-loading" :size="22" color="#94a3b8"><Loading /></el-icon>
+                <span>加载对话中…</span>
               </div>
             </div>
           </div>
@@ -1202,9 +1175,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed, watch } from 'vue'
+import { ref, onMounted, computed, watch, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
-import { ArrowLeft, Plus, EditPen, Refresh, FolderOpened, Document, ArrowDown } from '@element-plus/icons-vue'
+import { ArrowLeft, Plus, EditPen, Refresh, FolderOpened, Document, ArrowDown, Loading } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import SkillStudio from '../components/SkillStudio.vue'
 import { agents as agentsApi, files as filesApi, memoryApi, cron as cronApi, sessions as sessionsApi, relationsApi, memoryConfigApi, agentChannels as agentChannelsApi, agentConversations, models as modelsApi, type AgentInfo, type CronJob, type SessionSummary, type RelationRow, type MemConfig, type MemRunLog, type ChannelEntry, type PendingUser, type ConvEntry, type ChannelSummary, type ModelEntry } from '../api'
@@ -1366,18 +1339,28 @@ function isSelectedItem(item: SidebarItem): boolean {
 async function selectSidebarItem(item: SidebarItem) {
   selectedItem.value = item
   if (item.type === 'panel') {
+    // 面板类 session（含 source=feishu/telegram 的 channel-originated session）
+    // 统一走 resumeSession：读取完整 session JSONL（含 toolCalls）
     viewMode.value = 'chat'
     activeSessionId.value = item.id
-    await new Promise(r => setTimeout(r, 50))
+    await nextTick()
     aiChatRef.value?.resumeSession(item.id)
   } else {
-    viewMode.value = 'history'
+    // type === 'channel' 类对话（convlog 存储）—— 把 convlog 转成 ChatMsg 注入到 AiChat 只读展示
+    viewMode.value = 'chat'
     historyMessages.value = []
     historyLoading.value = true
     try {
-      const res = await agentConversations.messages(agentId, item.id, { limit: 100, offset: 0 })
-      // 过滤内部协议 XML（保险：一般渠道 convlog 不会有，但 defensive）
-      historyMessages.value = (res.data.messages || []).filter(m => !(m.content || '').trim().startsWith('<task-notification>'))
+      const res = await agentConversations.messages(agentId, item.id, { limit: 500, offset: 0 })
+      const raw = (res.data.messages || []).filter(m => !(m.content || '').trim().startsWith('<task-notification>'))
+      historyMessages.value = raw
+      // 转成 AiChat 识别的 ChatMsg 结构
+      const msgs: ChatMsg[] = raw.map(m => ({
+        role: m.role,
+        text: m.role === 'user' && m.sender ? `[${m.sender}] ${m.content}` : m.content,
+      }))
+      await nextTick()
+      aiChatRef.value?.loadHistoryMessages(msgs)
     } catch {}
     finally { historyLoading.value = false }
   }
@@ -1394,12 +1377,6 @@ function onSessionChange(sessionId: string) {
   activeSessionId.value = sessionId
   localStorage.setItem(`zyhive_session_${agentId}`, sessionId)
   setTimeout(loadSidebarItems, 500)
-}
-
-function formatDate(ms: number | string | undefined): string {
-  if (!ms) return ''
-  const d = typeof ms === 'string' ? new Date(ms) : new Date(ms)
-  return d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
 function formatRelative(ms: number): string {
@@ -2644,61 +2621,24 @@ async function openCronLogs(job: any) {
 /* (极简设计: session-source-tag 和 session-item-time 由新 meta 行替代) */
 .session-item-time { font-size: 11px; color: #94a3b8; }
 
-/* History viewer */
-.history-viewer {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  overflow: hidden;
-}
-.source-banner {
-  background: #f0f9eb;
-  border-bottom: 1px solid #e1f3d8;
-  padding: 8px 16px;
-  font-size: 12px;
-  color: #67c23a;
-  flex-shrink: 0;
-}
-.history-msg-list {
-  flex: 1;
-  overflow-y: auto;
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-.message-item {
-  display: flex;
-  gap: 10px;
-  align-items: flex-start;
-}
-.msg-user {
-  flex-direction: row-reverse;
-}
-.msg-user .msg-body {
-  align-items: flex-end;
-}
-.msg-user .msg-meta {
-  flex-direction: row-reverse;
-}
-.msg-avatar { flex-shrink: 0; }
-.msg-body {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  max-width: 82%;
-}
-.msg-meta {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-.msg-role { font-size: 12px; font-weight: 600; color: #606266; }
-.msg-time { font-size: 11px; color: #c0c4cc; }
-
+/* Chat area & history loading overlay */
 .chat-area {
   flex: 1;
   overflow: hidden;
+  position: relative;
+}
+.history-loading-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(250, 250, 250, 0.85);
+  backdrop-filter: blur(2px);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #64748b;
 }
 
 /* @ 其他成员面板 */
