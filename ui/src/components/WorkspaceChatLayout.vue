@@ -607,7 +607,7 @@ onUnmounted(() => {
   padding: 2px 6px; background: transparent; border: 1px solid transparent;
   border-radius: 4px; cursor: pointer; font-size: 13px; color: #909399;
 }
-.wc-icon-btn:hover { background: #e4e7ed; border-color: #dcdfe6; color: #606266; }
+.wc-icon-btn:hover { background: #ececec; border-color: #dcdfe6; color: #606266; }
 .wc-icon-btn.danger:hover { background: #fef0f0; color: #f56c6c; border-color: #fbc4c4; }
 .wc-save-btn {
   padding: 2px 10px; background: #3b82f6; color: #fff;
@@ -745,18 +745,18 @@ onUnmounted(() => {
 /* 面板头深色 */
 .wc-panel-left .wc-panel-header {
   background: #f8f9fa;
-  border-bottom-color: #e4e7ed;
+  border-bottom-color: #ececec;
 }
 .wc-panel-left .wc-panel-title { color: #909399; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
 .wc-panel-left .wc-icon-btn { color: #909399; }
-.wc-panel-left .wc-icon-btn:hover { background: #e4e7ed; border-color: transparent; color: #606266; }
-.wc-panel-left { background: #f8f9fa; border-right-color: #e4e7ed; }
+.wc-panel-left .wc-icon-btn:hover { background: #ececec; border-color: transparent; color: #606266; }
+.wc-panel-left { background: #f8f9fa; border-right-color: #ececec; }
 
 /* ── Context menu（深色）── */
 .ctx-menu {
   position: fixed;
   z-index: 9999;
-  background: #fff; border: 1px solid #e4e7ed; box-shadow: 0 2px 12px rgba(0,0,0,.1);
+  background: #fff; border: 1px solid #ececec; box-shadow: 0 2px 12px rgba(0,0,0,.1);
   border: 1px solid #45475a;
   border-radius: 8px;
   padding: 4px;
@@ -776,13 +776,13 @@ onUnmounted(() => {
 .ctx-item:hover { background: #f0f2f5; }
 .ctx-item.danger { color: #f56c6c; }
 .ctx-item.danger:hover { background: #fef0f0; }
-.ctx-divider { height: 1px; background: #e4e7ed; margin: 3px 0; }
+.ctx-divider { height: 1px; background: #ececec; margin: 3px 0; }
 
 /* ── Editor ── */
 .editor-body { display: flex; flex-direction: column; }
 .editor-wrap { flex: 1; display: flex; overflow: hidden; }
 .line-numbers {
-  width: 42px; background: #f5f7fa; border-right: 1px solid #e4e7ed;
+  width: 42px; background: #f5f7fa; border-right: 1px solid #ececec;
   padding: 8px 0; overflow: hidden; flex-shrink: 0; user-select: none;
 }
 .line-num {
@@ -801,9 +801,9 @@ onUnmounted(() => {
 .editor-statusbar {
   display: flex; gap: 10px; align-items: center;
   padding: 3px 10px; font-size: 11px; color: #909399;
-  background: #f5f7fa; border-top: 1px solid #e4e7ed; flex-shrink: 0;
+  background: #f5f7fa; border-top: 1px solid #ececec; flex-shrink: 0;
 }
-.stat-chip  { background: #e4e7ed; border-radius: 3px; padding: 1px 5px; font-family: monospace; color: #909399; }
+.stat-chip  { background: #ececec; border-radius: 3px; padding: 1px 5px; font-family: monospace; color: #909399; }
 .stat-flex  { flex: 1; }
 .status-dirty { color: #e6a23c; font-weight: 600; }
 .status-saved { color: #67c23a; }

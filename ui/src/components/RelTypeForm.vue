@@ -123,7 +123,7 @@ const typeOptions = computed(() => [
 }
 
 .type-card {
-  border: 1.5px solid #e4e7ed;
+  border: 1.5px solid #ececec;
   border-radius: 8px;
   padding: 12px 14px;
   cursor: pointer;

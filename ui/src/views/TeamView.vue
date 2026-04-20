@@ -628,7 +628,7 @@ onUnmounted(() => {
 /* Node edit panel */
 .node-edit-panel {
   display: flex; align-items: center;
-  background: #f5f7fa; border: 1px solid #e4e7ed;
+  background: #f5f7fa; border: 1px solid #ececec;
   border-radius: 6px; padding: 6px 14px;
   font-size: 13px; flex-shrink: 0;
 }
