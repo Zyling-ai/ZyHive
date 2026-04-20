@@ -409,8 +409,14 @@ func (h *chatHandler) execRunner(
 func runEventToJSON(ev runner.RunEvent) []byte {
 	m := map[string]any{"type": ev.Type}
 	switch ev.Type {
-	case "text_delta", "thinking_delta", "tool_result":
+	case "text_delta", "thinking_delta":
 		m["text"] = ev.Text
+	case "tool_result":
+		m["text"] = ev.Text
+		// 并行 tool 场景下前端必须按此 ID 精准匹配, 不能靠 activeToolId 猜测
+		if ev.ToolCallID != "" {
+			m["tool_call_id"] = ev.ToolCallID
+		}
 	case "tool_call":
 		if ev.ToolCall != nil {
 			m["tool_call"] = ev.ToolCall
