@@ -4,6 +4,68 @@
 
 ---
 
+## [26.4.20v3] — 2026-04-20 · 关系双向同步 · 派遣权限 · 对话 drawer 修复
+
+本版 3 commit，聚焦关系图谱 + 派遣权限 + 一个细节 UI 修复。
+
+### 🔗 关系系统全面双向化
+
+用户反馈: "建立关系后，在成员的关系里面没有更新。这里的关系应该是双向的，在提示词里有关系要加进去。同时相应的关系对应着派遣的权限。"
+
+- **关系全类型双向存储**（`internal/api/relations.go`）
+  - 之前 `inverseRelationType` 对 `上下级` / `上级` / `下级` 返回空串，**跳过了反向写入** → A 标 B 为上级时，B 的 `RELATIONS.md` 完全没 A 的记录。
+  - 修复：
+    - `上级` → 反向 `下级`
+    - `下级` → 反向 `上级`
+    - `上下级`（A 是 B 的上级）→ 反向 `下级`（B 是 A 的下级）
+    - `平级协作` / `支持` / `其他` 继续保持对称
+  - 现在任何一侧加关系，双方 `RELATIONS.md` 都能看到对应记录。
+
+- **前端关系 tab 自动刷新**（`ui/src/views/AgentDetailView.vue`）
+  - `saveRelations` finally 加 `await loadRelations()`（磁盘回读，同步后端规范化 / 双向补全副作用）
+  - `watch(activeTab)` 切换到 `relations` 时自动 `loadRelations()` → 看到别人给自己加的反向关系
+
+### 🔒 agent_spawn 关系权限检查
+
+- 之前：**任意 agent 可派遣任意 agent**，权限完全没做。
+- 现在规则：派遣 **user agent** 时必须在当前 agent 的 `RELATIONS.md` 里有记录。
+- 豁免：built-in agent type（`general-purpose` / `explore` / `plan` / `verification` / `coordinator`）不受此限制（coordinator 模式专用）。
+- 实现（`pkg/tools/registry.go::handleAgentSpawn`）：
+  - 判定 `targetIsUserAgent`：在 `agentLister` 里找到 = true
+  - false 但 ID 匹配 `builtInAgentTypes` → 豁免
+  - 未在关系表 → 拒绝："❌ 你与成员 X 之间没有建立关系，无法派遣。请先前往团队图谱建立关系，或用 `wish_add` 告知用户。"
+  - 新增 helper：`pkg/tools/relations_helper.go::allowedPeersFromRelations`
+
+### 💡 system prompt 注入派遣规则
+
+- `pkg/runner/system_prompt.go` 在 `RELATIONS.md` 注入后追加派遣规则说明，让 AI 在派遣前就知道这个约束，不至于碰壁才发现。
+
+### 🐛 对话管理 drawer 历史消息无法显示
+
+用户反馈: 对话管理里点开 drawer 内容空白，但"X 条 · X tokens"正常。
+
+- 根因时序:
+  1. `sessionDrawer=true` 打开 drawer
+  2. `detailLoading=true` → 模板 `v-if='detailLoading'` 显示 loading，AiChat 在 v-else 分支**根本没 mount**
+  3. `await sessionsApi.get()` + `await nextTick()`
+  4. 调 `sessionAiChatRef.value?.loadHistoryMessages()` → ref 是 `null`（AiChat 尚未 mount），静默失败
+  5. `finally` 设 `detailLoading=false` → AiChat 此刻才 mount，但已错过 load 调用 → **永远空白**
+
+- 修复（`ui/src/views/ChatsView.vue`）:
+  - Template: AiChat 改为**始终 mount**（v-if 只看 drawer+row 是否存在），loading 改用 absolute 定位的 overlay 遮罩，不再卸载 AiChat
+  - Logic: load 调用移到 finally 之后 + 两次 `nextTick()` + 兜底轮询 500ms（el-drawer 动画期间 mount 可能慢于 finally）
+  - 同步修了 channel drawer 的同类问题
+
+### ✅ capabilities context 完整闭环注入 runner
+
+- 上个版本的 `工具体检 + WISHLIST` 信号已能写入 prompt，本版验证了 `chat.go::execRunner` / `pool.go` 所有分支（Web / Telegram / Feishu / Cron）都通过 `runner.Config.CapabilitiesContext` 拿到相同内容，AI 跨渠道对"自己有什么工具"的认知一致。
+
+### 备注
+
+本版**无 API 破坏性变更**，完全向后兼容。
+
+---
+
 ## [26.4.20v2] — 2026-04-20 · AI 能力扩展 · 关键 bug 修复 · UI 全面升级
 
 本版 13 commit 聚合，分 4 主题。
