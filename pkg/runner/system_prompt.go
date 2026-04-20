@@ -71,6 +71,11 @@ func BuildSystemPrompt(workspaceDir string) (string, error) {
 		sb.WriteString(fmt.Sprintf("--- %s ---\n%s\n\n", label, content))
 	}
 
+	// User profile — 用户档案（给 AI 看的"你正在服务谁"）
+	// 位置：IDENTITY/SOUL 之前，让 AI 先知道"我服务的人"再看"我是谁"。
+	// 用户可在 AgentDetailView 的"身份 & 灵魂"tab 编辑；文件不存在则不注入。
+	injectFile(filepath.Join(workspaceDir, "memory", "core", "user-profile.md"), "memory/core/user-profile.md")
+
 	// Read IDENTITY.md and SOUL.md
 	for _, filename := range []string{"IDENTITY.md", "SOUL.md"} {
 		injectFile(filepath.Join(workspaceDir, filename), filename)
