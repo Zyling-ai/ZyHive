@@ -315,18 +315,26 @@ func parseAnthropicSSE(ctx context.Context, body io.Reader, events chan<- Stream
 			currentBlockType = ""
 
 		case "message_delta":
+			// Anthropic 的 message_delta 结构:
+			//   { "type":"message_delta",
+			//     "delta":{"stop_reason":"end_turn", "stop_sequence":null, ...},
+			//     "usage":{"input_tokens":9, "output_tokens":4, ...} }
+			// 注意: output_tokens 在顶层 usage 里, 不在 delta 里.
+			// 之前误从 event.Delta 解析 usage 一直拿不到数据 → 所有对话 output=0.
 			var delta struct {
 				StopReason string `json:"stop_reason"`
-				Usage      struct {
+			}
+			if err := json.Unmarshal(event.Delta, &delta); err == nil {
+				// stop_reason 正确获取
+			}
+			// 从顶层 usage 字段解析 output_tokens
+			if len(event.Usage) > 0 {
+				var u struct {
 					OutputTokens int `json:"output_tokens"`
-				} `json:"usage"`
-			}
-			if err := json.Unmarshal(event.Delta, &delta); err != nil {
-				continue
-			}
-			// Emit output token count from message_delta
-			if out := delta.Usage.OutputTokens; out > 0 {
-				events <- StreamEvent{Type: EventUsage, Usage: &Usage{OutputTokens: out}}
+				}
+				if err := json.Unmarshal(event.Usage, &u); err == nil && u.OutputTokens > 0 {
+					events <- StreamEvent{Type: EventUsage, Usage: &Usage{OutputTokens: u.OutputTokens}}
+				}
 			}
 			events <- StreamEvent{Type: EventStop, StopReason: delta.StopReason}
 
