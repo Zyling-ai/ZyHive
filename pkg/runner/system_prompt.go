@@ -38,19 +38,28 @@ func truncateForPrompt(content, filename string) string {
 	return head + marker + tail
 }
 
+// weekdayZh maps Go's time.Weekday to Chinese labels.
+var weekdayZh = []string{"周日", "周一", "周二", "周三", "周四", "周五", "周六"}
+
 // BuildSystemPrompt reads IDENTITY.md, SOUL.md, and memory/INDEX.md from the
 // workspace directory, and returns the full system prompt.
 // Only INDEX.md is injected (lightweight). Full memory tree is accessible via tools.
 func BuildSystemPrompt(workspaceDir string) (string, error) {
 	var sb strings.Builder
 
-	// Inject current date/time in Asia/Shanghai timezone
+	// ── 当下信息注入 ──────────────────────────────────────────────────────
+	// 让 AI 意识到"此刻的位置"，不再被训练截止日期锁在过去。
 	loc, err := time.LoadLocation("Asia/Shanghai")
 	if err != nil {
 		loc = time.UTC
 	}
 	now := time.Now().In(loc)
-	sb.WriteString(fmt.Sprintf("Current date and time: %s\n\n", now.Format("2006-01-02 15:04:05 MST")))
+	_, isoWeek := now.ISOWeek()
+	sb.WriteString(fmt.Sprintf("Current date and time: %s %s（第 %d 周 · 年度第 %d 天）\n",
+		now.Format("2006-01-02 15:04:05 MST"), weekdayZh[now.Weekday()], isoWeek, now.YearDay()))
+	sb.WriteString("Platform: 你运行在 ZyHive (https://zyling.ai) — 一个自托管的 AI 团队操作系统。\n")
+	sb.WriteString("⚠️ 今天的日期可能晚于你的训练截止日期。涉及时事、最新数据、实时信息时，请主动调用 web_search / web_fetch 工具获取最新内容，不要凭训练记忆猜测。\n")
+	sb.WriteString("💡 如果你希望拥有某项尚未具备的能力（如新工具 / API 接入），可以调用 wish_add 工具把愿望写入 WISHLIST.md，用户会看到并可能为你启用。\n\n")
 
 	// injectFile 是内部辅助：读取文件并以截断保护注入到系统提示词。
 	injectFile := func(path, label string) {

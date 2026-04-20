@@ -85,6 +85,9 @@ func New(workspaceDir, agentDir, agentID string) *Registry {
 	r.register(selfUninstallSkillDef, r.handleSelfUninstallSkill)
 	r.register(selfRenameDef, r.handleSelfRename)
 	r.register(selfUpdateSoulDef, r.handleSelfUpdateSoul)
+	// Wishlist tools — AI 自主表达能力诉求
+	r.register(wishAddDef, r.handleWishAdd)
+	r.register(wishListDef, r.handleWishList)
 	// Always register subagent tools (nil mgr returns "not configured" error)
 	r.registerSubagentTools()
 	return r
