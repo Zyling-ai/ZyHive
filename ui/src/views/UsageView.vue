@@ -245,12 +245,36 @@ function renderPie(chart: echarts.ECharts | null, map: Record<string, any>) {
     extra: `$${(s.cost??0).toFixed(4)} | ${fmtTokens((s.input_tokens??0)+(s.output_tokens??0))} tokens`
   }))
   chart.setOption({
-    tooltip: { trigger: 'item', formatter: (p: any) => `${p.name}<br/>调用: ${p.value}<br/>${p.data.extra}` },
-    legend: { orient: 'vertical', right: 4, top: 'middle', textStyle: { fontSize: 10 } },
+    tooltip: {
+      trigger: 'item',
+      formatter: (p: any) => `${p.name}<br/>调用: ${p.value}<br/>${p.data.extra}`,
+    },
+    legend: {
+      orient: 'vertical',
+      right: 8,
+      top: 'middle',
+      itemGap: 6,
+      itemWidth: 10,
+      itemHeight: 10,
+      textStyle: { fontSize: 11, color: '#475569' },
+      // 条目太多时允许滚动 (不再挤成一团叠在饼图上)
+      type: 'scroll',
+      pageIconSize: 10,
+      pageTextStyle: { fontSize: 10 },
+    },
     series: [{
-      type: 'pie', radius: ['40%', '65%'], center: ['36%', '50%'],
-      data, label: { show: false },
-      emphasis: { label: { show: true, fontSize: 11 } },
+      type: 'pie',
+      radius: ['38%', '62%'],
+      // 给左侧饼图更多空间, 不让 label 和 legend 重叠
+      center: ['30%', '50%'],
+      data,
+      label: { show: false },
+      labelLine: { show: false },
+      itemStyle: { borderColor: '#fff', borderWidth: 1 },
+      emphasis: {
+        label: { show: true, fontSize: 11, fontWeight: 600 },
+        scaleSize: 6,
+      },
     }],
   }, true)
 }
@@ -344,11 +368,11 @@ function onResize() {
   border-radius: 10px !important;
   box-shadow: none !important;
 }
-.chart-card  { height: 280px; }
-.chart-area  { width: 100%; height: 200px; }
+.chart-card  { height: 300px; }
+.chart-area  { width: 100%; height: 220px; }
 .pie-col     { display: flex; flex-direction: column; gap: 12px; }
-.chart-card-sm { height: 134px; }
-.chart-area-sm { width: 100%; height: 70px; }
+.chart-card-sm { height: 170px; }
+.chart-area-sm { width: 100%; height: 108px; }
 .card-title  { font-size: 13px; font-weight: 600; color: #334155; }
 .records-card { flex: 1; min-height: 0; }
 .table-pagination { margin-top: 12px; display: flex; justify-content: flex-end; }
