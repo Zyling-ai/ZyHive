@@ -2420,7 +2420,24 @@ async function openCronLogs(job: any) {
 <style scoped>
 .agent-detail {
   min-height: 100vh;
-  background: #f5f7fa;
+  background: #fafafa;
+}
+
+/* 统一 Tab 里 el-card 的边框 + 阴影（避免多层嵌套造成"线条乱") */
+.agent-detail :deep(.el-card) {
+  border: 1px solid #ececec !important;
+  box-shadow: none !important;
+  border-radius: 8px;
+  transition: border-color .15s;
+}
+.agent-detail :deep(.el-card:hover) {
+  border-color: #d1d5db !important;
+}
+.agent-detail :deep(.el-card__header) {
+  background: #fafbfc;
+  border-bottom: 1px solid #ececec;
+  padding: 10px 16px;
+  font-size: 13px;
 }
 .detail-header {
   background: #fff;
@@ -3004,8 +3021,23 @@ async function openCronLogs(job: any) {
     height: 2px !important;
   }
   .agent-tabs :deep(.el-tabs__content) {
-    padding: 0 !important;
+    padding: 16px 20px !important;
     background: #fafafa;
+  }
+  /* 对话 tab 是全屏聊天布局, 不要 padding */
+  .agent-tabs :deep(.el-tab-pane[aria-labelledby*="chat"]),
+  .agent-tabs :deep(.el-tab-pane[aria-labelledby*="workspace"]) {
+    padding: 0 !important;
+  }
+  /* 实际上 Element Plus tabs 不会给单 pane 加 aria-label,
+     对话/工作区 pane 内部自己用 chat-layout / WorkspaceChatLayout
+     已经 height: calc() 撑满,加 padding 会漏出来.
+     改用更简单的 override: 对话 pane 内直接占满 */
+  .agent-tabs :deep(#pane-chat),
+  .agent-tabs :deep(#pane-workspace) {
+    padding: 0 !important;
+    margin: -16px -20px !important;
+    height: calc(100vh - 145px);
   }
 
   /* ── Page layout ───────────────────────────────────────────────────────── */
