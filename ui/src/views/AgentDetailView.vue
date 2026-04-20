@@ -1256,6 +1256,11 @@ const route = useRoute()
 const agentId = route.params.id as string
 const agent = ref<AgentInfo | null>(null)
 const activeTab = ref('chat')
+
+// 切到关系 tab 时自动重拉 —— 确保看到"其他成员给自己加的反向关系"
+watch(activeTab, (val) => {
+  if (val === 'relations') loadRelations()
+})
 const mobileSessionOpen = ref(false)
 
 // ── Session sidebar ────────────────────────────────────────────────────────
@@ -1937,6 +1942,8 @@ async function saveRelations() {
   relationsSaving.value = true
   try {
     await relationsApi.put(agentId, serializeRelations())
+    // 保存成功后重拉, 同步后端做过的规范化/双向补全等副作用
+    await loadRelations()
     ElMessage.success('关系已保存')
   } catch {
     ElMessage.error('保存失败')

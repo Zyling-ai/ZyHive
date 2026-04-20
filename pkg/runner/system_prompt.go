@@ -95,8 +95,11 @@ func BuildSystemPrompt(workspaceDir string) (string, error) {
 	// Conversation history hint for the agent
 	sb.WriteString("[对话历史可查。使用 read 工具访问: conversations/INDEX.md 查看索引，conversations/{sessionId}__{channelId}.jsonl 查看完整对话]\n\n")
 
-	// Inject RELATIONS.md if it exists
+	// Inject RELATIONS.md if it exists + 派遣规则提示
 	injectFile(filepath.Join(workspaceDir, "RELATIONS.md"), "RELATIONS.md")
+	if _, err := os.Stat(filepath.Join(workspaceDir, "RELATIONS.md")); err == nil {
+		sb.WriteString("📋 **派遣规则**：你只能用 `agent_spawn` 派遣上方 RELATIONS.md 中列出的成员。派遣不在关系列表里的用户 agent 会被系统拒绝。如果希望派遣新成员，请先用 `wish_add` 记录「需要和 X 建立关系」并提醒用户去团队图谱添加关系。（内置 agent type 如 general-purpose / explore / plan / verification / coordinator 不受此限制）\n\n")
+	}
 
 	// Inject skills/INDEX.md (lightweight summary instead of full SKILL.md content)
 	injectFile(filepath.Join(workspaceDir, "skills", "INDEX.md"), "skills/INDEX.md")

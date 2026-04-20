@@ -92,14 +92,24 @@ func (h *relationsHandler) Put(c *gin.Context) {
 }
 
 // inverseRelationType returns the inverse of a relation type.
-// 上下级 is directed (no inverse); 平级协作 and 支持 are symmetric.
-// Returns "" to indicate "skip inverse creation".
+// 所有类型都双向存储, 保证无论从哪一方看都能看到彼此关系:
+//   - "上下级" / "上级" (A 视 B 为上级) → 反向 "下级" (B 视 A 为下级)
+//   - "下级"                          → 反向 "上级"
+//   - "平级协作" / "支持" / "其他"       → 反向同类型 (对称)
+// Returns "" 表示跳过反向写入 (目前无此情况).
 func inverseRelationType(t string) string {
 	switch t {
-	case "上下级", "上级", "下级":
-		return "" // directed — no inverse
+	case "上级":
+		return "下级"
+	case "下级":
+		return "上级"
+	case "上下级":
+		// A→B 标"上下级"按约定含义 = A 是 B 的上级 (目录的旧语义, 兼容 graph.go)
+		// 反向给 B 写"上下级"会混淆方向, 明确改为"下级" (B 是 A 的下级)
+		return "下级"
 	default:
-		return t // 平级协作, 支持 → symmetric
+		// 平级协作, 支持, 其他 — 对称关系
+		return t
 	}
 }
 
