@@ -36,6 +36,7 @@ import (
 	"github.com/Zyling-ai/zyhive/pkg/session"
 	"github.com/Zyling-ai/zyhive/pkg/subagent"
 	"github.com/Zyling-ai/zyhive/pkg/tools"
+	"github.com/Zyling-ai/zyhive/pkg/usage"
 )
 
 var subCounter atomic.Uint64
@@ -46,6 +47,7 @@ type chatHandler struct {
 	projectMgr  *project.Manager
 	subagentMgr *subagent.Manager
 	workerPool  *session.WorkerPool
+	usageStore  *usage.Store // 记录每轮 token 用量到 .usage/*.jsonl
 }
 
 // Chat POST /api/agents/:id/chat
@@ -323,11 +325,30 @@ func (h *chatHandler) execRunner(
 		}
 	}
 
+	// 构造 UsageRecorder (chat API 之前遗漏此字段, 导致所有对话 output_tokens 记录为 0)
+	var usageRec func(in, out int, provider, model, agentID string)
+	if h.usageStore != nil {
+		us := h.usageStore
+		usageRec = func(in, out int, providerIn, modelIn, agentIDIn string) {
+			rec := usage.Record{
+				ID:           usage.NewID(),
+				AgentID:      agentIDIn,
+				Provider:     providerIn,
+				Model:        modelIn,
+				InputTokens:  in,
+				OutputTokens: out,
+				Cost:         usage.EstimateCost(modelIn, in, out),
+				CreatedAt:    time.Now().Unix(),
+			}
+			_ = us.Append(rec)
+		}
+	}
 	r := runner.New(runner.Config{
 		AgentID:          agentID,
 		WorkspaceDir:     workspaceDir,
 		Model:            model,
 		APIKey:           apiKey,
+		Provider:         provider,
 		SessionID:        sessionID,
 		LLM:              llmClient,
 		Tools:            toolRegistry,
@@ -338,6 +359,7 @@ func (h *chatHandler) execRunner(
 		PreloadedHistory: preHistory,
 		ProjectContext:   runner.BuildProjectContext(h.projectMgr, agentID),
 		AgentEnv:         agEnv,
+		UsageRecorder:    usageRec,
 	})
 
 	// Chatlog: write user message entry
