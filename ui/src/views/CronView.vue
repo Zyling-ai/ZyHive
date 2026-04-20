@@ -2,9 +2,14 @@
   <div class="cron-page">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px">
       <h2 style="margin: 0"><el-icon style="vertical-align:-2px;margin-right:6px"><Timer /></el-icon>定时任务</h2>
-      <el-button type="primary" @click="openCreate">
-        <el-icon><Plus /></el-icon> 新建任务
-      </el-button>
+      <div style="display:flex;gap:8px;">
+        <el-button @click="openMorningRoutine">
+          <span style="margin-right:4px">🌅</span> 晨间例行
+        </el-button>
+        <el-button type="primary" @click="openCreate">
+          <el-icon><Plus /></el-icon> 新建任务
+        </el-button>
+      </div>
     </div>
 
     <!-- Filter bar -->
@@ -167,6 +172,46 @@
         <el-button type="primary" @click="createCron">创建</el-button>
       </template>
     </el-dialog>
+
+    <!-- Morning Routine Dialog -->
+    <el-dialog v-model="showMorning" title="🌅 晨间例行（一键模板）" width="560px">
+      <div style="font-size: 13px; color: #64748b; line-height: 1.7; margin-bottom: 16px;">
+        给选中的 AI 成员每天早晨自动"醒一次"：<br>
+        整理昨日对话要点、检查愿望清单进展、给你留张便条。
+        <br>
+        <span style="color:#94a3b8">若当天没有值得汇报的，AI 会自动静默（回 <code>NO_ALERT</code> 不打扰你）。</span>
+      </div>
+      <el-form label-width="90px" size="default">
+        <el-form-item label="所属成员" required>
+          <el-select v-model="morning.agentId" placeholder="选择 AI 成员" style="width:100%">
+            <el-option v-for="ag in agentList" :key="ag.id" :label="ag.name" :value="ag.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="时间">
+          <el-time-picker
+            v-model="morning.timeStr"
+            format="HH:mm"
+            value-format="HH:mm"
+            placeholder="HH:mm"
+            :clearable="false"
+            style="width: 160px"
+          />
+          <el-text type="info" size="small" style="margin-left:10px">每天执行一次</el-text>
+        </el-form-item>
+        <el-form-item label="时区">
+          <el-select v-model="morning.tz" style="width: 220px">
+            <el-option label="Asia/Shanghai（UTC+8）" value="Asia/Shanghai" />
+            <el-option label="UTC" value="UTC" />
+            <el-option label="America/New_York" value="America/New_York" />
+            <el-option label="Europe/London" value="Europe/London" />
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showMorning = false">取消</el-button>
+        <el-button type="primary" @click="createMorningRoutine">创建</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -182,6 +227,7 @@ const jobs = ref<CronJob[]>([])
 const agentList = ref<AgentInfo[]>([])
 const filterAgentId = ref('')
 const showCreate = ref(false)
+const showMorning = ref(false)
 
 // Logs
 const showLogs = ref(false)
@@ -203,6 +249,13 @@ const form = reactive({
   tz: 'Asia/Shanghai',
   message: '',
   enabled: true,
+})
+
+// 晨间例行表单
+const morning = reactive({
+  agentId: '',
+  timeStr: '08:00',
+  tz: 'Asia/Shanghai',
 })
 
 onMounted(async () => {
@@ -243,6 +296,63 @@ function openCreate() {
   form.message = ''
   form.enabled = true
   showCreate.value = true
+}
+
+// 打开晨间例行对话框：默认填选中的 filter 或第一个成员
+function openMorningRoutine() {
+  // 若筛选栏已选中某成员，默认填入；否则第一个
+  if (filterAgentId.value && filterAgentId.value !== '__global__') {
+    morning.agentId = filterAgentId.value
+  } else {
+    morning.agentId = agentList.value[0]?.id || ''
+  }
+  morning.timeStr = '08:00'
+  morning.tz = 'Asia/Shanghai'
+  showMorning.value = true
+}
+
+// 晨间例行 prompt 模板（末尾 NO_ALERT 指令对接 cron engine SilentToken 机制）
+const MORNING_PROMPT = `晨间例行（每日自动唤醒）：
+
+1. 扫描昨天的对话历史（conversations/INDEX.md），把值得长期记住的要点整理到 memory/core/ 或 memory/daily/ 相应文件。
+2. 检查 WISHLIST.md 与 GOALS，看有没有进展或新的机会点。
+3. 若发现世界状态相关（时事、价格、版本等）需要更新，可用 web_search / web_fetch 查一下。
+4. 若有值得主动告诉用户的事（进展、风险、提醒），追加到 memory/daily/notes-to-user.md 并在本次回复中简要汇报。
+5. 若今天没有任何值得汇报的事，请只回一个单词：NO_ALERT（系统会静默处理，不打扰用户）。
+
+保持简洁、克制、有用。不要为了汇报而汇报。`
+
+async function createMorningRoutine() {
+  if (!morning.agentId) {
+    ElMessage.warning('请选择 AI 成员')
+    return
+  }
+  // 解析 HH:mm → 标准 5 字段 cron：分 时 日 月 周
+  const m = /^(\d{1,2}):(\d{1,2})$/.exec(morning.timeStr || '')
+  if (!m || !m[1] || !m[2]) {
+    ElMessage.error('时间格式错误，应为 HH:mm')
+    return
+  }
+  const HH = parseInt(m[1], 10)
+  const MM = parseInt(m[2], 10)
+  const expr = `${MM} ${HH} * * *`
+  const agentName = agentNameMap.value[morning.agentId] || morning.agentId
+  try {
+    await cronApi.create({
+      name: '晨间例行',
+      remark: `每天 ${morning.timeStr} 自动唤醒 ${agentName}：整理记忆 · 检查愿望 · 给你留便条`,
+      agentId: morning.agentId,
+      enabled: true,
+      schedule: { kind: 'cron', expr, tz: morning.tz },
+      payload: { kind: 'agentTurn', message: MORNING_PROMPT },
+      delivery: { mode: 'announce' },
+    } as any)
+    ElMessage.success(`已为 ${agentName} 创建晨间例行（每天 ${morning.timeStr}）`)
+    showMorning.value = false
+    loadJobs()
+  } catch (e: any) {
+    ElMessage.error(e.response?.data?.error || '创建失败')
+  }
 }
 
 // #16 fix: validate cron expression before submit
