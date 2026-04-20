@@ -19,22 +19,37 @@ type modelHandler struct {
 	configPath string
 }
 
+// ModelWithProviderStatus 附加 provider 健康状态, 供前端过滤/提示
+type ModelWithProviderStatus struct {
+	config.ModelEntry
+	ProviderStatus string `json:"providerStatus,omitempty"` // "ok" | "error" | "untested"
+}
+
 // List GET /api/models
 func (h *modelHandler) List(c *gin.Context) {
 	models := h.cfg.Models
 	if models == nil {
 		models = []config.ModelEntry{}
 	}
-	// Mask keys in response + 注入 supportsTools 计算结果
-	result := make([]config.ModelEntry, len(models))
-	copy(result, models)
-	for i := range result {
-		result[i].APIKey = maskKey(result[i].APIKey)
-		// 如果未手动指定，注入自动判断结果（让前端拿到确定的 bool 值）
-		if result[i].SupportsTools == nil {
-			v := config.ModelSupportsTools(&result[i])
-			result[i].SupportsTools = &v
+	// 构造 provider 状态 map
+	provStatus := make(map[string]string, len(h.cfg.Providers))
+	for _, p := range h.cfg.Providers {
+		provStatus[p.ID] = p.Status
+	}
+	// Mask keys in response + 注入 supportsTools 计算结果 + 附加 providerStatus
+	result := make([]ModelWithProviderStatus, len(models))
+	for i := range models {
+		m := models[i]
+		m.APIKey = maskKey(m.APIKey)
+		if m.SupportsTools == nil {
+			v := config.ModelSupportsTools(&m)
+			m.SupportsTools = &v
 		}
+		ps := provStatus[m.ProviderID]
+		if ps == "" {
+			ps = "untested"
+		}
+		result[i] = ModelWithProviderStatus{ModelEntry: m, ProviderStatus: ps}
 	}
 	c.JSON(http.StatusOK, result)
 }

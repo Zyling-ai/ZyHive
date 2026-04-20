@@ -436,6 +436,15 @@ func (h *chatHandler) resolveModel(ag *agent.Agent) (*config.ModelEntry, string,
 	if key == "" {
 		return nil, "", "", fmt.Errorf("no API key configured (set %s env var or add key in model settings)", envVarForProvider[me.Provider])
 	}
+	// 检查 provider 健康状态: 用了一个已测试为 error 的 provider, 提前给出明确提示
+	// (不阻止调用——也许是临时故障, 但提示用户)
+	if me.ProviderID != "" {
+		for _, p := range h.cfg.Providers {
+			if p.ID == me.ProviderID && p.Status == "error" {
+				return nil, "", "", fmt.Errorf("当前模型 %q 绑定的 API Key（%s）上次测试失败（invalid/expired），请先去「模型配置」重新测试或更换 API Key", me.Name, p.Name)
+			}
+		}
+	}
 	return me, key, me.ProviderModel(), nil
 }
 
