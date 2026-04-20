@@ -26,7 +26,7 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo "🧱 [1/4] 构建 UI (vite)..."
 cd ui
 if [[ ! -d node_modules ]]; then npm install --silent; fi
-npx vite build --silent
+npx vite build 2>&1 | tail -3
 cd ..
 
 echo "🔄 [2/4] 同步 ui/dist → cmd/aipanel/ui_dist (关键!)..."
