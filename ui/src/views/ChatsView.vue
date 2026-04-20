@@ -162,10 +162,7 @@
           </div>
           <el-button :icon="Close" circle size="small" @click="channelDrawer = false" />
         </div>
-        <div v-if="channelDetailLoading" class="drawer-loading">
-          <el-icon class="is-loading" size="32" color="#94a3b8"><Loading /></el-icon>
-        </div>
-        <div v-else class="drawer-chat-body">
+        <div class="drawer-chat-body" style="position:relative">
           <AiChat
             v-if="channelDrawer && drawerChannelRow"
             :key="'ch-' + drawerChannelRow.channelId"
@@ -174,6 +171,10 @@
             :read-only-reason="`${tagFor((drawerChannelRow?.channelType||'web').toLowerCase()).label} 渠道 · ${drawerChannelRow.channelId} · 只读`"
             ref="channelAiChatRef"
           />
+          <div v-if="channelDetailLoading" class="drawer-loading-overlay">
+            <el-icon class="is-loading" :size="28" color="#94a3b8"><Loading /></el-icon>
+            <span style="margin-left:8px;color:#64748b;font-size:13px;">加载消息中…</span>
+          </div>
         </div>
         <div v-if="channelTotal > channelLimit" class="drawer-ft">
           <el-pagination
@@ -207,10 +208,8 @@
           </div>
           <el-button :icon="Close" circle size="small" @click="sessionDrawer = false" />
         </div>
-        <div v-if="detailLoading" class="drawer-loading">
-          <el-icon class="is-loading" size="32" color="#94a3b8"><Loading /></el-icon>
-        </div>
-        <div v-else class="drawer-chat-body">
+        <!-- AiChat 始终 mount, 用 overlay 显示 loading 态 (否则 loadHistoryMessages 会在 ref 为 null 时丢失) -->
+        <div class="drawer-chat-body" style="position:relative">
           <AiChat
             v-if="sessionDrawer && drawerSession"
             :key="'sess-' + drawerSession.id"
@@ -219,6 +218,10 @@
             :read-only-reason="`${tagFor(drawerSessionSource).label} · ${drawerSession.id} · 只读（如需继续请点右下角「继续对话」）`"
             ref="sessionAiChatRef"
           />
+          <div v-if="detailLoading" class="drawer-loading-overlay">
+            <el-icon class="is-loading" :size="28" color="#94a3b8"><Loading /></el-icon>
+            <span style="margin-left:8px;color:#64748b;font-size:13px;">加载对话中…</span>
+          </div>
         </div>
         <div class="drawer-ft">
           <el-button @click="sessionDrawer = false">关闭</el-button>
@@ -460,17 +463,34 @@ async function openChannelDetail(row: GlobalConvRow) {
 
 async function fetchChannelMessages(row: GlobalConvRow, page: number) {
   channelDetailLoading.value = true
+  let loadedMsgs: ChatMsg[] | null = null
   try {
     const offset = (page - 1) * channelLimit
     const res = await agentConversations.messages(row.agentId, row.channelId, { limit: channelLimit, offset })
     const raw = (res.data.messages || []).filter(m => !isSystemSignalMsg(m.content || ''))
     channelMessages.value = raw
     channelTotal.value = res.data.total
-    // 装进 AiChat 只读渲染
-    await nextTick()
-    channelAiChatRef.value?.loadHistoryMessages(toChatMsgs(raw as any))
+    loadedMsgs = toChatMsgs(raw as any)
   } catch { ElMessage.error('加载消息失败') }
   finally { channelDetailLoading.value = false }
+  if (loadedMsgs) {
+    await nextTick()
+    await nextTick()
+    if (channelAiChatRef.value?.loadHistoryMessages) {
+      channelAiChatRef.value.loadHistoryMessages(loadedMsgs)
+    } else {
+      const msgs = loadedMsgs
+      const started = Date.now()
+      const timer = setInterval(() => {
+        if (channelAiChatRef.value?.loadHistoryMessages) {
+          channelAiChatRef.value.loadHistoryMessages(msgs)
+          clearInterval(timer)
+        } else if (Date.now() - started > 500) {
+          clearInterval(timer)
+        }
+      }, 50)
+    }
+  }
 }
 
 async function onChannelPageChange(page: number) {
@@ -500,17 +520,37 @@ async function openSessionDetail(row: SessionSummary) {
   editingTitle.value = false
   detailMessages.value = []
   detailLoading.value = true
+  let loadedMsgs: ChatMsg[] | null = null
   try {
     const res = await sessionsApi.get(row.agentId, row.id)
     const raw = (res.data.messages || []).filter(m => !isSystemSignalMsg(m.text || ''))
     detailMessages.value = raw
-    // 装进 AiChat 只读渲染（工具卡可折叠展开、markdown 代码高亮、空气泡自动过滤）
-    await nextTick()
-    sessionAiChatRef.value?.loadHistoryMessages(toChatMsgs(raw as any))
+    loadedMsgs = toChatMsgs(raw as any)
   } catch (e: any) {
     ElMessage.error('加载对话失败')
   } finally {
     detailLoading.value = false
+  }
+  // drawerLoading 变 false 之后 AiChat 可能才 mount, 必须再等两次 tick 确保 ref 就位.
+  // 若 ref 仍为 null 再轮询一次作兜底 (el-drawer 动画期间 mount 时机略慢).
+  if (loadedMsgs) {
+    await nextTick()
+    await nextTick()
+    if (sessionAiChatRef.value?.loadHistoryMessages) {
+      sessionAiChatRef.value.loadHistoryMessages(loadedMsgs)
+    } else {
+      // 兜底: 轮询 500ms 内 ref 出现
+      const msgs = loadedMsgs
+      const started = Date.now()
+      const timer = setInterval(() => {
+        if (sessionAiChatRef.value?.loadHistoryMessages) {
+          sessionAiChatRef.value.loadHistoryMessages(msgs)
+          clearInterval(timer)
+        } else if (Date.now() - started > 500) {
+          clearInterval(timer)
+        }
+      }, 50)
+    }
   }
 }
 
@@ -699,4 +739,14 @@ onMounted(() => loadAll())
   gap: 8px;
 }
 .drawer-loading { display: flex; align-items: center; justify-content: center; padding: 60px; }
+.drawer-loading-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(250, 250, 250, 0.85);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 5;
+}
 </style>
