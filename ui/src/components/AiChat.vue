@@ -302,8 +302,19 @@
       <img :src="previewSrc" class="img-preview-full" />
     </div>
 
+    <!-- ── 只读提示条（非面板渠道会话）── -->
+    <div v-if="props.readOnly" class="readonly-banner">
+      <span class="readonly-icon">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+          <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+        </svg>
+      </span>
+      <span>{{ props.readOnlyReason || '此对话来自外部渠道，仅可查看历史，不支持在面板中回复' }}</span>
+    </div>
+
     <!-- ── 输入区 ── -->
-    <div class="chat-input-area">
+    <div v-if="!props.readOnly" class="chat-input-area">
       <!-- 附件预览条（图片 + 文件）-->
       <div v-if="pendingImages.length || pendingFiles.length" class="attachments-bar">
         <!-- 图片缩略图 -->
@@ -393,6 +404,10 @@ interface Props {
   applyable?: boolean
   /** 未配置模型时传 true，显示引导并禁用输入 */
   noModel?: boolean
+  /** 只读模式：禁用输入框和发送按钮，仅展示历史消息（用于查看非面板渠道会话） */
+  readOnly?: boolean
+  /** 只读模式的提示文字（覆盖默认文案） */
+  readOnlyReason?: string
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -1225,6 +1240,9 @@ function removeImage(i: number) { pendingImages.value.splice(i, 1) }
 
 // ── Send ──────────────────────────────────────────────────────────────────
 function send() {
+  // 只读模式：不允许发送（多重保险，模板里输入区本就被隐藏）
+  if (props.readOnly) return
+
   const text = inputText.value.trim()
   const imgs = [...pendingImages.value]
   const files = [...pendingFiles.value]
@@ -2310,6 +2328,29 @@ onMounted(() => {
 
 @keyframes blink { 50% { opacity: 0; } }
 .blink { animation: blink .8s infinite; font-size: 12px; }
+
+/* ── 只读提示条 ── */
+.readonly-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: #f8fafc;
+  border-top: 1px solid #ececec;
+  color: #64748b;
+  font-size: 12px;
+  flex-shrink: 0;
+  max-width: 920px;
+  width: 100%;
+  margin: 0 auto;
+  box-sizing: border-box;
+}
+.readonly-icon {
+  display: inline-flex;
+  align-items: center;
+  color: #94a3b8;
+}
 
 /* ── Input area (极简风: 无硬边框, 居中容器) ── */
 .chat-input-area {

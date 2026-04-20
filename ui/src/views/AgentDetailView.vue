@@ -121,6 +121,8 @@
                   height="calc(100vh - 145px)"
                   :show-thinking="true"
                   :no-model="modelsLoaded && modelList.length === 0"
+                  :read-only="isReadOnlySession"
+                  :read-only-reason="readOnlyReason"
                   @session-change="onSessionChange"
                 />
               </div>
@@ -1298,6 +1300,21 @@ const historyMessages = ref<ConvEntry[]>([])
 const historyLoading = ref(false)
 const sessionsLoading = ref(false)
 const activeSessionId = ref<string | undefined>()
+
+// 判断当前选中的 session 是否应只读（来自飞书/TG/Web 等外部渠道，不应在面板内直接回复）
+const isReadOnlySession = computed(() => {
+  const it = selectedItem.value
+  if (!it) return false
+  if (it.type === 'channel') return true
+  // type === 'panel' 但 source 不是面板时（如 feishu-xxx session）也只读
+  return it.source !== 'panel'
+})
+const readOnlyReason = computed(() => {
+  const it = selectedItem.value
+  if (!it) return ''
+  const src = sourceTag(it.source).label
+  return `此对话来自${src}渠道，仅可查看历史 · 要回复请前往对应客户端或使用"新建"面板对话`
+})
 
 async function loadSidebarItems() {
   sessionsLoading.value = true
