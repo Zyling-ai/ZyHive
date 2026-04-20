@@ -58,10 +58,6 @@ func (h *agentExtHandler) ToolHealth(c *gin.Context) {
 		return
 	}
 
-	// 构建一个临时 registry 查 tool 定义列表（不执行任何 tool）
-	reg := tools.New(ag.WorkspaceDir, agentParentDir(ag), ag.ID)
-	defs := reg.Definitions()
-
 	// 当前 agent 绑定的 modelId / provider
 	modelProvider := ""
 	if ag.ModelID != "" {
@@ -84,45 +80,91 @@ func (h *agentExtHandler) ToolHealth(c *gin.Context) {
 		}
 	}
 
-	var ready, blocked int
-	items := make([]ToolHealthItem, 0, len(defs))
-	for _, d := range defs {
-		item := ToolHealthItem{Name: d.Name, Group: groupOf(d.Name), Ready: true}
-		// 按名字做 readiness 判断
-		switch {
-		case d.Name == "web_search":
-			if !toolKeys["brave_search"] {
-				item.Ready = false
-				item.Reason = "未配置 Brave Search API Key"
-				item.Hint = "前往「密钥管理」添加 brave_search 类型的 key"
+	// 由于 pool 级动态注入（WithBrowser/WithFeishu/WithMemory 等）不走 tools.New，
+	// 我们用一份全平台已知工具清单来做 readiness 检查。
+	knownTools := []struct {
+		Name, Group string
+		// checker 返回 (ready, reason, hint)
+		checker func() (bool, string, string)
+	}{
+		// 基础 always-ready
+		{"read", "fs", nil}, {"write", "fs", nil}, {"edit", "fs", nil},
+		{"grep", "fs", nil}, {"glob", "fs", nil},
+		{"exec", "runtime", nil}, {"bash", "runtime", nil}, {"process", "runtime", nil},
+		{"web_fetch", "web", nil},
+		{"show_image", "ui", nil},
+		{"self_list_skills", "self", nil},
+		{"self_install_skill", "self", nil}, {"self_uninstall_skill", "self", nil},
+		{"self_rename", "self", nil}, {"self_update_soul", "self", nil},
+		{"self_set_env", "self", nil}, {"self_delete_env", "self", nil},
+		{"wish_add", "self", nil}, {"wish_list", "self", nil},
+		{"agent_list", "agent", nil}, {"agent_spawn", "agent", nil},
+		{"agent_tasks", "agent", nil}, {"agent_kill", "agent", nil},
+		{"agent_result", "agent", nil},
+		{"sessions_list", "sessions", nil}, {"sessions_history", "sessions", nil},
+		{"sessions_send", "sessions", nil}, {"sessions_spawn", "sessions", nil},
+		{"cron_list", "cron", nil}, {"cron_add", "cron", nil}, {"cron_remove", "cron", nil},
+		{"memory_search", "memory", nil},
+		{"project_list", "project", nil}, {"project_read", "project", nil},
+		{"project_write", "project", nil}, {"project_create", "project", nil},
+		{"project_glob", "project", nil},
+		// 浏览器工具（始终 ready，go-rod 自带）
+		{"browser_navigate", "browser", nil}, {"browser_snapshot", "browser", nil},
+		{"browser_screenshot", "browser", nil}, {"browser_click", "browser", nil},
+		{"browser_type", "browser", nil}, {"browser_fill", "browser", nil},
+		{"browser_press", "browser", nil}, {"browser_hover", "browser", nil},
+		{"browser_scroll", "browser", nil}, {"browser_select", "browser", nil},
+		{"browser_eval", "browser", nil}, {"browser_wait", "browser", nil},
+		// web_search: 需要 brave api key
+		{"web_search", "web", func() (bool, string, string) {
+			if toolKeys["brave_search"] {
+				return true, "", ""
 			}
-		case d.Name == "image" || d.Name == "show_image":
-			// Vision 能力: 需要 anthropic / openai / 其他支持的模型
-			if modelProvider != "anthropic" && modelProvider != "openai" && modelProvider != "" {
-				item.Ready = false
-				item.Reason = "当前绑定模型不支持视觉（需要 Claude 或 GPT-4o 等多模态模型）"
-				item.Hint = "在「身份 & 灵魂」里切换到 Claude / GPT-4o"
+			return false, "未配置 Brave Search API Key", "前往「密钥管理」添加 brave_search 类型的 key"
+		}},
+		// image: 视觉能力依赖模型
+		{"image", "ui", func() (bool, string, string) {
+			if modelProvider == "anthropic" || modelProvider == "openai" || modelProvider == "" {
+				return true, "", ""
 			}
-		case strings.HasPrefix(d.Name, "feishu_"):
-			if !channelTypes["feishu"] {
-				item.Ready = false
-				item.Reason = "未配置飞书渠道"
-				item.Hint = "前往「渠道」tab 绑定飞书 Bot"
+			return false, "当前绑定模型不支持视觉", "切换到 Claude / GPT-4o 等多模态模型"
+		}},
+		// send_message: 需要至少一个渠道
+		{"send_message", "messaging", func() (bool, string, string) {
+			if len(channelTypes) > 0 {
+				return true, "", ""
 			}
-		case strings.HasPrefix(d.Name, "telegram_"):
-			if !channelTypes["telegram"] {
-				item.Ready = false
-				item.Reason = "未配置 Telegram 渠道"
-				item.Hint = "前往「渠道」tab 添加 Telegram Bot Token"
+			return false, "未配置任何消息渠道", "先绑定飞书/Telegram 等渠道才能发送消息"
+		}},
+		{"send_file", "messaging", func() (bool, string, string) {
+			if len(channelTypes) > 0 {
+				return true, "", ""
 			}
-		case d.Name == "send_message":
-			if len(channelTypes) == 0 {
-				item.Ready = false
-				item.Reason = "未配置任何消息渠道"
-				item.Hint = "需要先绑定飞书/Telegram 等渠道才能发送消息"
-			}
-		}
+			return false, "未配置任何消息渠道", "同 send_message"
+		}},
+		// 飞书专属工具：依赖绑定飞书渠道
+		{"feishu_send_message", "feishu", checkFeishuChannel(channelTypes)},
+		{"feishu_send_rich_message", "feishu", checkFeishuChannel(channelTypes)},
+		{"feishu_create_chat", "feishu", checkFeishuChannel(channelTypes)},
+		{"feishu_create_bitable_app", "feishu", checkFeishuChannel(channelTypes)},
+		{"feishu_create_bitable_table", "feishu", checkFeishuChannel(channelTypes)},
+		{"feishu_list_bitable_records", "feishu", checkFeishuChannel(channelTypes)},
+		{"feishu_create_bitable_record", "feishu", checkFeishuChannel(channelTypes)},
+		{"feishu_get_user_info", "feishu", checkFeishuChannel(channelTypes)},
+		{"feishu_create_calendar_event", "feishu", checkFeishuChannel(channelTypes)},
+		{"feishu_create_task", "feishu", checkFeishuChannel(channelTypes)},
+	}
 
+	var ready, blocked int
+	items := make([]ToolHealthItem, 0, len(knownTools))
+	for _, kt := range knownTools {
+		item := ToolHealthItem{Name: kt.Name, Group: kt.Group, Ready: true}
+		if kt.checker != nil {
+			ok, reason, hint := kt.checker()
+			item.Ready = ok
+			item.Reason = reason
+			item.Hint = hint
+		}
 		if item.Ready {
 			ready++
 		} else {
@@ -142,69 +184,12 @@ func (h *agentExtHandler) ToolHealth(c *gin.Context) {
 	})
 }
 
-// groupOf 把 tool name 映射回它所在的分组（近似实现，与 policy.go toolGroups 对齐）。
-func groupOf(name string) string {
-	switch {
-	case stringsIn(name, "read", "write", "edit", "grep", "glob"):
-		return "fs"
-	case stringsIn(name, "exec", "bash", "process"):
-		return "runtime"
-	case stringsIn(name, "web_fetch", "web_search"):
-		return "web"
-	case strings.HasPrefix(name, "browser_"):
-		return "browser"
-	case strings.HasPrefix(name, "memory_"):
-		return "memory"
-	case strings.HasPrefix(name, "image") || name == "show_image":
-		return "ui"
-	case strings.HasPrefix(name, "agent_"):
-		return "agent"
-	case strings.HasPrefix(name, "sessions_"):
-		return "sessions"
-	case strings.HasPrefix(name, "cron_"):
-		return "cron"
-	case strings.HasPrefix(name, "send_"):
-		return "messaging"
-	case strings.HasPrefix(name, "self_") || name == "wish_add" || name == "wish_list":
-		return "self"
-	case strings.HasPrefix(name, "project_"):
-		return "project"
-	case strings.HasPrefix(name, "feishu_"):
-		return "feishu"
-	case strings.HasPrefix(name, "telegram_"):
-		return "telegram"
-	case strings.HasPrefix(name, "acp_"):
-		return "acp"
-	}
-	return "misc"
-}
-
-func stringsIn(s string, list ...string) bool {
-	for _, v := range list {
-		if s == v {
-			return true
+// checkFeishuChannel 返回飞书工具的 readiness 检查闭包。
+func checkFeishuChannel(channelTypes map[string]bool) func() (bool, string, string) {
+	return func() (bool, string, string) {
+		if channelTypes["feishu"] {
+			return true, "", ""
 		}
+		return false, "未绑定飞书渠道", "前往「渠道」tab 添加飞书 Bot"
 	}
-	return false
-}
-
-// agentParentDir 返回 agent workspace 的父目录（含 config.json）。
-// 兼容 manager 未暴露 AgentDir 字段的情况。
-func agentParentDir(ag *agent.Agent) string {
-	// ag.WorkspaceDir 是 "<agentsDir>/<id>/workspace"
-	// 父目录就是 "<agentsDir>/<id>"
-	if ag.WorkspaceDir == "" {
-		return ""
-	}
-	return stripLastSegment(ag.WorkspaceDir, "workspace")
-}
-
-func stripLastSegment(path, last string) string {
-	if strings.HasSuffix(path, "/"+last) {
-		return strings.TrimSuffix(path, "/"+last)
-	}
-	if strings.HasSuffix(path, "\\"+last) {
-		return strings.TrimSuffix(path, "\\"+last)
-	}
-	return path
 }
