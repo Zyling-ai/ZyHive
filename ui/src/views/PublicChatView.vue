@@ -467,7 +467,7 @@ onMounted(async () => {
   justify-content: space-between;
   padding: 12px 20px;
   background: #fff;
-  border-bottom: 1px solid #e4e7ed;
+  border-bottom: 1px solid #ececec;
   flex-shrink: 0;
 }
 .chat-header-left { display: flex; align-items: center; gap: 12px; }
@@ -574,7 +574,7 @@ onMounted(async () => {
   gap: 10px;
   padding: 16px 20px;
   background: #fff;
-  border-top: 1px solid #e4e7ed;
+  border-top: 1px solid #ececec;
   flex-shrink: 0;
 }
 .input-box {
@@ -632,7 +632,7 @@ onMounted(async () => {
 }
 .loading-spinner {
   width: 40px; height: 40px;
-  border: 3px solid #e4e7ed;
+  border: 3px solid #ececec;
   border-top-color: #409eff;
   border-radius: 50%;
   animation: spin 0.8s linear infinite;

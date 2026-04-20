@@ -172,7 +172,7 @@
               <p>二进制文件，无法编辑</p>
             </div>
             <div v-else class="editor-empty">
-              <el-icon size="48" style="color:#e4e7ed"><EditPen /></el-icon>
+              <el-icon size="48" style="color:#ececec"><EditPen /></el-icon>
               <p>选择文件后在此编辑</p>
             </div>
             <div v-if="currentFile && !isBinary" class="editor-footer">
@@ -188,7 +188,7 @@
 
     <!-- 未选择项目 -->
     <div class="projects-main projects-empty" v-else>
-      <el-icon size="64" style="color:#e4e7ed;margin-bottom:16px"><FolderOpened /></el-icon>
+      <el-icon size="64" style="color:#ececec;margin-bottom:16px"><FolderOpened /></el-icon>
       <p style="color:#909399;font-size:15px;">从左侧选择或新建一个项目</p>
       <el-button type="primary" @click="showCreate = true">
         <el-icon><Plus /></el-icon> 新建项目
@@ -543,7 +543,7 @@ function fmtTime(t: string | undefined): string {
 .projects-sidebar {
   width: 220px;
   flex-shrink: 0;
-  border-right: 1px solid #e4e7ed;
+  border-right: 1px solid #ececec;
   background: #fafafa;
   display: flex;
   flex-direction: column;
@@ -553,7 +553,7 @@ function fmtTime(t: string | undefined): string {
   align-items: center;
   justify-content: space-between;
   padding: 12px 14px 8px;
-  border-bottom: 1px solid #e4e7ed;
+  border-bottom: 1px solid #ececec;
 }
 .sidebar-title {
   font-weight: 600;
@@ -625,7 +625,7 @@ function fmtTime(t: string | undefined): string {
   height: calc(100vh - 130px);
   display: flex;
   flex-direction: column;
-  border: 1px solid #e4e7ed;
+  border: 1px solid #ececec;
   border-radius: 8px;
   background: #fff;
   overflow: hidden;
@@ -645,7 +645,7 @@ function fmtTime(t: string | undefined): string {
   height: calc(100vh - 130px);
   display: flex;
   flex-direction: column;
-  border: 1px solid #e4e7ed;
+  border: 1px solid #ececec;
   border-radius: 8px;
   background: #fff;
   overflow: hidden;
@@ -731,7 +731,7 @@ function fmtTime(t: string | undefined): string {
   .projects-layout { flex-direction: column; height: calc(100vh - 44px); overflow: hidden; }
 
   /* Sidebar: fixed height list on mobile */
-  .projects-sidebar { width: 100% !important; height: auto; max-height: 180px; flex-shrink: 0; border-right: none; border-bottom: 1px solid #e4e7ed; }
+  .projects-sidebar { width: 100% !important; height: auto; max-height: 180px; flex-shrink: 0; border-right: none; border-bottom: 1px solid #ececec; }
   .project-list { max-height: 130px; overflow-y: auto; }
 
   /* When a project is selected → hide sidebar, show main full width */

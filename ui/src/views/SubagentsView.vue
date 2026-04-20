@@ -566,7 +566,7 @@ function relativeTime(ts: number) {
   display: flex;
   flex-direction: column;
   background: #fff;
-  border-right: 1px solid #e4e7ed;
+  border-right: 1px solid #ececec;
   overflow: hidden;
 }
 
@@ -705,7 +705,7 @@ function relativeTime(ts: number) {
 /* ── 拖拽手柄 ────────────────────────────────────────────────────────── */
 .ds-handle {
   width: 4px;
-  background: #e4e7ed;
+  background: #ececec;
   cursor: col-resize;
   flex-shrink: 0;
   display: flex;
@@ -730,7 +730,7 @@ function relativeTime(ts: number) {
   flex-direction: column;
   overflow: hidden;
   background: #fff;
-  border-right: 1px solid #e4e7ed;
+  border-right: 1px solid #ececec;
 }
 
 /* 空态 */

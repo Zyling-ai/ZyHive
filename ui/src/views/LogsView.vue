@@ -138,7 +138,7 @@ onUnmounted(() => {
   height: calc(100vh - 180px);
   overflow-y: auto;
   background: #f8f9fa;
-  border: 1px solid #e4e7ed;
+  border: 1px solid #ececec;
   border-radius: 6px;
   padding: 12px 16px;
   font-family: 'Menlo', 'Monaco', 'Consolas', monospace;

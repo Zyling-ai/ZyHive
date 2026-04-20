@@ -1955,7 +1955,7 @@ onMounted(() => {
 /* ── Thinking ── */
 .thinking-block {
   background: #f8f9fa;
-  border: 1px solid #e4e7ed;
+  border: 1px solid #ececec;
   border-radius: 8px;
   overflow: hidden;
 }
@@ -2212,7 +2212,7 @@ onMounted(() => {
   overflow-x: auto;
   margin: 10px 0;
   border-radius: 6px;
-  border: 1px solid #e4e7ed;
+  border: 1px solid #ececec;
 }
 .msg-text :deep(.md-table) {
   width: 100%;
@@ -2256,7 +2256,7 @@ onMounted(() => {
 .msg-text :deep(ul),
 .msg-text :deep(ol) { margin: 6px 0 6px 20px; padding: 0; }
 .msg-text :deep(li) { margin: 3px 0; line-height: 1.7; }
-.msg-text :deep(hr) { border: none; border-top: 1px solid #e4e7ed; margin: 14px 0; }
+.msg-text :deep(hr) { border: none; border-top: 1px solid #ececec; margin: 14px 0; }
 .msg-text :deep(a) { color: #3b82f6; text-decoration: none; border-bottom: 1px dotted rgba(59,130,246,.4); }
 .msg-text :deep(a:hover) { color: #1d4ed8; border-bottom-color: #1d4ed8; }
 .msg-text :deep(strong) { color: #1e293b; font-weight: 600; }
@@ -2303,7 +2303,7 @@ onMounted(() => {
 .msg-bubble.assistant:hover .msg-actions { opacity: 1; }
 .act-btn {
   background: none;
-  border: 1px solid #e4e7ed;
+  border: 1px solid #ececec;
   border-radius: 5px;
   padding: 2px 8px;
   cursor: pointer;
@@ -2453,7 +2453,7 @@ onMounted(() => {
 
 /* ── Attachments ── */
 .attach-thumb { position: relative; display: inline-block; }
-.attach-thumb img { width: 48px; height: 48px; object-fit: cover; border-radius: 6px; border: 1px solid #e4e7ed; }
+.attach-thumb img { width: 48px; height: 48px; object-fit: cover; border-radius: 6px; border: 1px solid #ececec; }
 .remove-attach {
   position: absolute;
   top: -5px; right: -5px;
@@ -2501,7 +2501,7 @@ onMounted(() => {
   gap: 8px;
   align-items: flex-end;
   background: #fff;
-  border: 1px solid #e4e7ed;
+  border: 1px solid #ececec;
   border-radius: 14px;
   padding: 8px 8px 8px 14px;
   transition: border-color .15s, box-shadow .15s;

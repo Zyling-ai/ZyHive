@@ -1009,7 +1009,7 @@ onMounted(loadList)
 .studio-sidebar {
   flex-shrink: 0;
   background: #fff;
-  border-right: 1px solid #e4e7ed;
+  border-right: 1px solid #ececec;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -1065,7 +1065,7 @@ onMounted(loadList)
   flex-direction: column;
   overflow: hidden;
   background: #fff;
-  border-right: 1px solid #e4e7ed;
+  border-right: 1px solid #ececec;
 }
 
 .editor-empty {
@@ -1296,7 +1296,7 @@ onMounted(loadList)
 /* ── 拖拽手柄 ── */
 .ss-handle {
   width: 4px;
-  background: #e4e7ed;
+  background: #ececec;
   cursor: col-resize;
   flex-shrink: 0;
   display: flex;
