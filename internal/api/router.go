@@ -111,6 +111,11 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, cfgPath string, mgr *agen
 	notifyH := &notifyHandler{botCtrl: botCtrl}
 	agents.POST("/:id/notify", notifyH.Notify) // proactive Telegram notification with session context
 
+	// AI 能力扩展端点
+	agentExtH := &agentExtHandler{cfg: cfg, manager: mgr}
+	agents.GET("/:id/wishlist", agentExtH.Wishlist)
+	agents.GET("/:id/tool-health", agentExtH.ToolHealth)
+
 	// Workspace files
 	fileH := &fileHandler{manager: mgr}
 	agents.GET("/:id/files/*path", fileH.Read)
