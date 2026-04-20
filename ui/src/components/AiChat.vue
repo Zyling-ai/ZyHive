@@ -1378,7 +1378,14 @@ function runChat(text: string, imgs: string[], silent = false) {
       }
 
       case 'tool_result': {
-        const tc = messages.value[msgIdx]!.toolCalls?.find(t => t.id === activeToolId)
+        // 关键: 按 tool_call_id 精准匹配 (并行 tool 场景下不能靠 activeToolId)
+        // 兼容老后端: 如果没给 tool_call_id, 退回到最近的 running 的 tool
+        const matchId: string = (ev as any).tool_call_id || activeToolId
+        let tc = messages.value[msgIdx]!.toolCalls?.find(t => t.id === matchId)
+        if (!tc) {
+          // 最后兜底: 找第一个还在 running 的 tool
+          tc = messages.value[msgIdx]!.toolCalls?.find(t => t.status === 'running')
+        }
         if (tc) {
           tc.result = ev.text
           tc.status = 'done'
@@ -1396,9 +1403,8 @@ function runChat(text: string, imgs: string[], silent = false) {
             if (m) {
               tc.taskId = m[1]
               tc.taskStatus = 'pending'
-              spawnedTaskMap.set(activeToolId, m[1])
+              spawnedTaskMap.set(tc.id, m[1])
               startTaskPolling()
-              // Emit dispatch event for ChatHomeView animation
               try {
                 const inp = tc.input ? JSON.parse(tc.input) : {}
                 const spawnedId = inp.agentId ?? ''
@@ -1407,10 +1413,8 @@ function runChat(text: string, imgs: string[], silent = false) {
               } catch {}
             }
           }
-          // agent_result: LLM already handled the task result; notify ChatHomeView to skip continueAfterSpawn
           if (tc.name === 'agent_result' && ev.text) {
             const m = ev.text.match(/[a-f0-9]{8}-[a-f0-9]{3,}/i) ?? ev.text.match(/([a-f0-9-]{8,})/i)
-            // Also check the tool input for the taskId
             try {
               const inp = tc.input ? JSON.parse(tc.input) : {}
               const tid = inp.taskId ?? inp.task_id ?? inp.id ?? (m ? m[1] : null)
@@ -1418,7 +1422,7 @@ function runChat(text: string, imgs: string[], silent = false) {
             } catch {}
           }
           // Sync into streamToolCalls
-          const stc = streamToolCalls.value.find(t => t.id === activeToolId)
+          const stc = streamToolCalls.value.find(t => t.id === tc.id)
           if (stc) { stc.result = tc.result; stc.status = 'done'; stc.duration = tc.duration }
         }
         scrollBottom()
@@ -1663,13 +1667,21 @@ async function reconnectIfGenerating(sessionId: string) {
       }
 
       case 'tool_result': {
-        const tc = messages.value[msgIdx]!.toolCalls?.find(t => t.id === activeToolId)
+        const matchId: string = (ev as any).tool_call_id || activeToolId
+        let tc = messages.value[msgIdx]!.toolCalls?.find(t => t.id === matchId)
+        if (!tc) {
+          tc = messages.value[msgIdx]!.toolCalls?.find(t => t.status === 'running')
+        }
         if (tc) {
           tc.result = ev.text
           tc.status = 'done'
+          if (tc._startedAt) {
+            const ms = Date.now() - tc._startedAt
+            tc.duration = ms < 1000 ? `${ms}ms` : `${(ms/1000).toFixed(1)}s`
+          }
           if (ev.text) Object.assign(tc, processToolResult(ev.text))
-          const stc = streamToolCalls.value.find(t => t.id === activeToolId)
-          if (stc) { stc.result = tc.result; stc.status = 'done'; Object.assign(stc, processToolResult(ev.text ?? '')) }
+          const stc = streamToolCalls.value.find(t => t.id === tc.id)
+          if (stc) { stc.result = tc.result; stc.status = 'done'; stc.duration = tc.duration; Object.assign(stc, processToolResult(ev.text ?? '')) }
         }
         scrollBottom()
         break
