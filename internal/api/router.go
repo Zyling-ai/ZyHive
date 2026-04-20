@@ -101,7 +101,7 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, cfgPath string, mgr *agen
 	agents.DELETE("/:id/channels/:chId/allowed/:userId", agChH.RemoveAllowed)
 
 	// Chat (streaming SSE) — background worker architecture
-	chatH := &chatHandler{cfg: cfg, manager: mgr, projectMgr: projectMgr, subagentMgr: subagentMgr, workerPool: workerPool}
+	chatH := &chatHandler{cfg: cfg, manager: mgr, projectMgr: projectMgr, subagentMgr: subagentMgr, workerPool: workerPool, usageStore: usageStore}
 	agents.POST("/:id/chat", chatH.Chat)                          // enqueue + stream
 	agents.GET("/:id/chat/stream", chatH.StreamSession)           // reconnect: subscribe to broadcaster
 	agents.GET("/:id/chat/status", chatH.SessionStatus)           // poll status
