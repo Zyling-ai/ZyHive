@@ -144,123 +144,104 @@
       </el-table>
     </el-card>
 
-    <!-- ══════════ 渠道对话详情 Drawer ══════════════════════════════════ -->
-    <el-drawer v-model="channelDrawer" size="50%" direction="rtl">
-      <template #header>
-        <div>
-          <div style="font-weight:600;font-size:15px">
-            {{ tagFor((drawerChannelRow?.channelType || 'web').toLowerCase()).label }} · {{ drawerChannelRow?.channelId }}
-          </div>
-          <div style="font-size:12px;color:#909399;margin-top:3px">
-            {{ drawerChannelRow?.agentName }} · {{ drawerChannelRow?.messageCount }} 条消息
-          </div>
-        </div>
-      </template>
-
-      <div v-if="channelDetailLoading" class="drawer-loading">
-        <el-icon class="is-loading" size="32"><Loading /></el-icon>
-      </div>
-      <div v-else class="message-list">
-        <div v-for="(msg, idx) in channelMessages" :key="idx" :class="['message-item', `msg-${msg.role}`]">
-          <div class="msg-avatar">
-            <el-avatar :size="30" :style="{ background: msg.role === 'user' ? '#409eff' : '#67c23a' }">
-              {{ msg.role === 'user' ? '用' : 'AI' }}
-            </el-avatar>
-          </div>
-          <div class="msg-body">
-            <div class="msg-meta">
-              <span class="msg-role">{{ msg.role === 'user' ? (msg.sender || '用户') : 'AI' }}</span>
-              <span class="msg-time">{{ formatDate(new Date(msg.ts).getTime()) }}</span>
+    <!-- ══════════ 渠道对话详情 Drawer (统一用 AiChat 只读渲染) ══════════ -->
+    <el-drawer v-model="channelDrawer" size="55%" direction="rtl" :with-header="false">
+      <div class="drawer-wrap">
+        <div class="drawer-hd">
+          <div class="drawer-hd-main">
+            <div class="drawer-hd-title">
+              <el-tag :type="tagFor((drawerChannelRow?.channelType || 'web').toLowerCase()).type"
+                size="small" effect="plain" :class="['src-tag', 'src-' + (drawerChannelRow?.channelType || 'web').toLowerCase()]">
+                {{ tagFor((drawerChannelRow?.channelType || 'web').toLowerCase()).label }}
+              </el-tag>
+              <span class="drawer-hd-id">{{ drawerChannelRow?.channelId }}</span>
             </div>
-            <div class="msg-text" v-html="renderText(msg.content)" />
+            <div class="drawer-hd-sub">
+              {{ drawerChannelRow?.agentName }} · {{ drawerChannelRow?.messageCount }} 条消息
+            </div>
           </div>
+          <el-button :icon="Close" circle size="small" @click="channelDrawer = false" />
         </div>
-        <el-empty v-if="!channelMessages.length" description="暂无消息" />
+        <div v-if="channelDetailLoading" class="drawer-loading">
+          <el-icon class="is-loading" size="32" color="#94a3b8"><Loading /></el-icon>
+        </div>
+        <div v-else class="drawer-chat-body">
+          <AiChat
+            v-if="channelDrawer && drawerChannelRow"
+            :key="'ch-' + drawerChannelRow.channelId"
+            :agent-id="drawerChannelRow.agentId"
+            :read-only="true"
+            :read-only-reason="`${tagFor((drawerChannelRow?.channelType||'web').toLowerCase()).label} 渠道 · ${drawerChannelRow.channelId} · 只读`"
+            ref="channelAiChatRef"
+          />
+        </div>
+        <div v-if="channelTotal > channelLimit" class="drawer-ft">
+          <el-pagination
+            :current-page="channelPage" :page-size="channelLimit" :total="channelTotal"
+            layout="prev, pager, next" @current-change="onChannelPageChange" small />
+        </div>
       </div>
-      <template #footer>
-        <el-pagination v-if="channelTotal > channelLimit"
-          :current-page="channelPage" :page-size="channelLimit" :total="channelTotal"
-          layout="prev, pager, next" @current-change="onChannelPageChange" small />
-      </template>
     </el-drawer>
 
-    <!-- ══════════ 面板会话详情 Drawer ══════════════════════════════════ -->
-    <el-drawer v-model="sessionDrawer" size="50%" direction="rtl">
-      <template #header>
-        <div style="flex:1;min-width:0">
-          <div v-if="!editingTitle" style="display:flex;align-items:center;gap:8px">
-            <span style="font-weight:600;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
-              {{ drawerSession?.title || '（无标题）' }}
-            </span>
-            <el-button :icon="EditPen" circle size="small" @click="startEditTitle" />
-          </div>
-          <div v-else style="display:flex;align-items:center;gap:6px">
-            <el-input v-model="editTitle" size="small" style="flex:1" @keyup.enter="saveTitle" />
-            <el-button type="primary" size="small" @click="saveTitle">保存</el-button>
-            <el-button size="small" @click="editingTitle = false">取消</el-button>
-          </div>
-          <div style="font-size:12px;color:#909399;margin-top:3px">
-            {{ drawerSession?.agentName }} · {{ drawerSession?.messageCount ?? 0 }} 条 · {{ formatTokens(drawerSession?.tokenEstimate ?? 0) }} tokens
-          </div>
-        </div>
-      </template>
-
-      <div v-if="detailLoading" class="drawer-loading">
-        <el-icon class="is-loading" size="32"><Loading /></el-icon>
-      </div>
-      <div v-else class="message-list">
-        <div v-for="(msg, idx) in detailMessages" :key="idx" :class="['message-item', `msg-${msg.role}`]">
-          <div v-if="msg.isCompact" class="compact-marker">
-            <el-divider><el-icon><Fold /></el-icon><span style="margin-left:6px;font-size:12px;color:#909399">以上内容已压缩</span></el-divider>
-            <div class="compact-summary">{{ msg.text }}</div>
-          </div>
-          <template v-else>
-            <div class="msg-avatar">
-              <el-avatar :size="30" :style="{ background: msg.role === 'user' ? '#409eff' : '#67c23a' }">
-                {{ msg.role === 'user' ? '用' : 'AI' }}
-              </el-avatar>
+    <!-- ══════════ 面板会话详情 Drawer (统一用 AiChat 只读渲染) ══════════ -->
+    <el-drawer v-model="sessionDrawer" size="55%" direction="rtl" :with-header="false">
+      <div class="drawer-wrap">
+        <div class="drawer-hd">
+          <div class="drawer-hd-main">
+            <div v-if="!editingTitle" class="drawer-hd-title">
+              <el-tag :type="tagFor(drawerSessionSource).type" size="small" effect="plain"
+                :class="['src-tag', 'src-' + drawerSessionSource]">
+                {{ tagFor(drawerSessionSource).label }}
+              </el-tag>
+              <span class="drawer-hd-title-text">{{ drawerSession?.title || '（无标题）' }}</span>
+              <el-button :icon="EditPen" circle size="small" @click="startEditTitle" />
             </div>
-            <div class="msg-body">
-              <div class="msg-meta">
-                <span class="msg-role">{{ msg.role === 'user' ? '用户' : 'AI' }}</span>
-                <span class="msg-time">{{ formatDate(msg.timestamp) }}</span>
-              </div>
-              <div v-if="msg.toolCalls?.length" class="hist-tool-timeline">
-                <div v-for="tc in msg.toolCalls" :key="tc.id" class="hist-tool-step">
-                  <span class="hist-tool-dot">✓</span>
-                  <span class="hist-tool-name">{{ tc.name }}</span>
-                  <span class="hist-tool-summary">{{ histToolSummary(tc.name, tc.input || '') }}</span>
-                </div>
-              </div>
-              <div v-else class="msg-text" v-html="renderText(msg.text || '')" />
+            <div v-else class="drawer-hd-title">
+              <el-input v-model="editTitle" size="small" style="flex:1;max-width:360px" @keyup.enter="saveTitle" />
+              <el-button type="primary" size="small" @click="saveTitle">保存</el-button>
+              <el-button size="small" @click="editingTitle = false">取消</el-button>
             </div>
-          </template>
+            <div class="drawer-hd-sub">
+              {{ drawerSession?.agentName }} · {{ drawerSession?.messageCount ?? 0 }} 条 · {{ formatTokens(drawerSession?.tokenEstimate ?? 0) }} tokens
+            </div>
+          </div>
+          <el-button :icon="Close" circle size="small" @click="sessionDrawer = false" />
         </div>
-        <el-empty v-if="!detailMessages.length && !detailLoading" description="暂无消息记录" />
-      </div>
-
-      <template #footer>
-        <div style="display:flex;justify-content:flex-end;gap:8px">
+        <div v-if="detailLoading" class="drawer-loading">
+          <el-icon class="is-loading" size="32" color="#94a3b8"><Loading /></el-icon>
+        </div>
+        <div v-else class="drawer-chat-body">
+          <AiChat
+            v-if="sessionDrawer && drawerSession"
+            :key="'sess-' + drawerSession.id"
+            :agent-id="drawerSession.agentId"
+            :read-only="true"
+            :read-only-reason="`${tagFor(drawerSessionSource).label} · ${drawerSession.id} · 只读（如需继续请点右下角「继续对话」）`"
+            ref="sessionAiChatRef"
+          />
+        </div>
+        <div class="drawer-ft">
           <el-button @click="sessionDrawer = false">关闭</el-button>
           <el-button type="primary" :icon="ChatLineRound" @click="continueSession(drawerSession!)" :disabled="!drawerSession">
             继续对话
           </el-button>
         </div>
-      </template>
+      </div>
     </el-drawer>
 
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Refresh, Search, EditPen, Loading, Fold, ChatLineRound } from '@element-plus/icons-vue'
+import { Refresh, Search, EditPen, Loading, ChatLineRound, Close } from '@element-plus/icons-vue'
 import {
   sessions as sessionsApi, agents as agentsApi, agentConversations,
   type SessionSummary, type ParsedMessage, type AgentInfo, type GlobalConvRow, type ConvEntry
 } from '../api'
+import AiChat, { type ChatMsg } from '../components/AiChat.vue'
 
 const router = useRouter()
 
@@ -444,6 +425,32 @@ const channelTotal         = ref(0)
 const channelPage          = ref(1)
 const channelLimit         = 50
 
+// 把 ConvEntry / ParsedMessage 转成 AiChat 接受的 ChatMsg 结构
+// 过滤掉空消息（只有 avatar 没正文 + 没工具）
+function toChatMsgs(raws: { role: string; text?: string; content?: string; sender?: string; toolCalls?: any[]; isCompact?: boolean }[]): ChatMsg[] {
+  const out: ChatMsg[] = []
+  for (const m of raws) {
+    if (m.isCompact) {
+      out.push({ role: 'system', text: '— 以上内容已压缩 —' })
+      continue
+    }
+    const text = (m.text ?? m.content ?? '').trim()
+    const tools = (m.toolCalls || []).map((tc: any) => ({
+      id: tc.id, name: tc.name, input: tc.input, result: tc.result,
+      status: 'done' as const, _expanded: false,
+    }))
+    // 真·空消息（没文字 + 没工具 + 没图）→ 跳过, 避免空气泡
+    if (!text && tools.length === 0) continue
+    const role = (m.role === 'user' || m.role === 'assistant') ? m.role : 'assistant'
+    // 渠道消息 (convlog) 有 sender 时前缀标明
+    const prefixedText = role === 'user' && m.sender ? `[${m.sender}] ${text}` : text
+    out.push({ role, text: prefixedText, toolCalls: tools.length ? tools : undefined })
+  }
+  return out
+}
+
+const channelAiChatRef = ref<any>(null)
+
 async function openChannelDetail(row: GlobalConvRow) {
   drawerChannelRow.value = row
   channelDrawer.value = true
@@ -456,8 +463,12 @@ async function fetchChannelMessages(row: GlobalConvRow, page: number) {
   try {
     const offset = (page - 1) * channelLimit
     const res = await agentConversations.messages(row.agentId, row.channelId, { limit: channelLimit, offset })
-    channelMessages.value = res.data.messages || []
+    const raw = (res.data.messages || []).filter(m => !isSystemSignalMsg(m.content || ''))
+    channelMessages.value = raw
     channelTotal.value = res.data.total
+    // 装进 AiChat 只读渲染
+    await nextTick()
+    channelAiChatRef.value?.loadHistoryMessages(toChatMsgs(raw as any))
   } catch { ElMessage.error('加载消息失败') }
   finally { channelDetailLoading.value = false }
 }
@@ -475,6 +486,14 @@ const detailLoading  = ref(false)
 const editingTitle   = ref(false)
 const editTitle      = ref('')
 
+const sessionAiChatRef = ref<any>(null)
+
+// 当前抽屉中 session 的来源（飞书/TG/Web/面板）
+const drawerSessionSource = computed(() => {
+  if (!drawerSession.value) return 'panel'
+  return normalizeSessionSource((drawerSession.value as any).source, drawerSession.value.id)
+})
+
 async function openSessionDetail(row: SessionSummary) {
   drawerSession.value = row
   sessionDrawer.value = true
@@ -483,8 +502,11 @@ async function openSessionDetail(row: SessionSummary) {
   detailLoading.value = true
   try {
     const res = await sessionsApi.get(row.agentId, row.id)
-    // 过滤内部 <task-notification> XML 协议消息（Coordinator 注入，用户不应看到）
-    detailMessages.value = (res.data.messages || []).filter(m => !isSystemSignalMsg(m.text || ''))
+    const raw = (res.data.messages || []).filter(m => !isSystemSignalMsg(m.text || ''))
+    detailMessages.value = raw
+    // 装进 AiChat 只读渲染（工具卡可折叠展开、markdown 代码高亮、空气泡自动过滤）
+    await nextTick()
+    sessionAiChatRef.value?.loadHistoryMessages(toChatMsgs(raw as any))
   } catch (e: any) {
     ElMessage.error('加载对话失败')
   } finally {
@@ -530,17 +552,6 @@ async function saveTitle() {
 }
 
 // ── 辅助 ─────────────────────────────────────────────────────────────────
-function histToolSummary(name: string, input: string): string {
-  try {
-    const p = JSON.parse(input)
-    if (name === 'bash' || name === 'exec') return (p.command ?? '').slice(0, 40)
-    if (name === 'read' || name === 'write') return (p.path ?? p.file_path ?? '').split('/').pop() ?? ''
-    if (name === 'agent_spawn') return `→ ${p.agentId ?? '?'}: ${(p.task ?? '').slice(0, 30)}…`
-    if (name === 'web_search') return (p.query ?? '').slice(0, 40)
-  } catch {}
-  return input.slice(0, 40)
-}
-
 function formatDate(ms: number | string | undefined): string {
   if (!ms) return '—'
   const d = typeof ms === 'string' ? new Date(ms) : new Date(ms)
@@ -561,15 +572,6 @@ function formatRelative(ms: number | string | undefined): string {
 function formatTokens(n: number): string {
   if (!n) return '0'
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
-}
-
-function renderText(text: string): string {
-  return text
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    .replace(/```[\s\S]*?```/g, m => `<pre class="code-block">${m.slice(3, -3)}</pre>`)
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\n/g, '<br>')
 }
 
 onMounted(() => loadAll())
@@ -643,62 +645,58 @@ onMounted(() => loadAll())
 :deep(.active-row) { background: #ecf5ff !important; }
 :deep(.el-table__row) { cursor: pointer; }
 
-/* Drawer */
-.drawer-loading { display: flex; align-items: center; justify-content: center; padding: 60px; }
-
-/* 消息列表 */
-.message-list { display: flex; flex-direction: column; gap: 16px; padding: 4px 0; }
-.message-item { display: flex; gap: 10px; align-items: flex-start; }
-.msg-user { flex-direction: row-reverse; }
-.msg-user .msg-body { align-items: flex-end; }
-.msg-user .msg-meta { flex-direction: row-reverse; }
-.msg-avatar { flex-shrink: 0; }
-.msg-body { display: flex; flex-direction: column; gap: 4px; max-width: 85%; }
-.msg-meta { display: flex; gap: 8px; align-items: center; }
-.msg-role { font-size: 12px; font-weight: 600; color: #606266; }
-.msg-time { font-size: 11px; color: #c0c4cc; }
-.msg-text {
-  background: #f4f4f5;
-  border-radius: 8px;
-  padding: 8px 12px;
+/* Drawer 布局 (统一抽屉内部容器) */
+:deep(.el-drawer__body) { padding: 0 !important; overflow: hidden; }
+.drawer-wrap { display: flex; flex-direction: column; height: 100%; background: #fafafa; }
+.drawer-hd {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 18px;
+  background: #fff;
+  border-bottom: 1px solid #ececec;
+  flex-shrink: 0;
+}
+.drawer-hd-main { flex: 1; min-width: 0; }
+.drawer-hd-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.drawer-hd-title-text {
+  font-weight: 600;
+  font-size: 14px;
+  color: #1e293b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.drawer-hd-id {
   font-size: 13px;
-  line-height: 1.6;
-  word-break: break-word;
+  color: #475569;
+  font-family: monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.msg-user .msg-text { background: #409eff; color: #fff; }
-.msg-text :deep(pre.code-block) {
-  background: rgba(0,0,0,0.08);
-  border-radius: 4px;
-  padding: 6px 8px;
-  font-size: 12px;
-  overflow-x: auto;
-  white-space: pre-wrap;
-  margin: 4px 0;
-}
-.msg-text :deep(code) { background: rgba(0,0,0,0.08); border-radius: 3px; padding: 1px 4px; font-size: 12px; }
-
-/* 压缩摘要 */
-.compact-marker { width: 100%; }
-.compact-summary {
-  background: #fdf6ec;
-  border: 1px dashed #e6a23c;
-  border-radius: 6px;
-  padding: 10px 12px;
-  font-size: 12px;
-  color: #606266;
-  line-height: 1.6;
+.drawer-hd-sub {
+  font-size: 11.5px;
+  color: #94a3b8;
   margin-top: 4px;
 }
-
-/* 工具调用时间线 */
-.hist-tool-timeline { display: flex; flex-direction: column; gap: 3px; margin-bottom: 4px; }
-.hist-tool-step {
-  display: flex; align-items: center; gap: 6px;
-  background: #f0faf0; border: 1px solid #b7eb8f;
-  border-radius: 6px; padding: 3px 8px; font-size: 12px;
-  max-width: 480px;
+.drawer-chat-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
-.hist-tool-dot  { color: #52c41a; font-weight: bold; }
-.hist-tool-name { color: #237804; font-family: monospace; }
-.hist-tool-summary { color: #606266; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
+.drawer-ft {
+  flex-shrink: 0;
+  padding: 10px 16px;
+  border-top: 1px solid #ececec;
+  background: #fff;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.drawer-loading { display: flex; align-items: center; justify-content: center; padding: 60px; }
 </style>
