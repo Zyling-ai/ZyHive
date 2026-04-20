@@ -28,7 +28,7 @@ var toolGroups = map[string][]string{
 	"group:sessions": {"sessions_list", "sessions_history", "sessions_send"},
 	"group:cron":     {"cron_list", "cron_add", "cron_remove"},
 	"group:messaging": {"send_message", "send_file"},
-	"group:self":     {"self_list_skills", "self_install_skill", "self_uninstall_skill", "self_rename", "self_update_soul", "self_set_env", "self_delete_env"},
+	"group:self":     {"self_list_skills", "self_install_skill", "self_uninstall_skill", "self_rename", "self_update_soul", "self_set_env", "self_delete_env", "wish_add", "wish_list"},
 	"group:project":  {"project_list", "project_read", "project_write", "project_create", "project_glob"},
 }
 

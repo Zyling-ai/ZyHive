@@ -228,6 +228,35 @@
               </el-card>
             </el-col>
           </el-row>
+
+          <!-- ══ 能力愿望清单（AI 自主表达）════════════════════════════════════ -->
+          <el-card v-if="wishlist && wishlist.total > 0" style="margin-top: 16px;">
+            <template #header>
+              <div style="display:flex;align-items:center;justify-content:space-between;">
+                <span style="font-weight:600;font-size:14px;">
+                  💭 能力愿望清单
+                  <span style="margin-left:6px;font-size:12px;color:#64748b;font-weight:400;">
+                    这是我主动记录的能力缺口 · 共 {{ wishlist.total }} 条
+                  </span>
+                </span>
+                <el-button size="small" :loading="wishlistLoading" @click="loadWishlist">
+                  <el-icon><Refresh /></el-icon> 刷新
+                </el-button>
+              </div>
+            </template>
+            <div>
+              <div v-for="(w, idx) in wishlist.wishes" :key="idx" class="wish-item">
+                <div class="wish-head">
+                  <span class="wish-title">{{ w.title }}</span>
+                  <el-tag v-if="w.priority" size="small" :type="wishPriorityType(w.priority)" effect="plain" class="wish-pri">
+                    {{ w.priority }}
+                  </el-tag>
+                  <span class="wish-time">{{ w.createdAt }}</span>
+                </div>
+                <div v-if="w.reason" class="wish-reason">{{ w.reason }}</div>
+              </div>
+            </div>
+          </el-card>
         </el-tab-pane>
 
         <!-- Tab 3: Relations -->
@@ -1068,12 +1097,50 @@
         <el-tab-pane label="工具权限" name="toolpolicy">
           <div style="padding: 20px; max-width: 720px;">
             <h3 style="margin: 0 0 6px; font-size: 15px;">工具权限 <span style="font-size:12px;color:#888;font-weight:400;">（仅此成员）</span></h3>
-            <p style="margin: 0 0 18px; color: #64748b; font-size: 13px;">
+            <p style="margin: 0 0 14px; color: #64748b; font-size: 13px;">
               控制此 AI 成员可使用的工具。<strong>Deny 优先于 Allow</strong>。未设置时继承全局策略。<br>
               支持 group 快捷方式：<code>group:fs</code> <code>group:runtime</code> <code>group:web</code>
               <code>group:memory</code> <code>group:ui</code> <code>group:agent</code>
               <code>group:sessions</code> <code>group:cron</code> <code>group:messaging</code>
             </p>
+
+            <!-- ══ 工具体检（Tool Health）════════════════════════════════════════ -->
+            <el-card shadow="never" style="margin-bottom: 16px;">
+              <template #header>
+                <div style="display:flex;align-items:center;justify-content:space-between;">
+                  <span style="font-weight:600;font-size:13px;">🏥 工具体检</span>
+                  <el-button size="small" :loading="toolHealthLoading" @click="runToolHealth">
+                    <el-icon><Refresh /></el-icon> 检查
+                  </el-button>
+                </div>
+              </template>
+              <div v-if="!toolHealth" style="color:#94a3b8;font-size:13px;">
+                点击右上「检查」按钮，确认每个工具当前是否可用（含 API Key / 模型支持 / 渠道绑定检查）。
+              </div>
+              <div v-else>
+                <div style="display:flex;gap:12px;margin-bottom:12px;font-size:12px;">
+                  <span>共 <b>{{ toolHealth.summary.total }}</b> 个工具</span>
+                  <span style="color:#16a34a;">✓ 可用 {{ toolHealth.summary.ready }}</span>
+                  <span v-if="toolHealth.summary.blocked > 0" style="color:#d97706;">⚠ 受阻 {{ toolHealth.summary.blocked }}</span>
+                </div>
+                <div v-if="blockedTools.length" style="margin-bottom:10px;">
+                  <div style="font-size:12px;color:#92400e;font-weight:600;margin-bottom:6px;">⚠ 需要处理的工具</div>
+                  <div v-for="t in blockedTools" :key="t.name" class="th-row th-blocked">
+                    <div>
+                      <code class="th-name">{{ t.name }}</code>
+                      <span class="th-group">{{ t.group }}</span>
+                    </div>
+                    <div class="th-reason">{{ t.reason }} <span v-if="t.hint" class="th-hint">— {{ t.hint }}</span></div>
+                  </div>
+                </div>
+                <details v-if="readyTools.length" style="font-size:12px;color:#64748b;">
+                  <summary style="cursor:pointer;user-select:none;">✓ 已就绪的 {{ readyTools.length }} 个工具（点击展开）</summary>
+                  <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:8px;">
+                    <code v-for="t in readyTools" :key="t.name" class="th-tag">{{ t.name }}</code>
+                  </div>
+                </details>
+              </div>
+            </el-card>
 
             <el-form label-width="90px" size="default">
               <el-form-item label="Profile">
@@ -1181,7 +1248,7 @@ import { useRoute } from 'vue-router'
 import { ArrowLeft, Plus, EditPen, Refresh, FolderOpened, Document, ArrowDown, Loading } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import SkillStudio from '../components/SkillStudio.vue'
-import { agents as agentsApi, files as filesApi, memoryApi, cron as cronApi, sessions as sessionsApi, relationsApi, memoryConfigApi, agentChannels as agentChannelsApi, agentConversations, models as modelsApi, type AgentInfo, type CronJob, type SessionSummary, type RelationRow, type MemConfig, type MemRunLog, type ChannelEntry, type PendingUser, type ConvEntry, type ChannelSummary, type ModelEntry } from '../api'
+import api, { agents as agentsApi, files as filesApi, memoryApi, cron as cronApi, sessions as sessionsApi, relationsApi, memoryConfigApi, agentChannels as agentChannelsApi, agentConversations, models as modelsApi, type AgentInfo, type CronJob, type SessionSummary, type RelationRow, type MemConfig, type MemRunLog, type ChannelEntry, type PendingUser, type ConvEntry, type ChannelSummary, type ModelEntry } from '../api'
 import AiChat, { type ChatMsg } from '../components/AiChat.vue'
 import WorkspaceChatLayout from '../components/WorkspaceChatLayout.vue'
 
@@ -1466,6 +1533,50 @@ async function sendAtMessage() {
 // Identity/Soul
 const identityContent = ref('')
 const soulContent = ref('')
+
+// ── AI 能力扩展：愿望清单 + 工具体检 ──────────────────────────────────────
+interface WishItem { title: string; reason: string; priority: string; createdAt: string }
+interface WishlistResp { total: number; wishes: WishItem[] }
+const wishlist = ref<WishlistResp | null>(null)
+const wishlistLoading = ref(false)
+async function loadWishlist() {
+  wishlistLoading.value = true
+  try {
+    const res = await api.get<WishlistResp>(`/agents/${agentId}/wishlist`)
+    wishlist.value = res.data
+  } catch (e: any) {
+    if (e?.response?.status !== 404) {
+      ElMessage.error('加载愿望清单失败')
+    } else {
+      wishlist.value = { total: 0, wishes: [] }
+    }
+  } finally { wishlistLoading.value = false }
+}
+function wishPriorityType(p: string): 'danger' | 'warning' | 'info' {
+  if (p === 'P0') return 'danger'
+  if (p === 'P1') return 'warning'
+  return 'info'
+}
+
+interface ToolHealthItem { name: string; group: string; ready: boolean; reason: string; hint: string }
+interface ToolHealthResp {
+  agentId: string
+  tools: ToolHealthItem[]
+  summary: { total: number; ready: number; blocked: number }
+}
+const toolHealth = ref<ToolHealthResp | null>(null)
+const toolHealthLoading = ref(false)
+const blockedTools = computed(() => toolHealth.value?.tools.filter(t => !t.ready) ?? [])
+const readyTools = computed(() => toolHealth.value?.tools.filter(t => t.ready) ?? [])
+async function runToolHealth() {
+  toolHealthLoading.value = true
+  try {
+    const res = await api.get<ToolHealthResp>(`/agents/${agentId}/tool-health`)
+    toolHealth.value = res.data
+  } catch (e: any) {
+    ElMessage.error('工具体检失败: ' + (e?.message || '未知错误'))
+  } finally { toolHealthLoading.value = false }
+}
 
 // Model selector
 const modelList = ref<ModelEntry[]>([])
@@ -2168,6 +2279,7 @@ onMounted(async () => {
   }
   loadIdentityFiles()
   loadModels()
+  loadWishlist()
   loadRelations()
   loadOtherAgents()
   loadMemConfig()
@@ -2421,6 +2533,45 @@ async function openCronLogs(job: any) {
 .agent-detail {
   min-height: 100vh;
   background: #fafafa;
+}
+
+/* ── 愿望清单 + 工具体检 ───────────────────────────────────────────────── */
+.wish-item {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #fafbfc;
+  border: 1px solid #ececec;
+  margin-bottom: 8px;
+  transition: border-color .15s;
+}
+.wish-item:hover { border-color: #c7d2fe; }
+.wish-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; flex-wrap: wrap; }
+.wish-title { font-weight: 600; font-size: 13px; color: #1e293b; }
+.wish-pri { font-size: 10px !important; }
+.wish-time { font-size: 11px; color: #94a3b8; margin-left: auto; }
+.wish-reason { font-size: 13px; color: #475569; line-height: 1.6; }
+
+.th-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+.th-blocked { background: #fffbeb; border: 1px solid #fcd34d; }
+.th-name { font-family: monospace; font-weight: 600; color: #334155; }
+.th-group { font-size: 11px; color: #94a3b8; margin-left: 6px; }
+.th-reason { color: #92400e; }
+.th-hint { color: #64748b; font-style: italic; }
+.th-tag {
+  font-size: 11px;
+  padding: 2px 8px;
+  background: #f1f5f9;
+  color: #475569;
+  border-radius: 4px;
+  font-family: monospace;
 }
 
 /* 统一 Tab 里 el-card 的边框 + 阴影（避免多层嵌套造成"线条乱") */
