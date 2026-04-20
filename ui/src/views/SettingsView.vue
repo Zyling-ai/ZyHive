@@ -312,7 +312,7 @@ const progressStatus = computed(() => {
 </script>
 
 <style scoped>
-.settings-page { padding: 24px; }
+.settings-page { /* 外层 padding 由 .app-main 统一提供 */ }
 
 .version-section { display: flex; flex-direction: column; gap: 16px; }
 
