@@ -1,6 +1,6 @@
 # Session 管理设计
 
-> 适配 ZyHive 的 Go 实现。本文档反映 v0.9.0 已实现状态。
+> 适配 ZyHive 的 Go 实现。本文档反映 **26.4.22v1** 已实现状态。
 
 ---
 
@@ -109,11 +109,28 @@ SSE done 事件携带：
 ```
 agents/{agentId}/convlogs/
   telegram-{chatId}.jsonl    # Telegram 渠道历史
+  feishu-{chatId}.jsonl      # 飞书渠道历史
   web-{channelId}.jsonl      # Web 渠道历史
 ```
 
-- 管理员通过 ChatsView 查看全部渠道历史，支持按渠道/成员筛选
+- 管理员通过 ChatsView 查看全部渠道历史（统一 AiChat 组件渲染，支持 GFM markdown / 代码高亮 / 工具卡展开）
+- 支持按渠道/成员筛选
 - Agent 侧对话历史与 convlog 完全隔离（convlog 仅管理员可读）
+- 非面板来源（feishu/telegram）session 自动标记只读，UI 显示锁图标 + 提示条
+
+---
+
+## 通讯录联动（26.4.22v1）
+
+渠道消息进入 Runner 前会调用 `network.NewStore(wsDir).Resolve(source, externalId, displayName)`：
+
+- 发送者档案自动 upsert 到 `workspace/network/contacts/{source}-{externalId}.md`
+- `Store.Summary()` 生成 ~300 chars 摘要（frontmatter + 事实前 3 条 + 偏好前 2 条）
+- 摘要通过 `runner.Config.ExtraContext` 运行时注入 system prompt
+- 每次 mutate 自动重建 `network/INDEX.md` + `INDEX.json`
+- AI 可用 `network_note(entityId, section, text)` 工具追加事实到档案，或用通用 `read` 工具按需深读
+
+详见 `docs/system-prompt-and-flow.md` 第二节。
 
 ---
 

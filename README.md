@@ -6,7 +6,7 @@
 [![GitHub Forks](https://img.shields.io/github/forks/Zyling-ai/zyhive?style=flat&logo=github&color=orange)](https://github.com/Zyling-ai/zyhive/network/members)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 [![Go 1.22+](https://img.shields.io/badge/Go-1.22+-00ADD8.svg)](https://golang.org)
-[![Version](https://img.shields.io/badge/version-26.4.22v1-brightgreen.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-26.4.22v2-brightgreen.svg)](CHANGELOG.md)
 [![官网](https://img.shields.io/badge/官网-zyling.ai-6366f1?logo=globe)](https://zyling.ai)
 
 **以团队为核心，每个 AI Agent 是团队成员。**
@@ -28,7 +28,7 @@ curl -sSL https://install.zyling.ai/install | bash
 
 ```
 ╔══════════════════════════════════════════════╗
-║  ✅  ZyHive 安装成功！版本: 26.4.1v20         ║
+║  ✅  ZyHive 安装成功！版本: 26.4.22v2         ║
 ╚══════════════════════════════════════════════╝
 
   📍 本地访问：  http://localhost:8080
@@ -60,26 +60,46 @@ curl -sSL https://install.zyling.ai/install | bash
 - **独立模型**：每个成员可单独配置大模型（身份 Tab 下拉选择），支持 10+ Provider
 - **删除成员**：自动停止 Bot、清理工作区，前端确认弹窗防误操作
 - **头像颜色**：每个成员有个性化颜色，图谱 / 对话均展示
+- **能力愿望清单 WISHLIST**：AI 主动用 `wish_add` 工具表达能力缺口（例 "我希望能联网"），用户在身份 tab 底部可见愿望卡（P0/P1/P2 优先级 + 理由 + 时间）
+- **工具体检**：实时列出 ready / blocked 工具（例 `web_search: 未配置 Brave Key`），AI 不再猜能力边界
 
 ### 对话 & 会话
 - **流式对话首页（ChatHomeView）**：默认首页即聊天，成员下拉选择器、模型切换、历史会话选择、新对话按钮
 - **SSE 流式输出**：打字机效果实时输出，工具调用折叠卡展示（含进行中呼吸灯动画）
 - **Token 用量实时显示**：每条助手消息底部显示 `↑ input ↓ output tokens`，done 事件汇总
 - **会话持久化**：JSONL 格式存储，含消息历史、Token 估算、上下文压缩（Compaction）摘要
-- **统一会话侧边栏**：面板会话与 Telegram / Web 渠道会话合并为单一列表，按最后活动时间排序
-- **对话管理（ChatsView）**：跨成员查看全部历史对话，工具调用卡片展示，按渠道 / 成员双筛选
+- **统一会话侧边栏**：面板会话与 Telegram / 飞书 / Web 渠道会话合并为单一列表，按最后活动时间排序
+- **对话管理（ChatsView）**：跨成员查看全部历史对话，统一 AiChat 渲染（GFM 表格/代码高亮/blockquote/工具卡可展开），按渠道 / 成员双筛选
 - **@ 其他成员**：对话中 @ 转发消息给指定成员，获取跨成员回复
 - **派遣任务面板（DispatchPanel）**：`agent_spawn` 触发时被派遣成员头像飞入顶部，橙灯=执行中 / 绿灯=完成 / 红灯=失败
+- **档位 hashtag chip**：输入框上方 5 个极小 chip（`#简答` / `#深思考` / `#写代码` / `#闲聊` / `#急`），点击追加到输入末尾，system prompt 约定 AI 见到 hashtag 自动调节风格
+- **聊天快捷键**：Enter 发送 / Shift+Enter 换行；只读模式（飞书/TG 会话面板只看）显示锁图标提示条
+- **Cursor 风输入区**：克制配色（发送按钮有内容时变 Cursor 黑 `#18181b`）、去蓝色 focus 环、细滚动条、AI 消息去气泡（文档流阅读）
 
 ### 工作区 & 知识
 - **文件管理**：文件树递归展示（SVG 矢量图标）、在线编辑器、创建 / 删除文件
-- **分层记忆系统**：`memory/core/` + `memory/projects/` + `memory/daily/` + `memory/topics/` 四层目录，轻量 INDEX.md 注入系统提示词
+- **分层记忆系统**：`memory/core/` + `memory/projects/` + `memory/daily/` + `memory/topics/` 四层目录，轻量 `memory/INDEX.md` 注入系统提示词
+- **Owner 档案（`memory/core/owner-profile.md`）**：AgentDetailView "身份 & 灵魂" tab 第 3 张卡，让 AI 知道"我服务于谁"，每次对话开始自动读取，空白完整 placeholder 模板可参考
 - **memory_search 工具**：向量 + BM25 双模式语义检索，有 Embedding API 时向量检索，无则 BM25 降级
 - **记忆蒸馏（Consolidator）**：自动将 daily 层短期日志提炼合并到 core 层长期记忆
 - **共享团队工作区（Projects）**：多成员共享项目文件夹，支持 per-agent 读写权限配置
 
-### 工具生态（70+ 工具）
-- **执行工具**：`exec`（bash 命令）、`read` / `write` / `edit`（文件操作）、`glob`（文件匹配）
+### 通讯录 & 关系网（network/）— 26.4.22v1 新增
+让 AI 在"每个消息来源都能准确回复" —— 把用户档案 / 关系网 / 外部联系人统一为一张图。
+
+- **每个 agent 一本私有通讯录** `workspace/network/{INDEX.md, RELATIONS.md, contacts/*.md}`
+- **三层渐进式披露**：
+  - 层 1：`network/INDEX.md` 永远注入（~500 chars 轻量列表）
+  - 层 2：当前对话对方摘要（frontmatter + 事实前 3 条，~300 chars）运行时注入
+  - 层 3：完整档案，AI 按需用 `read("network/contacts/<id>.md")` 自取
+- **自动建档**：面板/飞书/TG/Web Public 4 处消息入口检测到新 sender，立刻生成 `{source}:{externalId}.md`（例 `feishu-ou_abc.md`）
+- **`network_note(entityId, section, text)` 工具**：AI 发现重要事实/偏好/待跟进时原子追加（section 严格枚举），旁路 `network/changes.log` 审计
+- **TeamView 融合**：菜单「团队」→「📇 通讯录」，顶部 tab 切换「🧑‍🤝‍🧑 AI 成员网络」｜「👥 联系人」。联系人列表跨 agent 聚合，可搜索 / 按来源 / 按 agent 筛选；点击开 540px 抽屉编辑（显示名、6 预设标签快捷 `#家人/#同事/#客户/#合作伙伴/#朋友/#AI 成员`、`isOwner` 标记、Markdown body）
+- **关系双向同步**：`RELATIONS.md` 所有类型（上下级/平级/支持/其他/服务/客户/...）自动双向写入；`agent_spawn` 必须在关系表内（内置 agent 类型豁免）
+- **团队图谱 💡 建议连接**：未建立关系的成员对一键建立平级协作关系
+
+### 工具生态（80+ 工具）
+- **执行工具**：`exec`（bash 命令）、`read` / `write` / `edit`（文件操作）、`glob`（文件匹配）、`grep`
 - **浏览器自动化（go-rod）**：`browser_navigate` / `snapshot` / `screenshot` / `click` / `type` / `fill` / `press` / `hover` / `scroll` / `select` / `eval` / `wait`，支持 ARIA 快照
 - **进程管理**：`process`（管理后台命令会话，list / poll / log / write / kill）
 - **记忆检索**：`memory_search`（向量 + BM25 语义检索）
@@ -90,6 +110,10 @@ curl -sSL https://install.zyling.ai/install | bash
 - **多会话管理**：`sessions_list` / `sessions_history` / `sessions_send` / `sessions_spawn`（派遣子成员）
 - **ACP 编程代理**：`acp_*`（spawn ACP 代理 session，用于长任务编程委派）
 - **项目工作区**：`project_list` / `project_read` / `project_write` / `project_glob`
+- **飞书能力**：`feishu_send_message` / `feishu_create_chat` / `feishu_calendar_*` / `feishu_sheets_*` / `feishu_upload_image` / `feishu_reply_with_card`（7 大飞书工具）
+- **自我管理**：`self_list_skills` / `self_install_skill` / `self_uninstall_skill` / `self_rename` / `self_update_soul`
+- **愿望清单**：`wish_add(title, reason, priority)` / `wish_list` — AI 主动记录能力诉求
+- **通讯录维护**：`network_note(entityId, section, text)` — AI 追加事实/偏好/待跟进到联系人档案
 
 ### 工具权限系统
 - 每个成员可独立配置工具策略：`allow`（默认允许）/ `deny`（默认拒绝）+ 精细白名单 / 黑名单
@@ -99,7 +123,9 @@ curl -sSL https://install.zyling.ai/install | bash
 ### 定时任务（Cron）
 - **隔离会话**：每次 Cron 任务在独立 session 中执行，不污染主对话历史
 - **表达式支持**：标准 cron 表达式 + 时区配置
+- **`NO_ALERT` 静默机制**：AI 若无事可汇报，只回一个 `NO_ALERT` 即被 cron engine 识别并静默，不打扰用户
 - **Cron 管理 UI（CronView）**：可视化创建、编辑、立即执行、查看历史记录
+- **🌅 晨间例行一键模板**：选 agent + 时间（HH:mm）+ 时区，自动构造 cron 表达式 + 预置 prompt（整理昨日 / 检查 WISHLIST / 留便条到 `memory/daily/notes-to-user.md`），对接 NO_ALERT 无事静默
 
 ### 目标规划（Goals）
 - **甘特图（GoalsView）**：可拖拽时间线，7 级缩放（今 / 周 / 月 / 季 / 半年 / 年 / 三年），惯性滑动，今日锚定
@@ -112,9 +138,11 @@ curl -sSL https://install.zyling.ai/install | bash
 - **派遣结果回传**：子成员完成后自动将结果推送回主成员对话
 
 ### 消息渠道
-- **Telegram Bot**：每个成员可绑定独立 Bot（per-agent），支持 per-chat 持久会话、命令菜单、图片媒体处理
-- **Web 公开聊天（PublicChatView）**：无需登录的公开对话页面，适合对外展示
-- **渠道管理（ChannelsView）**：可视化管理 Telegram token 配置，实时测试连接
+- **Telegram Bot**：每个成员可绑定独立 Bot（per-agent），支持 per-chat 持久会话、命令菜单、图片媒体处理；发送者自动建档到通讯录
+- **飞书（Lark）**：WebSocket 长连接 + 流式卡片回复 + 7 大飞书能力工具 + 群聊 @ 模式配置 + 多人对话上下文区分 + 发送者自动建档
+- **Web 公开聊天（PublicChatView）**：无需登录的公开对话页面，visitor sessionToken 自动建档到 `network/contacts/web-*.md`
+- **渠道管理（ChannelsView）**：可视化管理 Telegram / 飞书 token 配置，实时测试连接
+- **`source` 精细识别**：侧边栏按来源打标签（飞书/TG/Web/面板 4 色区分），飞书/TG 会话自动只读 + 锁图标
 
 ### 多模型支持（10+ Provider）
 - Anthropic Claude（claude-3-5/3-7 系列）
@@ -135,9 +163,23 @@ curl -sSL https://install.zyling.ai/install | bash
 
 ### 系统管理
 - **在线升级（UpdateView）**：检测 GitHub 最新版本，一键在线升级，五阶段进度显示（下载→验证→应用→完成）
-- **日志查看（LogsView）**：实时系统日志，浅色主题终端风格
+- **日志查看（LogsView）**：三级降级读取（`/tmp/aipanel.log` → `journalctl` → macOS `log show`），浅色主题终端风格
 - **技能工作室（SkillStudio）**：安装、启用、编辑成员技能（SKILL.md）
 - **设置（SettingsView）**：全局配置、Provider 管理、模型选择、系统提示词调试
+- **交互式 CLI 面板**：`zyhive` 直接进入终端管理面板（配置 / 成员 / 更新 / 备份 / 日志 / 状态），支持中文 help；`zyhive token / start / stop / restart / status / enable / disable` 子命令
+
+### 系统提示词工程（渐进式披露）
+每次对话 system prompt **严格分层**构建：
+1. **当下信息**：日期/时间/周数/年度第 N 天 · Platform · 训练截止警告 · wish_add 提示 · 档位 hashtag 约定
+2. **Owner profile**：`memory/core/owner-profile.md`（你是谁）
+3. **IDENTITY + SOUL**：AI 自己是谁
+4. **memory/INDEX.md**：记忆轻量索引
+5. **network/INDEX.md + RELATIONS.md**：通讯录轻量索引 + 关系表
+6. **当前会话对方摘要**（渠道来的对话才注入）：运行时 Store.Summary 动态填
+7. **Capabilities context**：工具体检 + WISHLIST 头部
+8. **AGENTS.md 引用链**：自动读取 AGENTS.md 里引用的其他文件
+9. **Projects context**：共享项目可读写情况
+每一层都有 `truncateForPrompt` 截断保护（~20K chars 上限），总体控制在合理 token 预算内。
 
 ---
 
@@ -147,54 +189,70 @@ curl -sSL https://install.zyling.ai/install | bash
 zyhive/
 ├── cmd/aipanel/
 │   ├── main.go          ← 主入口（服务启动 / 平台服务注册）
-│   └── cli.go           ← CLI 子命令（start/stop/restart/status/enable/disable/token）
+│   ├── cli.go           ← 交互式 CLI 面板 + 子命令（start/stop/restart/status/enable/disable/token）
+│   └── ui_dist/         ← go:embed 前端构建产物
 ├── internal/api/
 │   ├── router.go        ← 路由注册（所有 REST API）
-│   ├── chat.go          ← SSE 流式对话端点
+│   ├── chat.go          ← SSE 流式对话端点 + UsageRecorder
 │   ├── agents.go        ← 成员 CRUD
 │   ├── sessions.go      ← 会话管理
-│   ├── relations.go     ← 关系图谱 + SVG 渲染
+│   ├── relations.go     ← 关系图谱 + 全类型双向同步 + `relationsPath()` 迁移兼容
+│   ├── network.go       ← 通讯录 REST（list/get/patch/delete/merge/refresh）
 │   ├── update.go        ← 在线升级（五阶段状态机）
 │   ├── goals.go         ← 目标规划 API
 │   ├── projects.go      ← 共享项目工作区 API
 │   ├── subagents.go     ← 子成员 API
 │   ├── usage.go         ← Token 用量统计 API
+│   ├── public_chat.go   ← Web 公开聊天入口
+│   ├── feishu_callback.go ← 飞书回调
 │   └── ...
 ├── pkg/
-│   ├── agent/           ← 成员生命周期 + 工作区 + IDENTITY/SOUL + 关系图
-│   ├── runner/          ← 对话主循环（工具调用循环）+ 系统提示词构建
+│   ├── agent/           ← 成员生命周期 + 工作区 + IDENTITY/SOUL + 关系图 + manager.go 自动迁移 hook
+│   ├── runner/          ← 对话主循环（工具调用循环）+ system_prompt.go 分层构建（9 层）
 │   ├── session/         ← 会话工作者池 + Broadcaster + 持久化
 │   ├── llm/             ← 10+ Provider 适配（StreamEvent 统一抽象）
-│   ├── tools/           ← 70+ 工具注册 + 权限策略（ToolPolicy）
-│   ├── memory/          ← 四层记忆树 + 索引构建 + 语义检索
-│   ├── channel/         ← Telegram Bot + 渠道路由
-│   ├── cron/            ← Cron 引擎（隔离会话）
+│   ├── tools/           ← 80+ 工具注册 + 权限策略（ToolPolicy）+ wish / network_note / capabilities
+│   ├── memory/          ← 四层记忆树 + INDEX.md + Consolidator 蒸馏 + 语义检索
+│   ├── network/         ← 通讯录（contact Store + codec + summary + migrate），每 agent 私有
+│   ├── channel/         ← Telegram / 飞书 / 渠道路由 + Feishu WS 长连接
+│   ├── convlog/         ← 管理员可见的对话全量日志（JSONL）
+│   ├── chatlog/         ← 渠道消息日志
+│   ├── cron/            ← Cron 引擎（隔离会话 + NO_ALERT 静默机制）
 │   ├── goal/            ← 目标规划数据结构
 │   ├── subagent/        ← 子成员派遣管理
-│   ├── browser/         ← 浏览器自动化（go-rod）
+│   ├── browser/         ← 浏览器自动化（go-rod，16 工具）
 │   ├── skill/           ← 技能元数据管理
 │   ├── project/         ← 共享项目工作区
 │   ├── usage/           ← Token 计费与存储
-│   ├── config/          ← 配置结构（ProviderEntry 列表）
+│   ├── config/          ← 配置结构（ProviderEntry 列表 + 模型条目）
 │   └── compaction/      ← 上下文压缩
 └── ui/src/
     ├── views/
     │   ├── ChatHomeView.vue      ← 对话首页（默认页面）
-    │   ├── AgentDetailView.vue   ← 成员详情（身份/灵魂/工作区/Cron/渠道）
-    │   ├── ChatsView.vue         ← 全局对话管理
+    │   ├── AgentDetailView.vue   ← 成员详情（身份/灵魂/工作区/Cron/渠道/工具权限/环境变量）
+    │   ├── AgentsView.vue        ← 成员列表
+    │   ├── AgentCreateView.vue   ← 创建成员向导
+    │   ├── ChatsView.vue         ← 全局对话管理（统一 AiChat 渲染）
     │   ├── GoalsView.vue         ← 目标规划 + 甘特图
     │   ├── SubagentsView.vue     ← 子成员任务监控
-    │   ├── TeamView.vue          ← 团队关系图谱
+    │   ├── TeamView.vue          ← 通讯录（AI 成员网络 + 联系人 tab）
     │   ├── ModelsView.vue        ← Provider & 模型管理
-    │   ├── UsageView.vue         ← Token 用量统计
+    │   ├── UsageView.vue         ← Token 用量统计（stat cards + pie charts）
     │   ├── ProjectsView.vue      ← 共享项目工作区
-    │   ├── LogsView.vue          ← 系统日志
+    │   ├── LogsView.vue          ← 系统日志（journalctl 读）
     │   ├── ToolsView.vue         ← 工具权限管理
-    │   └── ...
+    │   ├── ChannelsView.vue      ← 渠道管理
+    │   ├── CronView.vue          ← 定时任务（含🌅晨间例行一键）
+    │   ├── SettingsView.vue      ← 全局设置
+    │   ├── SkillsView.vue        ← 技能
+    │   ├── PublicChatView.vue    ← Web 公开对话
+    │   ├── LoginView.vue
+    │   └── DashboardView.vue
     └── components/
-        ├── AiChat.vue            ← 核心对话组件（SSE + 工具卡）
+        ├── AiChat.vue            ← 核心对话组件（SSE + 工具卡 + 档位 chip + Markdown GFM）
         ├── WorkspaceChatLayout.vue ← 工作区内嵌对话布局
         ├── DispatchPanel.vue     ← 子成员派遣状态面板
+        ├── RelTypeForm.vue       ← 关系类型编辑表单
         └── SkillStudio.vue       ← 技能工作室
 ```
 
@@ -219,9 +277,6 @@ zyhive/
   "agents": {
     "dir": "./agents"
   },
-  "models": {
-    "primary": "anthropic/claude-sonnet-4-6"
-  },
   "providers": [
     {
       "id": "anthropic-1",
@@ -235,6 +290,15 @@ zyhive/
       "apiKey": "sk-...",
       "name": "OpenAI"
     }
+  ],
+  "models": [
+    {
+      "id": "claude-sonnet-4-6",
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-20250514",
+      "name": "Claude Sonnet 4",
+      "default": true
+    }
   ]
 }
 ```
@@ -244,9 +308,11 @@ zyhive/
 | `gateway.port` | HTTP 服务端口（默认 8080） |
 | `gateway.bind` | 绑定模式：`localhost` / `lan` / `0.0.0.0` |
 | `auth.token` | Bearer Token，用于 API 鉴权 |
-| `agents.dir` | 成员数据根目录 |
-| `models.primary` | 默认模型（`provider/model` 格式） |
+| `agents.dir` | 成员数据根目录（每 agent 一个子目录，内含 workspace/memory/network/...） |
 | `providers[]` | Provider 列表（type / apiKey / baseUrl 等） |
+| `models[]` | 模型条目列表，`default:true` 的作为全局默认（agent 未绑定模型时 fallback） |
+
+> **注**：旧版本用 `models.primary: "provider/model"` 字符串字段，新结构化为 `models[]` 数组 + `default` 标记。配置迁移自动完成，老数据无损。
 
 ---
 
@@ -308,7 +374,8 @@ make release
 | **26.4.20v3** | **关系双向同步 & 派遣权限**：RELATIONS.md 全类型双向（上下级/平级/支持/其他）、agent_spawn 必须在关系表内（built-in 类型豁免）、前端切换 tab 自动刷新、派遣规则写入系统提示词；**对话管理 drawer 历史消息**修复（AiChat 始终 mount + loading overlay）；capabilities context 完整注入 runner | ✅ |
 | **26.4.21v1** | **极简 AI 自主三件套**：用户档案 `memory/core/user-profile.md`（AgentDetailView 编辑卡 + system prompt 注入，让 AI 知道"我服务于谁"）；CronView 🌅 晨间例行一键模板（选 agent + 时间，末尾 `NO_ALERT` 对接 cron engine 静默机制，无事不打扰）；TeamView 💡 建议连接（未建立关系的 agent 对 · 一键平级协作）；AiChat 档位 hashtag chip（#简答 / #深思考 / #写代码 / #闲聊 / #急，system prompt 约定自动调节风格） | ✅ |
 | **26.4.22v1** | **通讯录（network/）+ 渐进式披露**：每个 agent 一本私有通讯录 `workspace/network/{INDEX.md, RELATIONS.md, contacts/*.md}`；4 处消息入口（面板/TG/飞书/Web）自动识别来源 + 建档 `{source}:{externalId}` → 按会话注入「当前对话对方」摘要（~300 chars），完整档案 AI 通过 `read` 按需读取（~500 chars INDEX 首层 + 运行时摘要第二层）；`network_note` 工具让 AI 原子追加事实/偏好/待跟进；TeamView 加 tab 切换：「AI 成员网络」图谱 + 「联系人」聚合列表 + 抽屉编辑（显示名/标签 6 预设/`isOwner`/Markdown body）；菜单「团队」→「通讯录」；`memory/core/user-profile.md` → `owner-profile.md` + `RELATIONS.md` 迁入 `network/` 自动 idempotent 迁移 | ✅ |
-| v0.11（规划中）| 团队规划系统增强、会议系统、ChatsView 统一重写、共享工作区权限 UI | 🔜 |
+| **26.4.22v2** | **文档全面刷新**：README 功能清单补齐（通讯录/愿望清单/工具体检/档位 chip/晨间例行/Owner 档案/建议连接/渐进式披露）、项目结构加 `pkg/network/` `pkg/convlog/` `pkg/chatlog/`、UI views 补齐、配置示例改 `models[]` 结构、新增「系统提示词工程」章节；`docs/system-prompt-and-flow.md` 重写为 10 层分层渐进披露设计 + Contact 档案模型 + Capabilities Context + Cron NO_ALERT；`docs/session-design.md` 补飞书渠道 + network 联动段落 | ✅ |
+| P1（规划中）| Chat Profile（群档案）· 跨 agent 联系人聚合视图 · 头像 API 拉取 · AI 自动合并联系人 · Web 访客升级为命名 contact · `self_schedule` 自主闹钟工具 · 自主唤醒 budget 预算刹车 | 🔜 |
 
 ---
 
