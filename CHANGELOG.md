@@ -4,6 +4,54 @@
 
 ---
 
+## [26.4.22v3] — 2026-04-21 · 在线升级进度条修复
+
+用户反馈：Settings 页面「版本与更新」进度条不会自动刷新，跑一次之后不会继续跑。
+
+### 🐛 四个叠加的根因
+
+1. **后端 `downloadFile` 不汇报进度**
+   `resp.ContentLength` 在 CF Worker 流式代理（或任何 chunked 传输）场景下常为 `-1`，但代码 `if total > 0 && progress != nil` 直接跳过 → **下载 22MB 过程中进度永远停在 10%**，结束瞬间才跳到 70%。
+2. **前端首次拉取延迟 1.5s**
+   `setInterval(tick, 1500)` 设完定时器后要等 1.5 秒第一次触发，而 `verify` / `applying` 阶段往往 1–2 秒就跑完 → UI 根本没机会显示中间态。
+3. **进度条动画 10s 过渡**
+   `el-progress :duration="10"` 让百分比变化花 10 秒跨过去，比实际升级都慢 → 看起来就是"卡住"。
+4. **`stage='done'` 后主 polling 不停**
+   旧逻辑死依赖 `/api/version` 返回新版本号才 `stopPolling`；服务 SIGTERM 重启间隙 502 反复，polling 异常重入，UI 冻结。
+5. **刷新页面丢状态**
+   `onMounted` 不主动拉 status，后台升级在跑也看不见。
+
+### 🔧 修复
+
+#### `internal/api/update.go::downloadFile`
+- 新增 `estimatedSize = 32MB`（二进制实际 ~25MB 留冲）
+- `total > 0` 走真实百分比，`total <= 0` 走估算百分比（封顶 95%，收尾 `progress(100)`）
+- 节流：百分比变化 >= 1 才回调，避免锁竞争
+- **效果**：下载阶段 10% → 70% 平滑推进（无论是否走 CF 代理）
+
+#### `ui/src/views/SettingsView.vue`
+- `startPolling`：抽出 `tick` 函数，**立即首次触发** + interval 1500ms → 500ms
+- `stage === 'done'` → 立即 `stopPolling` + 触发 `waitForRestart()` 独立循环
+- 新增 `waitForRestart()`：独立 1.5s 轮询 `/api/version`，拿到新版本号 → `restartDetected=true`，**90s 兜底超时**
+- `el-progress :duration="10"` → `"1"`（动画跟得上）
+- `onMounted` 主动 `updateApi.status()`：
+  - 发现 `downloading/verifying/applying` 自动 `startPolling`（刷新页面不丢状态）
+  - 发现已 `done` 自动 `waitForRestart`
+- `onBeforeUnmount` 清 `restartWaitTimer`
+
+### ✅ 效果
+
+- 下载阶段进度平滑从 10% 走到 70%（非竟跳）
+- verify / apply 中间态能被 UI 观察到
+- 升级完成后不会永久卑月 polling，UI 不隐止大名重启
+- 刷新页面 = 自动接上正在进行的升级
+
+### 验证
+- `go build ./... && go vet ./...` ✅
+- `npx vue-tsc -b && vite build` ✅
+
+---
+
 ## [26.4.22v2] — 2026-04-21 · 文档全面刷新
 
 纯文档版本，无代码逻辑变动。为配合 26.4.20v1 → 26.4.22v1 的三轮重大功能扩展（CLI 修复 / 聊天 UI 重构 / AI 能力扩展 / 关系双向 / 极简自主三件套 / 通讯录 + 渐进式披露），一次性刷新所有面向开发者和使用者的文档。
