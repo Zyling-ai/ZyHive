@@ -8,13 +8,17 @@ import (
 	"strings"
 )
 
-// allowedPeersFromRelations 解析 workspaceDir/RELATIONS.md, 返回当前 agent 可派遣的 agentID 集合.
+// allowedPeersFromRelations 解析 RELATIONS.md, 返回当前 agent 可派遣的 agentID 集合.
+// 优先读 network/RELATIONS.md（新位置），fallback 到根部旧位置。
 // "可派遣" 定义: RELATIONS.md 里出现的任何 agentID 都算 (有任何关系 → 允许).
 // 文件不存在 → 返回 nil (调用方应解释为"空关系, 仅允许派内置 agent").
 func allowedPeersFromRelations(workspaceDir string) map[string]bool {
-	data, err := os.ReadFile(filepath.Join(workspaceDir, "RELATIONS.md"))
+	data, err := os.ReadFile(filepath.Join(workspaceDir, "network", "RELATIONS.md"))
 	if err != nil {
-		return nil
+		data, err = os.ReadFile(filepath.Join(workspaceDir, "RELATIONS.md"))
+		if err != nil {
+			return nil
+		}
 	}
 	peers := make(map[string]bool)
 	for _, line := range strings.Split(string(data), "\n") {
