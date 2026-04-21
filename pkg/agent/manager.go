@@ -17,6 +17,7 @@ import (
 
 	"github.com/Zyling-ai/zyhive/pkg/config"
 	"github.com/Zyling-ai/zyhive/pkg/memory"
+	"github.com/Zyling-ai/zyhive/pkg/network"
 )
 
 // SystemConfigAgentID is the reserved ID for the built-in configuration assistant.
@@ -139,6 +140,16 @@ func (m *Manager) LoadAll() error {
 			log.Printf("[manager] warning: memory migration failed for agent %s: %v", cfg.ID, err)
 		} else if migrated {
 			log.Printf("[manager] migrated agent %s from flat MEMORY.md to memory tree", cfg.ID)
+		}
+
+		// Migrate to network/ layout (move RELATIONS.md, rename user-profile→owner-profile).
+		// Idempotent — safe on every startup.
+		if err := network.MigrateIfNeeded(wsDir); err != nil {
+			log.Printf("[manager] warning: network migration failed for agent %s: %v", cfg.ID, err)
+		}
+		// Ensure INDEX.md exists (covers brand-new agents that had nothing to migrate).
+		if err := network.NewStore(wsDir).RefreshIndex(); err != nil {
+			log.Printf("[manager] warning: refresh network INDEX failed for agent %s: %v", cfg.ID, err)
 		}
 	}
 

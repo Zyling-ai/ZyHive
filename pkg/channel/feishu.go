@@ -20,6 +20,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Zyling-ai/zyhive/pkg/network"
 	"github.com/gorilla/websocket"
 )
 
@@ -464,6 +465,18 @@ func (b *FeishuBot) handleMessageEvent(ctx context.Context, ev *feishuMessageEve
 	// Inject sender identity as extra system context (NOT in the user message — invisible to users)
 	extraCtx := fmt.Sprintf("当前飞书用户信息：open_id=%s，chat_id=%s，chat_type=%s",
 		senderOpenID, msg.ChatID, msg.ChatType)
+
+	// ── Network (contact book) — resolve feishu sender and append Layer-2 summary.
+	if b.agentDir != "" && senderOpenID != "" {
+		wsDir := filepath.Join(b.agentDir, "workspace")
+		store := network.NewStore(wsDir)
+		displayName := b.getSenderName(senderOpenID)
+		if _, nerr := store.Resolve(network.SourceFeishu, senderOpenID, displayName); nerr != nil {
+			log.Printf("[feishu] network.Resolve warning: %v", nerr)
+		} else if summary := store.Summary(network.MakeID(network.SourceFeishu, senderOpenID)); summary != "" {
+			extraCtx = extraCtx + "\n\n" + summary
+		}
+	}
 
 	events, err := b.streamFunc(runCtx, b.agentID, finalText, feishuSessionID, nil, nil, extraCtx)
 	if err != nil {
