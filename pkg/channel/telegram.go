@@ -23,6 +23,7 @@ import (
 
 	"github.com/Zyling-ai/zyhive/pkg/chatlog"
 	"github.com/Zyling-ai/zyhive/pkg/convlog"
+	"github.com/Zyling-ai/zyhive/pkg/network"
 )
 
 // ── Event types ───────────────────────────────────────────────────────────
@@ -821,7 +822,32 @@ func (b *TelegramBot) generateAndSend(ctx context.Context, msg *TelegramMessage,
 		return b.SendFileToChat(chatID, threadID, filePath)
 	})
 
-	events, err := b.streamFunc(runCtx, b.agentID, message, sessionID, media, fileSender)
+	// ── Network (contact book) — resolve sender and build Layer-2 summary.
+	// Per "每 agent 一本通讯录" design: Telegram userIDs become contactId
+	// "telegram:{userId}". Store auto-creates the contact file on first sight.
+	var contactSummary string
+	if b.agentDir != "" && msg != nil && msg.From.ID != 0 {
+		wsDir := filepath.Join(b.agentDir, "workspace")
+		store := network.NewStore(wsDir)
+		senderID := fmt.Sprintf("%d", msg.From.ID)
+		displayName := strings.TrimSpace(msg.From.FirstName)
+		if displayName == "" {
+			displayName = msg.From.Username
+		}
+		if _, nerr := store.Resolve(network.SourceTelegram, senderID, displayName); nerr != nil {
+			log.Printf("[telegram] network.Resolve warning: %v", nerr)
+		} else {
+			contactSummary = store.Summary(network.MakeID(network.SourceTelegram, senderID))
+		}
+	}
+
+	var events <-chan StreamEvent
+	var err error
+	if contactSummary != "" {
+		events, err = b.streamFunc(runCtx, b.agentID, message, sessionID, media, fileSender, contactSummary)
+	} else {
+		events, err = b.streamFunc(runCtx, b.agentID, message, sessionID, media, fileSender)
+	}
 	if err != nil {
 		stopTyping()
 		_, _ = b.sendPlain(chatID, "⚠️ 出错了："+err.Error(), replyToMsgID, threadID)

@@ -131,6 +131,15 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, cfgPath string, mgr *agen
 	v1.PUT("/team/relations/edge", relH.PutEdge)
 	v1.DELETE("/team/relations/edge", relH.DeleteEdge)
 
+	// Network (通讯录 — per-agent contacts book, progressive-disclosure INDEX.md)
+	netH := &networkHandler{manager: mgr}
+	agents.GET("/:id/network/contacts", netH.ListContacts)
+	agents.GET("/:id/network/contacts/:cid", netH.GetContact)
+	agents.PATCH("/:id/network/contacts/:cid", netH.UpdateContact)
+	agents.DELETE("/:id/network/contacts/:cid", netH.DeleteContact)
+	agents.POST("/:id/network/contacts/:cid/merge", netH.MergeContact)
+	agents.POST("/:id/network/refresh", netH.RefreshIndex)
+
 	// Memory tree API
 	memH := &memoryHandler{manager: mgr, cronEngine: cronEngine, pool: pool}
 	agents.GET("/:id/memory/tree", memH.Tree)
