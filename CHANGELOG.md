@@ -4,6 +4,119 @@
 
 ---
 
+## [26.4.22v1] — 2026-04-21 · 通讯录（network/）· 渐进式披露 · 每 agent 一本关系网
+
+本版 5 commit，主体重构：把"用户档案 / agent 关系 / 外部联系人"三套散乱概念**统一为一个「通讯录」模块**，物理上落在每个 agent 私有的 `workspace/network/` 目录，用"渐进式披露"模式管理提示词注入——真正让 AI "在每个来源都能准确回复"。
+
+### 🎯 背景
+
+上一版 `memory/core/user-profile.md` 只画一个人；但实际来源包括：
+- 面板运营者（你）
+- 飞书老板 / 同事 / 陌生人
+- TG 群友 / 私信联系人
+- Web 匿名访客
+
+一份档案画所有人 → 都画不准。本版引入 **Entity 抽象**（每个外部人都是一个 contact）+ **渐进式披露**（轻量 INDEX + 运行时摘要 + 按需深读）。
+
+### 🏗️ 架构（每 agent 一本通讯录）
+
+```
+workspace/network/
+├── INDEX.md           ← system prompt 注入的轻量层（~500-800 chars）
+├── INDEX.json         ← 机器索引（UI 读）
+├── RELATIONS.md       ← 关系表（从 workspace 根自动迁入）
+└── contacts/
+    └── <source>-<externalId>.md   ← 完整档案（AI 按需 read）
+```
+
+每个 contact 档案含 frontmatter（id / source / tags / aliases / isOwner / msgCount / timestamps）+ 4 段 body（事实 / 偏好 / 最近话题 / 待跟进）。
+
+### 🎚️ 三层渐进式披露
+
+- **层 1：`network/INDEX.md`** — 永远注入 system prompt，只给"谁存在 + 一句话摘要 + 文件路径"。~500 chars，token 友好。
+- **层 2：当前对话对方摘要** — `runner.Config.ExtraContext` 运行时动态注入（frontmatter + 事实前 3 条 + 偏好前 2 条），~300 chars，硬 cap 1200。
+- **层 3：完整档案** — AI 主动用 `read("network/contacts/<id>.md")` 按需深读，不预占未来对话 token。
+
+### 📦 新增模块
+
+**`pkg/network/`** 新包（~1000 LOC + 4 单元测试全绿）：
+- `Contact` / `ContactSummary` / `Index` 数据模型
+- 手写 YAML-ish frontmatter codec（无 YAML 依赖）
+- `Store` 线程安全：`Resolve(source, externalId, displayName)` upsert + `Touch` + `Get/Save/Delete/List/Summary`
+- 每次 mutate 自动 `refreshIndex` 重建 INDEX.{md,json}
+- `MigrateIfNeeded` idempotent：`workspace/RELATIONS.md` → `workspace/network/RELATIONS.md` + `user-profile.md` → `owner-profile.md`
+
+**`internal/api/network.go`** REST：
+- `GET /api/agents/:id/network/contacts` — 列表
+- `GET /api/agents/:id/network/contacts/:cid` — 详情
+- `PATCH /api/agents/:id/network/contacts/:cid` — 更新（displayName/tags/body/isOwner）
+- `DELETE` / `POST .../merge` / `POST .../refresh`
+- contactId 三种形式（`feishu:ou_abc` / URL-encoded / `feishu-ou_abc`）都接受
+
+### 🔌 4 处消息入口自动建档
+
+AI 见到一个新联系人时档案**已经存在**（不阻塞对话）：
+
+- **Telegram**（`pkg/channel/telegram.go`）：`Resolve(telegram, userId, firstName)` → summary 作为 extraSystemContext 传入 streamFunc
+- **飞书**（`pkg/channel/feishu.go`）：`Resolve(feishu, openId, senderName)` → append 到现有 extraCtx
+- **Web Public**（`internal/api/public_chat.go`）：新增 `visitorToken` 参数，`Resolve(web, sessionToken)` → `runner.Config.ExtraContext`
+- **面板**（chat.go）：**不接 contact**——运营者就是 owner，由现有 `memory/core/owner-profile.md` 负责
+
+### 🛠️ `network_note` 工具
+
+`network_note(entityId, section, text)` — 让 AI 把发现的事实/偏好/待跟进原子追加到联系人档案：
+- `section` 严格枚举：`事实 | 偏好 | 最近话题 | 待跟进`
+- 占位符（`- (AI 通过 network_note 工具追加此处)`）首次写入自动清除
+- 缺失 section 自动补 `## 段` header
+- 旁路 `network/changes.log` 审计（用户可 `read` 查 AI 改了什么）
+- 4 个单元测试覆盖（存在 / 缺失 / 多条 / 部分匹配）
+
+### 📝 system_prompt 重构
+
+- IDENTITY/SOUL **之前** 注入 `memory/core/owner-profile.md`（兼容上版 user-profile.md）
+- 新增 `network/INDEX.md` 注入（替代原本的 RELATIONS.md 直注）
+- `network/RELATIONS.md` 优先，`RELATIONS.md` 根部 fallback（兼容未迁移 agent）
+- 派遣规则文案更新指向 `network/RELATIONS.md`
+- 新增使用约定："见到新人档案已存在 · `network_note` 追加 · `read` 按需深读"
+
+### 🎨 TeamView 融合（菜单「团队」→「通讯录」）
+
+- 顶部 tab 切换：「🧑‍🤝‍🧑 AI 成员网络」 | 「👥 联系人」
+- **AI 成员网络** tab：**零改动**（保留原图谱交互 / Suggestions / Legend）
+- **联系人** tab：跨 agent 聚合列表
+  - 筛选栏：搜索（姓名/ID/tag/来源）+ 来源 radio + agent radio
+  - 列表行：头像色块（deterministic hue from name hash）+ 姓名 + 来源 tag + 标签 chips + 消息数 + 最后活跃 + 所属 agent chip
+  - 点击打开 540px drawer
+- **联系人抽屉**：
+  - 头像 + 显示名
+  - 标签：可删 + 手动加 + 6 预设快捷（家人/同事/客户/合作伙伴/朋友/AI 成员）
+  - `isOwner` checkbox："这是主人本人在该渠道的身份"
+  - Markdown body 编辑（等宽字体 12 行）
+  - 保存 / 删除
+
+### 🔄 兼容性 / 迁移
+
+- Agent 启动时自动跑 `network.MigrateIfNeeded`：一次性搬 `RELATIONS.md` + rename `user-profile.md` → `owner-profile.md`
+- 3 处 Go 内部读 RELATIONS.md 都改为"优先 `network/`，fallback 根部"
+- `internal/api/relations.go` 所有 handler 统一走 `relationsPath()` helper
+- **老数据零丢失 + 老 API 零破坏**
+
+### ✅ 验证
+
+- `go build ./... && go vet ./...` 全绿
+- `go test ./pkg/network/... ./pkg/tools/...` 全绿（8 + 4 个用例）
+- `npx vue-tsc -b && vite build` 全绿
+
+### 明确不做（留给 P1）
+
+- ❌ 群档案（chats/）
+- ❌ 头像 API 拉取（先用首字色块）
+- ❌ AI 自动合并（人手合并即可）
+- ❌ 跨 agent contact 聚合视图（列表已有 agent chip 但不合并）
+- ❌ Web 访客升级为命名 contact
+
+---
+
 ## [26.4.21v1] — 2026-04-21 · 极简 AI 自主三件套（用户档案 + 晨间例行 + 建议连接 + 档位 chip）
 
 本版 2 commit 聚合，贯彻**极简信念**——砍掉 `self_schedule` 工具、`autonomy budget` 字段、`wishlist` 独立 tab、agent 类型分化 等 4 个冗余抽象，只做 4 件真正必要的小改动。背景：上一轮对话中 AI 自省"我是博尔赫斯图书馆里没窗的管理员"，并给出了自主唤醒 + 结构化认识用户两个诉求。本版对应实现。

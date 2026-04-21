@@ -6,7 +6,7 @@
 [![GitHub Forks](https://img.shields.io/github/forks/Zyling-ai/zyhive?style=flat&logo=github&color=orange)](https://github.com/Zyling-ai/zyhive/network/members)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 [![Go 1.22+](https://img.shields.io/badge/Go-1.22+-00ADD8.svg)](https://golang.org)
-[![Version](https://img.shields.io/badge/version-26.4.21v1-brightgreen.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-26.4.22v1-brightgreen.svg)](CHANGELOG.md)
 [![官网](https://img.shields.io/badge/官网-zyling.ai-6366f1?logo=globe)](https://zyling.ai)
 
 **以团队为核心，每个 AI Agent 是团队成员。**
@@ -307,6 +307,7 @@ make release
 | **26.4.20v2** | **AI 能力扩展**：工具体检（ready/blocked）+ 愿望清单（wish_add/wish_list）+ 系统提示词注入"当下信息"；修复 anthropic `output_tokens=0` 真·根因 + 并行工具调用状态 + UsageView 饼图 legend 挤压 + Web 面板会话误判只读；全站视觉一致性 + 边框色统一 | ✅ |
 | **26.4.20v3** | **关系双向同步 & 派遣权限**：RELATIONS.md 全类型双向（上下级/平级/支持/其他）、agent_spawn 必须在关系表内（built-in 类型豁免）、前端切换 tab 自动刷新、派遣规则写入系统提示词；**对话管理 drawer 历史消息**修复（AiChat 始终 mount + loading overlay）；capabilities context 完整注入 runner | ✅ |
 | **26.4.21v1** | **极简 AI 自主三件套**：用户档案 `memory/core/user-profile.md`（AgentDetailView 编辑卡 + system prompt 注入，让 AI 知道"我服务于谁"）；CronView 🌅 晨间例行一键模板（选 agent + 时间，末尾 `NO_ALERT` 对接 cron engine 静默机制，无事不打扰）；TeamView 💡 建议连接（未建立关系的 agent 对 · 一键平级协作）；AiChat 档位 hashtag chip（#简答 / #深思考 / #写代码 / #闲聊 / #急，system prompt 约定自动调节风格） | ✅ |
+| **26.4.22v1** | **通讯录（network/）+ 渐进式披露**：每个 agent 一本私有通讯录 `workspace/network/{INDEX.md, RELATIONS.md, contacts/*.md}`；4 处消息入口（面板/TG/飞书/Web）自动识别来源 + 建档 `{source}:{externalId}` → 按会话注入「当前对话对方」摘要（~300 chars），完整档案 AI 通过 `read` 按需读取（~500 chars INDEX 首层 + 运行时摘要第二层）；`network_note` 工具让 AI 原子追加事实/偏好/待跟进；TeamView 加 tab 切换：「AI 成员网络」图谱 + 「联系人」聚合列表 + 抽屉编辑（显示名/标签 6 预设/`isOwner`/Markdown body）；菜单「团队」→「通讯录」；`memory/core/user-profile.md` → `owner-profile.md` + `RELATIONS.md` 迁入 `network/` 自动 idempotent 迁移 | ✅ |
 | v0.11（规划中）| 团队规划系统增强、会议系统、ChatsView 统一重写、共享工作区权限 UI | 🔜 |
 
 ---
