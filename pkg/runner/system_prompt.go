@@ -77,9 +77,10 @@ func BuildSystemPrompt(workspaceDir string) (string, error) {
 		sb.WriteString(fmt.Sprintf("--- %s ---\n%s\n\n", label, content))
 	}
 
-	// User profile — 用户档案（给 AI 看的"你正在服务谁"）
+	// Owner profile — 主人档案（给 AI 看的"你正在服务谁"）
 	// 位置：IDENTITY/SOUL 之前，让 AI 先知道"我服务的人"再看"我是谁"。
-	// 用户可在 AgentDetailView 的"身份 & 灵魂"tab 编辑；文件不存在则不注入。
+	// 兼容上版：如 owner-profile.md 不存在但 user-profile.md 存在，也注入（迁移在 manager.go）。
+	injectFile(filepath.Join(workspaceDir, "memory", "core", "owner-profile.md"), "memory/core/owner-profile.md")
 	injectFile(filepath.Join(workspaceDir, "memory", "core", "user-profile.md"), "memory/core/user-profile.md")
 
 	// Read IDENTITY.md and SOUL.md
@@ -106,10 +107,37 @@ func BuildSystemPrompt(workspaceDir string) (string, error) {
 	// Conversation history hint for the agent
 	sb.WriteString("[对话历史可查。使用 read 工具访问: conversations/INDEX.md 查看索引，conversations/{sessionId}__{channelId}.jsonl 查看完整对话]\n\n")
 
-	// Inject RELATIONS.md if it exists + 派遣规则提示
-	injectFile(filepath.Join(workspaceDir, "RELATIONS.md"), "RELATIONS.md")
-	if _, err := os.Stat(filepath.Join(workspaceDir, "RELATIONS.md")); err == nil {
-		sb.WriteString("📋 **派遣规则**：你只能用 `agent_spawn` 派遣上方 RELATIONS.md 中列出的成员。派遣不在关系列表里的用户 agent 会被系统拒绝。如果希望派遣新成员，请先用 `wish_add` 记录「需要和 X 建立关系」并提醒用户去团队图谱添加关系。（内置 agent type 如 general-purpose / explore / plan / verification / coordinator 不受此限制）\n\n")
+	// ── Network (通讯录) — 渐进式披露：
+	// 层 1：network/INDEX.md（永远注入，轻量列表 + 提示）
+	// 层 2：当前会话对方的摘要 via runner.Config.ExtraContext（按来源决定）
+	// 层 3：完整档案 — AI 按需 read("network/contacts/<id>.md")
+	//
+	// 兼容老 agent（尚未触发迁移）：若 network/RELATIONS.md 不存在但根部
+	// RELATIONS.md 存在，继续注入根部版本。
+	networkIdxPath := filepath.Join(workspaceDir, "network", "INDEX.md")
+	networkRelPath := filepath.Join(workspaceDir, "network", "RELATIONS.md")
+	rootRelPath := filepath.Join(workspaceDir, "RELATIONS.md")
+
+	injectedNetworkIdx := false
+	if _, err := os.Stat(networkIdxPath); err == nil {
+		injectFile(networkIdxPath, "network/INDEX.md")
+		injectedNetworkIdx = true
+	}
+	// Relations table injection (prefer network/RELATIONS.md, fall back to root)
+	if _, err := os.Stat(networkRelPath); err == nil {
+		injectFile(networkRelPath, "network/RELATIONS.md")
+	} else if _, err := os.Stat(rootRelPath); err == nil {
+		injectFile(rootRelPath, "RELATIONS.md")
+	}
+	// Dispatch rule (only meaningful if relations exist)
+	if _, err := os.Stat(networkRelPath); err == nil {
+		sb.WriteString("📋 **派遣规则**：你只能用 `agent_spawn` 派遣 network/RELATIONS.md 中 toKind=agent 的成员。派遣不在关系列表里的用户 agent 会被系统拒绝。如果希望派遣新成员，请先用 `wish_add` 记录「需要和 X 建立关系」并提醒用户去通讯录图谱添加关系。（内置 agent type 如 general-purpose / explore / plan / verification / coordinator 不受此限制）\n\n")
+	} else if _, err := os.Stat(rootRelPath); err == nil {
+		// Legacy wording — pre-network layout.
+		sb.WriteString("📋 **派遣规则**：你只能用 `agent_spawn` 派遣上方 RELATIONS.md 中列出的成员。派遣不在关系列表里的用户 agent 会被系统拒绝。\n\n")
+	}
+	if injectedNetworkIdx {
+		sb.WriteString("💬 **通讯录使用**：遇到新联系人时档案已由系统自动创建。发现重要事实/偏好/待办请用 `network_note(entityId, section, text)` 追加。完整档案用 `read(\"network/contacts/<filename>.md\")` 按需读取——不要强记。\n\n")
 	}
 
 	// Inject skills/INDEX.md (lightweight summary instead of full SKILL.md content)

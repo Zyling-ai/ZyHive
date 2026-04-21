@@ -22,6 +22,7 @@ import (
 	"github.com/Zyling-ai/zyhive/pkg/config"
 	"github.com/Zyling-ai/zyhive/pkg/convlog"
 	"github.com/Zyling-ai/zyhive/pkg/llm"
+	"github.com/Zyling-ai/zyhive/pkg/network"
 	"github.com/Zyling-ai/zyhive/pkg/runner"
 	"github.com/Zyling-ai/zyhive/pkg/session"
 	"github.com/Zyling-ai/zyhive/pkg/tools"
@@ -172,9 +173,10 @@ func (h *publicChatHandler) Stream(c *gin.Context) {
 	// Snapshot fields needed in the closure (avoid data races)
 	agID, wsDir, sessDir, agEnv := ag.ID, ag.WorkspaceDir, ag.SessionDir, ag.Env
 	msgCopy, sidCopy := req.Message, sid
+	visitorToken := req.SessionToken
 
 	runFn := func(ctx context.Context, sessionID, _ string, bc *session.Broadcaster) error {
-		return h.runPublic(ctx, agID, wsDir, sessDir, agEnv, sessionID, msgCopy, bc, cl, clChID)
+		return h.runPublic(ctx, agID, wsDir, sessDir, agEnv, sessionID, msgCopy, bc, cl, clChID, visitorToken)
 	}
 
 	worker := h.workerPool.GetOrCreate(sid)
@@ -234,6 +236,10 @@ func (h *publicChatHandler) resolveChannel(c *gin.Context, agentID, channelID st
 }
 
 // runPublic creates a runner and publishes events to the broadcaster.
+//
+// visitorToken (optional) uniquely identifies the anonymous web visitor —
+// if present, a contact is auto-upserted to workspace/network/contacts/ and
+// its Layer-2 summary is injected via runner.Config.ExtraContext.
 func (h *publicChatHandler) runPublic(
 	ctx context.Context,
 	agentID, workspaceDir, sessionDir string,
@@ -241,6 +247,7 @@ func (h *publicChatHandler) runPublic(
 	sessionID, message string,
 	bc *session.Broadcaster,
 	cl *convlog.ConvLog, clChannelID string,
+	visitorToken string,
 ) error {
 	ag, ok := h.manager.Get(agentID)
 	if !ok {
@@ -275,6 +282,15 @@ func (h *publicChatHandler) runPublic(
 	}
 	toolRegistry.WithSessionID(sessionID)
 
+	// ── Network: auto-upsert web visitor as contact + inject Layer-2 summary.
+	var extraCtx string
+	if visitorToken != "" {
+		nstore := network.NewStore(workspaceDir)
+		if _, nerr := nstore.Resolve(network.SourceWeb, visitorToken, "Web 访客"); nerr == nil {
+			extraCtx = nstore.Summary(network.MakeID(network.SourceWeb, visitorToken))
+		}
+	}
+
 	r := runner.New(runner.Config{
 		AgentID:      agentID,
 		WorkspaceDir: workspaceDir,
@@ -285,6 +301,7 @@ func (h *publicChatHandler) runPublic(
 		Tools:        toolRegistry,
 		Session:      store,
 		AgentEnv:     agEnv,
+		ExtraContext: extraCtx,
 	})
 
 	var fullResponse strings.Builder
