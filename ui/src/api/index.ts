@@ -271,6 +271,36 @@ export const files = {
   delete: (agentId: string, path: string) => api.delete(`/agents/${agentId}/files/${path}`),
 }
 
+// Network (通讯录) — per-agent contact book
+export interface ContactSummary {
+  id: string
+  source: string
+  displayName: string
+  tags?: string[]
+  lastSeenAt: string
+  msgCount: number
+  primary: boolean
+  isOwner?: boolean
+}
+export interface Contact extends ContactSummary {
+  externalId: string
+  body: string
+  aliases?: string[]
+  createdAt: string
+}
+export const networkApi = {
+  list: (agentId: string) => api.get<{ contacts: ContactSummary[] }>(`/agents/${agentId}/network/contacts`),
+  get: (agentId: string, contactId: string) =>
+    api.get<Contact>(`/agents/${agentId}/network/contacts/${encodeURIComponent(contactId)}`),
+  update: (agentId: string, contactId: string, patch: { displayName?: string; tags?: string[]; body?: string; isOwner?: boolean }) =>
+    api.patch<Contact>(`/agents/${agentId}/network/contacts/${encodeURIComponent(contactId)}`, patch),
+  delete: (agentId: string, contactId: string) =>
+    api.delete(`/agents/${agentId}/network/contacts/${encodeURIComponent(contactId)}`),
+  merge: (agentId: string, primaryId: string, aliasId: string) =>
+    api.post(`/agents/${agentId}/network/contacts/${encodeURIComponent(primaryId)}/merge`, { aliasId }),
+  refresh: (agentId: string) => api.post(`/agents/${agentId}/network/refresh`),
+}
+
 export const config = {
   get: () => api.get('/config'),
   patch: (data: any) => api.patch('/config', data),

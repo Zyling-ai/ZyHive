@@ -85,12 +85,16 @@ func collectToolKeys(cfg *config.Config) map[string]bool {
 	return out
 }
 
-// hasAnyRelations 检查 workspace/RELATIONS.md 是否存在有效条目（任何 ID）。
+// hasAnyRelations 检查 RELATIONS.md 是否存在有效条目（任何 ID）。
+// 优先读 network/RELATIONS.md（新位置），fallback 到根部旧位置。
 // 仅用于 capabilities prompt 里的 agent_spawn 约束提示，不需精确解析。
 func hasAnyRelations(wsDir string) bool {
-	data, err := os.ReadFile(filepath.Join(wsDir, "RELATIONS.md"))
+	data, err := os.ReadFile(filepath.Join(wsDir, "network", "RELATIONS.md"))
 	if err != nil {
-		return false
+		data, err = os.ReadFile(filepath.Join(wsDir, "RELATIONS.md"))
+		if err != nil {
+			return false
+		}
 	}
 	for _, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)

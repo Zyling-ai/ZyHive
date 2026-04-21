@@ -2,22 +2,39 @@
   <div class="team-view">
     <!-- Header -->
     <div class="page-header">
-      <h2>团队关系图谱</h2>
+      <h2>
+        📇 通讯录
+        <el-text type="info" size="small" style="margin-left:8px;font-weight:400;">
+          成员网络 · 联系人档案
+        </el-text>
+      </h2>
       <div style="display:flex;gap:8px;">
-        <el-button size="small" @click="autoArrange">
+        <el-button v-if="tab === 'graph'" size="small" @click="autoArrange">
           <el-icon><Grid /></el-icon> 整理
         </el-button>
-        <el-button size="small" @click="loadGraph">
+        <el-button size="small" @click="refreshAll">
           <el-icon><Refresh /></el-icon> 刷新
         </el-button>
-        <el-button size="small" type="danger" plain @click="clearAllRelations">
+        <el-button v-if="tab === 'graph'" size="small" type="danger" plain @click="clearAllRelations">
           <el-icon><Delete /></el-icon> 清空关系
         </el-button>
       </div>
     </div>
 
+    <!-- Tab switch -->
+    <div class="tab-bar">
+      <button :class="['tab-btn', { active: tab === 'graph' }]" @click="tab = 'graph'">
+        🧑‍🤝‍🧑 AI 成员网络
+        <span class="tab-count">{{ graph.nodes.length }}</span>
+      </button>
+      <button :class="['tab-btn', { active: tab === 'contacts' }]" @click="tab = 'contacts'">
+        👥 联系人
+        <span class="tab-count">{{ totalContactCount }}</span>
+      </button>
+    </div>
+
     <!-- Graph card -->
-    <el-card v-loading="loading" class="graph-card">
+    <el-card v-show="tab === 'graph'" v-loading="loading" class="graph-card">
       <!-- Empty: no members -->
       <div v-if="!loading && !graph.nodes.length" class="empty-state">
         <el-icon style="font-size:64px;color:#c0c4cc;display:block;margin:0 auto 16px"><Share /></el-icon>
@@ -161,7 +178,7 @@
     </el-card>
 
     <!-- Suggestions: 未建立关系的成员对 -->
-    <el-card v-if="suggestions.length" class="suggest-card">
+    <el-card v-show="tab === 'graph'" v-if="suggestions.length" class="suggest-card">
       <div class="suggest-head" @click="suggestOpen = !suggestOpen">
         <span class="suggest-title">
           💡 建议连接
@@ -191,7 +208,7 @@
     </el-card>
 
     <!-- Legend -->
-    <el-card v-if="graph.nodes.length" class="legend-card">
+    <el-card v-show="tab === 'graph'" v-if="graph.nodes.length" class="legend-card">
       <div class="legend">
         <span class="legend-title">布局规则：</span>
         <span class="legend-item"><el-icon><ArrowUp /></el-icon> 上方 = 上级（箭头指下）</span>
@@ -212,6 +229,165 @@
         </span>
       </div>
     </el-card>
+
+    <!-- ══ Contacts Tab — 跨 agent 联系人聚合视图 ═══════════════════════════ -->
+    <div v-show="tab === 'contacts'" class="contacts-pane">
+      <!-- Filter bar -->
+      <div class="contact-filter-bar">
+        <el-input
+          v-model="contactSearch"
+          placeholder="搜索 姓名 / ID / 标签 / 来源"
+          size="default"
+          style="max-width: 320px"
+          clearable
+        >
+          <template #prefix><el-icon><Search /></el-icon></template>
+        </el-input>
+        <el-radio-group v-model="contactSource" size="small">
+          <el-radio-button value="">全部来源</el-radio-button>
+          <el-radio-button value="feishu">飞书</el-radio-button>
+          <el-radio-button value="telegram">Telegram</el-radio-button>
+          <el-radio-button value="web">Web</el-radio-button>
+        </el-radio-group>
+        <el-radio-group v-model="contactAgentFilter" size="small">
+          <el-radio-button value="">全部成员</el-radio-button>
+          <el-radio-button
+            v-for="ag in graph.nodes"
+            :key="ag.id"
+            :value="ag.id"
+          >{{ ag.name }}</el-radio-button>
+        </el-radio-group>
+      </div>
+
+      <!-- Empty -->
+      <el-card v-if="!contactsLoading && !filteredContacts.length" class="contacts-empty">
+        <div style="padding: 40px 20px; text-align: center; color: #94a3b8;">
+          <div style="font-size: 40px; margin-bottom: 10px;">📭</div>
+          <div>{{ contacts.length ? '当前筛选无结果' : '还没有联系人。对话一次就会自动出现。' }}</div>
+        </div>
+      </el-card>
+
+      <!-- Contact rows -->
+      <div v-else class="contact-list" v-loading="contactsLoading">
+        <div
+          v-for="c in filteredContacts"
+          :key="c.agentId + '|' + c.id"
+          class="contact-row"
+          @click="openContactDrawer(c)"
+        >
+          <div class="contact-avatar" :style="{ background: avatarColor(c.displayName || c.id) }">
+            {{ (c.displayName || c.id).slice(0, 1) }}
+          </div>
+          <div class="contact-main">
+            <div class="contact-name-row">
+              <span class="contact-name">{{ c.displayName || c.id }}</span>
+              <el-tag size="small" :type="sourceTagType(c.source)" effect="plain" style="margin-left: 6px">
+                {{ sourceLabel(c.source) }}
+              </el-tag>
+              <el-tag v-if="c.isOwner" size="small" type="warning" style="margin-left: 4px">主人</el-tag>
+            </div>
+            <div class="contact-meta">
+              <span class="contact-id">{{ c.id }}</span>
+              <span v-if="c.tags && c.tags.length" class="contact-tags">
+                <span v-for="t in c.tags" :key="t" class="contact-tag">#{{ t }}</span>
+              </span>
+              <span class="contact-msgcount">💬 {{ c.msgCount }}</span>
+              <span v-if="c.lastSeenAt" class="contact-lastseen">最后 {{ formatLastSeen(c.lastSeenAt) }}</span>
+            </div>
+            <div class="contact-agent-chip">
+              <el-text type="info" size="small">
+                📍 {{ agentNameById[c.agentId] || c.agentId }} 的联系人
+              </el-text>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Contact Drawer (edit profile) ── -->
+    <el-drawer v-model="contactDrawerOpen" :title="drawerTitle" direction="rtl" size="540px" destroy-on-close>
+      <div v-if="drawerContact" class="contact-drawer">
+        <div class="cd-head">
+          <div class="cd-avatar" :style="{ background: avatarColor(drawerContact.displayName || drawerContact.id) }">
+            {{ (drawerContact.displayName || drawerContact.id).slice(0, 1) }}
+          </div>
+          <div class="cd-title">
+            <el-input
+              v-model="drawerContact.displayName"
+              placeholder="显示名"
+              size="default"
+              style="max-width: 280px"
+            />
+            <div class="cd-sub">
+              <el-tag size="small" :type="sourceTagType(drawerContact.source)" effect="plain">
+                {{ sourceLabel(drawerContact.source) }}
+              </el-tag>
+              <span class="cd-id">{{ drawerContact.id }}</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="cd-field">
+          <label>标签</label>
+          <div class="cd-tags">
+            <el-tag
+              v-for="(t, i) in (drawerContact.tags || [])"
+              :key="t + i"
+              closable
+              size="small"
+              @close="(drawerContact.tags || []).splice(i, 1)"
+              style="margin-right: 4px; margin-bottom: 4px"
+            >{{ t }}</el-tag>
+            <el-input
+              v-if="addingTag"
+              v-model="newTagText"
+              size="small"
+              style="width: 110px; margin-right: 4px"
+              @keyup.enter="commitTag"
+              @blur="commitTag"
+              placeholder="回车确认"
+              ref="tagInputRef"
+            />
+            <el-button v-else size="small" @click="beginAddTag">+ 标签</el-button>
+            <el-button
+              v-for="preset in presetTags"
+              :key="preset"
+              size="small"
+              plain
+              @click="addPresetTag(preset)"
+              style="margin-right: 4px; margin-bottom: 4px"
+            >#{{ preset }}</el-button>
+          </div>
+        </div>
+
+        <div class="cd-field">
+          <el-checkbox v-model="drawerContact.isOwner">这是「主人」本人在该渠道的身份</el-checkbox>
+          <el-text type="info" size="small" style="display:block;margin-top:4px">
+            勾选后，AI 收到这位发送的消息时使用 owner-profile 档案，不会重复注入本联系人档案。
+          </el-text>
+        </div>
+
+        <div class="cd-field">
+          <label>档案（Markdown）</label>
+          <el-input
+            v-model="drawerContact.body"
+            type="textarea"
+            :rows="12"
+            placeholder="# 姓名&#10;&#10;## 事实&#10;- 公司/角色&#10;- ...&#10;&#10;## 偏好（AI 观察）&#10;-&#10;&#10;## 待跟进&#10;-"
+            style="font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace; font-size: 13px;"
+          />
+          <el-text type="info" size="small" style="display:block;margin-top:4px">
+            AI 也会通过 <code>network_note</code> 工具自动追加。你可随时手改。
+          </el-text>
+        </div>
+
+        <div class="cd-actions">
+          <el-button @click="contactDrawerOpen = false">取消</el-button>
+          <el-button type="danger" plain :loading="drawerSaving" @click="deleteContact">删除</el-button>
+          <el-button type="primary" :loading="drawerSaving" @click="saveContact">保存</el-button>
+        </div>
+      </div>
+    </el-drawer>
 
     <!-- ── Create Relation Dialog ── -->
     <el-dialog v-model="createRelDialog" title="建立关系" width="460px" :close-on-click-modal="false">
@@ -249,9 +425,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, reactive, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, reactive, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { relationsApi, agents as agentsApi, type TeamGraph, type TeamGraphEdge, type TeamGraphNode } from '../api'
+import { Search } from '@element-plus/icons-vue'
+import { relationsApi, agents as agentsApi, networkApi, type TeamGraph, type TeamGraphEdge, type TeamGraphNode, type ContactSummary, type Contact } from '../api'
 import RelTypeForm from '../components/RelTypeForm.vue'
 
 const svgRef = ref<SVGSVGElement>()
@@ -663,6 +840,190 @@ async function clearAllRelations() {
   } catch { ElMessage.error('清空失败') }
 }
 
+// ══ Contacts tab ═══════════════════════════════════════════════════════════
+type ContactWithOwner = ContactSummary & { agentId: string }
+
+const tab = ref<'graph' | 'contacts'>('graph')
+const contacts = ref<ContactWithOwner[]>([])
+const contactsLoading = ref(false)
+const contactSearch = ref('')
+const contactSource = ref('')
+const contactAgentFilter = ref('')
+
+const agentNameById = computed<Record<string, string>>(() => {
+  const m: Record<string, string> = {}
+  for (const n of graph.value.nodes) m[n.id] = n.name
+  return m
+})
+
+const totalContactCount = computed(() => contacts.value.length)
+
+const filteredContacts = computed(() => {
+  const q = contactSearch.value.trim().toLowerCase()
+  return contacts.value.filter(c => {
+    if (contactSource.value && c.source !== contactSource.value) return false
+    if (contactAgentFilter.value && c.agentId !== contactAgentFilter.value) return false
+    if (!q) return true
+    const hay = (
+      (c.displayName || '') + ' ' +
+      c.id + ' ' +
+      (c.tags || []).join(' ') + ' ' +
+      c.source
+    ).toLowerCase()
+    return hay.includes(q)
+  })
+})
+
+async function loadContacts() {
+  contactsLoading.value = true
+  try {
+    const nodes = graph.value.nodes
+    const results: ContactWithOwner[] = []
+    await Promise.all(nodes.map(async n => {
+      try {
+        const res = await networkApi.list(n.id)
+        for (const c of (res.data?.contacts || [])) {
+          results.push({ ...c, agentId: n.id })
+        }
+      } catch { /* ignore per-agent failure */ }
+    }))
+    contacts.value = results
+  } finally {
+    contactsLoading.value = false
+  }
+}
+
+async function refreshAll() {
+  await loadGraph()
+  if (tab.value === 'contacts') await loadContacts()
+}
+
+watch(tab, (t) => {
+  if (t === 'contacts' && contacts.value.length === 0) loadContacts()
+})
+
+// ── Contact drawer ────────────────────────────────────────────────────────
+const contactDrawerOpen = ref(false)
+const drawerContact = ref<Contact & { agentId: string } | null>(null)
+const drawerSaving = ref(false)
+const presetTags = ['家人', '同事', '客户', '合作伙伴', '朋友', 'AI 成员']
+const addingTag = ref(false)
+const newTagText = ref('')
+const tagInputRef = ref<any>(null)
+
+const drawerTitle = computed(() => {
+  if (!drawerContact.value) return '联系人详情'
+  return `✏️ ${drawerContact.value.displayName || drawerContact.value.id}`
+})
+
+async function openContactDrawer(c: ContactWithOwner) {
+  try {
+    const res = await networkApi.get(c.agentId, c.id)
+    drawerContact.value = { ...res.data, agentId: c.agentId, tags: res.data.tags || [] } as any
+    contactDrawerOpen.value = true
+  } catch {
+    ElMessage.error('读取联系人失败')
+  }
+}
+
+function beginAddTag() {
+  addingTag.value = true
+  newTagText.value = ''
+  nextTick(() => tagInputRef.value?.focus?.())
+}
+function commitTag() {
+  const t = newTagText.value.trim()
+  if (t && drawerContact.value) {
+    if (!drawerContact.value.tags) drawerContact.value.tags = []
+    if (!drawerContact.value.tags.includes(t)) drawerContact.value.tags.push(t)
+  }
+  addingTag.value = false
+  newTagText.value = ''
+}
+function addPresetTag(t: string) {
+  if (!drawerContact.value) return
+  if (!drawerContact.value.tags) drawerContact.value.tags = []
+  if (!drawerContact.value.tags.includes(t)) drawerContact.value.tags.push(t)
+}
+
+async function saveContact() {
+  if (!drawerContact.value) return
+  const c = drawerContact.value
+  drawerSaving.value = true
+  try {
+    await networkApi.update(c.agentId, c.id, {
+      displayName: c.displayName,
+      tags: c.tags || [],
+      body: c.body,
+      isOwner: !!c.isOwner,
+    })
+    ElMessage.success('已保存')
+    contactDrawerOpen.value = false
+    await loadContacts()
+  } catch {
+    ElMessage.error('保存失败')
+  } finally {
+    drawerSaving.value = false
+  }
+}
+
+async function deleteContact() {
+  if (!drawerContact.value) return
+  const c = drawerContact.value
+  try {
+    await ElMessageBox.confirm(`删除 ${c.displayName || c.id}？此操作只移除该 agent 的档案。`, '确认删除', {
+      confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning',
+    })
+  } catch { return }
+  drawerSaving.value = true
+  try {
+    await networkApi.delete(c.agentId, c.id)
+    ElMessage.success('已删除')
+    contactDrawerOpen.value = false
+    await loadContacts()
+  } catch {
+    ElMessage.error('删除失败')
+  } finally {
+    drawerSaving.value = false
+  }
+}
+
+// Helpers
+function sourceLabel(s: string): string {
+  switch (s) {
+    case 'feishu': return '飞书'
+    case 'telegram': return 'Telegram'
+    case 'web': return 'Web'
+    case 'panel': return '面板'
+    default: return s || '其它'
+  }
+}
+function sourceTagType(s: string): 'success' | 'primary' | 'warning' | 'info' | 'danger' {
+  switch (s) {
+    case 'feishu': return 'primary'
+    case 'telegram': return 'success'
+    case 'web': return 'warning'
+    default: return 'info'
+  }
+}
+function avatarColor(seed: string): string {
+  // Deterministic pastel color from string hash.
+  let h = 0
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0
+  const hue = h % 360
+  return `hsl(${hue}deg 55% 62%)`
+}
+function formatLastSeen(iso: string): string {
+  try {
+    const d = new Date(iso)
+    const delta = Date.now() - d.getTime()
+    if (delta < 60_000) return '刚刚'
+    if (delta < 3600_000) return Math.floor(delta / 60_000) + '分钟前'
+    if (delta < 86400_000) return Math.floor(delta / 3600_000) + '小时前'
+    return d.toLocaleDateString()
+  } catch { return iso }
+}
+
 let ro: ResizeObserver | null = null
 onMounted(() => {
   loadGraph()
@@ -771,6 +1132,120 @@ onUnmounted(() => {
 }
 
 .legend-card { padding: 0; }
+
+/* ── Tabs ──────────────────────────────────────────────────────────────── */
+.tab-bar {
+  display: flex; gap: 2px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid #ececec;
+}
+.tab-btn {
+  padding: 10px 18px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  font-size: 14px;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.15s;
+  display: flex; align-items: center; gap: 6px;
+  margin-bottom: -1px;
+}
+.tab-btn:hover { color: #18181b; }
+.tab-btn.active {
+  color: #18181b;
+  border-bottom-color: #18181b;
+  font-weight: 500;
+}
+.tab-count {
+  font-size: 11px;
+  color: #94a3b8;
+  background: #f1f5f9;
+  padding: 1px 7px;
+  border-radius: 9px;
+}
+.tab-btn.active .tab-count { background: #e0e7ff; color: #4338ca; }
+
+/* ── Contacts pane ─────────────────────────────────────────────────────── */
+.contacts-pane { margin-top: 4px; }
+.contact-filter-bar {
+  display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.contacts-empty { border: 1px solid #ececec; }
+.contact-list {
+  display: flex; flex-direction: column; gap: 1px;
+  background: #ececec;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid #ececec;
+}
+.contact-row {
+  display: flex; gap: 12px;
+  padding: 12px 16px;
+  background: #fff;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.contact-row:hover { background: #fafafa; }
+.contact-avatar {
+  width: 40px; height: 40px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  color: #fff;
+  font-weight: 600;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+.contact-main { flex: 1; min-width: 0; }
+.contact-name-row { display: flex; align-items: center; gap: 4px; margin-bottom: 3px; }
+.contact-name { font-weight: 500; font-size: 14px; color: #18181b; }
+.contact-meta {
+  display: flex; gap: 10px; font-size: 12px; color: #94a3b8;
+  flex-wrap: wrap; align-items: center;
+}
+.contact-id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.contact-tags { display: inline-flex; gap: 4px; }
+.contact-tag { color: #6366f1; font-weight: 500; }
+.contact-msgcount { color: #64748b; }
+.contact-lastseen { color: #94a3b8; }
+.contact-agent-chip { margin-top: 3px; font-size: 11px; }
+
+/* ── Contact drawer ────────────────────────────────────────────────────── */
+.contact-drawer { padding: 0 8px; }
+.cd-head {
+  display: flex; gap: 12px; align-items: center;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #ececec;
+  margin-bottom: 16px;
+}
+.cd-avatar {
+  width: 52px; height: 52px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  color: #fff;
+  font-weight: 600;
+  font-size: 20px;
+  flex-shrink: 0;
+}
+.cd-title { flex: 1; min-width: 0; }
+.cd-sub { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
+.cd-id {
+  font-size: 12px; color: #94a3b8;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.cd-field { margin-bottom: 16px; }
+.cd-field > label {
+  display: block;
+  font-size: 13px; font-weight: 500; color: #334155;
+  margin-bottom: 6px;
+}
+.cd-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; }
+.cd-actions {
+  display: flex; gap: 8px; justify-content: flex-end;
+  padding-top: 16px;
+  border-top: 1px solid #ececec;
+}
 .legend { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; font-size: 13px; color: #606266; }
 .legend-title { font-weight: 600; color: #303133; }
 .legend-item { display: flex; align-items: center; gap: 5px; }

@@ -15,6 +15,24 @@ import (
 
 const relationsFilename = "RELATIONS.md"
 
+// relationsPath returns the preferred RELATIONS.md path for an agent workspace.
+// Since 26.4.22v1 the canonical location is workspace/network/RELATIONS.md
+// (per "每 agent 一本通讯录" design). For backward compatibility with agents
+// that haven't been migrated yet (or tests), we fall back to the legacy root
+// path if the network one doesn't exist.
+func relationsPath(workspaceDir string) string {
+	newPath := filepath.Join(workspaceDir, "network", "RELATIONS.md")
+	if _, err := os.Stat(newPath); err == nil {
+		return newPath
+	}
+	oldPath := filepath.Join(workspaceDir, relationsFilename)
+	if _, err := os.Stat(oldPath); err == nil {
+		return oldPath
+	}
+	// Neither exists — default to new path (will be created on write).
+	return newPath
+}
+
 type relationsHandler struct {
 	manager *agent.Manager
 }
@@ -38,7 +56,7 @@ func (h *relationsHandler) Get(c *gin.Context) {
 		return
 	}
 
-	filePath := filepath.Join(ag.WorkspaceDir, relationsFilename)
+	filePath := relationsPath(ag.WorkspaceDir)
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -70,7 +88,7 @@ func (h *relationsHandler) Put(c *gin.Context) {
 		return
 	}
 
-	filePath := filepath.Join(ag.WorkspaceDir, relationsFilename)
+	filePath := relationsPath(ag.WorkspaceDir)
 
 	// Read old relations before overwriting (for diff)
 	var oldRows []RelationRow
@@ -175,7 +193,7 @@ func (h *relationsHandler) updateInverseRelation(targetAgentID, sourceAgentID st
 	if !ok {
 		return
 	}
-	filePath := filepath.Join(target.WorkspaceDir, relationsFilename)
+	filePath := relationsPath(target.WorkspaceDir)
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return
@@ -222,7 +240,7 @@ func (h *relationsHandler) PutEdge(c *gin.Context) {
 		return
 	}
 
-	filePath := filepath.Join(fromAg.WorkspaceDir, relationsFilename)
+	filePath := relationsPath(fromAg.WorkspaceDir)
 	var rows []RelationRow
 	if data, err := os.ReadFile(filePath); err == nil {
 		rows = parseRelationsMarkdown(string(data))
@@ -267,7 +285,7 @@ func (h *relationsHandler) DeleteEdge(c *gin.Context) {
 		return
 	}
 
-	filePath := filepath.Join(fromAg.WorkspaceDir, relationsFilename)
+	filePath := relationsPath(fromAg.WorkspaceDir)
 	var rows []RelationRow
 	if data, err := os.ReadFile(filePath); err == nil {
 		rows = parseRelationsMarkdown(string(data))
@@ -296,7 +314,7 @@ func (h *relationsHandler) addInverseRelation(targetAgentID string, row Relation
 		return // target agent not registered — skip
 	}
 
-	filePath := filepath.Join(target.WorkspaceDir, relationsFilename)
+	filePath := relationsPath(target.WorkspaceDir)
 	var existing []RelationRow
 	if data, err := os.ReadFile(filePath); err == nil {
 		existing = parseRelationsMarkdown(string(data))
@@ -319,7 +337,7 @@ func (h *relationsHandler) removeRelationEntry(agentID, removeID string) {
 	if !ok {
 		return
 	}
-	filePath := filepath.Join(ag.WorkspaceDir, relationsFilename)
+	filePath := relationsPath(ag.WorkspaceDir)
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return
@@ -346,7 +364,7 @@ func (h *relationsHandler) removeInverseRelation(targetAgentID, sourceAgentID st
 func (h *relationsHandler) ClearAllRelations(c *gin.Context) {
 	agents := h.manager.List()
 	for _, ag := range agents {
-		filePath := filepath.Join(ag.WorkspaceDir, relationsFilename)
+		filePath := relationsPath(ag.WorkspaceDir)
 		_ = os.WriteFile(filePath, []byte(""), 0644)
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true, "cleared": len(agents)})
@@ -402,7 +420,7 @@ func (h *relationsHandler) Graph(c *gin.Context) {
 	for _, ag := range agents {
 		nodeMap[ag.ID] = GraphNode{ID: ag.ID, Name: ag.Name, Status: ag.Status, AvatarColor: ag.AvatarColor}
 
-		filePath := filepath.Join(ag.WorkspaceDir, relationsFilename)
+		filePath := relationsPath(ag.WorkspaceDir)
 		data, err := os.ReadFile(filePath)
 		if err != nil {
 			continue

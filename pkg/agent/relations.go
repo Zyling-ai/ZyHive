@@ -33,7 +33,12 @@ func (m *Manager) GetAllRelations() []TeamRelation {
 
 	var out []TeamRelation
 	for _, ag := range agents {
-		rows := readRelationsFile(filepath.Join(ag.WorkspaceDir, "RELATIONS.md"))
+		// Prefer new network/ location, fall back to legacy root if not migrated yet.
+		relPath := filepath.Join(ag.WorkspaceDir, "network", "RELATIONS.md")
+		if _, err := os.Stat(relPath); err != nil {
+			relPath = filepath.Join(ag.WorkspaceDir, "RELATIONS.md")
+		}
+		rows := readRelationsFile(relPath)
 		for _, r := range rows {
 			out = append(out, TeamRelation{
 				From: ag.ID,
