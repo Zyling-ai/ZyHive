@@ -4,6 +4,51 @@
 
 ---
 
+## [26.4.22v2] — 2026-04-21 · 文档全面刷新
+
+纯文档版本，无代码逻辑变动。为配合 26.4.20v1 → 26.4.22v1 的三轮重大功能扩展（CLI 修复 / 聊天 UI 重构 / AI 能力扩展 / 关系双向 / 极简自主三件套 / 通讯录 + 渐进式披露），一次性刷新所有面向开发者和使用者的文档。
+
+### 📝 README.md 全面更新
+
+- **功能清单补齐**：新增「通讯录 & 关系网」「Owner 档案」「渐进式披露」「工具体检 + WISHLIST」「档位 hashtag chip」「🌅 晨间例行 + NO_ALERT」「建议连接」章节
+- **项目结构**：补 `pkg/network/` `pkg/convlog/` `pkg/chatlog/` · UI views 列表完整化（含 AgentCreateView / ChannelsView / PublicChatView 等）· 注释更具体到每个子包的职责
+- **配置示例**：从旧 `models.primary: "provider/model"` 字符串 → 新 `models[]` 数组 + `default: true` 标记 · 附老版本迁移说明
+- **新增「系统提示词工程」章节**：列出 9 层分层构建顺序（当下信息 → owner → IDENTITY/SOUL → memory INDEX → network INDEX + RELATIONS → 当前对话对方 → capabilities → AGENTS.md → projects）
+- **工具生态** 数字：70+ → 80+，新增 `network_note` / `wish_*` / `feishu_*` 分组
+- **P1 规划**（原 v0.11）更新为实际下版本目标：群档案 · 头像 API · AI 自动合并 · self_schedule · autonomy budget
+
+### 📝 docs/system-prompt-and-flow.md 重写
+
+- 标题锁定适用版本 26.4.22v1+
+- 全面重写「系统提示词构建」为 **10 层渐进式披露模型**（图示 + 每层用途）
+- 补充「渐进式披露含义」小节：不预喂 / 按需索取 / 文件式存储
+- 新增 **Contact 档案完整模型**：ID 规范形式、frontmatter 字段、markdown body 四段（事实/偏好/最近话题/待跟进）
+- 新增 **4 处 resolveContact 入口表** 与 **Summary 生成规则**
+- 新增 **Capabilities Context 示例**（ready/blocked 工具 + WISHLIST 头部）
+- 新增 **Cron NO_ALERT 静默机制** 段落 + 晨间例行样板 prompt
+- 更新 RunEvent 类型表（tool_call_id 精准匹配）
+- Anthropic 特殊处理记录 `message_delta` 的 `output_tokens` 从顶层 `event.Usage` 读
+
+### 📝 docs/session-design.md 小幅补充
+
+- 头部适用版本：v0.9.0 → 26.4.22v1
+- ConvLog 目录补齐 `feishu-{chatId}.jsonl`
+- ChatsView 统一 AiChat 组件渲染说明
+- 只读模式（feishu/telegram 会话锁图标）说明
+- 新增「通讯录联动」章节：指向 `docs/system-prompt-and-flow.md`
+
+### ✅ 验证
+
+- `go build ./... && go vet ./...` 全绿
+- `go test ./pkg/network/... ./pkg/tools/...` 全绿
+- README 链接校验 · CHANGELOG 格式校验
+
+### 无破坏性变更
+
+纯文档。
+
+---
+
 ## [26.4.22v1] — 2026-04-21 · 通讯录（network/）· 渐进式披露 · 每 agent 一本关系网
 
 本版 5 commit，主体重构：把"用户档案 / agent 关系 / 外部联系人"三套散乱概念**统一为一个「通讯录」模块**，物理上落在每个 agent 私有的 `workspace/network/` 目录，用"渐进式披露"模式管理提示词注入——真正让 AI "在每个来源都能准确回复"。
