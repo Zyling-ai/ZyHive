@@ -77,7 +77,7 @@
             :status="progressStatus"
             :striped="updateRunning"
             :striped-flow="updateRunning"
-            :duration="10"
+            :duration="1"
           />
           <div class="progress-msg">{{ updateStatus?.message }}</div>
 
@@ -156,6 +156,23 @@ onMounted(async () => {
   } catch {}
   // 获取当前版本
   fetchCurrentVersion()
+
+  // 若页面加载时后端已有进行中的升级任务, 自动挂上 polling,
+  // 避免 "刷新页面后进度条不跑" 的错觉
+  try {
+    const res = await updateApi.status()
+    const stage = res.data.stage
+    updateStatus.value = res.data
+    if (stage === 'downloading' || stage === 'verifying' || stage === 'applying') {
+      updateRunning.value = true
+      startPolling()
+    } else if (stage === 'done') {
+      // 已完成但页面刚打开: 直接进入等重启分支
+      waitForRestart()
+    }
+  } catch {
+    // auth 失败或首次无状态, 忽略
+  }
 })
 
 async function save() {
@@ -230,11 +247,18 @@ async function applyUpdate() {
   startPolling()
 }
 
-function startPolling() {
-  if (pollTimer) clearInterval(pollTimer)
-  let restartWaitStart: number | null = null
+// 轮询 /api/update/status 取进度。
+// 修复:
+//   1. 立即首次拉取 (原先 setInterval 首次触发要等 1.5s, 用户看不到进度动起来)
+//   2. 进行中间隔 500ms (原 1500ms 太慢, 后端 verify/apply 阶段往往 1-2s 跑完 -> UI 错过中间态)
+//   3. stage='done' 时进度已经到 100 -> 主 polling 立即停止, 改由独立的 restart-wait 循环
+//      去等新版本上线, 不再依赖主 polling 继续活跃
+let restartWaitTimer: ReturnType<typeof setInterval> | null = null
 
-  pollTimer = setInterval(async () => {
+function startPolling() {
+  stopPolling()
+
+  const tick = async () => {
     try {
       const res = await updateApi.status()
       updateStatus.value = res.data
@@ -242,37 +266,55 @@ function startPolling() {
       const stage = res.data.stage
 
       if (stage === 'done') {
-        updateRunning.value = false
-
-        if (!restartWaitStart) {
-          restartWaitStart = Date.now()
-        }
-
-        // 服务会 SIGTERM 重启，等新版本上线（轮询 /api/version）
-        try {
-          const vRes = await axios.get<{ version: string }>('/api/version', { timeout: 3000 })
-          const newVer = vRes.data.version
-          if (newVer && newVer !== currentVersion.value) {
-            currentVersion.value = newVer
-            restartDetected.value = true
-            stopPolling()
-          } else if (restartWaitStart && Date.now() - restartWaitStart > 60000) {
-            // 超过 60s 仍未检测到新版本
-            restartDetected.value = true
-            stopPolling()
-          }
-        } catch {
-          // 服务正在重启中，忽略连接错误
-        }
-
-      } else if (stage === 'failed' || stage === 'rolledback') {
-        updateRunning.value = false
+        // 主 polling 任务结束: 进度条已到 100, 立即停止拉取主状态,
+        // 开启独立的 restart-wait 循环等待服务重启 (新版本上线)
         stopPolling()
+        updateRunning.value = false
+        waitForRestart()
+        return
+      }
+
+      if (stage === 'failed' || stage === 'rolledback') {
+        stopPolling()
+        updateRunning.value = false
       }
     } catch {
-      // 服务重启过程中会断连，继续等待
+      // 服务重启过程中会断连, 吞掉继续等
     }
-  }, 1500)
+  }
+
+  // 修复 1: 立即首次拉取
+  tick()
+  // 修复 2: 500ms 快速轮询
+  pollTimer = setInterval(tick, 500)
+}
+
+// 等待服务重启后的新版本号出现, 独立于主 polling,
+// 失败/超时不影响已完成的升级状态.
+function waitForRestart() {
+  const started = Date.now()
+  if (restartWaitTimer) clearInterval(restartWaitTimer)
+  const tick = async () => {
+    try {
+      const vRes = await axios.get<{ version: string }>('/api/version', { timeout: 3000 })
+      const newVer = vRes.data.version
+      if (newVer && newVer !== currentVersion.value) {
+        currentVersion.value = newVer
+        restartDetected.value = true
+        if (restartWaitTimer) { clearInterval(restartWaitTimer); restartWaitTimer = null }
+        return
+      }
+    } catch {
+      // 重启中 502 / 断连 正常, 继续等
+    }
+    // 90s 兜底: 无论如何停止等待避免前端死转
+    if (Date.now() - started > 90000) {
+      restartDetected.value = true
+      if (restartWaitTimer) { clearInterval(restartWaitTimer); restartWaitTimer = null }
+    }
+  }
+  tick()
+  restartWaitTimer = setInterval(tick, 1500)
 }
 
 function stopPolling() {
@@ -286,7 +328,10 @@ function reloadPage() {
   window.location.reload()
 }
 
-onBeforeUnmount(() => stopPolling())
+onBeforeUnmount(() => {
+  stopPolling()
+  if (restartWaitTimer) { clearInterval(restartWaitTimer); restartWaitTimer = null }
+})
 
 // ── computed ──────────────────────────────────────────────────────────────────
 const stageLabel = computed(() => {
