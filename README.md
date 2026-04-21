@@ -6,7 +6,7 @@
 [![GitHub Forks](https://img.shields.io/github/forks/Zyling-ai/zyhive?style=flat&logo=github&color=orange)](https://github.com/Zyling-ai/zyhive/network/members)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 [![Go 1.22+](https://img.shields.io/badge/Go-1.22+-00ADD8.svg)](https://golang.org)
-[![Version](https://img.shields.io/badge/version-26.4.22v2-brightgreen.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-26.4.22v3-brightgreen.svg)](CHANGELOG.md)
 [![官网](https://img.shields.io/badge/官网-zyling.ai-6366f1?logo=globe)](https://zyling.ai)
 
 **以团队为核心，每个 AI Agent 是团队成员。**
@@ -28,7 +28,7 @@ curl -sSL https://install.zyling.ai/install | bash
 
 ```
 ╔══════════════════════════════════════════════╗
-║  ✅  ZyHive 安装成功！版本: 26.4.22v2         ║
+║  ✅  ZyHive 安装成功！版本: 26.4.22v3         ║
 ╚══════════════════════════════════════════════╝
 
   📍 本地访问：  http://localhost:8080
@@ -375,6 +375,7 @@ make release
 | **26.4.21v1** | **极简 AI 自主三件套**：用户档案 `memory/core/user-profile.md`（AgentDetailView 编辑卡 + system prompt 注入，让 AI 知道"我服务于谁"）；CronView 🌅 晨间例行一键模板（选 agent + 时间，末尾 `NO_ALERT` 对接 cron engine 静默机制，无事不打扰）；TeamView 💡 建议连接（未建立关系的 agent 对 · 一键平级协作）；AiChat 档位 hashtag chip（#简答 / #深思考 / #写代码 / #闲聊 / #急，system prompt 约定自动调节风格） | ✅ |
 | **26.4.22v1** | **通讯录（network/）+ 渐进式披露**：每个 agent 一本私有通讯录 `workspace/network/{INDEX.md, RELATIONS.md, contacts/*.md}`；4 处消息入口（面板/TG/飞书/Web）自动识别来源 + 建档 `{source}:{externalId}` → 按会话注入「当前对话对方」摘要（~300 chars），完整档案 AI 通过 `read` 按需读取（~500 chars INDEX 首层 + 运行时摘要第二层）；`network_note` 工具让 AI 原子追加事实/偏好/待跟进；TeamView 加 tab 切换：「AI 成员网络」图谱 + 「联系人」聚合列表 + 抽屉编辑（显示名/标签 6 预设/`isOwner`/Markdown body）；菜单「团队」→「通讯录」；`memory/core/user-profile.md` → `owner-profile.md` + `RELATIONS.md` 迁入 `network/` 自动 idempotent 迁移 | ✅ |
 | **26.4.22v2** | **文档全面刷新**：README 功能清单补齐（通讯录/愿望清单/工具体检/档位 chip/晨间例行/Owner 档案/建议连接/渐进式披露）、项目结构加 `pkg/network/` `pkg/convlog/` `pkg/chatlog/`、UI views 补齐、配置示例改 `models[]` 结构、新增「系统提示词工程」章节；`docs/system-prompt-and-flow.md` 重写为 10 层分层渐进披露设计 + Contact 档案模型 + Capabilities Context + Cron NO_ALERT；`docs/session-design.md` 补飞书渠道 + network 联动段落 | ✅ |
+| **26.4.22v3** | **在线升级进度条修复**：后端 `downloadFile` 在 CF Worker 流式代理（Content-Length=-1）场景下不再卡进度（按预估 32MB 上限走 0→95%，收尾 progress(100)）；前端 polling 1500ms → 500ms 且首次立即触发；`el-progress :duration 10 → 1`；`stage='done'` 立即 `stopPolling`，新增独立 `waitForRestart` 循环（轮询 `/api/version` 检测新版本，90s 兜底）；页面 mount 自动接管进行中的升级任务（刷新不丢状态） | ✅ |
 | P1（规划中）| Chat Profile（群档案）· 跨 agent 联系人聚合视图 · 头像 API 拉取 · AI 自动合并联系人 · Web 访客升级为命名 contact · `self_schedule` 自主闹钟工具 · 自主唤醒 budget 预算刹车 | 🔜 |
 
 ---
