@@ -313,6 +313,14 @@ func downloadFile(url, dest string, progress func(int)) error {
 	total := resp.ContentLength
 	var downloaded int64
 	buf := make([]byte, 32*1024)
+
+	// Fallback 策略：当 Content-Length 未知（例如经 CF Worker 流式代理）
+	// 或 total=-1，按已下载字节数 + 启发式上限估算进度，避免 UI 永远停在 0%。
+	// 估算上限：ZyHive 单二进制 ~25MB，给 32MB 冗余。
+	const estimatedSize = int64(32 * 1024 * 1024)
+	var lastReported int
+
+	buf = make([]byte, 32*1024)
 	for {
 		n, err := resp.Body.Read(buf)
 		if n > 0 {
@@ -320,8 +328,22 @@ func downloadFile(url, dest string, progress func(int)) error {
 				return werr
 			}
 			downloaded += int64(n)
-			if total > 0 && progress != nil {
-				progress(int(downloaded * 100 / total))
+			if progress != nil {
+				var pct int
+				if total > 0 {
+					pct = int(downloaded * 100 / total)
+				} else {
+					// 未知长度 → 按估算上限算，封顶 95%，最后 progress(100) 收尾
+					pct = int(downloaded * 100 / estimatedSize)
+					if pct > 95 {
+						pct = 95
+					}
+				}
+				// 节流：只在进度百分比变化 ≥1 时回调，避免刷 set 过快锁竞争
+				if pct != lastReported {
+					progress(pct)
+					lastReported = pct
+				}
 			}
 		}
 		if err == io.EOF {
