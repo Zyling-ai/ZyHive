@@ -106,7 +106,7 @@
 
           <el-menu-item index="/team">
             <el-icon><Share /></el-icon>
-            <template #title>团队</template>
+            <template #title>通讯录</template>
           </el-menu-item>
 
           <el-menu-item index="/goals">
