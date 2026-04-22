@@ -41,8 +41,22 @@ func allowedPeersFromRelations(workspaceDir string) map[string]bool {
 			continue
 		}
 		id := cols[0]
-		if id == "" || strings.HasPrefix(id, "-") || strings.Contains(id, "成员") || strings.EqualFold(id, "ID") {
+		if id == "" || strings.HasPrefix(id, "-") ||
+			strings.Contains(id, "成员") || strings.Contains(id, "目标") ||
+			strings.EqualFold(id, "ID") {
 			continue
+		}
+		// Contact IDs contain ":" (e.g. "feishu:ou_abc") — skip, only agents
+		// are dispatchable.
+		if strings.Contains(id, ":") {
+			continue
+		}
+		// New 6-col format has toKind in col[2]; skip non-agent rows.
+		if len(cols) >= 6 {
+			kind := strings.ToLower(cols[2])
+			if kind != "" && kind != "agent" {
+				continue
+			}
 		}
 		peers[id] = true
 	}

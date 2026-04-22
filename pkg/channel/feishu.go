@@ -470,7 +470,9 @@ func (b *FeishuBot) handleMessageEvent(ctx context.Context, ev *feishuMessageEve
 	if b.agentDir != "" && senderOpenID != "" {
 		wsDir := filepath.Join(b.agentDir, "workspace")
 		store := network.NewStore(wsDir)
-		displayName := b.getSenderName(senderOpenID)
+		// Bug 2 fix: getSenderName 在刚加好友 / 群聊成员列表未拉取时会返回 "",
+		// 直接落盘会导致 UI 显示空白. 走 FallbackDisplayName 链.
+		displayName := network.FallbackDisplayName(senderOpenID, b.getSenderName(senderOpenID))
 		if _, nerr := store.Resolve(network.SourceFeishu, senderOpenID, displayName); nerr != nil {
 			log.Printf("[feishu] network.Resolve warning: %v", nerr)
 		} else if summary := store.Summary(network.MakeID(network.SourceFeishu, senderOpenID)); summary != "" {
