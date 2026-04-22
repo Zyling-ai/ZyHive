@@ -182,6 +182,11 @@
               <!-- 正文 -->
               <div v-else-if="msg.text" class="msg-text" v-html="renderMd(msg.text)" />
 
+              <!-- 错误中断标记：保留原回复内容不被覆盖，只在末尾打一个 footer -->
+              <div v-if="msg.truncatedByError" class="truncated-footer">
+                <el-icon><Warning /></el-icon> 回复因错误中断，以上内容为已生成部分
+              </div>
+
               <!-- Apply card（给 agent-creation 页用） -->
               <div v-if="msg.applyData && props.applyable" class="apply-card">
                 <div class="apply-preview">
@@ -229,7 +234,10 @@
 
         <!-- 系统提示 / 错误 -->
         <div v-else-if="msg.role === 'system'" class="msg-row system">
-          <div class="msg-system">{{ msg.text }}</div>
+          <div :class="['msg-system', msg.sysKind === 'error' ? 'is-error' : '']">
+            <el-icon v-if="msg.sysKind === 'error'" class="sys-icon"><CircleCloseFilled /></el-icon>
+            <span>{{ msg.text }}</span>
+          </div>
         </div>
 
       </template>
@@ -494,6 +502,10 @@ export interface ChatMsg {
   noModelError?: boolean
   /** Token usage for this assistant message */
   tokenUsage?: { input: number; output: number }
+  /** System-message sub-kind: 'error' renders with red tint; 'info' default gray */
+  sysKind?: 'error' | 'info'
+  /** Marker on an assistant bubble: the reply was truncated by an error */
+  truncatedByError?: boolean
 }
 
 // ── State ─────────────────────────────────────────────────────────────────
@@ -579,6 +591,195 @@ function isSystemSignalMsg(text: string | undefined): boolean {
   if (!text) return false
   const t = text.trim()
   return t.startsWith('<task-notification>') || t.startsWith('&lt;task-notification&gt;')
+}
+
+// isNetworkLayerError — distinguish transport-level failures (recoverable via
+// Broadcaster resume) from business errors (LLM returned 400, tool failed, etc).
+// We intentionally match only the most unambiguous network patterns to avoid
+// auto-retrying actual LLM-side errors.
+function isNetworkLayerError(err: string | undefined): boolean {
+  if (!err) return false
+  const s = err.toLowerCase()
+  // Fetch AbortController → typed as AbortError; we never reach here for those.
+  // TypeError: Failed to fetch  (connection dropped / offline)
+  if (s.includes('failed to fetch')) return true
+  if (s.includes('network error')) return true
+  if (s.includes('load failed')) return true     // Safari offline
+  if (s.includes('err_network_changed')) return true
+  if (s.includes('err_internet_disconnected')) return true
+  if (s.includes('connection refused')) return true
+  if (s.includes('connection reset')) return true
+  if (s.includes('socket hang up')) return true
+  // HTTP-layer transient: 502/503/504 returned by reverse proxy or LB during restart
+  if (/\b50[234]\b/.test(err)) return true
+  return false
+}
+
+// Maximum reconnect attempts per sendSessionId, then give up and show error.
+const MAX_SSE_RECONNECTS = 3
+const sseReconnectCount = new Map<string, number>()
+
+// appendReconnectNotice — show a transient info system bubble informing the
+// user the connection was interrupted and is being restored. Later events from
+// the resumed stream will continue to fill the same assistant bubble.
+function appendReconnectNotice() {
+  // Avoid spamming notices if multiple disconnect events fire in a row.
+  const last = messages.value[messages.value.length - 1]
+  if (last && last.role === 'system' && last.sysKind === 'info' && last.text.includes('重新连接')) {
+    return
+  }
+  messages.value.push({
+    role: 'system',
+    text: '🔄 连接中断，正在尝试重新连接…',
+    sysKind: 'info',
+  })
+}
+
+// reconnectAndResume — re-subscribe to the session Broadcaster and continue
+// routing events into the *same* existing assistant bubble (by msgIdx).
+// Uses exponential backoff: 1s / 3s / 7s. Gives up after MAX_SSE_RECONNECTS.
+function reconnectAndResume(sessionId: string, msgIdx: number, sendSessionId: string) {
+  const attempts = (sseReconnectCount.get(sendSessionId) || 0) + 1
+  sseReconnectCount.set(sendSessionId, attempts)
+
+  if (attempts > MAX_SSE_RECONNECTS) {
+    const cur = messages.value[msgIdx]
+    if (cur) {
+      cur.truncatedByError = true
+      messages.value.push({
+        role: 'system',
+        text: `⚠️ 连接多次中断 (${MAX_SSE_RECONNECTS} 次后放弃)，可重新发送消息继续。`,
+        sysKind: 'error',
+      })
+    }
+    streaming.value = false
+    streamText.value = ''
+    streamThinking.value = ''
+    streamToolCalls.value = []
+    return
+  }
+
+  const backoffMs = [1000, 3000, 7000][attempts - 1] || 7000
+  setTimeout(() => {
+    // User may have switched session while waiting → abort
+    if (currentSessionId.value !== sendSessionId) {
+      streaming.value = false
+      return
+    }
+    resumeSSE(props.agentId, sessionId, (ev: any) => {
+      // Session-switch guard
+      if (currentSessionId.value !== sendSessionId) {
+        streaming.value = false
+        return
+      }
+      switch (ev.type) {
+        case 'idle':
+          // Server has no active worker for this session — it finished while
+          // we were offline. Treat as silent success; no error surfaced.
+          streaming.value = false
+          streamText.value = ''
+          streamThinking.value = ''
+          streamToolCalls.value = []
+          // Remove any stray reconnect-info bubble
+          const lastA = messages.value[messages.value.length - 1]
+          if (lastA?.role === 'system' && lastA.sysKind === 'info') {
+            messages.value.pop()
+          }
+          sseReconnectCount.delete(sendSessionId)
+          break
+        case 'text_delta':
+          streamText.value += ev.text
+          scrollBottom()
+          break
+        case 'thinking_delta':
+          streamThinking.value += ev.text
+          scrollBottom()
+          break
+        case 'tool_call':
+        case 'tool_result':
+          // Resume path: fold into streamToolCalls same as initial path
+          if (ev.type === 'tool_call') {
+            streamToolCalls.value.push({
+              id: ev.tool_call_id || ev.id,
+              name: ev.name || '',
+              input: ev.input || '',
+              result: '',
+              status: 'running' as const,
+              _expanded: false,
+            })
+          } else {
+            const tc = streamToolCalls.value.find((t: any) => t.id === (ev.tool_call_id || ev.id))
+            if (tc) {
+              tc.result = ev.result || ''
+              tc.status = 'done'
+            }
+          }
+          scrollBottom()
+          break
+        case 'done':
+        case 'error': {
+          // Flush into the existing assistant bubble
+          const cur = messages.value[msgIdx]
+          if (cur) {
+            cur.text = streamText.value
+            cur.thinking = streamThinking.value || undefined
+            if (ev.type === 'error') {
+              if (isNetworkLayerError(ev.error)) {
+                // Still flaky — retry
+                appendReconnectNotice()
+                reconnectAndResume(sessionId, msgIdx, sendSessionId)
+                return
+              }
+              cur.truncatedByError = true
+              messages.value.push({
+                role: 'system',
+                text: formatErrorMessage(ev.error || '未知错误'),
+                sysKind: 'error',
+              })
+            }
+          }
+          streaming.value = false
+          streamText.value = ''
+          streamThinking.value = ''
+          streamToolCalls.value = []
+          sseReconnectCount.delete(sendSessionId)
+          scrollBottom(true)
+          break
+        }
+      }
+    })
+  }, backoffMs)
+}
+
+// formatErrorMessage — turn a raw LLM/runner error string into a user-facing
+// system bubble. Collapses HTTP status codes to intuitive Chinese phrases,
+// trims overly long provider traces, and strips tool-call noise.
+// Keep it concise: the user is already looking at the partial answer above.
+function formatErrorMessage(raw: string): string {
+  const s = (raw || '').trim()
+  if (!s) return '请求失败'
+  const lower = s.toLowerCase()
+  if (lower.includes('429') || lower.includes('rate limit') || lower.includes('too many requests')) {
+    return '⚠️ 模型请求频率受限 (429)。请稍等片刻再试。'
+  }
+  if (lower.includes('401') || lower.includes('unauthorized') || lower.includes('invalid api key')) {
+    return '⚠️ Provider 认证失败 — 请在「模型」页检查对应 API Key。'
+  }
+  if (lower.includes('503') || lower.includes('502') || lower.includes('bad gateway') || lower.includes('service unavailable')) {
+    return '⚠️ 模型服务暂时不可用 (Provider 端临时故障)。可稍后重试。'
+  }
+  if (lower.includes('timeout') || lower.includes('deadline exceeded') || lower.includes('timed out')) {
+    return '⚠️ 请求超时 — 网络或模型响应过慢。稍后重试即可。'
+  }
+  if (lower.includes('context length') || lower.includes('context_length_exceeded') || lower.includes('maximum context')) {
+    return '⚠️ 对话已超出模型上下文长度，请开启新会话或在设置里启用压缩。'
+  }
+  if (lower.includes('content filter') || lower.includes('safety') || lower.includes('content_policy')) {
+    return '⚠️ 内容被 Provider 安全策略拦截。请调整问法后重试。'
+  }
+  // Fallback: show the raw message but cap it to 240 chars to avoid a wall-of-text.
+  const trimmed = s.length > 240 ? s.slice(0, 240) + '…' : s
+  return `⚠️ 请求失败：${trimmed}`
 }
 
 // ── agent_spawn task polling ────────────────────────────────────────────────
@@ -1384,7 +1585,7 @@ function runChat(text: string, imgs: string[], silent = false) {
   }
 
   // #13 fix: capture session at send time; discard events if session changed
-  const sendSessionId = currentSessionId.value
+  const sendSessionId: string = currentSessionId.value || ''
 
   chatSSE(props.agentId, text, (ev) => {
     // #13 fix: if user switched session, discard this response
@@ -1529,10 +1730,35 @@ function runChat(text: string, imgs: string[], silent = false) {
 
         if (ev.type === 'error') {
           if (ev.error?.includes('no model configured')) {
+            // Unique case: the bubble becomes a "please configure model" card,
+            // no partial text to preserve because nothing streamed.
             cur.noModelError = true
             cur.text = ''
+          } else if (isNetworkLayerError(ev.error) && currentSessionId.value) {
+            // P0.2 SSE auto-reconnect:
+            // The HTTP stream was cut by network issue (switched WiFi, locked
+            // phone, flaky link) but the agent generation is probably still
+            // running on the server. Re-subscribe to the same session's
+            // Broadcaster instead of giving up.
+            console.log('[AiChat] SSE network cut, attempting auto-reconnect…')
+            appendReconnectNotice()
+            reconnectAndResume(currentSessionId.value, msgIdx, sendSessionId)
+            // Do NOT fall through to "streaming = false"; keep UI in streaming
+            // state while reconnect is in flight.
+            return
           } else {
-            cur.text = `[错误] ${ev.error}`
+            // P0.3 Error isolation:
+            //   - Keep the already-streamed text in the original assistant bubble
+            //   - Mark it as truncated (adds "（因错误中断）" footer)
+            //   - Emit an independent system bubble with the actual error
+            //   This replaces the old behavior of overwriting the entire assistant
+            //   text with "[错误] ...", which destroyed partial answers.
+            cur.truncatedByError = true
+            messages.value.push({
+              role: 'system',
+              text: formatErrorMessage(ev.error || '未知错误'),
+              sysKind: 'error',
+            })
           }
           const tc = cur.toolCalls?.find(t => t.status === 'running')
           if (tc) tc.status = 'error'
@@ -1753,7 +1979,13 @@ async function reconnectIfGenerating(sessionId: string) {
             cur.noModelError = true
             cur.text = ''
           } else {
-            cur.text = `[错误] ${ev.error}`
+            // P0.3 Error isolation (resume path — same logic as above)
+            cur.truncatedByError = true
+            messages.value.push({
+              role: 'system',
+              text: formatErrorMessage(ev.error || '未知错误'),
+              sysKind: 'error',
+            })
           }
         }
         streaming.value = false
@@ -1896,6 +2128,39 @@ onMounted(() => {
   color: #e6a23c;
   border-radius: 6px;
   padding: 4px 12px;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* P0.3 错误隔离: 错误类系统气泡用柔和红, 区别于普通灰色系统消息(如"更早内容已压缩") */
+.msg-system.is-error {
+  background: #fef0f0;
+  color: #d9534f;
+  border: 1px solid #fcdada;
+  padding: 6px 12px;
+  line-height: 1.5;
+  max-width: 640px;
+  white-space: pre-wrap;
+}
+.msg-system .sys-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+/* P0.3 主气泡的"因错误中断" 标记 */
+.truncated-footer {
+  margin-top: 6px;
+  font-size: 11px;
+  color: #b08968;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  opacity: 0.85;
+  font-style: italic;
+}
+.truncated-footer .el-icon {
   font-size: 12px;
 }
 
