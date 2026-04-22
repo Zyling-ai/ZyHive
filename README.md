@@ -6,7 +6,7 @@
 [![GitHub Forks](https://img.shields.io/github/forks/Zyling-ai/zyhive?style=flat&logo=github&color=orange)](https://github.com/Zyling-ai/zyhive/network/members)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 [![Go 1.22+](https://img.shields.io/badge/Go-1.22+-00ADD8.svg)](https://golang.org)
-[![Version](https://img.shields.io/badge/version-26.4.22v3-brightgreen.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-26.4.23v1-brightgreen.svg)](CHANGELOG.md)
 [![官网](https://img.shields.io/badge/官网-zyling.ai-6366f1?logo=globe)](https://zyling.ai)
 
 **以团队为核心，每个 AI Agent 是团队成员。**
@@ -28,7 +28,7 @@ curl -sSL https://install.zyling.ai/install | bash
 
 ```
 ╔══════════════════════════════════════════════╗
-║  ✅  ZyHive 安装成功！版本: 26.4.22v3         ║
+║  ✅  ZyHive 安装成功！版本: 26.4.23v1         ║
 ╚══════════════════════════════════════════════╝
 
   📍 本地访问：  http://localhost:8080
@@ -376,6 +376,7 @@ make release
 | **26.4.22v1** | **通讯录（network/）+ 渐进式披露**：每个 agent 一本私有通讯录 `workspace/network/{INDEX.md, RELATIONS.md, contacts/*.md}`；4 处消息入口（面板/TG/飞书/Web）自动识别来源 + 建档 `{source}:{externalId}` → 按会话注入「当前对话对方」摘要（~300 chars），完整档案 AI 通过 `read` 按需读取（~500 chars INDEX 首层 + 运行时摘要第二层）；`network_note` 工具让 AI 原子追加事实/偏好/待跟进；TeamView 加 tab 切换：「AI 成员网络」图谱 + 「联系人」聚合列表 + 抽屉编辑（显示名/标签 6 预设/`isOwner`/Markdown body）；菜单「团队」→「通讯录」；`memory/core/user-profile.md` → `owner-profile.md` + `RELATIONS.md` 迁入 `network/` 自动 idempotent 迁移 | ✅ |
 | **26.4.22v2** | **文档全面刷新**：README 功能清单补齐（通讯录/愿望清单/工具体检/档位 chip/晨间例行/Owner 档案/建议连接/渐进式披露）、项目结构加 `pkg/network/` `pkg/convlog/` `pkg/chatlog/`、UI views 补齐、配置示例改 `models[]` 结构、新增「系统提示词工程」章节；`docs/system-prompt-and-flow.md` 重写为 10 层分层渐进披露设计 + Contact 档案模型 + Capabilities Context + Cron NO_ALERT；`docs/session-design.md` 补飞书渠道 + network 联动段落 | ✅ |
 | **26.4.22v3** | **在线升级进度条修复**：后端 `downloadFile` 在 CF Worker 流式代理（Content-Length=-1）场景下不再卡进度（按预估 32MB 上限走 0→95%，收尾 progress(100)）；前端 polling 1500ms → 500ms 且首次立即触发；`el-progress :duration 10 → 1`；`stage='done'` 立即 `stopPolling`，新增独立 `waitForRestart` 循环（轮询 `/api/version` 检测新版本，90s 兜底）；页面 mount 自动接管进行中的升级任务（刷新不丢状态） | ✅ |
+| **26.4.23v1** | **通讯录 5 个漏网 bug 修复**：`IsOwner=true` contact 跳过 summary 注入（防 owner-profile 双份）；displayName fallback 链（firstName/username 空时自动兜底到 externalID 前缀）；**合并后 alias 自动路由到 primary**（之前会复活空档案，合并白做）；`RELATIONS.md` 正式加 `toKind` 字段（6 列新格式 + 5 列 legacy 兼容），Graph 自动过滤 contact 边（不再创建幽灵节点），`agent_spawn` 权限检查正确忽略 contact ID；`network_note` 失败时返回最接近的 3 个 contact ID 作为 Did-you-mean 提示。测试覆盖：3 新 `TestParseRelationsMarkdown*` + `TestSummaryIsOwnerSkips` + `TestFallbackDisplayName`（6 子 case）+ `TestResolveRoutesThroughAliases` + `TestSuggestContactIDs` | ✅ |
 | P1（规划中）| Chat Profile（群档案）· 跨 agent 联系人聚合视图 · 头像 API 拉取 · AI 自动合并联系人 · Web 访客升级为命名 contact · `self_schedule` 自主闹钟工具 · 自主唤醒 budget 预算刹车 | 🔜 |
 
 ---
