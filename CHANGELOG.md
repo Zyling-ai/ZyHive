@@ -4,6 +4,113 @@
 
 ---
 
+## [26.4.23v2] — 2026-04-22 · 生产稳定性地基（P0 全集）
+
+基于 OpenClaw 对比 + 自审清单，围绕"生产稳定性"一口气补齐 9 项 P0。**不做**session 清理（= 删用户聊天记录，产品语义错误）、**不做**对用户隐藏的自动模型切换（让用户有完整控制权）、**不做**全插件化。
+
+### 🔴 P0.1 — LLM 错误分层 + 瞬时重试
+
+**`pkg/llm/errors.go`**
+- `IsTransient(err)` 识别：429 / 500 / 502 / 503 / 504 · `rate limit` / `too many requests` / `service unavailable` · `connection reset` / `refused` / `broken pipe` / `no such host` · `i/o timeout` / `EOF` / `TLS handshake` / `stream error` · `net.Error.Timeout()`
+- `IsAuthFailure(err)` 识别 401/403/invalid api key
+- **保守策略**：`context length` / `content filter` / 400 / auth 全部**不重试**，立即上抛
+
+**`pkg/llm/retry.go`**
+- `WithRetry(client)` 装饰任意 `llm.Client`
+- 默认 schedule：0.5s / 2s / 5s（最大 ~8s）
+- **只在 initial call 错误时重试**：一旦开始 streaming tokens 后出错就直接上抛（避免重复计费和消息重发）
+- 尊重 `context.Cancel`
+
+### 🔴 P0.2 — SSE 自动重连
+
+**前端 `AiChat.vue`**
+- `isNetworkLayerError(err)` 区分网络层（502/`Failed to fetch`/`Load failed`/`connection reset`）和业务错误
+- 网络层错误 + 有 sessionId → `appendReconnectNotice()` + `reconnectAndResume()` 指数退避 1s/3s/7s 连 3 次
+- 用 `resumeSSE` 订阅同一 Broadcaster，事件回填到原 assistant bubble（用户无感）
+- `idle` 返回表示任务期间已完成 → 静默清除
+- 90s 兜底超时
+
+### 🔴 P0.3 — 错误隔离
+
+**前端 `AiChat.vue`**
+- 旧行为：`cur.text = '[错误] xxx'` 覆盖已累积的 streamText → 用户看到半截回复丢失
+- 新：`ChatMsg.truncatedByError` + `sysKind: 'error' | 'info'` 字段
+- LLM 错误**不再覆盖主气泡**，原回复保留 + 打 "（因错误中断）" footer
+- 错误信息发**独立系统气泡**（红色柔和色，`.msg-system.is-error`）
+- `formatErrorMessage()` 把 429/401/5xx/timeout/context_length/content_filter 翻译为友好中文提示；原始消息封顶 240 字符
+
+### 🔴 P0.4 — Abort fence
+
+**前端 `AiChat.vue`**
+- 新增 `activeFence: ref<{aborted, ctrl}>` 组件级可观测
+- `abortActiveStream(reason)` 统一入口，保证：
+  - 事件回调开头检查 `fence.aborted` → 丢弃晚到 event
+  - 调 `ctrl.abort()` 真实断开 HTTP stream（省 token）
+- 自动触发点：`onUnmounted` / `resumeSession` / `startNewSession` / 新 `runChat` 开头（防僵尸流）
+
+### 🟠 P0.5 — LLM Provider live health
+
+**`pkg/llm/health.go`**
+- `Ping(ctx, provider, apiKey, baseURL, forceRefresh)` 发 max_tokens=1 最小请求（成本 ~10 input + 1 output tokens）
+- 按 `provider | baseURL | apiKey 摘要`做 key，**30s 缓存**
+- 分 provider 探测：Anthropic / OpenAI-compatible / Feishu 等
+- 状态码语义：`200/404` = 存活；`401/403` = auth 失败；`429` = 限流；`5xx` = 厂商故障；`0` = 网络不可达
+
+**`internal/api/agent_ext.go::ToolHealth`**
+- 在响应里追加 `providerHealth: {provider, model, ok, latencyMs, statusCode, error, cached}`
+- `?refresh=1` 旁路缓存强制重 ping
+
+**前端 `AgentDetailView.vue`**
+- 工具体检卡片顶部新加 Provider Live Health 条
+- 🟢 / 🔴 状态 + 延迟 ms + "重新检测" 按钮
+- 失败时 `providerHealthTip()` 分类提示（认证/限流/5xx/网络）
+
+### 🟠 P0.6 — Compaction 同步事件
+
+**`pkg/runner/runner.go::maybeCompactSync`**
+- Compaction 触发时机从 "done 后异步" **改为 "turn 开头同步"**
+- 当 `EstimateTokens >= CompactionThreshold`：发 `compaction_start` event → 同步调 `session.Compact()` → 发 `compaction_end` event → 重读 history 用压缩后版本
+- 失败降级：打审计日志不中断 turn
+
+**`internal/api/chat.go::runEventToJSON`**
+- 新增 `compaction_start` / `compaction_end` SSE 事件（含 `tokens_before` / `tokens_after`）
+
+**前端 `AiChat.vue`**
+- 收到 `compaction_start` → 在 assistantMsg 之前插入 info 系统气泡 `🗜️ 正在压缩历史上下文 (~Xk tokens)…`
+- 收到 `compaction_end` → 同位置更新为 `✓ 已压缩 Xk → Yk tokens`（或错误提示）
+
+### 🟠 P0.7 — thinking_delta（审计后取消）
+
+检查发现 `thinking_delta` 事件已实现（Anthropic extended thinking + DeepSeek reasoner + 前端 `streamThinking` 展示），OpenAI o1 streaming API 不返回 reasoning 文本（只有 `reasoning_tokens` 数字）不适用。**取消**此任务。
+
+### 🟢 P0.8 — Throttle 接口抽象
+
+**`pkg/channel/throttle.go`**
+- `Throttle` interface：`Wait(chatID)` / `OnResponse(chatID, err)`
+- `FixedThrottle` 默认实现（每 chat 独立 `time.Time`，mutex 保护并发）
+- `IsRateLimitError` helper（429 / rate limit / flood_wait）
+
+**故意不改**：现有 `telegram.go` / `feishu.go` 的 `time.NewTicker(1s)` 保持原样。目的是**留结构位**，未来大群场景反馈时只需新建 `AdaptiveThrottle` 实现（~30 行指数退避）并替换 `time.NewTicker`，不改调用方。
+
+### 🟢 P0.9 — Cost 快照审计（审计后确认无需修）
+
+审计 `pkg/runner/runner.go`+`pkg/agent/pool.go`+`pkg/usage/store.go`：每次 `runner.New` 都是全新 Config、session `WorkerPool` 保证 sessionID 单线执行、`UsageRecorder` 每轮 LLM 调用都是 marginal tokens。**不存在重复计费**，无需快照机制。
+
+### ✅ 验证
+
+- `go build ./... && go vet ./...` ✅
+- `go test ./pkg/llm/... ./pkg/channel/... ./pkg/runner/...` ✅
+- `npx vue-tsc -b` ✅
+- 测试新增：`TestIsTransient`（13 case）· `TestIsAuthFailure` · `TestRetryClient_*`（4 case）· `TestFixedThrottle_*`（5 case）
+
+### 无破坏性变更
+
+- RunEvent 新增 `compaction_start/end` 类型，旧客户端默认忽略（switch default）
+- ToolHealth 响应新增 `providerHealth` 字段，旧客户端按缺省处理
+- `CompactIfNeeded` 签名加 optional `onEvent` callback
+
+---
+
 ## [26.4.23v1] — 2026-04-22 · 通讯录 5 个漏网 bug 修复（P0.5）
 
 26.4.22v1 通讯录 GA 上线后，自审 + 外部对比讨论（OpenClaw）发现 5 处已发布代码漏洞。本版一次清理，**不新增功能**。
