@@ -53,6 +53,28 @@ func MakeID(source, externalID string) string {
 	return source + ":" + externalID
 }
 
+// FallbackDisplayName picks the first non-empty candidate as a human-readable
+// name. Used by channel inbound handlers where some platforms may not give a
+// nickname on first contact (e.g. Feishu before chatroom member list is loaded,
+// or Telegram users without FirstName/Username).
+//
+// The last fallback is a short prefix of the externalID so the UI never shows
+// an empty display name.
+func FallbackDisplayName(externalID string, candidates ...string) string {
+	for _, c := range candidates {
+		c = strings.TrimSpace(c)
+		if c != "" {
+			return c
+		}
+	}
+	// Short ID prefix as last resort. Keep it readable (8 chars is enough to
+	// distinguish most external IDs at a glance).
+	if len(externalID) > 8 {
+		return externalID[:8]
+	}
+	return externalID
+}
+
 // SplitID parses "source:externalId" — reverse of MakeID.
 func SplitID(id string) (source, externalID string, ok bool) {
 	i := strings.Index(id, ":")
@@ -124,9 +146,11 @@ func (s *Store) Delete(id string) error {
 }
 
 // Resolve is the canonical upsert. It is called by every inbound-message handler
-// (panel/feishu/telegram/web). If the contact already exists, it bumps
-// LastSeenAt / MsgCount and optionally updates DisplayName. If not, it creates
-// a fresh contact with the default body.
+// (panel/feishu/telegram/web). Behavior:
+//  1. If a contact file at {source}:{externalID} exists → bump LastSeenAt/MsgCount
+//  2. Else if another primary contact lists this ID in its `aliases` (i.e. the
+//     user has previously merged them) → route to that primary (Bug 3 fix)
+//  3. Else → create a new primary contact with the default body
 func (s *Store) Resolve(source, externalID, displayName string) (*Contact, error) {
 	if source == "" || externalID == "" {
 		return nil, fmt.Errorf("network.Resolve: source and externalID required")
@@ -154,6 +178,17 @@ func (s *Store) Resolve(source, externalID, displayName string) (*Contact, error
 		return existing, nil
 	}
 
+	// Bug 3 fix: 没有直接命中, 在扫一次 primary 档案的 aliases 字段.
+	// 如果该 ID 已被手动合并到某个 primary 下, 把消息计入 primary, 不新建.
+	if primary, perr := s.findPrimaryByAliasUnlocked(id); perr == nil && primary != nil {
+		primary.LastSeenAt = now
+		primary.MsgCount++
+		if err := s.saveUnlocked(primary); err != nil {
+			return nil, err
+		}
+		return primary, nil
+	}
+
 	c := &Contact{
 		ID:          id,
 		Source:      source,
@@ -168,6 +203,43 @@ func (s *Store) Resolve(source, externalID, displayName string) (*Contact, error
 		return nil, err
 	}
 	return c, nil
+}
+
+// findPrimaryByAliasUnlocked scans every primary contact file looking for one
+// whose Aliases contains aliasID. Caller must hold s.mu.
+// Returns (nil, nil) when not found. O(N) over file count; acceptable since
+// contact counts per agent are expected to be in the hundreds at most.
+func (s *Store) findPrimaryByAliasUnlocked(aliasID string) (*Contact, error) {
+	entries, err := os.ReadDir(s.contactsDir())
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(s.contactsDir(), e.Name()))
+		if err != nil {
+			continue
+		}
+		fallbackID := strings.TrimSuffix(e.Name(), ".md")
+		if i := strings.Index(fallbackID, "-"); i >= 0 {
+			fallbackID = fallbackID[:i] + ":" + fallbackID[i+1:]
+		}
+		c := parseContactMD(string(data), fallbackID)
+		if !c.Primary {
+			continue
+		}
+		for _, a := range c.Aliases {
+			if a == aliasID {
+				return c, nil
+			}
+		}
+	}
+	return nil, nil
 }
 
 // Touch bumps LastSeenAt / MsgCount without changing anything else. Used for

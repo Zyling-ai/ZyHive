@@ -25,6 +25,12 @@ func (s *Store) Summary(contactID string) string {
 	if err != nil || c == nil {
 		return ""
 	}
+	// IsOwner=true 表示"这就是 agent 主人本人在该渠道的身份"。系统提示词
+	// 已经通过 memory/core/owner-profile.md 注入过主人档案，此处再注入 contact
+	// summary 会导致档案重复 + 描述冲突。直接返回空，让 owner-profile 接管。
+	if c.IsOwner {
+		return ""
+	}
 	return buildSummary(c)
 }
 

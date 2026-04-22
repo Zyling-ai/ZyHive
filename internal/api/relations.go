@@ -38,9 +38,18 @@ type relationsHandler struct {
 }
 
 // RelationRow is one row from RELATIONS.md.
+//
+// The ToKind field (added in 26.4.23v1) distinguishes between agent-to-agent
+// relations and agent-to-contact relations:
+//   - "agent"   → target is another AI member (default; legacy rows)
+//   - "contact" → target is a real person from network/contacts/
+//
+// TeamView graph only renders agent-kind edges; contact-kind edges exist
+// purely for the AI's system prompt context (relation awareness).
 type RelationRow struct {
 	AgentID      string `json:"agentId"`
 	AgentName    string `json:"agentName"`
+	ToKind       string `json:"toKind,omitempty"` // "agent" (default) | "contact"
 	RelationType string `json:"relationType"`
 	Strength     string `json:"strength"`
 	Desc         string `json:"desc"`
@@ -371,18 +380,29 @@ func (h *relationsHandler) ClearAllRelations(c *gin.Context) {
 }
 
 // writeRelationsFile serializes RelationRows as a markdown table and writes to disk.
+// New format (6 cols): | 目标ID | 目标名称 | 类型 | 关系 | 程度 | 说明 |
+//
+//	类型 = "agent" | "contact"
+//
+// Old format (5 cols) is still readable by parseRelationsMarkdown for back-compat.
 func writeRelationsFile(filePath string, rows []RelationRow) error {
 	if len(rows) == 0 {
 		return os.WriteFile(filePath, []byte(""), 0644)
 	}
 	var sb strings.Builder
-	sb.WriteString("| 成员ID | 成员名称 | 关系类型 | 关系程度 | 说明 |\n")
-	sb.WriteString("|--------|--------|--------|--------|------|\n")
+	sb.WriteString("| 目标ID | 目标名称 | 类型 | 关系 | 程度 | 说明 |\n")
+	sb.WriteString("|--------|--------|------|------|------|------|\n")
 	for _, r := range rows {
+		kind := r.ToKind
+		if kind == "" {
+			kind = "agent"
+		}
 		sb.WriteString("| ")
 		sb.WriteString(r.AgentID)
 		sb.WriteString(" | ")
 		sb.WriteString(r.AgentName)
+		sb.WriteString(" | ")
+		sb.WriteString(kind)
 		sb.WriteString(" | ")
 		sb.WriteString(r.RelationType)
 		sb.WriteString(" | ")
@@ -428,6 +448,17 @@ func (h *relationsHandler) Graph(c *gin.Context) {
 
 		rows := parseRelationsMarkdown(string(data))
 		for _, row := range rows {
+			// Bug 4 fix: skip contact edges entirely — TeamView graph only
+			// renders AI member network. Contact relations are surfaced in
+			// the separate "联系人" tab.
+			kind := row.ToKind
+			if kind == "" {
+				kind = "agent"
+			}
+			if kind != "agent" {
+				continue
+			}
+
 			// Ensure target node is present
 			if _, exists := nodeMap[row.AgentID]; !exists {
 				nodeMap[row.AgentID] = GraphNode{ID: row.AgentID, Name: row.AgentName, Status: "idle"}
@@ -563,38 +594,65 @@ func parseRelationsMarkdown(content string) []RelationRow {
 			continue
 		}
 
+		// Two formats supported:
+		//   6 cols: | id | name | toKind | type | strength | desc |   (26.4.23v1+)
+		//   5 cols: | id | name | type | strength | desc |            (legacy)
 		agentName := ""
+		toKind := ""
 		relationType := ""
 		strength := ""
 		desc := ""
 		if len(cols) > 1 {
 			agentName = cols[1]
 		}
-		if len(cols) > 2 {
-			relationType = cols[2]
+		if len(cols) >= 6 {
+			// New format with toKind column
+			toKind = cols[2]
+			relationType = cols[3]
+			strength = cols[4]
+			desc = cols[5]
+		} else {
+			// Legacy 5-column format (toKind defaults to "agent")
+			if len(cols) > 2 {
+				relationType = cols[2]
+			}
+			if len(cols) > 3 {
+				strength = cols[3]
+			}
+			if len(cols) > 4 {
+				desc = cols[4]
+			}
 		}
-		if len(cols) > 3 {
-			strength = cols[3]
-		}
-		if len(cols) > 4 {
-			desc = cols[4]
+		if toKind == "" {
+			toKind = "agent"
 		}
 
-		// Validate: relationType must be one of the known values (keep legacy 上级/下级 readable)
-		validTypes := map[string]bool{"上下级": true, "上级": true, "下级": true, "平级协作": true, "支持": true, "其他": true}
+		// Validate: relationType must be one of the known values.
+		// Agent-agent: 上下级/上级/下级/平级协作/支持/其他
+		// Contact relations add: 服务/客户/家人/朋友/同事/合作伙伴
+		validTypes := map[string]bool{
+			"上下级": true, "上级": true, "下级": true,
+			"平级协作": true, "支持": true, "其他": true,
+			"服务": true, "客户": true, "家人": true,
+			"朋友": true, "同事": true, "合作伙伴": true,
+		}
 		if relationType != "" && !validTypes[relationType] {
 			continue
 		}
 
-		// Dedup by agentId
-		if seen[first] {
+		// Dedup by (agentId, toKind) pair — an agent could have both
+		// an "agent" relation and a "contact" relation with the same target ID,
+		// although in practice IDs are namespaced (contact IDs contain ":").
+		dedupKey := first + "|" + toKind
+		if seen[dedupKey] {
 			continue
 		}
-		seen[first] = true
+		seen[dedupKey] = true
 
 		rows = append(rows, RelationRow{
 			AgentID:      first,
 			AgentName:    agentName,
+			ToKind:       toKind,
 			RelationType: relationType,
 			Strength:     strength,
 			Desc:         desc,
