@@ -830,10 +830,9 @@ func (b *TelegramBot) generateAndSend(ctx context.Context, msg *TelegramMessage,
 		wsDir := filepath.Join(b.agentDir, "workspace")
 		store := network.NewStore(wsDir)
 		senderID := fmt.Sprintf("%d", msg.From.ID)
-		displayName := strings.TrimSpace(msg.From.FirstName)
-		if displayName == "" {
-			displayName = msg.From.Username
-		}
+		// Bug 2 fix: 完整 fallback 链 — firstName → username → externalID[:8]
+		// (TelegramUser 没有 LastName 字段, 见 pkg/channel/telegram.go#136)
+		displayName := network.FallbackDisplayName(senderID, msg.From.FirstName, msg.From.Username)
 		if _, nerr := store.Resolve(network.SourceTelegram, senderID, displayName); nerr != nil {
 			log.Printf("[telegram] network.Resolve warning: %v", nerr)
 		} else {

@@ -69,7 +69,16 @@ func (r *Registry) handleNetworkNote(_ context.Context, input json.RawMessage) (
 		return "", fmt.Errorf("load contact: %w", err)
 	}
 	if c == nil {
-		return "", fmt.Errorf("contact %q not found (请先让用户通过该来源发过一次消息, 或手动在通讯录创建)", req.EntityID)
+		// Help the AI self-correct: suggest the 3 closest existing contact IDs
+		// by prefix/substring match so it can retry with a valid entityId.
+		suggestions := suggestContactIDs(store, req.EntityID, 3)
+		hint := ""
+		if len(suggestions) > 0 {
+			hint = " · Did you mean: " + strings.Join(suggestions, " / ") + "?"
+		} else {
+			hint = " · 当前通讯录为空或无近似匹配, 请先让用户通过该来源发过一次消息, 或手动在通讯录创建"
+		}
+		return "", fmt.Errorf("contact %q not found%s", req.EntityID, hint)
 	}
 
 	updated, err := appendToSection(c.Body, req.Section, req.Text)
@@ -92,6 +101,84 @@ func displayNameOrID(c *network.Contact) string {
 		return c.DisplayName
 	}
 	return c.ID
+}
+
+// suggestContactIDs returns up to `max` contact IDs from the store that are
+// most similar to `query`. Used by network_note to help the AI self-correct
+// a typo'd entityId.
+//
+// Ranking:
+//  1. Exact source prefix match (e.g. "feishu:xxx" gets other feishu: entries first)
+//  2. Substring match in full ID
+//  3. Fuzzy score (simple char overlap)
+//
+// Keep it dependency-free; this runs on every failed note call so must be cheap.
+func suggestContactIDs(store *network.Store, query string, maxN int) []string {
+	list, err := store.List()
+	if err != nil || len(list) == 0 {
+		return nil
+	}
+	q := strings.ToLower(query)
+	// Extract source prefix if present ("feishu:xxx" → "feishu")
+	qSource := ""
+	if i := strings.Index(q, ":"); i > 0 {
+		qSource = q[:i]
+	}
+
+	ranked := make([]scoredID, 0, len(list))
+	for _, c := range list {
+		id := c.ID
+		idLower := strings.ToLower(id)
+		score := 0
+		// Prefix-of-source match
+		if qSource != "" && strings.HasPrefix(idLower, qSource+":") {
+			score += 100
+		}
+		// Substring
+		if strings.Contains(idLower, q) || strings.Contains(q, idLower) {
+			score += 50
+		}
+		// Name substring (AI might give a display name by mistake)
+		if c.DisplayName != "" && strings.Contains(strings.ToLower(c.DisplayName), q) {
+			score += 40
+		}
+		// Character overlap (rough fuzz)
+		overlap := 0
+		qSet := map[rune]bool{}
+		for _, r := range q {
+			qSet[r] = true
+		}
+		for _, r := range idLower {
+			if qSet[r] {
+				overlap++
+			}
+		}
+		score += overlap
+		ranked = append(ranked, scoredID{id: id, score: score})
+	}
+	sortSuggestions(ranked)
+	out := make([]string, 0, maxN)
+	for i := 0; i < len(ranked) && i < maxN; i++ {
+		if ranked[i].score > 0 {
+			out = append(out, ranked[i].id)
+		}
+	}
+	return out
+}
+
+type scoredID struct {
+	id    string
+	score int
+}
+
+// sortSuggestions sorts scored entries descending by score (stable).
+func sortSuggestions(xs []scoredID) {
+	// insertion sort — list is small (typically <30 contacts per agent)
+	for i := 1; i < len(xs); i++ {
+		for j := i; j > 0 && xs[j].score > xs[j-1].score; j-- {
+			xs[j], xs[j-1] = xs[j-1], xs[j]
+		}
+	}
 }
 
 // appendToSection takes a contact body (markdown) and appends `- <text>` at the
