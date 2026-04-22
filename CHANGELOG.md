@@ -4,6 +4,79 @@
 
 ---
 
+## [26.4.23v1] — 2026-04-22 · 通讯录 5 个漏网 bug 修复（P0.5）
+
+26.4.22v1 通讯录 GA 上线后，自审 + 外部对比讨论（OpenClaw）发现 5 处已发布代码漏洞。本版一次清理，**不新增功能**。
+
+### 🐛 Bug 1 — `IsOwner=true` 的 contact 没阻断 summary 注入
+
+**现象**：用户在 TeamView 抽屉勾选「这是主人本人在该渠道的身份」后，设计文档里承诺"AI 用 `owner-profile.md` 而非注入本 contact 档案"，但 `pkg/channel/{telegram,feishu}.go` 实际无脑调 `Store.Summary(id)` → **双份档案 + 冲突描述**。
+
+**修复**：`pkg/network/summary.go::Summary` 内部检查 `c.IsOwner`，true 则返回空串。调用方无需改动，owner-profile 接管。
+
+### 🐛 Bug 2 — displayName fallback 链缺失
+
+**现象**：
+- 飞书 `getSenderName(openID)` 在刚加好友 / 群聊成员列表未拉取时返回 `""`
+- TG `FirstName + Username` 可能都为空
+
+**结果**：建档 `displayName=""` → UI 显示光秃秃的 contactId。
+
+**修复**：`pkg/network/store.go` 新增 `FallbackDisplayName(externalID, candidates...)`，兜底链：`candidates → externalID[:8]`。飞书 / TG / Web Public 3 处入口统一用它。
+
+### 🐛 Bug 3 — 合并后 alias 来消息会"复活"
+
+**现象**：用户手动合并 `telegram:123` → primary `feishu:ou_boss`，alias 文件被删。TG 用户再发消息 → `Resolve("telegram", "123", ...)` 查不到 → **新建空档案**，合并白做。
+
+**修复**：`pkg/network/store.go::Resolve` 没直接命中时，扫描所有 primary 档案的 `aliases` 字段：
+- 命中 → `Touch` primary（`MsgCount++`, `LastSeenAt = now`）
+- 不命中 → 新建档案
+
+新增 `findPrimaryByAliasUnlocked()` helper。O(N) 扫描对几百 contact 的规模足够快。
+
+### 🐛 Bug 4 — `Graph` / 派遣检查含 contact 行时行为异常
+
+**现象**：26.4.22v1 CHANGELOG 声称"关系表扩展 toKind 字段"，但实际 `RelationRow` 仍只 5 列字段。如果 AI 或手工写入 contact 关系行：
+- `Graph` 把 `row.AgentID = "feishu:ou_abc"` 当 agent 创建幽灵节点
+- `allowedPeersFromRelations` 把 contact ID 误认为可派遣对象
+
+**修复**（一次补齐）：
+- `RelationRow` 正式加 `ToKind string` 字段（`"agent"` 默认 / `"contact"`）
+- `parseRelationsMarkdown` 支持 6 列新格式 + 5 列 legacy（默认 `ToKind=agent`）
+- `writeRelationsFile` 输出 6 列（`| 目标ID | 目标名称 | 类型 | 关系 | 程度 | 说明 |`）
+- `validTypes` 扩充 contact 关系：`服务 / 客户 / 家人 / 朋友 / 同事 / 合作伙伴`
+- `Graph` handler 跳过 `ToKind != "agent"` 的边（联系人在单独 tab 渲染）
+- `allowedPeersFromRelations` 过滤带 `:` 的 ID + 6 列格式中 `kind != agent` 的行
+
+### 🐛 瑕疵 5 — `network_note` 找不到 entity 时错误不友好
+
+**现象**：AI 传了乱编的 `entityId="telegram:999"` → 返回 `contact %q not found`，AI 无法自我纠正。
+
+**修复**：`pkg/tools/network.go` 新增 `suggestContactIDs(store, query, 3)`，基于：
+1. 源前缀匹配（`feishu:xxx` 优先推荐其他 `feishu:` entries）
+2. 子串匹配（ID / 显示名）
+3. 字符重叠粗 fuzz
+
+失败时 error 带上 `Did you mean: id1 / id2 / id3?` 提示。
+
+### ✅ 测试
+
+全部新增测试，`go test ./pkg/network/... ./pkg/tools/... ./internal/api/...` 全绿：
+- `TestSummaryIsOwnerSkips`（Bug 1）
+- `TestFallbackDisplayName`（Bug 2，6 子 case）
+- `TestResolveRoutesThroughAliases`（Bug 3）
+- `TestParseRelationsMarkdown6ColNewFormat`（Bug 4）
+- `TestParseRelationsMarkdown5ColLegacy`（legacy 兼容）
+- `TestWriteRelationsFileRoundTrip`（6 列往返）
+- `TestSuggestContactIDs`（瑕疵 5）
+
+### 数据迁移
+
+- **无破坏性变更**。老 `RELATIONS.md`（5 列）继续可读，下次写入自动升级到 6 列格式
+- **无 API 破坏性变更**。`RelationRow` JSON 新增 `toKind` 字段，缺省为 `""`（客户端按 `"agent"` 处理）
+
+---
+
 ## [26.4.22v3] — 2026-04-21 · 在线升级进度条修复
 
 用户反馈：Settings 页面「版本与更新」进度条不会自动刷新，跑一次之后不会继续跑。
