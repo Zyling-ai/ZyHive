@@ -1148,6 +1148,29 @@
                   <span style="color:#16a34a;">✓ 可用 {{ toolHealth.summary.ready }}</span>
                   <span v-if="toolHealth.summary.blocked > 0" style="color:#d97706;">⚠ 受阻 {{ toolHealth.summary.blocked }}</span>
                 </div>
+
+                <!-- P0.5: LLM Provider 实时健康（30s 缓存） -->
+                <div v-if="toolHealth.providerHealth" class="th-provider-health" :class="toolHealth.providerHealth.ok ? 'is-ok' : 'is-down'">
+                  <div class="th-provider-row">
+                    <span class="th-provider-dot">{{ toolHealth.providerHealth.ok ? '🟢' : '🔴' }}</span>
+                    <span class="th-provider-name">
+                      {{ toolHealth.providerHealth.provider }} / {{ toolHealth.providerHealth.model }}
+                    </span>
+                    <span v-if="toolHealth.providerHealth.ok" class="th-provider-latency">
+                      {{ toolHealth.providerHealth.latencyMs }}ms
+                    </span>
+                    <span v-else-if="toolHealth.providerHealth.error" class="th-provider-err">
+                      {{ toolHealth.providerHealth.error }}
+                    </span>
+                    <el-button size="small" link style="margin-left:auto;" @click="refreshProviderHealth">
+                      <el-icon><Refresh /></el-icon> 重新检测
+                    </el-button>
+                  </div>
+                  <div v-if="!toolHealth.providerHealth.ok" class="th-provider-tip">
+                    {{ providerHealthTip(toolHealth.providerHealth) }}
+                  </div>
+                </div>
+              </div>
                 <div v-if="blockedTools.length" style="margin-bottom:10px;">
                   <div style="font-size:12px;color:#92400e;font-weight:600;margin-bottom:6px;">⚠ 需要处理的工具</div>
                   <div v-for="t in blockedTools" :key="t.name" class="th-row th-blocked">
@@ -1621,23 +1644,53 @@ function wishPriorityType(p: string): 'danger' | 'warning' | 'info' {
 }
 
 interface ToolHealthItem { name: string; group: string; ready: boolean; reason: string; hint: string }
+interface ProviderHealth {
+  provider: string
+  model: string
+  ok: boolean
+  latencyMs: number
+  statusCode: number
+  error?: string
+  checkedAt: string
+  cached: boolean
+}
 interface ToolHealthResp {
   agentId: string
   tools: ToolHealthItem[]
+  providerHealth?: ProviderHealth | null
   summary: { total: number; ready: number; blocked: number }
 }
 const toolHealth = ref<ToolHealthResp | null>(null)
 const toolHealthLoading = ref(false)
 const blockedTools = computed(() => toolHealth.value?.tools.filter(t => !t.ready) ?? [])
 const readyTools = computed(() => toolHealth.value?.tools.filter(t => t.ready) ?? [])
-async function runToolHealth() {
+async function runToolHealth(force = false) {
   toolHealthLoading.value = true
   try {
-    const res = await api.get<ToolHealthResp>(`/agents/${agentId}/tool-health`)
+    const url = force
+      ? `/agents/${agentId}/tool-health?refresh=1`
+      : `/agents/${agentId}/tool-health`
+    const res = await api.get<ToolHealthResp>(url)
     toolHealth.value = res.data
   } catch (e: any) {
     ElMessage.error('工具体检失败: ' + (e?.message || '未知错误'))
   } finally { toolHealthLoading.value = false }
+}
+
+// P0.5 — re-ping provider bypassing the 30s server cache.
+async function refreshProviderHealth() {
+  await runToolHealth(true)
+}
+
+// P0.5 — user-facing hint based on status code.
+function providerHealthTip(ph: ProviderHealth): string {
+  if (!ph || ph.ok) return ''
+  const code = ph.statusCode
+  if (code === 401 || code === 403) return '认证失败 — 请在「模型」页检查 API Key 是否正确。'
+  if (code === 429) return 'Provider 侧限流中，稍后重试即可。'
+  if (code >= 500) return 'Provider 服务暂时不可用（5xx）— 可能是厂商故障，稍后重试。'
+  if (code === 0) return '网络不可达 — 请检查 baseURL 配置和服务器网络。'
+  return '未知错误 — 点击「重新检测」尝试刷新。'
 }
 
 // Model selector
@@ -2657,6 +2710,51 @@ async function openCronLogs(job: any) {
   color: #475569;
   border-radius: 4px;
   font-family: monospace;
+}
+
+/* P0.5 Provider live health */
+.th-provider-health {
+  padding: 10px 12px;
+  border-radius: 6px;
+  margin-bottom: 12px;
+  border: 1px solid transparent;
+}
+.th-provider-health.is-ok {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+.th-provider-health.is-down {
+  background: #fef2f2;
+  border-color: #fecaca;
+}
+.th-provider-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.th-provider-dot { font-size: 11px; }
+.th-provider-name {
+  font-family: monospace;
+  font-weight: 600;
+  color: #334155;
+}
+.th-provider-latency {
+  color: #059669;
+  font-size: 11px;
+  padding: 1px 8px;
+  background: #ecfdf5;
+  border-radius: 10px;
+}
+.th-provider-err {
+  color: #b91c1c;
+  font-size: 12px;
+}
+.th-provider-tip {
+  margin-top: 6px;
+  font-size: 11px;
+  color: #991b1b;
+  padding-left: 20px;
 }
 
 /* 统一 Tab 里 el-card 的边框 + 阴影（避免多层嵌套造成"线条乱") */

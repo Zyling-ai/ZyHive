@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/Zyling-ai/zyhive/pkg/agent"
 	"github.com/Zyling-ai/zyhive/pkg/config"
+	"github.com/Zyling-ai/zyhive/pkg/llm"
 	"github.com/Zyling-ai/zyhive/pkg/tools"
 )
 
@@ -173,15 +174,50 @@ func (h *agentExtHandler) ToolHealth(c *gin.Context) {
 		items = append(items, item)
 	}
 
+	// P0.5 — Live LLM provider health check (30s cached).
+	// Resolve agent's bound model and ping its provider so UI can show
+	// "provider reachable" separately from static config checks.
+	var providerHealth map[string]any
+	if modelEntry := resolveModelForHealth(h.cfg, ag); modelEntry != nil {
+		apiKey, baseURL := config.ResolveCredentials(modelEntry, h.cfg.Providers)
+		force := c.Query("refresh") == "1"
+		ping := llm.Ping(c.Request.Context(), modelEntry.Provider, apiKey, baseURL, force)
+		providerHealth = gin.H{
+			"provider":   modelEntry.Provider,
+			"model":      modelEntry.Model,
+			"ok":         ping.OK,
+			"latencyMs":  ping.Latency.Milliseconds(),
+			"statusCode": ping.StatusCode,
+			"error":      ping.Error,
+			"checkedAt":  ping.CheckedAt,
+			"cached":     !force,
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"agentId": id,
-		"tools":   items,
+		"agentId":        id,
+		"tools":          items,
+		"providerHealth": providerHealth,
 		"summary": gin.H{
 			"total":   len(items),
 			"ready":   ready,
 			"blocked": blocked,
 		},
 	})
+}
+
+// resolveModelForHealth reproduces the minimum model-lookup logic used by
+// chatHandler / pool, kept local to avoid import cycles.
+func resolveModelForHealth(cfg *config.Config, ag *agent.Agent) *config.ModelEntry {
+	if ag == nil || cfg == nil {
+		return nil
+	}
+	if ag.ModelID != "" {
+		if m := cfg.FindModel(ag.ModelID); m != nil {
+			return m
+		}
+	}
+	return cfg.DefaultModel()
 }
 
 // checkFeishuChannel 返回飞书工具的 readiness 检查闭包。
