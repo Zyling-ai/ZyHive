@@ -19,22 +19,51 @@ import (
 // well within any proxy/CDN timeout budget (Cloudflare: ~100s idle).
 const CompactionThreshold = 50_000
 
+// CompactionEventFunc is a lifecycle hook invoked before/after an async
+// compaction so callers (runner → SSE) can inform the user that the long
+// "thinking…" gap is due to context compression, not a stuck session.
+//
+// phase is one of "start", "end", "error".
+// info carries phase-specific fields:
+//
+//	start: { "tokens": int }
+//	end:   { "tokens_before": int, "tokens_after": int, "summary_chars": int }
+//	error: { "error": string }
+type CompactionEventFunc func(phase string, info map[string]any)
+
 // CompactIfNeeded checks if a session needs compaction and runs it asynchronously.
 // Safe to call from runner after a completed turn; fires and forgets.
 // workspaceDir is used to update the chatlog summary after compaction.
-func CompactIfNeeded(store *Store, sessionID string, callLLM func(ctx context.Context, systemPrompt, userMsg string) (string, error), workspaceDir string) {
+// onEvent (optional, P0.6) is invoked with "start"/"end"/"error" phase hooks.
+func CompactIfNeeded(store *Store, sessionID string,
+	callLLM func(ctx context.Context, systemPrompt, userMsg string) (string, error),
+	workspaceDir string,
+	onEvent CompactionEventFunc) {
 	tokens := store.EstimateTokens(sessionID)
 	if tokens < CompactionThreshold {
 		return
 	}
 	log.Printf("[compaction] session %s has ~%d tokens, triggering compaction", sessionID, tokens)
 	go func() {
+		if onEvent != nil {
+			onEvent("start", map[string]any{"tokens": tokens})
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 		defer cancel()
 		if err := Compact(ctx, store, sessionID, callLLM, workspaceDir); err != nil {
 			log.Printf("[compaction] failed for session %s: %v", sessionID, err)
+			if onEvent != nil {
+				onEvent("error", map[string]any{"error": err.Error()})
+			}
 		} else {
 			log.Printf("[compaction] completed for session %s", sessionID)
+			if onEvent != nil {
+				tokensAfter := store.EstimateTokens(sessionID)
+				onEvent("end", map[string]any{
+					"tokens_before": tokens,
+					"tokens_after":  tokensAfter,
+				})
+			}
 		}
 	}()
 }

@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/Zyling-ai/zyhive/pkg/llm"
 	"github.com/Zyling-ai/zyhive/pkg/session"
@@ -111,6 +112,7 @@ func New(cfg Config) *Runner {
 // RunEvent is emitted to the caller during a conversation turn.
 type RunEvent struct {
 	Type          string // "text_delta" | "tool_call" | "tool_result" | "usage" | "error" | "done"
+	//                     | "compaction_start" | "compaction_end"  (P0.6)
 	Text          string
 	ToolCall      *llm.ToolCall
 	Error         error
@@ -123,6 +125,9 @@ type RunEvent struct {
 	// Usage event extras
 	InputTokens  int
 	OutputTokens int
+	// Compaction event extras (P0.6)
+	CompactionTokensBefore int `json:",omitempty"`
+	CompactionTokensAfter  int `json:",omitempty"`
 }
 
 // Run processes one user message and streams events until the model stops.
@@ -364,6 +369,17 @@ func stripToolResultBlocks(raw json.RawMessage) json.RawMessage {
 }
 
 func (r *Runner) run(ctx context.Context, userMsg string, out chan<- RunEvent) error {
+	// P0.6: Synchronous compaction BEFORE the turn starts.
+	// If this session already crossed the threshold, we run compaction first
+	// and stream start/end events so the user sees "压缩历史上下文中…" rather
+	// than a mysterious long pause.
+	// Note: the session store's CompactionThreshold (50k) is per-session; this
+	// fires early enough that the next LLM call won't blow the model's
+	// context window.
+	if r.cfg.SessionID != "" && r.cfg.Session != nil {
+		r.maybeCompactSync(ctx, out)
+	}
+
 	// Accumulates tool call display records across all iterations for session persistence.
 	var allToolCallRecords []session.ToolCallRecord
 	// 1. Append user message to history (with optional images)
@@ -624,10 +640,9 @@ func (r *Runner) run(ctx context.Context, userMsg string, out chan<- RunEvent) e
 				InputTokens:   totalInputToks,
 				OutputTokens:  totalOutputToks,
 			}
-			// Trigger compaction asynchronously if token budget exceeded
-			if r.cfg.SessionID != "" && r.cfg.Session != nil {
-				session.CompactIfNeeded(r.cfg.Session, r.cfg.SessionID, r.makeSimpleLLMCaller(), r.cfg.WorkspaceDir)
-			}
+			// P0.6: Compaction trigger moved to the START of the next turn
+			// (see maybeCompactSync at top of run()). This gives us clean
+			// start/end events streamed within a single RunEvent session.
 			return nil
 		}
 
@@ -789,4 +804,69 @@ func buildAssistantContent(text string, toolCalls []llm.ToolCall) json.RawMessag
 		data, _ = json.Marshal(fallback)
 	}
 	return data
+}
+
+// maybeCompactSync runs compaction synchronously BEFORE the current turn if
+// the session has crossed CompactionThreshold. Emits compaction_start /
+// compaction_end events so the user sees "压缩历史上下文中…" instead of an
+// unexplained long pause.
+//
+// If compaction fails, the error is logged and the turn continues with the
+// uncompacted history — we don't want a compaction blip to break the user's
+// actual request.
+func (r *Runner) maybeCompactSync(ctx context.Context, out chan<- RunEvent) {
+	if r.cfg.Session == nil || r.cfg.SessionID == "" {
+		return
+	}
+	tokensBefore := r.cfg.Session.EstimateTokens(r.cfg.SessionID)
+	if tokensBefore < session.CompactionThreshold {
+		return
+	}
+
+	// Emit start event so the UI can show a spinner / banner.
+	select {
+	case out <- RunEvent{
+		Type:                   "compaction_start",
+		CompactionTokensBefore: tokensBefore,
+	}:
+	case <-ctx.Done():
+		return
+	}
+
+	// Run compaction synchronously with a generous timeout.
+	cctx, cancel := context.WithTimeout(ctx, 90*time.Second)
+	defer cancel()
+	err := session.Compact(cctx, r.cfg.Session, r.cfg.SessionID, r.makeSimpleLLMCaller(), r.cfg.WorkspaceDir)
+
+	tokensAfter := r.cfg.Session.EstimateTokens(r.cfg.SessionID)
+	endEv := RunEvent{
+		Type:                   "compaction_end",
+		CompactionTokensBefore: tokensBefore,
+		CompactionTokensAfter:  tokensAfter,
+	}
+	if err != nil {
+		// Surface error but don't abort turn; uncompacted history still usable.
+		endEv.Text = err.Error()
+	}
+	select {
+	case out <- endEv:
+	case <-ctx.Done():
+		return
+	}
+
+	// Reload history now that the session JSONL has a CompactionEntry + summary.
+	// Without this, the current turn still uses the pre-compaction r.history.
+	if msgs, summary, rerr := r.cfg.Session.ReadHistory(r.cfg.SessionID); rerr == nil {
+		r.history = r.history[:0]
+		if summary != "" {
+			summaryJSON, _ := json.Marshal("[Previous conversation summary]\n" + summary)
+			r.history = append(r.history, llm.ChatMessage{Role: "user", Content: summaryJSON})
+			ackJSON, _ := json.Marshal("Understood. I have the context from the previous conversation.")
+			r.history = append(r.history, llm.ChatMessage{Role: "assistant", Content: ackJSON})
+		}
+		for _, m := range msgs {
+			r.history = append(r.history, llm.ChatMessage{Role: m.Role, Content: m.Content})
+		}
+		r.history = sanitizeHistory(r.history)
+	}
 }
