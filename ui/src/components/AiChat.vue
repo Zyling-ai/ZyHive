@@ -542,6 +542,20 @@ const streamText = ref('')
 const streamThinking = ref('')
 const streamToolCalls = ref<ToolCallEntry[]>([])  // active tool calls during streaming
 
+// P0.4 Abort fence — exposed to session-switch and unmount paths so the
+// in-flight HTTP stream can be cancelled cleanly (saves tokens + avoids
+// late-arriving events updating the wrong conversation).
+interface AbortFence { aborted: boolean; ctrl: AbortController | null }
+const activeFence = ref<AbortFence | null>(null)
+
+function abortActiveStream(reason = 'aborted') {
+  const f = activeFence.value
+  if (!f || f.aborted) return
+  f.aborted = true
+  try { f.ctrl?.abort() } catch { /* already aborted */ }
+  void reason
+}
+
 // ── Background task tracking (agent_spawn) ─────────────────────────────────
 // Maps toolCallId → background taskId for live status polling (current session)
 const spawnedTaskMap = reactive<Map<string, string>>(new Map())
@@ -906,6 +920,8 @@ async function sendContinueAfterSpawn() {
 onUnmounted(() => {
   if (taskPollTimer) { clearInterval(taskPollTimer); taskPollTimer = null }
   if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null }
+  // P0.4 Abort fence — tear down in-flight SSE on unmount
+  abortActiveStream('unmount')
 })
 
 // After page reload, re-attach any still-running tasks spawned in this session
@@ -1587,9 +1603,19 @@ function runChat(text: string, imgs: string[], silent = false) {
   // #13 fix: capture session at send time; discard events if session changed
   const sendSessionId: string = currentSessionId.value || ''
 
-  chatSSE(props.agentId, text, (ev) => {
+  // P0.4 Abort fence: register fence so external paths can stop the stream.
+  // If there was a previous active fence (e.g. user sent while one was still
+  // closing), abort it first to avoid zombie HTTP streams.
+  abortActiveStream('new-send')
+  const fence: AbortFence = { aborted: false, ctrl: null }
+  activeFence.value = fence
+  fence.ctrl = chatSSE(props.agentId, text, (ev) => {
+    // Fence guard — drop anything that lands after abort() was called
+    if (fence.aborted) return
     // #13 fix: if user switched session, discard this response
     if (currentSessionId.value !== sendSessionId) {
+      fence.aborted = true
+      try { fence.ctrl?.abort() } catch { /* already aborted */ }
       streaming.value = false
       return
     }
@@ -1769,6 +1795,8 @@ function runChat(text: string, imgs: string[], silent = false) {
         streamThinking.value = ''
         streamToolCalls.value = []
         userScrolledUp.value = false  // #14 fix: reset on stream end
+        // Clear active fence: stream ended naturally, no abort needed
+        if (activeFence.value === fence) activeFence.value = null
         emit('response', cur.text)
         scrollBottom(true)  // force scroll to bottom when done
         break
@@ -1783,6 +1811,9 @@ function appendMessage(msg: ChatMsg) { messages.value.push(msg); scrollBottom() 
 
 /** Resume an existing session — immediately loads history from server */
 async function resumeSession(sessionId: string) {
+  // P0.4: abort any in-flight stream from the previous session before
+  // loading new history.
+  abortActiveStream('session-switch')
   currentSessionId.value = sessionId
   messages.value = []
   historyLoading.value = true
@@ -2005,6 +2036,8 @@ async function reconnectIfGenerating(sessionId: string) {
 
 /** Start a brand new session (clears sessionId + messages) */
 function startNewSession() {
+  // P0.4: abort any in-flight stream before dropping session context.
+  abortActiveStream('new-session')
   currentSessionId.value = undefined
   messages.value = []
 }
