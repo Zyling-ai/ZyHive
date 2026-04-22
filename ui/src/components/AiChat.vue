@@ -1609,6 +1609,7 @@ function runChat(text: string, imgs: string[], silent = false) {
   abortActiveStream('new-send')
   const fence: AbortFence = { aborted: false, ctrl: null }
   activeFence.value = fence
+  let compactionBubbleIdx = -1
   fence.ctrl = chatSSE(props.agentId, text, (ev) => {
     // Fence guard — drop anything that lands after abort() was called
     if (fence.aborted) return
@@ -1620,6 +1621,41 @@ function runChat(text: string, imgs: string[], silent = false) {
       return
     }
     switch (ev.type) {
+      case 'compaction_start': {
+        // P0.6: show a transient info bubble while compaction runs.
+        // Insert BEFORE the pending assistant bubble (which is the last item)
+        // so it's visible during the streaming phase (template filters the
+        // last message when streaming).
+        const kb = Math.round((ev.tokens_before || 0) / 1000)
+        const insertAt = Math.max(0, messages.value.length - 1)
+        messages.value.splice(insertAt, 0, {
+          role: 'system',
+          sysKind: 'info',
+          text: `🗜️ 正在压缩历史上下文 (~${kb}k tokens)…`,
+        })
+        compactionBubbleIdx = insertAt
+        scrollBottom()
+        break
+      }
+
+      case 'compaction_end': {
+        // Update the placeholder bubble with before→after token deltas.
+        const msg = compactionBubbleIdx >= 0 ? messages.value[compactionBubbleIdx] : undefined
+        if (msg) {
+          if (ev.error) {
+            msg.text = `⚠️ 历史压缩失败：${ev.error}（本轮对话将使用原始历史）`
+            msg.sysKind = 'error'
+          } else {
+            const kb = Math.round((ev.tokens_before || 0) / 1000)
+            const ka = Math.round((ev.tokens_after || 0) / 1000)
+            msg.text = `✓ 历史已压缩 ${kb}k → ${ka}k tokens`
+          }
+        }
+        compactionBubbleIdx = -1
+        scrollBottom()
+        break
+      }
+
       case 'thinking_delta':
         streamThinking.value += ev.text
         scrollBottom()

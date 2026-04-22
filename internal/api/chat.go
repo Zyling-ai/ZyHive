@@ -442,6 +442,14 @@ func runEventToJSON(ev runner.RunEvent) []byte {
 			m["input_tokens"] = ev.InputTokens
 			m["output_tokens"] = ev.OutputTokens
 		}
+	case "compaction_start":
+		m["tokens_before"] = ev.CompactionTokensBefore
+	case "compaction_end":
+		m["tokens_before"] = ev.CompactionTokensBefore
+		m["tokens_after"] = ev.CompactionTokensAfter
+		if ev.Text != "" {
+			m["error"] = ev.Text
+		}
 	}
 	data, _ := json.Marshal(m)
 	return data
