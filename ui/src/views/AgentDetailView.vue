@@ -1170,7 +1170,7 @@
                     {{ providerHealthTip(toolHealth.providerHealth) }}
                   </div>
                 </div>
-              </div>
+
                 <div v-if="blockedTools.length" style="margin-bottom:10px;">
                   <div style="font-size:12px;color:#92400e;font-weight:600;margin-bottom:6px;">⚠ 需要处理的工具</div>
                   <div v-for="t in blockedTools" :key="t.name" class="th-row th-blocked">
