@@ -286,7 +286,10 @@ func (h *publicChatHandler) runPublic(
 	var extraCtx string
 	if visitorToken != "" {
 		nstore := network.NewStore(workspaceDir)
-		if _, nerr := nstore.Resolve(network.SourceWeb, visitorToken, "Web 访客"); nerr == nil {
+		// Bug 2: 统一走 FallbackDisplayName — 对 Web 访客这里"Web 访客"作为
+		// 首选名, token 前缀兜底（visitorToken 可能是长 sid）.
+		name := network.FallbackDisplayName(visitorToken, "Web 访客")
+		if _, nerr := nstore.Resolve(network.SourceWeb, visitorToken, name); nerr == nil {
 			extraCtx = nstore.Summary(network.MakeID(network.SourceWeb, visitorToken))
 		}
 	}

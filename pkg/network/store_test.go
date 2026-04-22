@@ -128,6 +128,124 @@ func TestSummaryExtraction(t *testing.T) {
 	}
 }
 
+func TestResolveRoutesThroughAliases(t *testing.T) {
+	// Bug 3 regression: after manual merge, a later inbound message from the
+	// alias ID must bump the primary's MsgCount (not recreate an orphan).
+	tmp, err := os.MkdirTemp("", "network-alias-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmp)
+
+	s := NewStore(tmp)
+
+	// Seed: two contacts for the same real person, plus a merge.
+	primary, err := s.Resolve("feishu", "ou_boss", "老板")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.Resolve("telegram", "555", "Boss (TG)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Simulate MergeContact: record the alias on primary + delete the alias file.
+	primary.Aliases = []string{"telegram:555"}
+	primary.MsgCount += 1 // absorb alias msgCount
+	if err := s.Save(primary); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Delete("telegram:555"); err != nil {
+		t.Fatal(err)
+	}
+	primaryBefore, _ := s.Get(primary.ID)
+	if primaryBefore == nil {
+		t.Fatal("primary missing after merge")
+	}
+	countBefore := primaryBefore.MsgCount
+
+	// Alias user sends a new message → Resolve should route to primary.
+	got, err := s.Resolve("telegram", "555", "Boss (TG)")
+	if err != nil {
+		t.Fatalf("resolve after merge: %v", err)
+	}
+	if got.ID != primary.ID {
+		t.Fatalf("expected alias to route to primary %s, got %s", primary.ID, got.ID)
+	}
+	if got.MsgCount != countBefore+1 {
+		t.Fatalf("expected primary MsgCount to increment, got %d (was %d)",
+			got.MsgCount, countBefore)
+	}
+	// Critical: no orphan alias file should be recreated.
+	orphan, err := s.Get("telegram:555")
+	if err != nil {
+		t.Fatalf("get orphan: %v", err)
+	}
+	if orphan != nil {
+		t.Fatalf("alias file should not have been recreated, got:\n%+v", orphan)
+	}
+}
+
+func TestFallbackDisplayName(t *testing.T) {
+	// Bug 2 regression: displayName fallback chain never returns empty.
+	cases := []struct {
+		name       string
+		externalID string
+		candidates []string
+		want       string
+	}{
+		{"first non-empty wins", "ou_abc", []string{"张三", "zhang3"}, "张三"},
+		{"skip empty", "ou_abc", []string{"", "", "fallback"}, "fallback"},
+		{"whitespace treated as empty", "ou_abc", []string{"  ", "real"}, "real"},
+		{"all empty → short externalID prefix", "ou_abcdefghij", []string{"", ""}, "ou_abcde"},
+		{"all empty short ID returned whole", "a1", []string{""}, "a1"},
+		{"no candidates → short prefix", "longtoken12345", nil, "longtoke"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := FallbackDisplayName(tc.externalID, tc.candidates...)
+			if got != tc.want {
+				t.Fatalf("FallbackDisplayName(%q, %v) = %q, want %q",
+					tc.externalID, tc.candidates, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestSummaryIsOwnerSkips(t *testing.T) {
+	// Bug 1 regression: IsOwner=true → Summary() should return empty to avoid
+	// duplicating owner-profile.md injection.
+	tmp, err := os.MkdirTemp("", "network-owner-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmp)
+
+	s := NewStore(tmp)
+	c, err := s.Resolve("feishu", "ou_owner", "老板")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.IsOwner = true
+	c.Body = "# 老板\n\n## 事实\n- 主人本人\n"
+	if err := s.Save(c); err != nil {
+		t.Fatal(err)
+	}
+	sum := s.Summary(c.ID)
+	if sum != "" {
+		t.Fatalf("IsOwner=true should produce empty summary, got:\n%s", sum)
+	}
+
+	// Sanity: after clearing IsOwner, Summary should produce content again.
+	c.IsOwner = false
+	if err := s.Save(c); err != nil {
+		t.Fatal(err)
+	}
+	sum = s.Summary(c.ID)
+	if !strings.Contains(sum, "老板") {
+		t.Fatalf("after IsOwner=false, summary should contain name:\n%s", sum)
+	}
+}
+
 func TestMigrateIfNeeded(t *testing.T) {
 	tmp, err := os.MkdirTemp("", "network-mig-*")
 	if err != nil {
