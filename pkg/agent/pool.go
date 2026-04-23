@@ -377,15 +377,16 @@ func (p *Pool) SetMessageSenderFn(fn func(agentID string) tools.MessageSenderFun
 func (p *Pool) SetUsageStore(s *usage.Store) { p.usageStore = s }
 
 // usageRecorder returns a recorder func for use in runner.Config.
-func (p *Pool) usageRecorder() func(in, out int, provider, model, agentID string) {
+func (p *Pool) usageRecorder() func(in, out int, provider, model, agentID, sessionID string) {
 	if p.usageStore == nil {
 		return nil
 	}
 	store := p.usageStore
-	return func(in, out int, provider, model, agentID string) {
+	return func(in, out int, provider, model, agentID, sessionID string) {
 		rec := usage.Record{
 			ID:           usage.NewID(),
 			AgentID:      agentID,
+			SessionID:    sessionID,
 			Provider:     provider,
 			Model:        model,
 			InputTokens:  in,

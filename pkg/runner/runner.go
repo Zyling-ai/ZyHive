@@ -51,7 +51,7 @@ type Config struct {
 	// Optional: provider name for usage recording (e.g. "anthropic", "openai").
 	Provider string
 	// Optional: called after each LLM turn with token usage data.
-	UsageRecorder func(inputTokens, outputTokens int, provider, model, agentID string)
+	UsageRecorder func(inputTokens, outputTokens int, provider, model, agentID, sessionID string)
 
 	// Optional: pre-formatted capabilities block (tool health + wishlist summary)
 	// injected into the system prompt so the AI has accurate self-awareness about
@@ -557,7 +557,7 @@ func (r *Runner) run(ctx context.Context, userMsg string, out chan<- RunEvent) e
 		totalInputToks += turnInputToks
 		totalOutputToks += turnOutputToks
 		if r.cfg.UsageRecorder != nil && (turnInputToks+turnOutputToks) > 0 {
-			r.cfg.UsageRecorder(turnInputToks, turnOutputToks, r.cfg.Provider, r.cfg.Model, r.cfg.AgentID)
+			r.cfg.UsageRecorder(turnInputToks, turnOutputToks, r.cfg.Provider, r.cfg.Model, r.cfg.AgentID, r.cfg.SessionID)
 		}
 
 		// 3. Append assistant turn to history
@@ -643,6 +643,13 @@ func (r *Runner) run(ctx context.Context, userMsg string, out chan<- RunEvent) e
 			// P0.6: Compaction trigger moved to the START of the next turn
 			// (see maybeCompactSync at top of run()). This gives us clean
 			// start/end events streamed within a single RunEvent session.
+			//
+			// 26.4.23v3: Async auto-retitle — fire-and-forget. Will only
+			// actually call the LLM at milestone message counts (4/12/30/80).
+			// TitleOverridden=true (user manual rename) is always respected.
+			if r.cfg.SessionID != "" && r.cfg.Session != nil {
+				session.MaybeAutoRetitle(r.cfg.Session, r.cfg.SessionID, r.makeSimpleLLMCaller())
+			}
 			return nil
 		}
 

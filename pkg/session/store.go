@@ -284,8 +284,60 @@ func (s *Store) UpdateTitle(sessionID, title string) error {
 		return fmt.Errorf("session %s not found", sessionID)
 	}
 	entry.Title = title
+	entry.TitleOverridden = true // user manual rename; auto-retitle won't override
 	idx.Sessions[sessionID] = entry
 	return s.saveIndex(idx)
+}
+
+// UpdateAutoTitle is called by the async LLM summarizer. Unlike UpdateTitle
+// it does NOT mark TitleOverridden (future runs may further refine as the
+// conversation grows). Caller passes the current messageCount so subsequent
+// retitle calls can dedupe via TitledAtMsgCount.
+func (s *Store) UpdateAutoTitle(sessionID, title string, atMsgCount int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	idx, err := s.loadIndex()
+	if err != nil {
+		return err
+	}
+	entry, ok := idx.Sessions[sessionID]
+	if !ok {
+		return fmt.Errorf("session %s not found", sessionID)
+	}
+	// Respect user's manual rename.
+	if entry.TitleOverridden {
+		return nil
+	}
+	entry.Title = title
+	entry.TitledAtMsgCount = atMsgCount
+	idx.Sessions[sessionID] = entry
+	return s.saveIndex(idx)
+}
+
+// Retitle thresholds (message count milestones): 4, 12, 30, 80.
+// The first auto-retitle triggers at 4 msgs (2 turns) — enough signal to
+// summarize past "你好" openers. Later thresholds catch topic drift.
+var autoRetitleThresholds = []int{4, 12, 30, 80}
+
+// NeedsAutoRetitle returns true if the session has crossed a threshold since
+// the last retitle AND title is not user-overridden.
+func (s *Store) NeedsAutoRetitle(sessionID string) bool {
+	meta, ok := s.GetMeta(sessionID)
+	if !ok {
+		return false
+	}
+	if meta.TitleOverridden {
+		return false
+	}
+	mc := meta.MessageCount
+	lastAt := meta.TitledAtMsgCount
+	for _, th := range autoRetitleThresholds {
+		if mc >= th && lastAt < th {
+			return true
+		}
+	}
+	return false
 }
 
 // ListSessions returns all session entries from the index file.

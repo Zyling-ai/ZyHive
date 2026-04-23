@@ -326,13 +326,14 @@ func (h *chatHandler) execRunner(
 	}
 
 	// 构造 UsageRecorder (chat API 之前遗漏此字段, 导致所有对话 output_tokens 记录为 0)
-	var usageRec func(in, out int, provider, model, agentID string)
+	var usageRec func(in, out int, provider, model, agentID, sessionID string)
 	if h.usageStore != nil {
 		us := h.usageStore
-		usageRec = func(in, out int, providerIn, modelIn, agentIDIn string) {
+		usageRec = func(in, out int, providerIn, modelIn, agentIDIn, sessionIDIn string) {
 			rec := usage.Record{
 				ID:           usage.NewID(),
 				AgentID:      agentIDIn,
+				SessionID:    sessionIDIn,
 				Provider:     providerIn,
 				Model:        modelIn,
 				InputTokens:  in,
