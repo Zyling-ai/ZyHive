@@ -366,8 +366,9 @@ func (h *chatHandler) execRunner(
 		PreloadedHistory:    preHistory,
 		ProjectContext:      runner.BuildProjectContext(h.projectMgr, agentID),
 		AgentEnv:            agEnv,
-		UsageRecorder:       usageRec,
-		CapabilitiesContext: capCtx,
+		UsageRecorder:         usageRec,
+		CapabilitiesContext:   capCtx,
+		CurrentSessionContext: agent.BuildSessionContext(store, sessionID),
 	})
 
 	// Chatlog: write user message entry
