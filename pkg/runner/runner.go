@@ -58,6 +58,19 @@ type Config struct {
 	// what it can / cannot do. Built by internal/api or pkg/agent using
 	// tools.FormatCapabilitiesForPrompt + tools.FormatWishlistForPrompt.
 	CapabilitiesContext string
+
+	// Optional: current session meta block. Added in 26.4.23v6 so the AI can
+	// see the existing title of the conversation it's in and decide whether
+	// to call session_rename when the title is stale / meaningless.
+	// Built by chat.go when session.Store.GetMeta is available.
+	//
+	// Format (empty-safe; if this is "", nothing is injected):
+	//   ## 当前会话
+	//   - 标题: xxx
+	//   - ID: ses-xxx
+	//   - 消息数: 26
+	//   - 当需要更新标题时调用 session_rename 工具...
+	CurrentSessionContext string
 }
 
 // Runner drives a single agent's conversation lifecycle.
@@ -450,6 +463,10 @@ func (r *Runner) run(ctx context.Context, userMsg string, out chan<- RunEvent) e
 	// 能力上下文（工具体检 + 愿望清单）— 让 AI 感知真实能力边界
 	if r.cfg.CapabilitiesContext != "" {
 		systemPrompt = systemPrompt + "\n\n" + r.cfg.CapabilitiesContext
+	}
+	// 当前会话 meta（标题等）— 让 AI 能判断是否需要 session_rename
+	if r.cfg.CurrentSessionContext != "" {
+		systemPrompt = systemPrompt + "\n\n" + r.cfg.CurrentSessionContext
 	}
 	if r.cfg.ProjectContext != "" {
 		systemPrompt = systemPrompt + "\n\n" + r.cfg.ProjectContext

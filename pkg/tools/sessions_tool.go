@@ -42,11 +42,20 @@ type SessionSender interface {
 	SendToAgent(agentID, message string) (string, error)
 }
 
-// sessionToolSet groups the three optional session interfaces.
+// SessionTitleWriter can update the title of an existing session.
+// Used by session_rename tool so AI can refresh an outdated session title
+// (e.g. the default "first-60-chars-of-first-message" title).
+type SessionTitleWriter interface {
+	UpdateTitle(sessionID, title string) error
+	GetMeta(sessionID string) (session.SessionIndexEntry, bool)
+}
+
+// sessionToolSet groups the optional session interfaces.
 type sessionToolSet struct {
 	lister SessionLister
 	reader SessionHistoryReader
 	sender SessionSender
+	titler SessionTitleWriter
 }
 
 // ── Store adapters ─────────────────────────────────────────────────────────────
@@ -99,6 +108,19 @@ func (a *SessionStoreAdapter) ReadHistory(sessionKey string, limit int) ([]Sessi
 		}
 	}
 	return result, nil
+}
+
+// UpdateTitle implements SessionTitleWriter via the underlying store.
+// Delegates to session.Store.UpdateTitle which also sets TitleOverridden=true
+// so the auto-retitle loop will not subsequently overwrite this value.
+func (a *SessionStoreAdapter) UpdateTitle(sessionID, title string) error {
+	return a.store.UpdateTitle(sessionID, title)
+}
+
+// GetMeta implements SessionTitleWriter — returns the current index entry
+// so session_rename can diff old → new and avoid no-op writes.
+func (a *SessionStoreAdapter) GetMeta(sessionID string) (session.SessionIndexEntry, bool) {
+	return a.store.GetMeta(sessionID)
 }
 
 // extractMessageText extracts a plain text representation from a message content blob.
@@ -179,15 +201,84 @@ var sessionsSendDef = llm.ToolDef{
 	}`),
 }
 
+// session_rename tool — AI can update the title of the CURRENT session.
+// The sessionID is NOT accepted as input: it comes from Registry.sessionID
+// (set via WithSessionID). This is intentional — preventing the AI from
+// renaming some other session by mistake.
+//
+// Guardrails enforced in handler:
+//   - Title must be 1-30 chars (after trim)
+//   - Identical new title → no-op (don't bump TitleOverridden for nothing)
+//   - Empty current sessionID → tool unavailable (e.g. ephemeral cron runs)
+var sessionRenameDef = llm.ToolDef{
+	Name: "session_rename",
+	Description: "重命名当前对话的标题。使用场景:\n" +
+		"  1. 当前标题是无信息量的默认前缀 (如 '你好' / 'OK' / '请问')\n" +
+		"  2. 用户明确要求改标题\n" +
+		"  3. 对话主题发生重大且稳定的转移\n" +
+		"不要每轮都改。标题被你重命名后, 系统不再自动回退到 LLM 总结版本.",
+	InputSchema: json.RawMessage(`{
+		"type": "object",
+		"properties": {
+			"title": {
+				"type": "string",
+				"description": "新标题 (1-30 字符, 建议 8-20 个汉字, 不要加引号或 '标题:' 前缀)"
+			}
+		},
+		"required": ["title"]
+	}`),
+}
+
+func (r *Registry) handleSessionRename(_ context.Context, input json.RawMessage) (string, error) {
+	if r.sessionTools == nil || r.sessionTools.titler == nil {
+		return "", fmt.Errorf("session_rename not available in this context (no session store)")
+	}
+	if r.sessionID == "" {
+		return "", fmt.Errorf("no current session to rename (ephemeral run?)")
+	}
+	var p struct {
+		Title string `json:"title"`
+	}
+	if err := json.Unmarshal(input, &p); err != nil {
+		return "", fmt.Errorf("invalid input: %w", err)
+	}
+	t := strings.TrimSpace(p.Title)
+	if t == "" {
+		return "", fmt.Errorf("title cannot be empty")
+	}
+	// 30-char rune cap to match session package's truncateRune
+	if runes := []rune(t); len(runes) > 30 {
+		t = string(runes[:30])
+	}
+
+	// Read current title so we can echo diff + short-circuit on no-op
+	oldTitle := ""
+	if meta, ok := r.sessionTools.titler.GetMeta(r.sessionID); ok {
+		oldTitle = meta.Title
+	}
+	if oldTitle == t {
+		return fmt.Sprintf("标题未变（仍为「%s」）", t), nil
+	}
+
+	if err := r.sessionTools.titler.UpdateTitle(r.sessionID, t); err != nil {
+		return "", fmt.Errorf("update title: %w", err)
+	}
+	if oldTitle != "" {
+		return fmt.Sprintf("✓ 会话标题已更新：「%s」→「%s」（后续系统不会再自动回退）", oldTitle, t), nil
+	}
+	return fmt.Sprintf("✓ 会话标题已设置：「%s」", t), nil
+}
+
 // ── WithSessionTools ──────────────────────────────────────────────────────────
 
-// WithSessionTools registers sessions_list, sessions_history, sessions_send tools.
-// Any of lister/reader/sender can be nil; those tools will return "not configured" errors.
-func (r *Registry) WithSessionTools(lister SessionLister, reader SessionHistoryReader, sender SessionSender) {
+// WithSessionTools registers sessions_list, sessions_history, sessions_send, session_rename tools.
+// Any of lister/reader/sender/titler can be nil; those tools will return "not configured" errors.
+func (r *Registry) WithSessionTools(lister SessionLister, reader SessionHistoryReader, sender SessionSender, titler SessionTitleWriter) {
 	r.sessionTools = &sessionToolSet{
 		lister: lister,
 		reader: reader,
 		sender: sender,
+		titler: titler,
 	}
 
 	r.register(sessionsListDef, func(ctx context.Context, input json.RawMessage) (string, error) {
@@ -198,6 +289,9 @@ func (r *Registry) WithSessionTools(lister SessionLister, reader SessionHistoryR
 	})
 	r.register(sessionsSendDef, func(ctx context.Context, input json.RawMessage) (string, error) {
 		return r.handleSessionsSend(ctx, input)
+	})
+	r.register(sessionRenameDef, func(ctx context.Context, input json.RawMessage) (string, error) {
+		return r.handleSessionRename(ctx, input)
 	})
 }
 

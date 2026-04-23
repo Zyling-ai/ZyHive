@@ -4,6 +4,69 @@
 
 ---
 
+## [26.4.23v6] — 2026-04-23 · AI 感知当前会话标题 + `session_rename` 工具
+
+用户反馈：问 AI "这个 session 你能不能配置标题"，AI 回复"我没有直接工具"并写进 wishlist。实际上需要的是把**标题感知 + 编辑能力**都给 AI。
+
+### 🎯 改造
+
+**1. AI 能看到当前标题**
+
+新字段 `runner.Config.CurrentSessionContext`，`system_prompt` 在 capabilities 之后注入：
+```
+## 当前会话
+- 当前标题: xxx
+- Session ID: ses-xxx
+- 消息数: 26
+- 创建于: 2026-04-23 07:26
+- 标题状态: 自动生成, 可在必要时优化
+
+💡 当前标题信息量不足, 若主题已清晰, 可调用 `session_rename` 设置 8-20 字新标题.
+```
+
+最后那行**仅在 title 被判定为 weak 时才注入**（titleLooksWeak：空 / < 6 chars / 以"你好/请问/Hello/OK"等开头），避免正常 title 时浪费 token。
+
+**2. 新工具 `session_rename(title)`**
+
+- AI 只能传 `title`，**sessionID 从 registry 拿**（`WithSessionID` 已有），防止 AI 改错 session
+- 后端调 `session.Store.UpdateTitle`（自动设 `TitleOverridden=true`）
+- 与用户手动 PATCH rename 等价：后续 `MaybeAutoRetitle` 不再覆盖
+- 30 字符 rune-safe 截断
+- Guardrails：
+  - 相同 title → 返回"未变"，不写磁盘
+  - 空 title → 报错
+  - 空 sessionID（cron 等 ephemeral 场景）→ 报错"unavailable"
+
+**3. 接入点**
+- `pkg/tools/sessions_tool.go`：新 `SessionTitleWriter` 接口 + `SessionStoreAdapter` 实现 `UpdateTitle` / `GetMeta`
+- `pkg/agent/pool.go::poolSessionAdapter`：跨所有 agent 查 session 对应的 Store，实现同接口
+- `WithSessionTools(lister, reader, sender, titler)` 签名扩充 → pool.go 1 处改动
+- `chat.go` + `pool.go` 4 个 runner.New 处统一塞 `CurrentSessionContext: BuildSessionContext(store, sessionID)`
+- 公共 helper `pkg/agent/session_context.go::BuildSessionContext` 避免代码重复
+
+### ✅ 测试
+
+- `TestTitleLooksWeak`（weak/strong 识别 10 case）
+- `TestSessionRename_Basic`（成功 + TitleOverridden=true）
+- `TestSessionRename_NoOp`（相同 title 不写）
+- `TestSessionRename_EmptyTitle`（拒绝空）
+- `TestSessionRename_NoSession`（ephemeral 场景拒绝）
+- `TestSessionRename_TruncatesLongTitle`（30 rune 截断）
+
+全绿 + `go build ./...` ✅
+
+### 预期效果
+
+- 截图里 AI 说"我没有工具"的情况不再发生：它会看到自己的 tool list 有 `session_rename`，会看到当前 title，会判断是否改
+- 现有 session 当 AI 被问"改下标题" → AI 直接 `session_rename("xxx")` → UI 侧边栏下次刷新即可看到新标题
+- 对话开头如果 title 是"你好/OK"这类 weak 前缀 → prompt 提示 AI 主动更新
+
+### 兼容性
+- `WithSessionTools` 签名变化（加 titler），内部唯一调用方 pool.go 已同步
+- runner.Config 新字段，老调用代码默认值 "" 不影响行为
+
+---
+
 ## [26.4.23v5] — 2026-04-23 · 顶栏一键升级 + 全局进度横幅
 
 用户反馈：网页 UI 顶部只显示「新版本 XXX」标签但点了要跳到设置页再点一次才能升级，希望**一键升级 + 进度在顶部实时显示**。
