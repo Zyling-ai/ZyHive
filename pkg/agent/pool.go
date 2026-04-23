@@ -346,6 +346,42 @@ func (a *poolSessionAdapter) ReadHistory(sessionKey string, limit int) ([]tools.
 	return nil, fmt.Errorf("session %q not found", sessionKey)
 }
 
+// UpdateTitle implements tools.SessionTitleWriter — finds which agent owns
+// this sessionID and delegates to that agent's session.Store.UpdateTitle.
+// Marks TitleOverridden=true so auto-retitle won't overwrite.
+func (a *poolSessionAdapter) UpdateTitle(sessionID, title string) error {
+	a.pool.manager.mu.RLock()
+	agents := make([]*Agent, 0, len(a.pool.manager.agents))
+	for _, ag := range a.pool.manager.agents {
+		agents = append(agents, ag)
+	}
+	a.pool.manager.mu.RUnlock()
+	for _, ag := range agents {
+		store := session.NewStore(ag.SessionDir)
+		if _, ok := store.GetMeta(sessionID); ok {
+			return store.UpdateTitle(sessionID, title)
+		}
+	}
+	return fmt.Errorf("session %q not found in any agent", sessionID)
+}
+
+// GetMeta implements tools.SessionTitleWriter — searches all agents for the sessionID.
+func (a *poolSessionAdapter) GetMeta(sessionID string) (session.SessionIndexEntry, bool) {
+	a.pool.manager.mu.RLock()
+	agents := make([]*Agent, 0, len(a.pool.manager.agents))
+	for _, ag := range a.pool.manager.agents {
+		agents = append(agents, ag)
+	}
+	a.pool.manager.mu.RUnlock()
+	for _, ag := range agents {
+		store := session.NewStore(ag.SessionDir)
+		if meta, ok := store.GetMeta(sessionID); ok {
+			return meta, true
+		}
+	}
+	return session.SessionIndexEntry{}, false
+}
+
 // poolSessionSender sends a message to another agent using the pool.
 type poolSessionSender struct {
 	pool *Pool
@@ -476,7 +512,7 @@ func (p *Pool) configureToolRegistry(reg *tools.Registry, ag *Agent, fileSender 
 	// Uses a cross-agent adapter that aggregates all known agents' session stores.
 	sessAdapter := p.buildSessionAdapter()
 	sessionSender := &poolSessionSender{pool: p}
-	reg.WithSessionTools(sessAdapter, sessAdapter, sessionSender)
+	reg.WithSessionTools(sessAdapter, sessAdapter, sessionSender, sessAdapter)
 
 	// Register ACP tools (acp_list + acp_spawn) if any ACP agents are configured.
 	if len(p.acpAgents) > 0 {
@@ -786,7 +822,8 @@ func (p *Pool) RunStreamEvents(ctx context.Context, agentID, message, sessionID 
 		ProjectContext: p.buildProjectContext(ag.ID),
 		AgentEnv:       ag.Env,
 		UsageRecorder:  p.usageRecorder(),
-		CapabilitiesContext: BuildCapabilitiesContext(toolRegistry, ag, p.cfg, ag.WorkspaceDir),
+		CapabilitiesContext:   BuildCapabilitiesContext(toolRegistry, ag, p.cfg, ag.WorkspaceDir),
+		CurrentSessionContext: BuildSessionContext(store, sessionID),
 		ExtraContext:   strings.Join(extraSystemContext, "\n"),
 	})
 
@@ -846,7 +883,8 @@ func (p *Pool) RunStream(ctx context.Context, agentID, message, sessionID string
 		ProjectContext: p.buildProjectContext(ag.ID),
 		AgentEnv:       ag.Env,
 		UsageRecorder:  p.usageRecorder(),
-		CapabilitiesContext: BuildCapabilitiesContext(toolRegistry, ag, p.cfg, ag.WorkspaceDir),
+		CapabilitiesContext:   BuildCapabilitiesContext(toolRegistry, ag, p.cfg, ag.WorkspaceDir),
+		CurrentSessionContext: BuildSessionContext(store, sessionID),
 	})
 
 	return r.Run(ctx, message), nil
@@ -1000,7 +1038,8 @@ func (p *Pool) subagentRunFuncExt() subagent.RunFuncExt {
 				ProjectContext:  p.buildProjectContext(ag.ID),
 				AgentEnv:        ag.Env,
 				UsageRecorder:   p.usageRecorder(),
-				CapabilitiesContext: BuildCapabilitiesContext(toolRegistry, ag, p.cfg, ag.WorkspaceDir),
+				CapabilitiesContext:   BuildCapabilitiesContext(toolRegistry, ag, p.cfg, ag.WorkspaceDir),
+				CurrentSessionContext: BuildSessionContext(store, task.SessionID),
 			})
 
 			for ev := range r.Run(ctx, enrichedTask) {
@@ -1084,7 +1123,8 @@ func (p *Pool) SubagentRunFunc() subagent.RunFunc {
 				ProjectContext:  p.buildProjectContext(ag.ID),
 				AgentEnv:        ag.Env,
 				UsageRecorder:   p.usageRecorder(),
-				CapabilitiesContext: BuildCapabilitiesContext(toolRegistry, ag, p.cfg, ag.WorkspaceDir),
+				CapabilitiesContext:   BuildCapabilitiesContext(toolRegistry, ag, p.cfg, ag.WorkspaceDir),
+				CurrentSessionContext: BuildSessionContext(store, sessionID),
 			})
 
 			for ev := range r.Run(ctx, task) {
