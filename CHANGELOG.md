@@ -4,6 +4,64 @@
 
 ---
 
+## [26.4.23v4] — 2026-04-23 · 飞书图片消息接入视觉模型
+
+用户反馈：在飞书渠道发图片给 AI，AI 收不到。
+
+### 🐛 根因
+
+`pkg/channel/feishu.go::handleMessageEvent` 第 335 行：
+```go
+if msg.MessageType != "text" {
+    return
+}
+```
+
+任何非文本类型的消息（image / post / audio / file / sticker）直接被丢弃。
+Telegram 渠道早就支持 photo / document 等，飞书一直没跟上。
+
+### 🔧 修复
+
+**接纳三类消息**：`text` / `image` / `post`（富文本，可能含内嵌图）
+
+**内容解析**（`handleMessageEvent`）：
+- `image` → 解析 `{"image_key":"img_v3_..."}`，文本兜底 `[图片]`
+- `post` → 解析 2D 内容数组，抽取所有 `tag="text"/"a"/"md"` 的文字 + 所有 `tag="img"` 的 image_key
+- `text` → 保持不变
+
+**下载图片**（新 helper `downloadMessageResource`）：
+- `GET /im/v1/messages/:message_id/resources/:file_key?type=image`
+- 使用 `app_access_token` 鉴权（复用现有 refreshToken）
+- 10MB 上限保护（超过直接跳过该图）
+- `sniffImageContentType` 按 magic bytes 识别 JPEG/PNG/GIF/WebP，默认 jpeg
+
+**喂给模型**（`streamFunc` media 参数）：
+- 包装 `MediaInput{FileName, ContentType, Data}` 数组
+- 单条消息最多 5 张图（超过截断 + 记日志），保护 token 预算和 vision 模型限制
+- pool 层 `normalizeVisionContentType` 已支持 image/jpeg|png|gif|webp
+
+### ✅ 验证
+
+- `go build ./... && go test ./pkg/channel/...` 全绿
+- 新增测试：
+  - `TestSniffImageContentType`（6 子 case：4 种 magic + 未知兜底 + 空兜底）
+  - `TestExtFromContentType`（6 case）
+
+### 效果
+
+飞书用户直接发图/富文本带图给绑定视觉模型的 agent：
+- 图片被下载并作为 base64 data URI 传给 LLM
+- AI 能 "看到" 图片内容
+- 多张图自动截到 5 张以内
+- 非视觉模型（`supportsTools=false` 或 vision=false）：pool 层的 `normalizeVisionContentType` 会 skip，记日志 + 继续走文本流
+
+### 兼容性
+
+- 零破坏：文本消息路径完全不变
+- 非 image/post/text 的其他类型（audio/file/sticker）继续 ignore，和之前行为一致
+
+---
+
 ## [26.4.23v3] — 2026-04-23 · Session 自动主题命名 + UsageView 明细增强
 
 用户反馈：
