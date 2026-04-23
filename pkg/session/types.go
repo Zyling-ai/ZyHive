@@ -86,10 +86,17 @@ type SessionIndexEntry struct {
 	AgentID       string `json:"agentId"`
 	FilePath      string `json:"filePath"`
 	CreatedAt     int64  `json:"createdAt"`
-	Title         string `json:"title,omitempty"`        // first user message (truncated)
+	Title         string `json:"title,omitempty"`        // first user message (truncated) OR LLM-summarized
 	MessageCount  int    `json:"messageCount"`           // total user+assistant turns
 	LastAt        int64  `json:"lastAt"`                 // last activity timestamp
 	TokenEstimate int    `json:"tokenEstimate"`          // rough token count, triggers compaction
 	Active        bool   `json:"active,omitempty"`       // if true, reaper will never delete this session
 	Source        string `json:"source,omitempty"`       // "web" | "telegram" | "feishu" | "whatsapp" etc.
+	// TitleOverridden=true when the user manually renamed via PATCH /sessions/:id
+	// or when title was set by a LLM-summarizer. Auto-title logic won't touch
+	// these again (respect user choice / avoid recompute cost).
+	TitleOverridden bool `json:"titleOverridden,omitempty"`
+	// TitledAtMsgCount records the MessageCount at which the last auto-retitle
+	// ran. Used to throttle retitle frequency (only fire at fixed milestones).
+	TitledAtMsgCount int `json:"titledAtMsgCount,omitempty"`
 }

@@ -4,6 +4,87 @@
 
 ---
 
+## [26.4.23v3] — 2026-04-23 · Session 自动主题命名 + UsageView 明细增强
+
+用户反馈：
+> 对话管理的标题应该要根据对话内容实时变化，每个 session 标题应该能直接反映
+> token 调用明细里面，要有 session 标题、成员名字，细化这个页面，同时把筛选也做出来
+
+### 🏷️ Session 自动主题命名（取代首字节摘要）
+
+**问题**：旧实现 `extractTitle` 只取第一条 user message 的前 60 字符，导致"你好"/"请问"/"开始对话吧"这种寒暄开场 = 永久 title，对话管理里 37 个 session 有 20 个是这种无信息 title。
+
+**新实现**（`pkg/session/retitle.go`）：
+- `MaybeAutoRetitle(store, sessionID, summarizer)` — fire-and-forget 后台调用，不阻塞主对话
+- 里程碑触发：消息数 crosses 4 / 12 / 30 / 80 时各触发一次
+- 使用会话自己绑定的模型（`Runner.makeSimpleLLMCaller` 复用）
+- Prompt 要求：8-20 字简洁中文标题，无"标题:"/引号等前缀
+- 失败静默（`log.Printf` 记录，不影响对话）
+- `TitleOverridden` 字段：用户手动 `PATCH /sessions/:id` rename 后永久尊重，auto-retitle 不再覆盖
+- `TitledAtMsgCount` 字段：记录上次 auto retitle 时的 MessageCount，避免重复总结
+
+**`pkg/session/types.go`**
+- `SessionIndexEntry` 新增 `TitleOverridden bool` + `TitledAtMsgCount int`
+
+**`pkg/session/store.go`**
+- `UpdateTitle` → 人工 rename，设 `TitleOverridden=true`
+- `UpdateAutoTitle` → 新方法，`TitleOverridden=true` 时跳过；自动写 `TitledAtMsgCount`
+- `NeedsAutoRetitle` → 检查是否越过里程碑且未被人工覆盖
+- `autoRetitleThresholds = []int{4, 12, 30, 80}`
+
+**`pkg/runner/runner.go`**
+- `done` event 发出之后追加 `session.MaybeAutoRetitle(...)`
+
+**测试**
+- `TestSanitizeTitle`（7 case 清洗：引号/「」/标题:/markdown 粗体/多行/超长截断）
+- `TestBuildRetitleInput`（保序 + 最新优先）
+- `TestBuildRetitleInput_TruncatesToLatest`（超长首条取 rune-safe 尾部）
+- `TestNeedsAutoRetitle_Milestones`（4→触发→标记→12 才再触发）
+- `TestMaybeAutoRetitle_RunsSummarizer`（summarizer 被调 + title 异步写入）
+
+### 📊 UsageView 明细 + 筛选增强
+
+**问题**：截图里 token 调用明细只有 `agent_id` / `provider` / `model` 等技术字段，没法快速定位哪个成员在哪个 session 烧了钱。
+
+**`pkg/usage/store.go`**
+- `Record` 新增 `SessionID string` 字段（向后兼容：旧数据缺省为空串）
+- `QueryParams` 加 `SessionID` 过滤
+
+**`pkg/runner/runner.go`**
+- `UsageRecorder` 签名从 `(in, out, provider, model, agentID)` → `(in, out, provider, model, agentID, sessionID)`
+- 调用点 `UsageRecorder(..., r.cfg.SessionID)`
+
+**`pkg/agent/pool.go` + `internal/api/chat.go`**
+- 两处 `usageRecorder` 实现同步扩展；`usage.Record.SessionID` 自动落盘
+
+**`internal/api/usage.go`**
+- `Records` 端点响应改为 `enrichedRecord = Record + agentName + sessionTitle`
+- `agentName` 查自 `agent.Manager`（删除 agent 容错：缺省 ""）
+- `sessionTitle` 查自 `session.Store.GetMeta`
+- 单次请求内用 map 缓存，避免同一 agent/session 重复文件 IO
+- 新增 `?sessionId=` 查询参数
+
+**`ui/src/views/UsageView.vue`**
+- 筛选栏新增「Session」下拉（filterable + 最多 200 条）
+- 成员下拉改为显示 agent.name（原来只显示 agentId）
+- 联动：选中成员 → 加载该成员的 sessions → 填充 Session 下拉
+- 明细表：
+  - 原「成员」列显示 `agentName` + 小字 `agent_id` 两行
+  - 新增「Session」列显示 `sessionTitle` + 小字短 `session_id`
+  - 模型列加宽到 220px
+
+### ✅ 验证
+- `go build ./... && go vet ./...` ✅
+- `go test ./pkg/...` 全绿（新增 5 个 session 测试）
+- `npx vue-tsc -b` ✅
+
+### 兼容性
+- `UsageRecorder` 签名 breaking —— 但仅 3 处内部调用，全部已更新
+- `usage.Record.SessionID` 新字段，老数据 unmarshal 后 SessionID="" 不影响显示
+- `SessionIndexEntry` 新字段默认值 ok
+
+---
+
 ## [26.4.23v2] — 2026-04-22 · 生产稳定性地基（P0 全集）
 
 基于 OpenClaw 对比 + 自审清单，围绕"生产稳定性"一口气补齐 9 项 P0。**不做**session 清理（= 删用户聊天记录，产品语义错误）、**不做**对用户隐藏的自动模型切换（让用户有完整控制权）、**不做**全插件化。
