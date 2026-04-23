@@ -32,16 +32,31 @@
           ★<template v-if="starCount !== null"> {{ starCount.toLocaleString() }}</template>
           <span class="header-hide-xs"> Star</span>
         </span>
-        <!-- Update available badge -->
+        <!-- Update available badge → 一键升级 -->
         <span
-          v-if="updateInfo"
+          v-if="updateInfo && !showUpgradeBanner"
           class="header-update-btn"
           style="cursor:pointer"
-          :title="`新版本 ${updateInfo.latest} 可用，点击前往设置`"
-          @click="router.push('/settings')"
+          :title="`一键升级到 ${updateInfo.latest}`"
+          @click="handleTopUpdateClick"
         >
           <span class="update-dot"></span>
-          <span class="header-hide-xs">新版本 {{ updateInfo.latest }}</span>
+          <span class="header-hide-xs">升级到 {{ updateInfo.latest }}</span>
+          <span class="header-xs-only" style="display:none">↑</span>
+        </span>
+        <!-- Upgrade in progress/done hint (clicks → detailed progress) -->
+        <span
+          v-else-if="showUpgradeBanner"
+          class="header-update-btn header-update-running"
+          style="cursor:pointer"
+          :title="`升级${updateStageLabel}`"
+          @click="router.push('/settings')"
+        >
+          <span class="update-dot update-dot-running"></span>
+          <span class="header-hide-xs">
+            {{ updater.restartDetected.value ? '重启完成' : updateStageLabel }}
+            {{ updater.updateStatus.value?.progress != null ? updater.updateStatus.value.progress + '%' : '' }}
+          </span>
         </span>
         <el-divider direction="vertical" style="margin:0 4px;border-color:rgba(255,255,255,0.2)" />
         <span class="header-link" style="cursor:pointer" @click="logout" title="退出登录">
@@ -49,6 +64,56 @@
         </span>
       </div>
     </el-header>
+
+    <!-- ══ 全局升级进度横幅 ════════════════════════════════════════════════════ -->
+    <!-- 顶部一键升级 / Settings 页手动升级, 共用同一份状态机 (useUpdater) -->
+    <transition name="fade">
+      <div v-if="showUpgradeBanner" class="upgrade-banner" :class="{
+        'is-done': updater.updateStatus.value?.stage === 'done' && updater.restartDetected.value,
+        'is-failed': updater.updateStatus.value?.stage === 'failed',
+        'is-rolledback': updater.updateStatus.value?.stage === 'rolledback',
+      }">
+        <div class="upgrade-banner-inner">
+          <!-- 左：状态文本 -->
+          <div class="upgrade-banner-text">
+            <template v-if="updater.updateStatus.value?.stage === 'done' && updater.restartDetected.value">
+              ✅ 服务已重启，新版本 {{ updater.currentVersion.value }} 运行中
+            </template>
+            <template v-else-if="updater.updateStatus.value?.stage === 'done'">
+              ⏳ 升级成功，等待服务重启中…
+            </template>
+            <template v-else-if="updater.updateStatus.value?.stage === 'failed'">
+              ❌ 升级失败：{{ updater.updateStatus.value?.message }}
+            </template>
+            <template v-else-if="updater.updateStatus.value?.stage === 'rolledback'">
+              ↩️ 已回滚：{{ updater.updateStatus.value?.message }}
+            </template>
+            <template v-else>
+              <span class="banner-spinner"></span>
+              {{ updateStageLabel }} —— {{ updater.updateStatus.value?.message || '正在处理…' }}
+            </template>
+          </div>
+          <!-- 中：进度条 -->
+          <div v-if="!updater.restartDetected.value && updater.updateStatus.value?.stage !== 'failed' && updater.updateStatus.value?.stage !== 'rolledback'"
+            class="upgrade-banner-progress">
+            <div class="upgrade-banner-progress-bar"
+              :style="{ width: (updater.updateStatus.value?.progress ?? 0) + '%' }"></div>
+          </div>
+          <!-- 右：动作按钮 -->
+          <div class="upgrade-banner-actions">
+            <button v-if="updater.restartDetected.value"
+              class="banner-btn banner-btn-primary" @click="reloadAfterUpgrade">
+              刷新页面
+            </button>
+            <button v-else-if="['failed','rolledback'].includes(updater.updateStatus.value?.stage ?? '')"
+              class="banner-btn" @click="router.push('/settings')">
+              查看详情
+            </button>
+            <span v-else class="upgrade-banner-pct">{{ updater.updateStatus.value?.progress ?? 0 }}%</span>
+          </div>
+        </div>
+      </div>
+    </transition>
 
     <el-container class="app-body">
       <!-- Mobile overlay backdrop -->
@@ -191,7 +256,9 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import api from './api'
+import { useUpdater } from './composables/useUpdater'
 
 const route = useRoute()
 const router = useRouter()
@@ -201,6 +268,81 @@ const appVersion = ref('')
 const updateInfo = ref<{ latest: string; releaseUrl: string } | null>(null)
 const isMobile = ref(false)
 const mobileDrawerOpen = ref(false)
+
+// 全局升级器：顶栏按钮点击直接弹确认 → 一键升级，进度条显示在 header 下方 banner
+const updater = useUpdater()
+const headerUpdateBusy = ref(false)  // 防重入（防止用户双击）
+
+// UI 辅助：把 stage 翻成人话
+const updateStageLabel = computed(() => {
+  const s = updater.updateStatus.value?.stage
+  switch (s) {
+    case 'downloading': return '下载中'
+    case 'verifying':   return '验证中'
+    case 'applying':    return '替换文件'
+    case 'done':        return '升级完成'
+    case 'failed':      return '升级失败'
+    case 'rolledback':  return '已回滚'
+    default: return ''
+  }
+})
+
+// 什么时候显示顶部 upgrade banner：
+//   1. 有 updateStatus 且 stage 非 idle → 在进行中或刚结束
+//   2. 或者 updateRunning=true（启动但还没来得及返回第一次 status）
+const showUpgradeBanner = computed(() => {
+  if (updater.updateRunning.value) return true
+  const st = updater.updateStatus.value
+  return !!st && st.stage !== 'idle'
+})
+
+// 顶栏点「新版本 XXX」按钮
+async function handleTopUpdateClick() {
+  if (headerUpdateBusy.value) return
+  if (!updateInfo.value) return
+  // 已经在升级或等重启中 → 不重复触发，跳转到 settings 让用户看详细进度
+  if (updater.updateRunning.value || showUpgradeBanner.value) {
+    router.push('/settings')
+    return
+  }
+  headerUpdateBusy.value = true
+  try {
+    await ElMessageBox.confirm(
+      `确认将 ZyHive 从 ${appVersion.value} 升级到 ${updateInfo.value.latest}？\n\n升级过程中服务将短暂重启（约 10-30 秒），成员数据和配置文件不受影响。`,
+      '确认升级',
+      { confirmButtonText: '立即升级', cancelButtonText: '取消', type: 'warning' }
+    )
+  } catch {
+    headerUpdateBusy.value = false
+    return  // 用户取消
+  }
+  try {
+    await updater.startUpgrade(updateInfo.value.latest)
+    ElMessage.success('升级已启动，进度见顶部横幅')
+    // 升级期间清掉 localStorage 缓存，避免 restart 后还显示"有新版本"
+    localStorage.removeItem('zyhive_update_info')
+    localStorage.removeItem('zyhive_update_exp')
+  } catch (e: any) {
+    ElMessage.error(e.response?.data?.error || '启动升级失败')
+  } finally {
+    headerUpdateBusy.value = false
+  }
+}
+
+// 升级完成后一键刷新
+function reloadAfterUpgrade() {
+  updater.reloadPage()
+}
+
+// 当升级成功（restartDetected）且用户还没手动刷 → 清本地缓存 + 给个 toast
+watch(() => updater.restartDetected.value, (v) => {
+  if (v) {
+    localStorage.removeItem('zyhive_update_info')
+    localStorage.removeItem('zyhive_update_exp')
+    updateInfo.value = null
+    appVersion.value = updater.currentVersion.value
+  }
+})
 
 const MOBILE_BREAKPOINT = 768
 
@@ -270,6 +412,11 @@ onMounted(async () => {
     const vRes = await api.get('/version')
     appVersion.value = vRes.data.version
   } catch { /* ignore */ }
+
+  // 初始化全局升级器 — 刷新页面时若后端已有进行中任务，顶部 banner 会自动出现
+  if (localStorage.getItem('aipanel_token')) {
+    updater.initFromBackend().catch(() => {/* non-critical */})
+  }
 
   // Check for updates (delayed 2s, cached 1h in localStorage)
   setTimeout(async () => {
@@ -438,6 +585,100 @@ body {
 @keyframes update-pulse {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.5; transform: scale(0.75); }
+}
+
+/* Running state: 蓝色 (区别于"可升级"的绿色) */
+.header-update-btn.header-update-running {
+  background: rgba(59, 130, 246, 0.15);
+  border-color: rgba(59, 130, 246, 0.4);
+  color: #60a5fa;
+}
+.header-update-btn.header-update-running:hover {
+  background: rgba(59, 130, 246, 0.25);
+  color: #93c5fd;
+}
+.update-dot.update-dot-running {
+  background: #60a5fa;
+  animation: update-spin 1s linear infinite;
+}
+@keyframes update-spin {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* ══ Global upgrade banner ════════════════════════════════════════════════ */
+.upgrade-banner {
+  background: #eff6ff;
+  border-bottom: 1px solid #bfdbfe;
+  color: #1e3a8a;
+  padding: 10px 20px;
+  font-size: 13px;
+  position: relative;
+  z-index: 5;
+}
+.upgrade-banner.is-done { background: #ecfdf5; border-color: #a7f3d0; color: #065f46; }
+.upgrade-banner.is-failed { background: #fef2f2; border-color: #fecaca; color: #991b1b; }
+.upgrade-banner.is-rolledback { background: #fffbeb; border-color: #fde68a; color: #92400e; }
+.upgrade-banner-inner {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  max-width: 100%;
+}
+.upgrade-banner-text { flex-shrink: 0; font-weight: 500; }
+.upgrade-banner-progress {
+  flex: 1;
+  height: 6px;
+  background: rgba(30, 58, 138, 0.15);
+  border-radius: 3px;
+  overflow: hidden;
+  min-width: 100px;
+}
+.is-done .upgrade-banner-progress { background: rgba(6, 95, 70, 0.15); }
+.upgrade-banner-progress-bar {
+  height: 100%;
+  background: #3b82f6;
+  border-radius: 3px;
+  transition: width 0.35s ease-out;
+}
+.is-done .upgrade-banner-progress-bar { background: #10b981; }
+.upgrade-banner-actions { flex-shrink: 0; display: flex; align-items: center; gap: 8px; }
+.upgrade-banner-pct { font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; min-width: 40px; text-align: right; }
+.banner-btn {
+  padding: 4px 12px;
+  border-radius: 6px;
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.banner-btn:hover { background: rgba(0,0,0,0.05); }
+.banner-btn-primary {
+  background: #10b981;
+  border-color: #10b981;
+  color: #fff;
+}
+.banner-btn-primary:hover { background: #059669; border-color: #059669; }
+.banner-spinner {
+  display: inline-block;
+  width: 10px; height: 10px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: banner-spin 0.7s linear infinite;
+  margin-right: 6px;
+  vertical-align: -1px;
+}
+@keyframes banner-spin { to { transform: rotate(360deg); } }
+
+.fade-enter-active, .fade-leave-active { transition: opacity 0.3s, transform 0.3s; }
+.fade-enter-from, .fade-leave-to { opacity: 0; transform: translateY(-8px); }
+
+@media (max-width: 640px) {
+  .upgrade-banner-progress { display: none; }
+  .upgrade-banner-inner { flex-wrap: wrap; gap: 8px; }
 }
 .header-right { display: flex; align-items: center; gap: 10px; }
 .header-link {
