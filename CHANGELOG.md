@@ -4,6 +4,57 @@
 
 ---
 
+## [26.4.23v7] — 2026-04-23 · 修复顶栏「新版本」按钮不显示 bug
+
+用户反馈：生产 26.4.23v5 已能检测到 26.4.23v6，但顶栏没有绿色"升级到 26.4.23v6"按钮；设置页"发现新版本"正常显示。
+
+### 🐛 根因
+
+`ui/src/App.vue` 里的 `semverGt` parser：
+```js
+const parse = (s) => s.replace(/^v/, '').split('.').map(Number)
+// parse('26.4.23v6') = [26, 4, NaN]   ← '23v6' → Number → NaN
+// parse('26.4.23v5') = [26, 4, NaN]
+// NaN > NaN === false → semverGt 永远返回 false → updateInfo 不赋值
+```
+
+后端 `/api/update/check` 返回 `hasUpdate=true` 是对的（用的是 `internal/api/update.go` 里另一个正确 parser），SettingsView 信任这个 bool 直接显示。但顶栏多做了一次客户端 semverGt 校验，把正确结果过滤掉了。
+
+### 🔧 修复
+
+对齐后端 `internal/api/update.go::semverGt` 的格式支持：
+- 先剥离末尾 `vN` 修订号
+- 剩下三段按 `.` 解析
+- 返回 `[Y, M, D, revision]` 四元组比较
+
+```typescript
+const parse = (s: string): [number, number, number, number] => {
+  s = s.replace(/^v/, '')
+  let revision = 0
+  const m = s.match(/^(.+?)[vV](\d+)$/)
+  if (m && m[1] && m[2]) { s = m[1]; revision = parseInt(m[2], 10) || 0 }
+  const p = s.split('.').map(x => parseInt(x, 10) || 0)
+  return [p[0] ?? 0, p[1] ?? 0, p[2] ?? 0, revision]
+}
+```
+
+**验证**（7/7 pass）：
+- `semverGt('26.4.23v6', '26.4.23v5')` → true
+- `semverGt('26.4.23v10', '26.4.23v9')` → true（字典序会错，这里是数值比较）
+- `semverGt('26.4.24v1', '26.4.23v10')` → true（跨日优先）
+- `semverGt('v0.9.26', 'v0.9.25')` → true（legacy semver 兼容）
+
+### 🗄️ 缓存失效
+
+本机浏览器 localStorage 里可能还有旧 parser 判定的 `zyhive_update_info`，还没到 1h 过期。**把 key 升到 `_v2`**，旧 key 自然被忽略：
+```
+'zyhive_update_info'    →  'zyhive_update_info_v2'
+'zyhive_update_exp'     →  'zyhive_update_exp_v2'
+```
+升级触发时两套 key 都清，保险。
+
+---
+
 ## [26.4.23v6] — 2026-04-23 · AI 感知当前会话标题 + `session_rename` 工具
 
 用户反馈：问 AI "这个 session 你能不能配置标题"，AI 回复"我没有直接工具"并写进 wishlist。实际上需要的是把**标题感知 + 编辑能力**都给 AI。
