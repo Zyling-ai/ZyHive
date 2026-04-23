@@ -331,8 +331,10 @@ func (b *FeishuBot) handleMessageEvent(ctx context.Context, ev *feishuMessageEve
 	msg := &ev.Message
 	senderOpenID := ev.Sender.SenderID.OpenID
 
-	// Only handle text messages for now
-	if msg.MessageType != "text" {
+	// Accept text / image / post (rich text with images). Everything else
+	// (audio / file / sticker / ...) is still ignored — vision models don't
+	// consume those anyway.
+	if msg.MessageType != "text" && msg.MessageType != "image" && msg.MessageType != "post" {
 		return
 	}
 
@@ -342,14 +344,65 @@ func (b *FeishuBot) handleMessageEvent(ctx context.Context, ev *feishuMessageEve
 	mu.Lock()
 	defer mu.Unlock()
 
-	// Parse content: {"text":"hello"}
-	var contentObj struct {
-		Text string `json:"text"`
+	// Parse content based on message_type:
+	//   text  → {"text":"hello"}
+	//   image → {"image_key":"img_v3_..."}
+	//   post  → {"title":"t","content":[[{tag:"text",text:"..."}, {tag:"img",image_key:"..."}, ...], ...]}
+	var text string
+	var imageKeys []string
+	switch msg.MessageType {
+	case "text":
+		var c struct {
+			Text string `json:"text"`
+		}
+		if err := json.Unmarshal([]byte(msg.Content), &c); err != nil {
+			return
+		}
+		text = strings.TrimSpace(c.Text)
+	case "image":
+		var c struct {
+			ImageKey string `json:"image_key"`
+		}
+		if err := json.Unmarshal([]byte(msg.Content), &c); err != nil {
+			return
+		}
+		if c.ImageKey != "" {
+			imageKeys = append(imageKeys, c.ImageKey)
+		}
+		text = "[图片]"
+	case "post":
+		// Feishu post content is a 2D array of fragments; extract text + image_keys.
+		var c struct {
+			Title   string                     `json:"title"`
+			Content [][]map[string]interface{} `json:"content"`
+		}
+		if err := json.Unmarshal([]byte(msg.Content), &c); err != nil {
+			return
+		}
+		var textParts []string
+		if t := strings.TrimSpace(c.Title); t != "" {
+			textParts = append(textParts, t)
+		}
+		for _, line := range c.Content {
+			for _, frag := range line {
+				tag, _ := frag["tag"].(string)
+				switch tag {
+				case "text", "a", "md":
+					if s, ok := frag["text"].(string); ok && strings.TrimSpace(s) != "" {
+						textParts = append(textParts, s)
+					}
+				case "img":
+					if k, ok := frag["image_key"].(string); ok && k != "" {
+						imageKeys = append(imageKeys, k)
+					}
+				}
+			}
+		}
+		text = strings.TrimSpace(strings.Join(textParts, "\n"))
+		if text == "" && len(imageKeys) > 0 {
+			text = "[图片]"
+		}
 	}
-	if err := json.Unmarshal([]byte(msg.Content), &contentObj); err != nil {
-		return
-	}
-	text := strings.TrimSpace(contentObj.Text)
 
 	// Group chat handling
 	isGroup := msg.ChatType == "group"
@@ -480,7 +533,34 @@ func (b *FeishuBot) handleMessageEvent(ctx context.Context, ev *feishuMessageEve
 		}
 	}
 
-	events, err := b.streamFunc(runCtx, b.agentID, finalText, feishuSessionID, nil, nil, extraCtx)
+	// Download any attached images and hand them to the model as MediaInput.
+	// Cap at 5 images per message to protect token budget / vision limits.
+	var media []MediaInput
+	if len(imageKeys) > 0 {
+		const maxImgs = 5
+		if len(imageKeys) > maxImgs {
+			log.Printf("[feishu] message %s has %d images, keeping first %d",
+				msg.MessageID, len(imageKeys), maxImgs)
+			imageKeys = imageKeys[:maxImgs]
+		}
+		for _, key := range imageKeys {
+			data, ct, derr := b.downloadMessageResource(msg.MessageID, key, "image")
+			if derr != nil {
+				log.Printf("[feishu] download image_key=%s: %v", key, derr)
+				continue
+			}
+			media = append(media, MediaInput{
+				FileName:    key + extFromContentType(ct),
+				ContentType: ct,
+				Data:        data,
+			})
+		}
+		if len(media) > 0 {
+			log.Printf("[feishu] attached %d images to agent turn", len(media))
+		}
+	}
+
+	events, err := b.streamFunc(runCtx, b.agentID, finalText, feishuSessionID, media, nil, extraCtx)
 	if err != nil {
 		_, _ = b.sendText(msg.ChatID, "⚠️ 出错了："+err.Error())
 		return
@@ -645,6 +725,87 @@ func (b *FeishuBot) fetchBotOpenID(token string) (string, error) {
 		return "", fmt.Errorf("bot info error %d: %s", result.Code, result.Msg)
 	}
 	return result.Bot.OpenID, nil
+}
+
+// downloadMessageResource fetches an image/file attached to a Feishu message
+// via GET /im/v1/messages/:message_id/resources/:file_key?type=image.
+//
+// Returns (raw bytes, content-type, error).
+// Caller is responsible for bounding the total set of images sent to the LLM
+// (vision providers typically cap around 5 images / 20MB).
+func (b *FeishuBot) downloadMessageResource(messageID, fileKey, resourceType string) ([]byte, string, error) {
+	token, err := b.refreshToken()
+	if err != nil {
+		return nil, "", err
+	}
+	if resourceType == "" {
+		resourceType = "image"
+	}
+	url := fmt.Sprintf("%s/im/v1/messages/%s/resources/%s?type=%s",
+		b.apiBase(), messageID, fileKey, resourceType)
+	req, _ := http.NewRequest("GET", url, nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := b.client.Do(req)
+	if err != nil {
+		return nil, "", fmt.Errorf("fetch feishu resource: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		// Feishu returns JSON error on 4xx/5xx — read a small window for diagnostics.
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return nil, "", fmt.Errorf("feishu resource HTTP %d: %s", resp.StatusCode, string(body))
+	}
+	// Cap at 10MB to protect memory + match most vision model limits.
+	const maxBytes = 10 * 1024 * 1024
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxBytes+1))
+	if err != nil {
+		return nil, "", fmt.Errorf("read feishu resource: %w", err)
+	}
+	if len(data) > maxBytes {
+		return nil, "", fmt.Errorf("feishu image exceeds %d bytes (skipped)", maxBytes)
+	}
+	ct := resp.Header.Get("Content-Type")
+	if ct == "" || !strings.HasPrefix(ct, "image/") {
+		// Feishu sometimes returns application/octet-stream for images.
+		// Sniff from magic bytes; default to jpeg which vision providers accept.
+		ct = sniffImageContentType(data)
+	}
+	return data, ct, nil
+}
+
+// extFromContentType returns a file extension (including leading dot) for
+// common image content-types. Empty string when unknown.
+func extFromContentType(ct string) string {
+	switch ct {
+	case "image/jpeg":
+		return ".jpg"
+	case "image/png":
+		return ".png"
+	case "image/gif":
+		return ".gif"
+	case "image/webp":
+		return ".webp"
+	}
+	return ""
+}
+
+// sniffImageContentType inspects the first few bytes of an image payload and
+// returns a normalized content-type. Falls back to image/jpeg.
+func sniffImageContentType(data []byte) string {
+	if len(data) >= 4 {
+		switch {
+		case data[0] == 0xff && data[1] == 0xd8 && data[2] == 0xff:
+			return "image/jpeg"
+		case data[0] == 0x89 && data[1] == 0x50 && data[2] == 0x4e && data[3] == 0x47:
+			return "image/png"
+		case data[0] == 0x47 && data[1] == 0x49 && data[2] == 0x46:
+			return "image/gif"
+		case len(data) >= 12 && data[0] == 0x52 && data[1] == 0x49 && data[2] == 0x46 &&
+			data[8] == 0x57 && data[9] == 0x45 && data[10] == 0x42 && data[11] == 0x50:
+			return "image/webp"
+		}
+	}
+	return "image/jpeg"
 }
 
 // sendText sends a text message to a chat, returns message_id.
