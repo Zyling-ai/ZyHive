@@ -27,10 +27,25 @@
           v-model="filterAgent"
           clearable
           placeholder="全部成员"
-          style="width: 130px"
+          style="width: 160px"
           @change="load"
         >
-          <el-option v-for="a in agentOptions" :key="a" :label="a" :value="a" />
+          <el-option v-for="a in agentOptions" :key="a.id" :label="a.name" :value="a.id" />
+        </el-select>
+        <el-select
+          v-model="filterSession"
+          clearable
+          filterable
+          placeholder="全部 Session"
+          style="width: 260px"
+          @change="() => { page = 1; loadRecords() }"
+        >
+          <el-option
+            v-for="s in sessionOptions"
+            :key="s.id"
+            :label="s.label"
+            :value="s.id"
+          />
         </el-select>
         <el-button :loading="loading" :icon="Refresh" @click="load">刷新</el-button>
       </el-space>
@@ -86,13 +101,28 @@
       >
         <el-table-column prop="created_at" label="时间" width="160"
           :formatter="(r: any) => new Date(r.created_at * 1000).toLocaleString('zh-CN')" />
-        <el-table-column prop="agent_id" label="成员" width="100" />
+        <el-table-column label="成员" width="140" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span class="col-agent-name">{{ row.agentName || row.agent_id }}</span>
+            <span v-if="row.agentName" class="col-agent-id">{{ row.agent_id }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="Session" min-width="200" show-overflow-tooltip>
+          <template #default="{ row }">
+            <div v-if="row.sessionTitle" class="col-session">
+              <span class="col-session-title">{{ row.sessionTitle }}</span>
+              <span class="col-session-id">{{ shortSid(row.session_id) }}</span>
+            </div>
+            <span v-else-if="row.session_id" class="col-session-id">{{ shortSid(row.session_id) }}</span>
+            <span v-else class="col-session-none">—</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="provider" label="厂商" width="110">
           <template #default="{ row }">
             <el-tag :type="providerColor(row.provider)" size="small">{{ row.provider }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="model" label="模型" show-overflow-tooltip />
+        <el-table-column prop="model" label="模型" width="220" show-overflow-tooltip />
         <el-table-column prop="input_tokens" label="输入 Token" width="110"
           :formatter="(r: any) => fmtTokens(r.input_tokens)" />
         <el-table-column prop="output_tokens" label="输出 Token" width="110"
@@ -118,9 +148,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { Refresh } from '@element-plus/icons-vue'
-import { usageApi } from '../api'
+import { usageApi, agents as agentsApi, sessions as sessionsApi, type SessionSummary } from '../api'
 import * as echarts from 'echarts/core'
 import { LineChart, PieChart, BarChart } from 'echarts/charts'
 import {
@@ -136,6 +166,7 @@ const loadingRecords = ref(false)
 const dateRange = ref<[number, number] | null>(null)
 const filterProvider = ref<string>('')
 const filterAgent = ref<string>('')
+const filterSession = ref<string>('')
 
 const summary = ref<Record<string, any>>({})
 const timeline = ref<any[]>([])
@@ -143,6 +174,17 @@ const records = ref<any[]>([])
 const totalRecords = ref(0)
 const page = ref(1)
 const pageSize = ref(50)
+
+// All agents, for id→name map + filter dropdown
+const allAgents = ref<Array<{ id: string; name: string }>>([])
+const agentNameMap = computed(() => {
+  const m: Record<string, string> = {}
+  for (const a of allAgents.value) m[a.id] = a.name
+  return m
+})
+
+// Sessions for the currently-selected agent (for session filter dropdown)
+const agentSessions = ref<SessionSummary[]>([])
 
 const timelineChartEl = ref<HTMLElement | null>(null)
 const providerChartEl  = ref<HTMLElement | null>(null)
@@ -161,7 +203,33 @@ const dateShortcuts = [
 
 // ── filter options ─────────────────────────────────────────────────
 const providerOptions = computed(() => Object.keys(summary.value?.by_provider ?? {}))
-const agentOptions    = computed(() => Object.keys(summary.value?.by_agent    ?? {}))
+// agent dropdown uses real display names; fall back to IDs that have usage
+// but aren't registered (deleted agents) for completeness.
+const agentOptions = computed<Array<{ id: string; name: string }>>(() => {
+  const ids = new Set<string>(Object.keys(summary.value?.by_agent ?? {}))
+  for (const a of allAgents.value) ids.add(a.id)
+  const out: Array<{ id: string; name: string }> = []
+  for (const id of ids) {
+    out.push({ id, name: agentNameMap.value[id] || id })
+  }
+  out.sort((a, b) => a.name.localeCompare(b.name))
+  return out
+})
+
+const sessionOptions = computed<Array<{ id: string; label: string }>>(() => {
+  // Only show sessions belonging to the selected agent (otherwise too many)
+  if (!filterAgent.value) return []
+  return (agentSessions.value || []).map(s => ({
+    id: s.id,
+    label: (s.title || s.id) + '  ·  ' + (s.messageCount || 0) + ' 条',
+  }))
+})
+
+function shortSid(sid: string): string {
+  if (!sid) return ''
+  if (sid.length > 24) return sid.slice(0, 20) + '…'
+  return sid
+}
 
 // ── params helper ──────────────────────────────────────────────────
 function buildParams() {
@@ -170,10 +238,39 @@ function buildParams() {
     p.from = Math.floor(Number(dateRange.value[0]) / 1000)
     p.to   = Math.floor(Number(dateRange.value[1]) / 1000)
   }
-  if (filterProvider.value) p.provider = filterProvider.value
-  if (filterAgent.value)    p.agentId  = filterAgent.value
+  if (filterProvider.value) p.provider  = filterProvider.value
+  if (filterAgent.value)    p.agentId   = filterAgent.value
+  if (filterSession.value)  p.sessionId = filterSession.value
   return p
 }
+
+async function loadAgentList() {
+  try {
+    const res = await agentsApi.list()
+    allAgents.value = (res.data as any[]).map(a => ({ id: a.id, name: a.name || a.id }))
+  } catch { allAgents.value = [] }
+}
+
+async function loadAgentSessions() {
+  if (!filterAgent.value) {
+    agentSessions.value = []
+    return
+  }
+  try {
+    const res = await sessionsApi.list({ agentId: filterAgent.value, limit: 200 })
+    const d = res.data as any
+    agentSessions.value = (d?.sessions ?? d ?? []) as SessionSummary[]
+  } catch {
+    agentSessions.value = []
+  }
+}
+
+// When agent filter changes, load its sessions for the session dropdown and
+// clear any stale session selection.
+watch(filterAgent, () => {
+  filterSession.value = ''
+  loadAgentSessions()
+})
 
 // ── load ───────────────────────────────────────────────────────────
 async function loadSummary() {
@@ -299,6 +396,7 @@ function providerColor(p: string): TagType {
 // ── lifecycle ──────────────────────────────────────────────────────
 onMounted(async () => {
   dateRange.value = [Date.now() - 30*86400_000, Date.now()]
+  await loadAgentList()
   await load()
   window.addEventListener('resize', onResize)
 })
@@ -376,6 +474,23 @@ function onResize() {
 .card-title  { font-size: 13px; font-weight: 600; color: #334155; }
 .records-card { flex: 1; min-height: 0; }
 .table-pagination { margin-top: 12px; display: flex; justify-content: flex-end; }
+
+.col-agent-name { font-weight: 500; color: #334155; }
+.col-agent-id {
+  display: block;
+  font-size: 10px;
+  color: #94a3b8;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  margin-top: 1px;
+}
+.col-session { display: flex; flex-direction: column; gap: 1px; }
+.col-session-title { color: #1e293b; }
+.col-session-id {
+  font-size: 10px;
+  color: #94a3b8;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.col-session-none { color: #cbd5e1; }
 :deep(.el-card__header) {
   padding: 10px 16px;
   background: #fafbfc;

@@ -17,6 +17,7 @@ import (
 type Record struct {
 	ID           string  `json:"id"`
 	AgentID      string  `json:"agent_id"`
+	SessionID    string  `json:"session_id,omitempty"` // 26.4.23v3+; empty for legacy rows
 	Provider     string  `json:"provider"`
 	Model        string  `json:"model"`
 	InputTokens  int     `json:"input_tokens"`
@@ -63,9 +64,10 @@ func (s *Store) Append(r Record) error {
 type QueryParams struct {
 	From     int64  // Unix seconds, 0 = no lower bound
 	To       int64  // Unix seconds, 0 = no upper bound
-	AgentID  string // "" = all
-	Provider string // "" = all
-	Model    string // "" = all
+	AgentID   string // "" = all
+	SessionID string // "" = all (26.4.23v3+)
+	Provider  string // "" = all
+	Model     string // "" = all
 	Page     int    // 1-based
 	PageSize int    // default 50
 }
@@ -88,6 +90,9 @@ func (s *Store) Query(p QueryParams) QueryResult {
 	// filter
 	filtered := all[:0]
 	for _, r := range all {
+		if p.SessionID != "" && r.SessionID != p.SessionID {
+			continue
+		}
 		if p.AgentID != "" && r.AgentID != p.AgentID {
 			continue
 		}

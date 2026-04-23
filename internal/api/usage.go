@@ -4,17 +4,24 @@ package api
 import (
 	"net/http"
 	"strconv"
+	"sync"
 
 	"github.com/gin-gonic/gin"
+	"github.com/Zyling-ai/zyhive/pkg/agent"
+	"github.com/Zyling-ai/zyhive/pkg/session"
 	"github.com/Zyling-ai/zyhive/pkg/usage"
 )
 
 type usageHandler struct {
-	store *usage.Store
+	store   *usage.Store
+	manager *agent.Manager
+	// sessionTitleCache is short-lived memoization: per-request we read each
+	// (agentID, sessionID) at most once from disk instead of per-row.
+	titleCacheMu sync.Mutex
 }
 
-func newUsageHandler(store *usage.Store) *usageHandler {
-	return &usageHandler{store: store}
+func newUsageHandler(store *usage.Store, mgr *agent.Manager) *usageHandler {
+	return &usageHandler{store: store, manager: mgr}
 }
 
 // parsetime reads a Unix-seconds query param; returns 0 on missing/invalid.
@@ -53,19 +60,80 @@ func (h *usageHandler) Timeline(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"points": pts})
 }
 
-// GET /api/usage/records?from=&to=&agentId=&provider=&model=&page=&pageSize=
+// enrichedRecord is a Record augmented with human-readable fields for the UI:
+// session title and agent display name. These are looked up on the fly; empty
+// when the underlying session/agent has been deleted.
+type enrichedRecord struct {
+	usage.Record
+	AgentName    string `json:"agentName,omitempty"`
+	SessionTitle string `json:"sessionTitle,omitempty"`
+}
+
+// GET /api/usage/records?from=&to=&agentId=&sessionId=&provider=&model=&page=&pageSize=
 func (h *usageHandler) Records(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "50"))
 	params := usage.QueryParams{
-		From:     parsetime(c, "from"),
-		To:       parsetime(c, "to"),
-		AgentID:  c.Query("agentId"),
-		Provider: c.Query("provider"),
-		Model:    c.Query("model"),
-		Page:     page,
-		PageSize: pageSize,
+		From:      parsetime(c, "from"),
+		To:        parsetime(c, "to"),
+		AgentID:   c.Query("agentId"),
+		SessionID: c.Query("sessionId"),
+		Provider:  c.Query("provider"),
+		Model:     c.Query("model"),
+		Page:      page,
+		PageSize:  pageSize,
 	}
 	result := h.store.Query(params)
-	c.JSON(http.StatusOK, result)
+
+	// Enrich with agentName / sessionTitle for the UI.
+	enriched := make([]enrichedRecord, 0, len(result.Records))
+	agentNameCache := make(map[string]string)
+	titleCache := make(map[string]string) // agentID|sessionID → title
+	h.titleCacheMu.Lock()
+	defer h.titleCacheMu.Unlock()
+	for _, r := range result.Records {
+		er := enrichedRecord{Record: r}
+		if r.AgentID != "" && h.manager != nil {
+			if name, ok := agentNameCache[r.AgentID]; ok {
+				er.AgentName = name
+			} else if ag, found := h.manager.Get(r.AgentID); found {
+				agentNameCache[r.AgentID] = ag.Name
+				er.AgentName = ag.Name
+			} else {
+				agentNameCache[r.AgentID] = ""
+			}
+		}
+		if r.SessionID != "" && r.AgentID != "" && h.manager != nil {
+			key := r.AgentID + "|" + r.SessionID
+			if t, ok := titleCache[key]; ok {
+				er.SessionTitle = t
+			} else {
+				title := lookupSessionTitle(h.manager, r.AgentID, r.SessionID)
+				titleCache[key] = title
+				er.SessionTitle = title
+			}
+		}
+		enriched = append(enriched, er)
+	}
+
+	// Return both total and enriched list.
+	c.JSON(http.StatusOK, gin.H{
+		"total":   result.Total,
+		"records": enriched,
+	})
+}
+
+// lookupSessionTitle reads the session index for the given agent and returns
+// the title (empty if not found or title not yet auto-generated).
+func lookupSessionTitle(mgr *agent.Manager, agentID, sessionID string) string {
+	ag, ok := mgr.Get(agentID)
+	if !ok {
+		return ""
+	}
+	store := session.NewStore(ag.SessionDir)
+	meta, ok := store.GetMeta(sessionID)
+	if !ok {
+		return ""
+	}
+	return meta.Title
 }

@@ -354,7 +354,7 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, cfgPath string, mgr *agen
 	v1.GET("/stats", statsH.Handle)
 
 	// Usage statistics
-	usageH := newUsageHandler(usageStore)
+	usageH := newUsageHandler(usageStore, mgr)
 	v1.GET("/usage/summary", usageH.Summary)
 	v1.GET("/usage/timeline", usageH.Timeline)
 	v1.GET("/usage/records", usageH.Records)
