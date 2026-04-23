@@ -320,6 +320,9 @@ async function handleTopUpdateClick() {
     await updater.startUpgrade(updateInfo.value.latest)
     ElMessage.success('升级已启动，进度见顶部横幅')
     // 升级期间清掉 localStorage 缓存，避免 restart 后还显示"有新版本"
+    // (同时清旧 key 以防本机有遗留)
+    localStorage.removeItem('zyhive_update_info_v2')
+    localStorage.removeItem('zyhive_update_exp_v2')
     localStorage.removeItem('zyhive_update_info')
     localStorage.removeItem('zyhive_update_exp')
   } catch (e: any) {
@@ -337,6 +340,8 @@ function reloadAfterUpgrade() {
 // 当升级成功（restartDetected）且用户还没手动刷 → 清本地缓存 + 给个 toast
 watch(() => updater.restartDetected.value, (v) => {
   if (v) {
+    localStorage.removeItem('zyhive_update_info_v2')
+    localStorage.removeItem('zyhive_update_exp_v2')
     localStorage.removeItem('zyhive_update_info')
     localStorage.removeItem('zyhive_update_exp')
     updateInfo.value = null
@@ -422,16 +427,39 @@ onMounted(async () => {
   setTimeout(async () => {
     // Skip update check if not logged in — avoids 401 redirect loop on fresh installs
     if (!localStorage.getItem('aipanel_token')) return
-    const uCacheKey = 'zyhive_update_info'
-    const uCacheExp = 'zyhive_update_exp'
+    // 26.4.23v7: bump cache key (v2) so the old-parser-era cache is invalidated
+    // on first load after this deploy. Old keys ('zyhive_update_info') become
+    // orphan and expire naturally.
+    const uCacheKey = 'zyhive_update_info_v2'
+    const uCacheExp = 'zyhive_update_exp_v2'
     const now = Date.now()
     const cached = localStorage.getItem(uCacheKey)
     const exp = parseInt(localStorage.getItem(uCacheExp) || '0')
     // semver compare: a > b (e.g. v0.9.26 > v0.9.24)
+    // 对齐 internal/api/update.go::semverGt —— 支持两种格式:
+    //   1. 语义版本 v0.9.26         → [0, 9, 26, 0]
+    //   2. 日期版本 26.4.23v6       → [26, 4, 23, 6]  (YY.M.D + vN 修订号)
+    // 原版 parse 对 "26.4.23v6" 会把最后一段 Number('23v6') → NaN,
+    // 导致 "26.4.23v6 > 26.4.23v5" 判成 false, 顶栏 updateInfo 永远为空.
     const semverGt = (a: string, b: string) => {
-      const parse = (s: string) => { const p = s.replace(/^v/, '').split('.').map(Number); return [p[0]??0, p[1]??0, p[2]??0] as [number,number,number] }
-      const [a1, a2, a3] = parse(a); const [b1, b2, b3] = parse(b)
-      return a1 > b1 || (a1 === b1 && a2 > b2) || (a1 === b1 && a2 === b2 && a3 > b3)
+      const parse = (s: string): [number, number, number, number] => {
+        s = s.replace(/^v/, '')
+        // 剥离末尾的 vN 修订号
+        let revision = 0
+        const m = s.match(/^(.+?)[vV](\d+)$/)
+        if (m && m[1] && m[2]) {
+          s = m[1]
+          revision = parseInt(m[2], 10) || 0
+        }
+        const p = s.split('.').map(x => parseInt(x, 10) || 0)
+        return [p[0] ?? 0, p[1] ?? 0, p[2] ?? 0, revision]
+      }
+      const av = parse(a), bv = parse(b)
+      for (let i = 0; i < 4; i++) {
+        if ((av[i] ?? 0) > (bv[i] ?? 0)) return true
+        if ((av[i] ?? 0) < (bv[i] ?? 0)) return false
+      }
+      return false
     }
     const current = appVersion.value
     if (cached && now < exp) {
