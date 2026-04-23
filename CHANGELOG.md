@@ -4,6 +4,51 @@
 
 ---
 
+## [26.4.23v5] — 2026-04-23 · 顶栏一键升级 + 全局进度横幅
+
+用户反馈：网页 UI 顶部只显示「新版本 XXX」标签但点了要跳到设置页再点一次才能升级，希望**一键升级 + 进度在顶部实时显示**。
+
+### 🔧 改造
+
+**新 composable**：`ui/src/composables/useUpdater.ts`
+- module-singleton 状态（不随组件销毁），跨路由不丢进度
+- 封装 `initFromBackend` / `checkForUpdate` / `startUpgrade`
+- 复用 500ms polling + 90s waitForRestart 兜底（移自 SettingsView）
+
+**顶栏按钮（App.vue）**
+- 「升级到 XXX」绿色按钮 → 直接弹确认 → 启动升级（不再跳 settings）
+- 升级进行中按钮切为蓝色「下载中 45%」/「验证中」/「替换文件」
+- 点击运行中按钮 → 跳 settings 看详细日志
+
+**全局进度横幅**
+- 顶栏下方出现整条 banner：状态文本 + 流动进度条 + 百分比
+- 4 种状态配色：运行（蓝）/ 成功（绿）/ 失败（红）/ 回滚（黄）
+- 升级成功 → banner 变绿 + 显眼「刷新页面」按钮
+- 失败/回滚 → 「查看详情」按钮跳 settings
+- 横幅在所有路由都可见（在 `<el-header>` 下、`<el-container class="app-body">` 前）
+
+**SettingsView 重构**
+- 去除本地 polling/waitForRestart 复制代码（~120 行）
+- 改用 composable 的 state refs，state 在两处 UI 自动同步
+- 去掉 onBeforeUnmount stopPolling（全局状态不该被单组件销毁打断）
+
+### ✅ 效果
+
+- 顶栏点一下 → 弹确认 → 立刻开始升级 → 横幅实时跟进度
+- 切到任何路由（Dashboard / Goals / Chats）横幅都在顶
+- 切到 Settings 页也看到同一份进度（不会两处 polling 打架）
+- 刷新页面自动接管进行中的任务
+
+### 验证
+- `vue-tsc -b && vite build` ✅
+- 所有 .vue 代码复用同一 composable 实例，进度状态一致
+
+### 兼容性
+- 零破坏：后端 `/api/update/*` 完全不变
+- SettingsView 交互路径和以前一样，只是实现换了
+
+---
+
 ## [26.4.23v4] — 2026-04-23 · 飞书图片消息接入视觉模型
 
 用户反馈：在飞书渠道发图片给 AI，AI 收不到。

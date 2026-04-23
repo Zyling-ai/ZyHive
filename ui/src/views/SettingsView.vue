@@ -133,14 +133,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Setting, Refresh, Upload, CircleCheckFilled, CircleCloseFilled,
   InfoFilled, WarningFilled, Loading, Lock
 } from '@element-plus/icons-vue'
-import { config as configApi, updateApi, type UpdateCheckResult, type UpdateStatus } from '../api'
-import axios from 'axios'
+import { config as configApi, type UpdateCheckResult } from '../api'
+import { useUpdater } from '../composables/useUpdater'
 
 // ── 基本设置 ─────────────────────────────────────────────────────────────────
 const port = ref(8080)
@@ -154,25 +154,9 @@ onMounted(async () => {
     const res = await configApi.get()
     port.value = res.data.gateway?.port || 8080
   } catch {}
-  // 获取当前版本
-  fetchCurrentVersion()
-
-  // 若页面加载时后端已有进行中的升级任务, 自动挂上 polling,
-  // 避免 "刷新页面后进度条不跑" 的错觉
-  try {
-    const res = await updateApi.status()
-    const stage = res.data.stage
-    updateStatus.value = res.data
-    if (stage === 'downloading' || stage === 'verifying' || stage === 'applying') {
-      updateRunning.value = true
-      startPolling()
-    } else if (stage === 'done') {
-      // 已完成但页面刚打开: 直接进入等重启分支
-      waitForRestart()
-    }
-  } catch {
-    // auth 失败或首次无状态, 忽略
-  }
+  // 复用全局升级 composable（第一次调用自动 fetchVersion + 接管进行中任务，
+  // 之后每次 onMounted 都立即返回，避免重复初始化）
+  await updater.initFromBackend()
 })
 
 async function save() {
@@ -190,28 +174,21 @@ async function save() {
 }
 
 // ── 版本与更新 ────────────────────────────────────────────────────────────────
-const currentVersion = ref('')
-const checking = ref(false)
+// 复用全局升级 composable，保证顶栏按钮和 Settings 页共享同一份状态机
+// （不会出现"顶栏在跑 polling，Settings 看到另一份状态"）
+const updater = useUpdater()
+const currentVersion = updater.currentVersion
+const updateStatus = updater.updateStatus
+const updateRunning = updater.updateRunning
+const restartDetected = updater.restartDetected
 const checkResult = ref<UpdateCheckResult | null>(null)
-const updateStatus = ref<UpdateStatus | null>(null)
-const updateRunning = ref(false)
-const restartDetected = ref(false)
-
-let pollTimer: ReturnType<typeof setInterval> | null = null
-
-async function fetchCurrentVersion() {
-  try {
-    const res = await axios.get<{ version: string }>('/api/version')
-    currentVersion.value = res.data.version
-  } catch {}
-}
+const checking = ref(false)
 
 async function checkUpdate() {
   checking.value = true
   checkResult.value = null
   try {
-    const res = await updateApi.check()
-    checkResult.value = res.data
+    checkResult.value = await updater.checkForUpdate() as any
   } catch (e: any) {
     ElMessage.error(e.response?.data?.error || '检查更新失败，请检查网络')
   } finally {
@@ -230,108 +207,17 @@ async function applyUpdate() {
   } catch {
     return  // 用户取消
   }
-
-  updateRunning.value = true
-  restartDetected.value = false
-  updateStatus.value = null
-
   try {
-    await updateApi.apply(checkResult.value.latest)
+    await updater.startUpgrade(checkResult.value.latest)
   } catch (e: any) {
     ElMessage.error(e.response?.data?.error || '启动升级失败')
-    updateRunning.value = false
-    return
-  }
-
-  // 开始轮询状态
-  startPolling()
-}
-
-// 轮询 /api/update/status 取进度。
-// 修复:
-//   1. 立即首次拉取 (原先 setInterval 首次触发要等 1.5s, 用户看不到进度动起来)
-//   2. 进行中间隔 500ms (原 1500ms 太慢, 后端 verify/apply 阶段往往 1-2s 跑完 -> UI 错过中间态)
-//   3. stage='done' 时进度已经到 100 -> 主 polling 立即停止, 改由独立的 restart-wait 循环
-//      去等新版本上线, 不再依赖主 polling 继续活跃
-let restartWaitTimer: ReturnType<typeof setInterval> | null = null
-
-function startPolling() {
-  stopPolling()
-
-  const tick = async () => {
-    try {
-      const res = await updateApi.status()
-      updateStatus.value = res.data
-
-      const stage = res.data.stage
-
-      if (stage === 'done') {
-        // 主 polling 任务结束: 进度条已到 100, 立即停止拉取主状态,
-        // 开启独立的 restart-wait 循环等待服务重启 (新版本上线)
-        stopPolling()
-        updateRunning.value = false
-        waitForRestart()
-        return
-      }
-
-      if (stage === 'failed' || stage === 'rolledback') {
-        stopPolling()
-        updateRunning.value = false
-      }
-    } catch {
-      // 服务重启过程中会断连, 吞掉继续等
-    }
-  }
-
-  // 修复 1: 立即首次拉取
-  tick()
-  // 修复 2: 500ms 快速轮询
-  pollTimer = setInterval(tick, 500)
-}
-
-// 等待服务重启后的新版本号出现, 独立于主 polling,
-// 失败/超时不影响已完成的升级状态.
-function waitForRestart() {
-  const started = Date.now()
-  if (restartWaitTimer) clearInterval(restartWaitTimer)
-  const tick = async () => {
-    try {
-      const vRes = await axios.get<{ version: string }>('/api/version', { timeout: 3000 })
-      const newVer = vRes.data.version
-      if (newVer && newVer !== currentVersion.value) {
-        currentVersion.value = newVer
-        restartDetected.value = true
-        if (restartWaitTimer) { clearInterval(restartWaitTimer); restartWaitTimer = null }
-        return
-      }
-    } catch {
-      // 重启中 502 / 断连 正常, 继续等
-    }
-    // 90s 兜底: 无论如何停止等待避免前端死转
-    if (Date.now() - started > 90000) {
-      restartDetected.value = true
-      if (restartWaitTimer) { clearInterval(restartWaitTimer); restartWaitTimer = null }
-    }
-  }
-  tick()
-  restartWaitTimer = setInterval(tick, 1500)
-}
-
-function stopPolling() {
-  if (pollTimer) {
-    clearInterval(pollTimer)
-    pollTimer = null
   }
 }
 
-function reloadPage() {
-  window.location.reload()
-}
+function reloadPage() { updater.reloadPage() }
 
-onBeforeUnmount(() => {
-  stopPolling()
-  if (restartWaitTimer) { clearInterval(restartWaitTimer); restartWaitTimer = null }
-})
+// 注：不再在 onBeforeUnmount 停 polling —— 升级状态是全局单例
+// （composables/useUpdater.ts），顶栏在跑的任务切页面时不能被销毁。
 
 // ── computed ──────────────────────────────────────────────────────────────────
 const stageLabel = computed(() => {
