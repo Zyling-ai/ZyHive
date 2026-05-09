@@ -503,9 +503,13 @@ func (p *Pool) configureToolRegistry(reg *tools.Registry, ag *Agent, fileSender 
 		}
 	}
 
-	// Register cron_list/add/remove tools if cron engine is available.
+	// Register cron_list/add/remove + self_schedule tools if cron engine is
+	// available. self_schedule is the AI-friendly one-shot reminder front-end;
+	// it must be registered AFTER WithCronEngine because it depends on
+	// r.cronEngine being populated.
 	if p.cronEngine != nil {
 		reg.WithCronEngine(p.cronEngine)
+		reg.WithSelfSchedule()
 	}
 
 	// Register sessions_list/history/send tools.
