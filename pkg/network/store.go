@@ -33,6 +33,11 @@ func (s *Store) contactsDir() string {
 	return filepath.Join(s.Dir(), "contacts")
 }
 
+// chatsDir returns the absolute path of the network/chats/ directory.
+func (s *Store) chatsDir() string {
+	return filepath.Join(s.Dir(), "chats")
+}
+
 func (s *Store) indexMDPath() string {
 	return filepath.Join(s.Dir(), "INDEX.md")
 }
@@ -44,6 +49,13 @@ func (s *Store) indexJSONPath() string {
 // ensureDirs creates network/ and network/contacts/ if missing.
 func (s *Store) ensureDirs() error {
 	return os.MkdirAll(s.contactsDir(), 0755)
+}
+
+// ensureChatsDir creates network/ and network/chats/ if missing. Called
+// lazily on first chat write so old workspaces without any group activity
+// never get an empty chats/ directory.
+func (s *Store) ensureChatsDir() error {
+	return os.MkdirAll(s.chatsDir(), 0755)
 }
 
 // ── Contact ID helpers ────────────────────────────────────────────────────
@@ -303,15 +315,21 @@ func (s *Store) listUnlocked() ([]ContactSummary, error) {
 // ── INDEX refresh ────────────────────────────────────────────────────────
 
 // refreshIndexUnlocked regenerates both INDEX.json and INDEX.md from the
-// current contacts directory + RELATIONS.md. Caller must hold s.mu.
+// current contacts directory + chats directory + RELATIONS.md. Caller must
+// hold s.mu.
 func (s *Store) refreshIndexUnlocked() error {
 	summaries, err := s.listUnlocked()
+	if err != nil {
+		return err
+	}
+	chatSummaries, err := s.listChatsUnlocked()
 	if err != nil {
 		return err
 	}
 	// INDEX.json
 	idx := Index{
 		Contacts:  summaries,
+		Chats:     chatSummaries,
 		UpdatedAt: time.Now().UTC(),
 	}
 	jsonBytes, err := json.MarshalIndent(idx, "", "  ")
@@ -322,7 +340,7 @@ func (s *Store) refreshIndexUnlocked() error {
 		return err
 	}
 	// INDEX.md
-	md := renderIndexMD(summaries, s.readRelationsRowsUnlocked())
+	md := renderIndexMD(summaries, chatSummaries, s.readRelationsRowsUnlocked())
 	return os.WriteFile(s.indexMDPath(), []byte(md), 0644)
 }
 
@@ -337,14 +355,16 @@ func (s *Store) RefreshIndex() error {
 }
 
 // renderIndexMD builds the lightweight markdown index that is injected into
-// every system prompt. Target size: ~500–800 chars.
-func renderIndexMD(contacts []ContactSummary, relations []RelationLine) string {
+// every system prompt. Target size: ~500–800 chars (≤ ~1.2K with chats).
+func renderIndexMD(contacts []ContactSummary, chats []ChatSummary, relations []RelationLine) string {
 	var sb strings.Builder
 	sb.WriteString("# 通讯录 — network/INDEX.md\n\n")
-	sb.WriteString("> 每当你发现新联系人或关系，对应文件会被自动维护。\n")
+	sb.WriteString("> 每当你发现新联系人/群聊/关系，对应文件会被自动维护。\n")
 	sb.WriteString("> 完整联系人档案：`read(\"network/contacts/<id>.md\")`\n")
+	sb.WriteString("> 完整群聊档案：`read(\"network/chats/<id>.md\")`\n")
 	sb.WriteString("> 关系表（谁和谁）：`read(\"network/RELATIONS.md\")`\n")
-	sb.WriteString("> 给联系人添加事实/偏好：`network_note` 工具。\n\n")
+	sb.WriteString("> 给联系人添加事实/偏好：`network_note` 工具。\n")
+	sb.WriteString("> 给群聊添加规则/议题：`chat_note` 工具。\n\n")
 
 	// AI 同事 (from RELATIONS.md)
 	aiPeers := filterRelations(relations, "agent")
@@ -392,14 +412,50 @@ func renderIndexMD(contacts []ContactSummary, relations []RelationLine) string {
 		sb.WriteString("\n")
 	}
 
-	if len(aiPeers) == 0 && len(humanContacts) == 0 {
-		sb.WriteString("_暂无联系人或关系。有新消息时联系人会自动出现。_\n\n")
+	// 群聊
+	if len(chats) > 0 {
+		sb.WriteString(fmt.Sprintf("## 群聊 (%d)\n", len(chats)))
+		const chatLimit = 20
+		for i, ch := range chats {
+			if i >= chatLimit {
+				sb.WriteString(fmt.Sprintf("- ...另有 %d 个，按需 `read(\"network/INDEX.json\")` 查看完整\n", len(chats)-chatLimit))
+				break
+			}
+			name := ch.Title
+			if strings.TrimSpace(name) == "" {
+				name = ch.ExternalIDPart()
+			}
+			var kindPart string
+			if ch.Kind != "" {
+				kindPart = " [" + ch.Kind + "]"
+			}
+			var tagPart string
+			if len(ch.Tags) > 0 {
+				tagPart = " [" + strings.Join(ch.Tags, "/") + "]"
+			}
+			var memberPart string
+			if ch.MemberCount > 0 {
+				memberPart = fmt.Sprintf(" · %d 人", ch.MemberCount)
+			}
+			lastSeen := ""
+			if !ch.LastSeenAt.IsZero() {
+				lastSeen = " · " + ch.LastSeenAt.Format("2006-01-02")
+			}
+			sb.WriteString(fmt.Sprintf("- **%s** (`%s`)%s%s%s · %d msg%s\n",
+				name, ch.ID, kindPart, tagPart, memberPart, ch.MsgCount, lastSeen))
+		}
+		sb.WriteString("\n")
+	}
+
+	if len(aiPeers) == 0 && len(humanContacts) == 0 && len(chats) == 0 {
+		sb.WriteString("_暂无联系人/群聊/关系。有新消息时档案会自动出现。_\n\n")
 	}
 
 	sb.WriteString("## 使用约定\n")
-	sb.WriteString("- 识别到新联系人后系统会自动建档。你看到一位陌生人时档案已存在。\n")
+	sb.WriteString("- 识别到新联系人/群聊后系统会自动建档。你看到陌生人/陌生群时档案已存在。\n")
 	sb.WriteString("- 发现重要事实/偏好/待办请用 `network_note(entityId, section, text)`（section: 事实/偏好/待跟进）。\n")
-	sb.WriteString("- 派遣仅限 AI 同事（见 RELATIONS.md），联系人不是可派遣对象。\n")
+	sb.WriteString("- 发现群规则/重要议题/待办请用 `chat_note(chatId, section, text)`（section: 基础信息/群规则/重要议题/待跟进）。\n")
+	sb.WriteString("- 派遣仅限 AI 同事（见 RELATIONS.md），联系人/群聊不是可派遣对象。\n")
 	return sb.String()
 }
 
