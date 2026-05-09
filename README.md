@@ -2,6 +2,7 @@
 
 > zyling 旗下 AI 团队操作系统 — 让每一个 AI 成员各司其职、协同引领
 
+[![CI](https://github.com/Zyling-ai/ZyHive/actions/workflows/ci.yml/badge.svg)](https://github.com/Zyling-ai/ZyHive/actions/workflows/ci.yml)
 [![GitHub Stars](https://img.shields.io/github/stars/Zyling-ai/zyhive?style=flat&logo=github&color=yellow)](https://github.com/Zyling-ai/zyhive/stargazers)
 [![GitHub Forks](https://img.shields.io/github/forks/Zyling-ai/zyhive?style=flat&logo=github&color=orange)](https://github.com/Zyling-ai/zyhive/network/members)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
