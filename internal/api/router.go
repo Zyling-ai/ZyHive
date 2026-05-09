@@ -366,6 +366,10 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, cfgPath string, mgr *agen
 	v1.POST("/budget/topup", budH.Topup)
 	v1.PATCH("/budget/limits/:id", budH.SetLimit)
 
+	// LLM throttle (P1-03): read-only state snapshot.
+	thrH := throttleHandler{}
+	v1.GET("/llm/throttle", thrH.Get)
+
 	// Usage statistics
 	usageH := newUsageHandler(usageStore, mgr)
 	v1.GET("/usage/summary", usageH.Summary)

@@ -131,10 +131,16 @@ type Runner struct {
 // If cfg.SessionID is set, history is loaded from the session store.
 // Otherwise, cfg.PreloadedHistory is used (legacy client-side history).
 func New(cfg Config) *Runner {
-	// P0.1 Wrap the LLM client in transient-error retry. This is idempotent —
-	// nested retry wrappers are fine, but we only wrap if cfg.LLM is set and
-	// not already a RetryClient.
 	if cfg.LLM != nil {
+		// P1-03: Throttle goes BENEATH retry — retry calls into the throttled
+		// client repeatedly, so each retry is gated independently. Skipped
+		// when no global throttle is installed (preserves today's behaviour).
+		if t := llm.GlobalThrottle(); t != nil {
+			cfg.LLM = llm.WithThrottle(cfg.LLM, t, cfg.Provider)
+		}
+		// P0.1 Wrap the LLM client in transient-error retry. This is idempotent —
+		// nested retry wrappers are fine, but we only wrap if cfg.LLM is set and
+		// not already a RetryClient.
 		if _, isRetry := cfg.LLM.(*llm.RetryClient); !isRetry {
 			cfg.LLM = llm.WithRetry(cfg.LLM)
 		}
