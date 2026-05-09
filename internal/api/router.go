@@ -22,6 +22,7 @@ import (
 	"github.com/Zyling-ai/zyhive/pkg/config"
 	"github.com/Zyling-ai/zyhive/pkg/cron"
 	"github.com/Zyling-ai/zyhive/pkg/goal"
+	"github.com/Zyling-ai/zyhive/pkg/logging"
 	"github.com/Zyling-ai/zyhive/pkg/project"
 	"github.com/Zyling-ai/zyhive/pkg/session"
 	"github.com/Zyling-ai/zyhive/pkg/subagent"
@@ -51,6 +52,9 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, cfgPath string, mgr *agen
 	configFilePath = cfgPath // wire the active config path for all API handlers
 	rf := runnerFunc
 	r.Use(corsMiddleware())
+	// P0-01: trace_id middleware MUST run before requestLogger so logs can
+	// reference it. We log the trace id later via slog.FromContext.
+	r.Use(logging.TraceMiddleware())
 	r.Use(requestLogger())
 
 	// File download endpoint — auth via ?token= query param (for shareable links).

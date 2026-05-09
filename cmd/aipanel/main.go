@@ -27,6 +27,7 @@ import (
 	"github.com/Zyling-ai/zyhive/pkg/config"
 	"github.com/Zyling-ai/zyhive/pkg/cron"
 	"github.com/Zyling-ai/zyhive/pkg/llm"
+	"github.com/Zyling-ai/zyhive/pkg/logging"
 	"github.com/Zyling-ai/zyhive/pkg/project"
 	"github.com/Zyling-ai/zyhive/pkg/session"
 	"github.com/Zyling-ai/zyhive/pkg/subagent"
@@ -64,6 +65,11 @@ func main() {
 	serveMode := flag.Bool("serve", false, "直接启动服务（跳过 CLI 菜单）")
 	showVersion := flag.Bool("version", false, "打印版本号并退出")
 	flag.Parse()
+
+	// P0-01: structured logging facade. Honours LOG_FORMAT (text|json) and
+	// LOG_LEVEL (debug|info|warn|error) env vars. Idempotent — fine even if
+	// a subcommand later re-Inits.
+	logging.Init(os.Getenv("LOG_FORMAT"), os.Getenv("LOG_LEVEL"))
 
 	if *showVersion {
 		fmt.Println("ZyHive " + Version)

@@ -340,6 +340,15 @@ make release
 
 > ⚠️ 直接 `go build` 会缺少 UI 静态文件（go:embed ui_dist），**必须用 `make build`**
 
+### 可观测性环境变量（P0-01）
+
+| 变量 | 取值 | 默认 | 说明 |
+|------|------|------|------|
+| `LOG_FORMAT` | `text` / `json` | `text` | 生产建议 `json` 便于日志聚合 |
+| `LOG_LEVEL` | `debug` / `info` / `warn` / `error` | `info` | 日志级别 |
+
+每条 HTTP 请求自动分配 `trace_id`（响应头 `X-Trace-Id`），并贯穿 SSE / runner / 工具 / LLM client 全程；可通过 `journalctl -u zyhive | grep <trace_id>` 把一次对话的全部日志拉到一起。
+
 ---
 
 ## 📋 版本里程碑
