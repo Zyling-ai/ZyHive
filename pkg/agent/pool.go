@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/Zyling-ai/zyhive/pkg/browser"
+	"github.com/Zyling-ai/zyhive/pkg/budget"
 	"github.com/Zyling-ai/zyhive/pkg/channel"
 	"github.com/Zyling-ai/zyhive/pkg/config"
 	"github.com/Zyling-ai/zyhive/pkg/cron"
@@ -45,6 +46,11 @@ type Pool struct {
 	messageSenderFn func(agentID string) tools.MessageSenderFunc
 
 	usageStore *usage.Store // records LLM API usage; nil = disabled
+
+	// budgetStore — optional, P1-02 budget brake. When non-nil and the
+	// store reports Enabled, every runner.New() in this pool is configured
+	// with a BudgetCheck adapter that pre-flights LLM turns.
+	budgetStore *budget.Store
 
 	cronEngine *cron.Engine // optional: enables cron_list/add/remove tools
 
@@ -412,6 +418,30 @@ func (p *Pool) SetMessageSenderFn(fn func(agentID string) tools.MessageSenderFun
 // SetUsageStore wires up the usage recorder. Call once from main after NewPool.
 func (p *Pool) SetUsageStore(s *usage.Store) { p.usageStore = s }
 
+// SetBudgetStore wires the budget store. May be nil to disable. Idempotent.
+func (p *Pool) SetBudgetStore(s *budget.Store) { p.budgetStore = s }
+
+// budgetChecker returns a BudgetCheck adapter wired to p.budgetStore.
+// Returns nil when no budget store is configured, which causes the runner
+// to skip the pre-flight (= today's behaviour, fully backward-compatible).
+func (p *Pool) budgetChecker() func(agentID string) runner.BudgetCheckResult {
+	if p.budgetStore == nil {
+		return nil
+	}
+	store := p.budgetStore
+	return func(agentID string) runner.BudgetCheckResult {
+		r := store.BeforeRun(agentID)
+		return runner.BudgetCheckResult{
+			Allowed:       r.Allowed,
+			Scope:         r.Scope,
+			Used:          r.Used,
+			EffectiveCap:  r.EffectiveCap,
+			Reason:        r.Reason,
+			WarnInjection: r.WarnInjection,
+		}
+	}
+}
+
 // usageRecorder returns a recorder func for use in runner.Config.
 func (p *Pool) usageRecorder() func(in, out int, provider, model, agentID, sessionID string) {
 	if p.usageStore == nil {
@@ -740,6 +770,7 @@ func (p *Pool) Run(ctx context.Context, agentID, message string) (string, error)
 		ProjectContext: p.buildProjectContext(ag.ID),
 		AgentEnv:      ag.Env,
 		UsageRecorder: p.usageRecorder(),
+		BudgetCheck:   p.budgetChecker(),
 		CapabilitiesContext: BuildCapabilitiesContext(toolRegistry, ag, p.cfg, ag.WorkspaceDir),
 	})
 
@@ -826,6 +857,7 @@ func (p *Pool) RunStreamEvents(ctx context.Context, agentID, message, sessionID 
 		ProjectContext: p.buildProjectContext(ag.ID),
 		AgentEnv:       ag.Env,
 		UsageRecorder:  p.usageRecorder(),
+		BudgetCheck:    p.budgetChecker(),
 		CapabilitiesContext:   BuildCapabilitiesContext(toolRegistry, ag, p.cfg, ag.WorkspaceDir),
 		CurrentSessionContext: BuildSessionContext(store, sessionID),
 		ExtraContext:   strings.Join(extraSystemContext, "\n"),
@@ -887,6 +919,7 @@ func (p *Pool) RunStream(ctx context.Context, agentID, message, sessionID string
 		ProjectContext: p.buildProjectContext(ag.ID),
 		AgentEnv:       ag.Env,
 		UsageRecorder:  p.usageRecorder(),
+		BudgetCheck:    p.budgetChecker(),
 		CapabilitiesContext:   BuildCapabilitiesContext(toolRegistry, ag, p.cfg, ag.WorkspaceDir),
 		CurrentSessionContext: BuildSessionContext(store, sessionID),
 	})
@@ -1042,6 +1075,7 @@ func (p *Pool) subagentRunFuncExt() subagent.RunFuncExt {
 				ProjectContext:  p.buildProjectContext(ag.ID),
 				AgentEnv:        ag.Env,
 				UsageRecorder:   p.usageRecorder(),
+				BudgetCheck:     p.budgetChecker(),
 				CapabilitiesContext:   BuildCapabilitiesContext(toolRegistry, ag, p.cfg, ag.WorkspaceDir),
 				CurrentSessionContext: BuildSessionContext(store, task.SessionID),
 			})
@@ -1127,6 +1161,7 @@ func (p *Pool) SubagentRunFunc() subagent.RunFunc {
 				ProjectContext:  p.buildProjectContext(ag.ID),
 				AgentEnv:        ag.Env,
 				UsageRecorder:   p.usageRecorder(),
+				BudgetCheck:     p.budgetChecker(),
 				CapabilitiesContext:   BuildCapabilitiesContext(toolRegistry, ag, p.cfg, ag.WorkspaceDir),
 				CurrentSessionContext: BuildSessionContext(store, sessionID),
 			})

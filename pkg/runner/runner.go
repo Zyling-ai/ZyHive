@@ -53,6 +53,12 @@ type Config struct {
 	// Optional: called after each LLM turn with token usage data.
 	UsageRecorder func(inputTokens, outputTokens int, provider, model, agentID, sessionID string)
 
+	// Optional: pre-flight budget check. When non-nil, called once at the very
+	// start of Run; if it returns Allowed=false the runner emits an error event
+	// instead of contacting the LLM. WarnInjection (when non-empty) is appended
+	// to the system prompt as a soft warning.
+	BudgetCheck func(agentID string) BudgetCheckResult
+
 	// Optional: pre-formatted capabilities block (tool health + wishlist summary)
 	// injected into the system prompt so the AI has accurate self-awareness about
 	// what it can / cannot do. Built by internal/api or pkg/agent using
@@ -71,6 +77,48 @@ type Config struct {
 	//   - 消息数: 26
 	//   - 当需要更新标题时调用 session_rename 工具...
 	CurrentSessionContext string
+}
+
+// budgetExceededError is the typed error surfaced when BudgetCheck blocks
+// a turn. The Error() string is intentionally human-readable Chinese so the
+// SSE error event renders as-is in the UI without translation.
+type budgetExceededErr struct {
+	Scope        string
+	Used         float64
+	EffectiveCap float64
+}
+
+func (e budgetExceededErr) Error() string {
+	scope := "agent"
+	if e.Scope == "global" {
+		scope = "global"
+	}
+	return fmt.Sprintf("预算超限 (scope=%s): 已用 $%.4f / 上限 $%.4f", scope, e.Used, e.EffectiveCap)
+}
+
+func budgetExceededError(r BudgetCheckResult) error {
+	return budgetExceededErr{Scope: r.Scope, Used: r.Used, EffectiveCap: r.EffectiveCap}
+}
+
+// IsBudgetExceeded reports whether err originated from the BudgetCheck hook.
+// API layer can use this to map to a structured error code (HTTP 402-style)
+// when surfaced to the SSE stream.
+func IsBudgetExceeded(err error) bool {
+	_, ok := err.(budgetExceededErr)
+	return ok
+}
+
+// BudgetCheckResult is the runner-side mirror of pkg/budget.CheckResult.
+// We declare it here (rather than importing pkg/budget directly) to avoid
+// pulling another package into pkg/runner's dependency graph; cfg.BudgetCheck
+// is an adapter wired by main.go.
+type BudgetCheckResult struct {
+	Allowed       bool
+	Scope         string  // "agent" | "global"
+	Used          float64
+	EffectiveCap  float64
+	Reason        string
+	WarnInjection string
 }
 
 // Runner drives a single agent's conversation lifecycle.
@@ -382,6 +430,18 @@ func stripToolResultBlocks(raw json.RawMessage) json.RawMessage {
 }
 
 func (r *Runner) run(ctx context.Context, userMsg string, out chan<- RunEvent) error {
+	// P1-02: Pre-flight budget check. When the operator has enabled budget
+	// enforcement and this turn would breach the cap, we abort before doing
+	// any LLM I/O — saves real money and keeps the failure mode obvious.
+	var budgetWarn string
+	if r.cfg.BudgetCheck != nil {
+		bc := r.cfg.BudgetCheck(r.cfg.AgentID)
+		if !bc.Allowed {
+			return budgetExceededError(bc)
+		}
+		budgetWarn = bc.WarnInjection
+	}
+
 	// P0.6: Synchronous compaction BEFORE the turn starts.
 	// If this session already crossed the threshold, we run compaction first
 	// and stream start/end events so the user sees "压缩历史上下文中…" rather
@@ -473,6 +533,11 @@ func (r *Runner) run(ctx context.Context, userMsg string, out chan<- RunEvent) e
 	}
 	if r.cfg.ExtraContext != "" {
 		systemPrompt = systemPrompt + "\n\n---\n" + r.cfg.ExtraContext
+	}
+	// P1-02: Soft warning when the agent is past the budget warn threshold.
+	// Injected as the LAST block so it sits closer to the model attention.
+	if budgetWarn != "" {
+		systemPrompt = systemPrompt + "\n\n" + budgetWarn
 	}
 	if len(r.cfg.AgentEnv) > 0 {
 		keys := make([]string, 0, len(r.cfg.AgentEnv))

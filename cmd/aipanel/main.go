@@ -22,6 +22,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/Zyling-ai/zyhive/internal/api"
 	"github.com/Zyling-ai/zyhive/pkg/agent"
+	"github.com/Zyling-ai/zyhive/pkg/budget"
 	"github.com/Zyling-ai/zyhive/pkg/channel"
 	"github.com/Zyling-ai/zyhive/pkg/config"
 	"github.com/Zyling-ai/zyhive/pkg/cron"
@@ -432,7 +433,22 @@ func main() {
 	usageStore := usage.NewStore(agentsDir)
 	pool.SetUsageStore(usageStore)
 
-	api.RegisterRoutes(r, cfg, *configPath, mgr, pool, cronEngine, uiFS, runnerFunc, botCtrl, projectMgr, subagentMgr, workerPool, usageStore)
+	// P1-02: Budget store. Disabled by default; reads cfg.Budget. Wired to
+	// usageStore via SetBudgetCharger so every recorded LLM call is also
+	// charged to the running daily total.
+	budgetStore := budget.NewStore(budget.Config{
+		Enabled:              cfg.Budget.Enabled,
+		GlobalDailyUSD:       cfg.Budget.GlobalDailyUSD,
+		DefaultAgentDailyUSD: cfg.Budget.DefaultAgentDailyUSD,
+		WarnAtPct:            cfg.Budget.WarnAtPct,
+		TZ:                   cfg.Budget.TZ,
+	})
+	usageStore.SetBudgetCharger(func(agentID string, costUSD float64) {
+		budgetStore.Charge(agentID, costUSD)
+	})
+	pool.SetBudgetStore(budgetStore)
+
+	api.RegisterRoutes(r, cfg, *configPath, mgr, pool, cronEngine, uiFS, runnerFunc, botCtrl, projectMgr, subagentMgr, workerPool, usageStore, budgetStore)
 
 	// Print access URLs
 	port := cfg.Gateway.Port

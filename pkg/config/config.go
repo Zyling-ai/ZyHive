@@ -30,6 +30,22 @@ type Config struct {
 	Auth      AuthConfig       `json:"auth"`
 	// ToolPolicyRaw is stored as raw JSON and interpreted by the tools package to avoid import cycles.
 	ToolPolicyRaw json.RawMessage `json:"toolPolicy,omitempty"` // global tool allow/deny/profile
+
+	// Budget — daily USD cap with hard-stop enforcement before each runner turn.
+	// Disabled by default; opt-in via {"budget":{"enabled":true,...}}.
+	// See pkg/budget for semantics. Stored as raw JSON to keep this struct
+	// lightweight and avoid an import cycle (pkg/budget owns the schema).
+	Budget BudgetConfig `json:"budget,omitempty"`
+}
+
+// BudgetConfig mirrors pkg/budget.Config (kept here so config users don't
+// need to import pkg/budget). Wired by cmd/aipanel/main.go via NewStore.
+type BudgetConfig struct {
+	Enabled              bool    `json:"enabled,omitempty"`
+	GlobalDailyUSD       float64 `json:"global_daily_usd,omitempty"`
+	DefaultAgentDailyUSD float64 `json:"default_agent_daily_usd,omitempty"`
+	WarnAtPct            int     `json:"warn_at_pct,omitempty"`
+	TZ                   string  `json:"tz,omitempty"`
 }
 
 // ProviderEntry 代表一个大模型服务商的凭据配置。

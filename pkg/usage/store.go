@@ -30,11 +30,27 @@ type Record struct {
 type Store struct {
 	dir string
 	mu  sync.Mutex
+
+	// budgetCharger — optional callback fired in-process (sync, non-blocking
+	// since the budget store mutates in-memory state only). Wired by main.go
+	// from pkg/budget. Keeping this loosely-coupled (no import) avoids a
+	// dependency cycle between pkg/usage and pkg/budget.
+	budgetCharger func(agentID string, costUSD float64)
 }
 
 // NewStore creates a Store rooted at dir (typically the workspace dir).
 func NewStore(dir string) *Store {
 	return &Store{dir: dir}
+}
+
+// SetBudgetCharger wires an optional callback that fires after every record
+// is appended. Pass nil to disable. Idempotent; calling twice replaces the
+// previous callback. Called from cmd/aipanel/main.go after constructing the
+// budget.Store.
+func (s *Store) SetBudgetCharger(fn func(agentID string, costUSD float64)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.budgetCharger = fn
 }
 
 func (s *Store) usageDir() string { return filepath.Join(s.dir, ".usage") }
@@ -46,18 +62,31 @@ func (s *Store) monthFile(t time.Time) string {
 // Append writes one record to the current month's JSONL file.
 func (s *Store) Append(r Record) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	charger := s.budgetCharger // snapshot under lock
+	s.mu.Unlock()
 
+	s.mu.Lock()
 	if err := os.MkdirAll(s.usageDir(), 0o755); err != nil {
+		s.mu.Unlock()
 		return err
 	}
 	f, err := os.OpenFile(s.monthFile(time.Now()), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
+		s.mu.Unlock()
 		return err
 	}
-	defer f.Close()
 	enc := json.NewEncoder(f)
-	return enc.Encode(r)
+	encErr := enc.Encode(r)
+	_ = f.Close()
+	s.mu.Unlock()
+
+	// Charge budget AFTER persisting the record so a budget-store crash can't
+	// corrupt the JSONL truth. We do this outside the lock because the budget
+	// store has its own lock and we don't want them coupled.
+	if encErr == nil && charger != nil && r.Cost > 0 {
+		charger(r.AgentID, r.Cost)
+	}
+	return encErr
 }
 
 // QueryParams filters for Query().
