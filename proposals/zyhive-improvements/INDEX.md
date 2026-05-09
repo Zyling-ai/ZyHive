@@ -88,7 +88,7 @@ CHANGELOG 已声明的 **P1 规划中** 项（散落在 README）：
 | C-03 | 配额与多租户雏形：per-token / per-agent 日预算（HTTP 429 + UI 提示） | P1 | M | `pkg/usage`、`internal/api` |
 | C-04 | 备份/恢复 CLI：`zyhive backup / restore`（agents、sessions、network、cron、goals） | P1 | M | `cmd/aipanel/cli.go` |
 | C-05 | 升级失败回滚（保留上一版二进制 + 一键 rollback） | P1 | S | `internal/api/update.go`、CLI |
-| C-06 | 健康监控 endpoint `/healthz`、`/readyz`：Provider 探活 + cron worker 心跳 + session pool 健康 | P0 | S | 新文件 `internal/api/health.go` |
+| C-06 | 在已有 `/healthz` + `/api/status` 基础上补 `/readyz`：Provider 探活 + cron worker 心跳 + session pool 健康 | P0 | S | 已有 `internal/api/healthz.go`，扩展即可 |
 | C-07 | 配置热重载（信号 SIGHUP 重新加载 `zyhive.json`，Provider/Token 改后无需重启） | P2 | M | `pkg/config` |
 
 ### 3.4 主题 D · 数据层与迁移
@@ -211,13 +211,13 @@ CHANGELOG 已声明的 **P1 规划中** 项（散落在 README）：
 ```
 proposals/zyhive-improvements/
 ├── INDEX.md                        ← 当前文件
-├── P0-01-structured-logging.md
-├── P0-02-health-endpoint.md
-├── P0-03-ci-workflow.md
-├── P1-01-self-schedule-tool.md
-├── P1-02-budget-brake.md
-├── P1-03-adaptive-throttle.md
-├── P1-04-quota-per-agent.md
+├── P0-01-structured-logging.md     ← ✅ 已落 proposal
+├── P0-02-readiness-probe.md        ← ✅ 已落 proposal（取代 health-endpoint，仓库已有 /healthz）
+├── P0-03-ci-workflow.md            ← ✅ 已落 proposal
+├── P1-01-self-schedule-tool.md     ← ✅ 已落 proposal
+├── P1-02-budget-brake.md           ← ✅ 已落 proposal
+├── P1-03-adaptive-throttle.md      ← ✅ 已落 proposal
+├── P1-04-quota-per-agent.md        ← TODO
 ├── P1-05-backup-restore-cli.md
 ├── P1-06-update-rollback.md
 ├── P1-07-session-store-abstraction.md
