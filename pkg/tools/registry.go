@@ -88,8 +88,9 @@ func New(workspaceDir, agentDir, agentID string) *Registry {
 	// Wishlist tools — AI 自主表达能力诉求
 	r.register(wishAddDef, r.handleWishAdd)
 	r.register(wishListDef, r.handleWishList)
-	// Network tools — 通讯录维护 (AI 主动追加事实/偏好/待跟进)
+	// Network tools — 通讯录 / 群档案维护 (AI 主动追加事实/偏好/规则/议题/待跟进)
 	r.register(networkNoteDef, r.handleNetworkNote)
+	r.register(chatNoteDef, r.handleChatNote)
 	// Always register subagent tools (nil mgr returns "not configured" error)
 	r.registerSubagentTools()
 	return r
