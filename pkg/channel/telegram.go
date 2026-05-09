@@ -822,21 +822,40 @@ func (b *TelegramBot) generateAndSend(ctx context.Context, msg *TelegramMessage,
 		return b.SendFileToChat(chatID, threadID, filePath)
 	})
 
-	// ── Network (contact book) — resolve sender and build Layer-2 summary.
-	// Per "每 agent 一本通讯录" design: Telegram userIDs become contactId
-	// "telegram:{userId}". Store auto-creates the contact file on first sight.
+	// ── Network (contact book + chat profile) — resolve sender always; resolve
+	// the chat itself only when it's a group/supergroup/channel. Both summaries
+	// concatenated into contactSummary (chat first, sender second).
 	var contactSummary string
-	if b.agentDir != "" && msg != nil && msg.From.ID != 0 {
+	if b.agentDir != "" && msg != nil {
 		wsDir := filepath.Join(b.agentDir, "workspace")
 		store := network.NewStore(wsDir)
-		senderID := fmt.Sprintf("%d", msg.From.ID)
-		// Bug 2 fix: 完整 fallback 链 — firstName → username → externalID[:8]
-		// (TelegramUser 没有 LastName 字段, 见 pkg/channel/telegram.go#136)
-		displayName := network.FallbackDisplayName(senderID, msg.From.FirstName, msg.From.Username)
-		if _, nerr := store.Resolve(network.SourceTelegram, senderID, displayName); nerr != nil {
-			log.Printf("[telegram] network.Resolve warning: %v", nerr)
-		} else {
-			contactSummary = store.Summary(network.MakeID(network.SourceTelegram, senderID))
+
+		// 1. Group chat profile (only for groups; private chats covered by contact alone).
+		chatType := msg.Chat.Type
+		isGroupChat := chatType == "group" || chatType == "supergroup" || chatType == "channel"
+		if isGroupChat && msg.Chat.ID != 0 {
+			chatExtID := fmt.Sprintf("%d", msg.Chat.ID)
+			if _, cerr := store.ResolveChat(network.SourceTelegram, chatExtID, msg.Chat.Title, chatType); cerr != nil {
+				log.Printf("[telegram] network.ResolveChat warning: %v", cerr)
+			} else if cs := store.ChatSummary(network.MakeID(network.SourceTelegram, chatExtID)); cs != "" {
+				contactSummary = cs
+			}
+		}
+
+		// 2. Sender contact (existing behavior).
+		if msg.From.ID != 0 {
+			senderID := fmt.Sprintf("%d", msg.From.ID)
+			// Bug 2 fix: 完整 fallback 链 — firstName → username → externalID[:8]
+			displayName := network.FallbackDisplayName(senderID, msg.From.FirstName, msg.From.Username)
+			if _, nerr := store.Resolve(network.SourceTelegram, senderID, displayName); nerr != nil {
+				log.Printf("[telegram] network.Resolve warning: %v", nerr)
+			} else if senderSummary := store.Summary(network.MakeID(network.SourceTelegram, senderID)); senderSummary != "" {
+				if contactSummary == "" {
+					contactSummary = senderSummary
+				} else {
+					contactSummary = contactSummary + "\n\n" + senderSummary
+				}
+			}
 		}
 	}
 

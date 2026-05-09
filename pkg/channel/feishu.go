@@ -519,17 +519,33 @@ func (b *FeishuBot) handleMessageEvent(ctx context.Context, ev *feishuMessageEve
 	extraCtx := fmt.Sprintf("当前飞书用户信息：open_id=%s，chat_id=%s，chat_type=%s",
 		senderOpenID, msg.ChatID, msg.ChatType)
 
-	// ── Network (contact book) — resolve feishu sender and append Layer-2 summary.
-	if b.agentDir != "" && senderOpenID != "" {
+	// ── Network (contact book + chat profile) — resolve feishu sender and chat,
+	// then append Layer-2 summaries to extraCtx. Group chat summary first
+	// (broader context), then sender contact (individual context).
+	if b.agentDir != "" {
 		wsDir := filepath.Join(b.agentDir, "workspace")
 		store := network.NewStore(wsDir)
-		// Bug 2 fix: getSenderName 在刚加好友 / 群聊成员列表未拉取时会返回 "",
-		// 直接落盘会导致 UI 显示空白. 走 FallbackDisplayName 链.
-		displayName := network.FallbackDisplayName(senderOpenID, b.getSenderName(senderOpenID))
-		if _, nerr := store.Resolve(network.SourceFeishu, senderOpenID, displayName); nerr != nil {
-			log.Printf("[feishu] network.Resolve warning: %v", nerr)
-		} else if summary := store.Summary(network.MakeID(network.SourceFeishu, senderOpenID)); summary != "" {
-			extraCtx = extraCtx + "\n\n" + summary
+
+		// 1. Group chat profile (only for group chats — private/p2p covered by contact alone).
+		// Feishu 不在消息事件里给群名 — 用 "" 让 defaultChatBody 兜底, 后续 AI 用 chat_note 自补.
+		if isGroup && msg.ChatID != "" {
+			if _, cerr := store.ResolveChat(network.SourceFeishu, msg.ChatID, "", msg.ChatType); cerr != nil {
+				log.Printf("[feishu] network.ResolveChat warning: %v", cerr)
+			} else if cs := store.ChatSummary(network.MakeID(network.SourceFeishu, msg.ChatID)); cs != "" {
+				extraCtx = extraCtx + "\n\n" + cs
+			}
+		}
+
+		// 2. Sender contact (existing behavior).
+		if senderOpenID != "" {
+			// Bug 2 fix: getSenderName 在刚加好友 / 群聊成员列表未拉取时会返回 "",
+			// 直接落盘会导致 UI 显示空白. 走 FallbackDisplayName 链.
+			displayName := network.FallbackDisplayName(senderOpenID, b.getSenderName(senderOpenID))
+			if _, nerr := store.Resolve(network.SourceFeishu, senderOpenID, displayName); nerr != nil {
+				log.Printf("[feishu] network.Resolve warning: %v", nerr)
+			} else if summary := store.Summary(network.MakeID(network.SourceFeishu, senderOpenID)); summary != "" {
+				extraCtx = extraCtx + "\n\n" + summary
+			}
 		}
 	}
 
