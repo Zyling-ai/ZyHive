@@ -30,6 +30,7 @@ var toolGroups = map[string][]string{
 	"group:messaging": {"send_message", "send_file"},
 	"group:self":     {"self_list_skills", "self_install_skill", "self_uninstall_skill", "self_rename", "self_update_soul", "self_set_env", "self_delete_env", "wish_add", "wish_list"},
 	"group:project":  {"project_list", "project_read", "project_write", "project_create", "project_glob"},
+	"group:network":  {"network_note", "chat_note"},
 }
 
 // profileAllowlists maps profile name → allowed tool names (nil = all).
