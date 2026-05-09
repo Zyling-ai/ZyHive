@@ -69,7 +69,13 @@ func (c *Contact) Summary() ContactSummary {
 }
 
 // Index is the machine-readable INDEX.json snapshot.
+//
+// Chats was added in 26.4.24v1 (Chat Profile / 群档案). Older INDEX.json
+// readers that don't know about it will simply ignore the field; older
+// INDEX.json files without the field unmarshal to Chats=nil thanks to
+// `omitempty`.
 type Index struct {
 	Contacts  []ContactSummary `json:"contacts"`
+	Chats     []ChatSummary    `json:"chats,omitempty"`
 	UpdatedAt time.Time        `json:"updatedAt"`
 }
