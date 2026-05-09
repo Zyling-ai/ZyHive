@@ -338,8 +338,14 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, cfgPath string, mgr *agen
 	})
 
 	// Public health endpoint — no auth required
-	hzH := &healthzHandler{manager: mgr, cronEngine: cronEngine, cfg: cfg}
+	hzH := &healthzHandler{manager: mgr, cronEngine: cronEngine, cfg: cfg, workerPool: workerPool}
 	r.GET("/healthz", hzH.Handle)
+
+	// Public readiness probe — no auth required.
+	// 503 when cron has stopped ticking / session pool is overloaded /
+	// every probed Provider is failing. 200 on cold start (no probes yet).
+	rzH := &readyzHandler{cronEngine: cronEngine, workerPool: workerPool}
+	r.GET("/readyz", rzH.Handle)
 
 	// Feishu card action callback — no auth (Feishu calls this with its own token)
 	feishuCbH := &feishuCardCallbackHandler{manager: mgr, pool: pool}
