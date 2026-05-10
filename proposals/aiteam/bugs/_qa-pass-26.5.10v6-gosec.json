@@ -1,0 +1,3484 @@
+{
+	"Golang errors": {},
+	"Issues": [
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion uint64 -\u003e int32",
+			"file": "/workspace/pkg/channel/feishu_proto.go",
+			"code": "92: \t\t\t}\n93: \t\t\tframe.Method = int32(v)\n94: \t\t\ti += n\n",
+			"line": "93",
+			"column": "24",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion uint64 -\u003e int32",
+			"file": "/workspace/pkg/channel/feishu_proto.go",
+			"code": "85: \t\t\t}\n86: \t\t\tframe.Service = int32(v)\n87: \t\t\ti += n\n",
+			"line": "86",
+			"column": "25",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion uint64 -\u003e int",
+			"file": "/workspace/pkg/channel/feishu_proto.go",
+			"code": "261: \t\tif n \u003e 0 {\n262: \t\t\treturn i + n + int(length)\n263: \t\t}\n",
+			"line": "262",
+			"column": "22",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion uint64 -\u003e int",
+			"file": "/workspace/pkg/channel/feishu_proto.go",
+			"code": "242: \t}\n243: \tend := n + int(length)\n244: \tif end \u003e len(b) {\n",
+			"line": "243",
+			"column": "16",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion uint64 -\u003e int",
+			"file": "/workspace/pkg/channel/feishu_proto.go",
+			"code": "104: \t\t\ti += n\n105: \t\t\tend := i + int(length)\n106: \t\t\tif end \u003e len(data) {\n",
+			"line": "105",
+			"column": "18",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion int32 -\u003e uint64",
+			"file": "/workspace/pkg/channel/feishu_proto.go",
+			"code": "333: \tif received.Service != 0 {\n334: \t\tb = appendVarintField(b, 3, uint64(received.Service))\n335: \t}\n",
+			"line": "334",
+			"column": "37",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "338",
+				"url": "https://cwe.mitre.org/data/definitions/338.html"
+			},
+			"rule_id": "G404",
+			"details": "Use of weak random number generator (math/rand or math/rand/v2 instead of crypto/rand)",
+			"file": "/workspace/pkg/llm/httpclient.go",
+			"code": "165: \t}\n166: \treturn time.Duration(base - jitterRange + rand.Int63n(2*jitterRange))\n167: }\n",
+			"line": "166",
+			"column": "44",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "918",
+				"url": "https://cwe.mitre.org/data/definitions/918.html"
+			},
+			"rule_id": "G704",
+			"details": "SSRF via taint analysis",
+			"file": "/workspace/cmd/aipanel/main.go",
+			"code": "663: \treq.Header.Set(\"Authorization\", \"Bearer \"+key)\n664: \tresp, err := http.DefaultClient.Do(req)\n665: \tif err != nil {\n",
+			"line": "664",
+			"column": "36",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "918",
+				"url": "https://cwe.mitre.org/data/definitions/918.html"
+			},
+			"rule_id": "G704",
+			"details": "SSRF via taint analysis",
+			"file": "/workspace/cmd/aipanel/main.go",
+			"code": "660: \tdefer cancel()\n661: \treq, _ := http.NewRequestWithContext(ctx, \"GET\",\n662: \t\tstrings.TrimSuffix(baseURL, \"/\")+\"/models\", nil)\n",
+			"line": "661",
+			"column": "38",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "918",
+				"url": "https://cwe.mitre.org/data/definitions/918.html"
+			},
+			"rule_id": "G704",
+			"details": "SSRF via taint analysis",
+			"file": "/workspace/cmd/aipanel/main.go",
+			"code": "642: \treq.Header.Set(\"anthropic-version\", \"2023-06-01\")\n643: \tresp, err := http.DefaultClient.Do(req)\n644: \tif err != nil {\n",
+			"line": "643",
+			"column": "36",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "918",
+				"url": "https://cwe.mitre.org/data/definitions/918.html"
+			},
+			"rule_id": "G704",
+			"details": "SSRF via taint analysis",
+			"file": "/workspace/cmd/aipanel/main.go",
+			"code": "638: \tdefer cancel()\n639: \treq, _ := http.NewRequestWithContext(ctx, \"POST\", baseURL+\"/messages\", strings.NewReader(payload))\n640: \treq.Header.Set(\"Content-Type\", \"application/json\")\n",
+			"line": "639",
+			"column": "38",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "LOW",
+			"cwe": {
+				"id": "798",
+				"url": "https://cwe.mitre.org/data/definitions/798.html"
+			},
+			"rule_id": "G101",
+			"details": "Potential hardcoded credentials",
+			"file": "/workspace/cmd/aipanel/cli.go",
+			"code": "170: \t// Token（脱敏）\n171: \ttoken := \"(未配置)\"\n172: \ttokenFull := \"\"\n",
+			"line": "171",
+			"column": "2",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "LOW",
+			"cwe": {
+				"id": "798",
+				"url": "https://cwe.mitre.org/data/definitions/798.html"
+			},
+			"rule_id": "G101",
+			"details": "Potential hardcoded credentials",
+			"file": "/workspace/cmd/aipanel/cli.go",
+			"code": "103: \t}\n104: \ttoken := \"(未配置)\"\n105: \tif cfg != nil \u0026\u0026 cfg.Auth.Token != \"\" {\n",
+			"line": "104",
+			"column": "2",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G703",
+			"details": "Path traversal via taint analysis",
+			"file": "/workspace/pkg/tools/tools.go",
+			"code": "153: \tresult := strings.Replace(src, p.OldString, p.NewString, 1)\n154: \tif err := os.WriteFile(p.FilePath, []byte(result), 0644); err != nil {\n155: \t\treturn \"\", fmt.Errorf(\"write %s failed: %v\", p.FilePath, err)\n",
+			"line": "154",
+			"column": "24",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G703",
+			"details": "Path traversal via taint analysis",
+			"file": "/workspace/pkg/network/migrate.go",
+			"code": "45: \t\tif data, err := os.ReadFile(oldUP); err == nil \u0026\u0026 len(strings.TrimSpace(string(data))) \u003e 0 {\n46: \t\t\tif err := os.WriteFile(newUP, data, 0644); err != nil {\n47: \t\t\t\treturn fmt.Errorf(\"network.MigrateIfNeeded: write owner-profile: %w\", err)\n",
+			"line": "46",
+			"column": "26",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G703",
+			"details": "Path traversal via taint analysis",
+			"file": "/workspace/pkg/network/migrate.go",
+			"code": "30: \t\tif data, err := os.ReadFile(oldRel); err == nil {\n31: \t\t\tif err := os.WriteFile(newRel, data, 0644); err != nil {\n32: \t\t\t\treturn fmt.Errorf(\"network.MigrateIfNeeded: write new RELATIONS: %w\", err)\n",
+			"line": "31",
+			"column": "26",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G703",
+			"details": "Path traversal via taint analysis",
+			"file": "/workspace/pkg/memory/memory.go",
+			"code": "134: \t}\n135: \treturn os.WriteFile(absPath, []byte(content), 0644)\n136: }\n",
+			"line": "135",
+			"column": "21",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G703",
+			"details": "Path traversal via taint analysis",
+			"file": "/workspace/cmd/aipanel/cli.go",
+			"code": "1607: \t\t}\n1608: \t\tif _, err := os.Stat(p); err == nil {\n1609: \t\t\treturn p\n",
+			"line": "1608",
+			"column": "23",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "367",
+				"url": "https://cwe.mitre.org/data/definitions/367.html"
+			},
+			"rule_id": "G122",
+			"details": "Filesystem operation in filepath.Walk/WalkDir callback uses race-prone path; consider root-scoped APIs (e.g. os.Root) to prevent symlink TOCTOU traversal",
+			"file": "/workspace/pkg/memory/indexer.go",
+			"code": "102: \t\trel, _ := filepath.Rel(memTree.WorkspaceDir, abs)\n103: \t\tdata, err := os.ReadFile(abs)\n104: \t\tif err != nil {\n",
+			"line": "103",
+			"column": "27",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "78",
+				"url": "https://cwe.mitre.org/data/definitions/78.html"
+			},
+			"rule_id": "G702",
+			"details": "Command injection via taint analysis",
+			"file": "/workspace/internal/api/update_unix.go",
+			"code": "21: \t\tos.Stderr.Sync()\n22: \t\texecErr := syscall.Exec(binary, os.Args, os.Environ())\n23: \t\tif execErr == nil {\n",
+			"line": "22",
+			"column": "26",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "78",
+				"url": "https://cwe.mitre.org/data/definitions/78.html"
+			},
+			"rule_id": "G702",
+			"details": "Command injection via taint analysis",
+			"file": "/workspace/cmd/aipanel/cli.go",
+			"code": "443: \t\t\t}\n444: \t\t\tcmd := exec.Command(editor, configPath)\n445: \t\t\tcmd.Stdin = os.Stdin\n",
+			"line": "444",
+			"column": "23",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "400",
+				"url": "https://cwe.mitre.org/data/definitions/400.html"
+			},
+			"rule_id": "G118",
+			"details": "context cancellation function returned by WithCancel/WithTimeout/WithDeadline is not called",
+			"file": "/workspace/pkg/subagent/manager.go",
+			"code": "306: \t} else {\n307: \t\tctx, cancel = context.WithCancel(context.Background())\n308: \t}\n",
+			"line": "307",
+			"column": "35",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "400",
+				"url": "https://cwe.mitre.org/data/definitions/400.html"
+			},
+			"rule_id": "G118",
+			"details": "context cancellation function returned by WithCancel/WithTimeout/WithDeadline is not called",
+			"file": "/workspace/pkg/subagent/manager.go",
+			"code": "304: \tif opts.TimeoutSec \u003e 0 {\n305: \t\tctx, cancel = context.WithTimeout(context.Background(), time.Duration(opts.TimeoutSec)*time.Second)\n306: \t} else {\n",
+			"line": "305",
+			"column": "36",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "400",
+				"url": "https://cwe.mitre.org/data/definitions/400.html"
+			},
+			"rule_id": "G118",
+			"details": "context cancellation function returned by WithCancel/WithTimeout/WithDeadline is not called",
+			"file": "/workspace/pkg/agent/pool.go",
+			"code": "169: \n170: \tctx, cancel := context.WithCancel(context.Background())\n171: \tp.hbMu.Lock()\n",
+			"line": "170",
+			"column": "35",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "78",
+				"url": "https://cwe.mitre.org/data/definitions/78.html"
+			},
+			"rule_id": "G204",
+			"details": "Subprocess launched with variable",
+			"file": "/workspace/pkg/tools/registry.go",
+			"code": "902: \n903: \tcmd := exec.CommandContext(ctx, \"bash\", \"-c\", command)\n904: \n",
+			"line": "903",
+			"column": "9",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "78",
+				"url": "https://cwe.mitre.org/data/definitions/78.html"
+			},
+			"rule_id": "G204",
+			"details": "Subprocess launched with variable",
+			"file": "/workspace/pkg/tools/process_tool.go",
+			"code": "55: \n56: \tcmd := exec.Command(\"sh\", \"-c\", command)\n57: \tcmd.Stdout = sess.stdout\n",
+			"line": "56",
+			"column": "9",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "78",
+				"url": "https://cwe.mitre.org/data/definitions/78.html"
+			},
+			"rule_id": "G204",
+			"details": "Subprocess launched with variable",
+			"file": "/workspace/internal/api/update_unix.go",
+			"code": "21: \t\tos.Stderr.Sync()\n22: \t\texecErr := syscall.Exec(binary, os.Args, os.Environ())\n23: \t\tif execErr == nil {\n",
+			"line": "22",
+			"column": "14",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "78",
+				"url": "https://cwe.mitre.org/data/definitions/78.html"
+			},
+			"rule_id": "G204",
+			"details": "Subprocess launched with variable",
+			"file": "/workspace/internal/api/update.go",
+			"code": "197: \t}\n198: \tout, err := exec.Command(tmpPath, \"--version\").Output()\n199: \tif err != nil {\n",
+			"line": "198",
+			"column": "14",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "78",
+				"url": "https://cwe.mitre.org/data/definitions/78.html"
+			},
+			"rule_id": "G204",
+			"details": "Subprocess launched with variable",
+			"file": "/workspace/cmd/aipanel/cli.go",
+			"code": "1386: func runInteractive(name string, args ...string) {\n1387: \tcmd := exec.Command(name, args...)\n1388: \tcmd.Stdin = os.Stdin\n",
+			"line": "1387",
+			"column": "9",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "78",
+				"url": "https://cwe.mitre.org/data/definitions/78.html"
+			},
+			"rule_id": "G204",
+			"details": "Subprocess launched with variable",
+			"file": "/workspace/cmd/aipanel/cli.go",
+			"code": "1380: func runCmd(name string, args ...string) string {\n1381: \tcmd := exec.Command(name, args...)\n1382: \tout, _ := cmd.CombinedOutput()\n",
+			"line": "1381",
+			"column": "9",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "78",
+				"url": "https://cwe.mitre.org/data/definitions/78.html"
+			},
+			"rule_id": "G204",
+			"details": "Subprocess launched with variable",
+			"file": "/workspace/cmd/aipanel/cli.go",
+			"code": "443: \t\t\t}\n444: \t\t\tcmd := exec.Command(editor, configPath)\n445: \t\t\tcmd.Stdin = os.Stdin\n",
+			"line": "444",
+			"column": "11",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "78",
+				"url": "https://cwe.mitre.org/data/definitions/78.html"
+			},
+			"rule_id": "G204",
+			"details": "Subprocess launched with a potential tainted input or cmd arguments",
+			"file": "/workspace/pkg/tools/tools.go",
+			"code": "266: \t}\n267: \tcmd := exec.Command(\"grep\", append(args, p.Pattern, p.Path)...)\n268: \tout, err := cmd.CombinedOutput()\n",
+			"line": "267",
+			"column": "9",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "78",
+				"url": "https://cwe.mitre.org/data/definitions/78.html"
+			},
+			"rule_id": "G204",
+			"details": "Subprocess launched with a potential tainted input or cmd arguments",
+			"file": "/workspace/pkg/tools/tools.go",
+			"code": "189: \tdefer cancel()\n190: \tcmd := exec.CommandContext(ctx, \"bash\", \"-c\", p.Command)\n191: \t// Pass sanitized environment — strip API keys, tokens, secrets\n",
+			"line": "190",
+			"column": "9",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "78",
+				"url": "https://cwe.mitre.org/data/definitions/78.html"
+			},
+			"rule_id": "G204",
+			"details": "Subprocess launched with a potential tainted input or cmd arguments",
+			"file": "/workspace/pkg/tools/acp_tool.go",
+			"code": "182: \n183: \t\tcmd := exec.CommandContext(ctx, found.Binary, args...)\n184: \t\tcmd.Dir = workDir\n",
+			"line": "183",
+			"column": "10",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "78",
+				"url": "https://cwe.mitre.org/data/definitions/78.html"
+			},
+			"rule_id": "G204",
+			"details": "Subprocess launched with a potential tainted input or cmd arguments",
+			"file": "/workspace/internal/api/router.go",
+			"code": "634: \tdefer cancel()\n635: \tcmd := exec.CommandContext(ctx, \"journalctl\", \"-u\", \"zyhive\",\n636: \t\t\"-n\", strconv.Itoa(limit), \"--no-pager\", \"--output=short-iso\")\n637: \tout, err := cmd.Output()\n",
+			"line": "635-636",
+			"column": "9",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/pkg/usage/store.go",
+			"code": "281: func readJSONL(path string) []Record {\n282: \tf, err := os.Open(path)\n283: \tif err != nil {\n",
+			"line": "282",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/pkg/tools/wish.go",
+			"code": "138: \tpath := filepath.Join(workspaceDir, wishlistFileName)\n139: \tdata, err := os.ReadFile(path)\n140: \tif err != nil {\n",
+			"line": "139",
+			"column": "15",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/pkg/tools/wish.go",
+			"code": "98: \n99: \tf, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0644)\n100: \tif err != nil {\n",
+			"line": "99",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/pkg/tools/relations_helper.go",
+			"code": "17: \tif err != nil {\n18: \t\tdata, err = os.ReadFile(filepath.Join(workspaceDir, \"RELATIONS.md\"))\n19: \t\tif err != nil {\n",
+			"line": "18",
+			"column": "15",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/pkg/tools/relations_helper.go",
+			"code": "15: func allowedPeersFromRelations(workspaceDir string) map[string]bool {\n16: \tdata, err := os.ReadFile(filepath.Join(workspaceDir, \"network\", \"RELATIONS.md\"))\n17: \tif err != nil {\n",
+			"line": "16",
+			"column": "15",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/pkg/tools/registry.go",
+			"code": "1152: \t\t\tabsPath := filepath.Join(r.workspaceDir, filepath.Clean(a.Path))\n1153: \t\t\tdata, err := os.ReadFile(absPath)\n1154: \t\t\tif err != nil {\n",
+			"line": "1153",
+			"column": "17",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/pkg/tools/registry.go",
+			"code": "1021: \tconfigPath := filepath.Join(r.agentDir, \"config.json\")\n1022: \tdata, err := os.ReadFile(configPath)\n1023: \tif err != nil {\n",
+			"line": "1022",
+			"column": "15",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/pkg/tools/registry.go",
+			"code": "603: \t}\n604: \tdata, err := os.ReadFile(fullPath)\n605: \tif err != nil {\n",
+			"line": "604",
+			"column": "15",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/pkg/tools/network.go",
+			"code": "271: \t\tentityID, section, strings.ReplaceAll(text, \"\\n\", \" \"))\n272: \tf, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)\n273: \tif err != nil {\n",
+			"line": "272",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/pkg/tools/image_analyze.go",
+			"code": "111: \t\t\t\t// Local file → base64\n112: \t\t\t\tdata, err := os.ReadFile(img)\n113: \t\t\t\tif err != nil {\n",
+			"line": "112",
+			"column": "18",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/pkg/skill/skill.go",
+			"code": "94: \tmdPath := filepath.Join(skillDir(workspaceDir, skillID), \"SKILL.md\")\n95: \tdata, err := os.ReadFile(mdPath)\n96: \tif err != nil {\n",
+			"line": "95",
+			"column": "15",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/pkg/skill/skill.go",
+			"code": "61: \tjsonPath := filepath.Join(skillDir(workspaceDir, skillID), \"skill.json\")\n62: \tdata, err := os.ReadFile(jsonPath)\n63: \tif err != nil {\n",
+			"line": "62",
+			"column": "15",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/pkg/skill/loader.go",
+			"code": "34: \t\tmdPath := filepath.Join(skillsDir, e.Name(), \"SKILL.md\")\n35: \t\tdata, err := os.ReadFile(mdPath)\n36: \t\tif err != nil {\n",
+			"line": "35",
+			"column": "16",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/pkg/session/store.go",
+			"code": "458: \tpath := filepath.Join(s.dir, sessionID+\".jsonl\")\n459: \tf, err := os.Open(path)\n460: \tif err != nil {\n",
+			"line": "459",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/pkg/session/store.go",
+			"code": "408: \t}\n409: \tf, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)\n410: \tif err != nil {\n",
+			"line": "409",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/pkg/session/store.go",
+			"code": "376: \tindexPath := filepath.Join(s.dir, \"sessions.json\")\n377: \tdata, err := os.ReadFile(indexPath)\n378: \tif err != nil {\n",
+			"line": "377",
+			"column": "15",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/pkg/session/store.go",
+			"code": "233: \tpath := filepath.Join(s.dir, sessionID+\".jsonl\")\n234: \tf, err := os.Open(path)\n235: \tif err != nil {\n",
+			"line": "234",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/pkg/session/store.go",
+			"code": "148: \tpath := filepath.Join(s.dir, sessionID+\".jsonl\")\n149: \tf, err := os.Open(path)\n150: \tif err != nil {\n",
+			"line": "149",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/pkg/runner/system_prompt.go",
+			"code": "178: func readFileIfExists(path string) (string, error) {\n179: \tdata, err := os.ReadFile(path)\n180: \tif err != nil {\n",
+			"line": "179",
+			"column": "15",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/pkg/project/manager.go",
+			"code": "87: \t\tmetaPath := filepath.Join(m.rootDir, e.Name(), \"meta.json\")\n88: \t\tdata, err := os.ReadFile(metaPath)\n89: \t\tif err != nil {\n",
+			"line": "88",
+			"column": "16",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/pkg/network/store.go",
+			"code": "291: \t\t}\n292: \t\tdata, err := os.ReadFile(filepath.Join(dir, e.Name()))\n293: \t\tif err != nil {\n",
+			"line": "292",
+			"column": "16",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/pkg/network/store.go",
+			"code": "115: \tpath := filepath.Join(s.contactsDir(), filenameForID(id))\n116: \traw, err := os.ReadFile(path)\n117: \tif err != nil {\n",
+			"line": "116",
+			"column": "14",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/pkg/network/migrate.go",
+			"code": "44: \tif _, err := os.Stat(newUP); os.IsNotExist(err) {\n45: \t\tif data, err := os.ReadFile(oldUP); err == nil \u0026\u0026 len(strings.TrimSpace(string(data))) \u003e 0 {\n46: \t\t\tif err := os.WriteFile(newUP, data, 0644); err != nil {\n",
+			"line": "45",
+			"column": "19",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/pkg/network/migrate.go",
+			"code": "29: \tif _, err := os.Stat(newRel); os.IsNotExist(err) {\n30: \t\tif data, err := os.ReadFile(oldRel); err == nil {\n31: \t\t\tif err := os.WriteFile(newRel, data, 0644); err != nil {\n",
+			"line": "30",
+			"column": "19",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/pkg/network/chat_store.go",
+			"code": "65: \t\t}\n66: \t\tdata, err := os.ReadFile(filepath.Join(dir, e.Name()))\n67: \t\tif err != nil {\n",
+			"line": "66",
+			"column": "16",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/pkg/network/chat_store.go",
+			"code": "28: \tpath := filepath.Join(s.chatsDir(), filenameForID(id))\n29: \traw, err := os.ReadFile(path)\n30: \tif err != nil {\n",
+			"line": "29",
+			"column": "14",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/pkg/memory/session_memory.go",
+			"code": "265: \tpath := filepath.Join(m.workspaceDir, \".zyhive\", \"session-memory\", agentID+\".md\")\n266: \tcontent, err := os.ReadFile(path)\n267: \tif err != nil {\n",
+			"line": "266",
+			"column": "18",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/pkg/memory/session_memory.go",
+			"code": "194: \n195: \tcontent, err := os.ReadFile(path)\n196: \tif err != nil {\n",
+			"line": "195",
+			"column": "18",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/pkg/memory/search.go",
+			"code": "67: \t}\n68: \tf, err := os.Create(p)\n69: \tif err != nil {\n",
+			"line": "68",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/pkg/memory/memory.go",
+			"code": "236: \tflatPath := filepath.Join(workspaceDir, \"MEMORY.md\")\n237: \tflatData, err := os.ReadFile(flatPath)\n238: \tif err != nil {\n",
+			"line": "237",
+			"column": "19",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/pkg/memory/memory.go",
+			"code": "146: \t}\n147: \tf, err := os.OpenFile(absPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)\n148: \tif err != nil {\n",
+			"line": "147",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/pkg/memory/memory.go",
+			"code": "118: \t}\n119: \tdata, err := os.ReadFile(absPath)\n120: \tif err != nil {\n",
+			"line": "119",
+			"column": "15",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/pkg/memory/indexer.go",
+			"code": "102: \t\trel, _ := filepath.Rel(memTree.WorkspaceDir, abs)\n103: \t\tdata, err := os.ReadFile(abs)\n104: \t\tif err != nil {\n",
+			"line": "103",
+			"column": "16",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/pkg/memory/config.go",
+			"code": "111: \tlogPath := filepath.Join(workspaceDir, runLogFilename)\n112: \tdata, err := os.ReadFile(logPath)\n113: \tif err != nil {\n",
+			"line": "112",
+			"column": "15",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/pkg/memory/config.go",
+			"code": "98: \t}\n99: \tf, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)\n100: \tif err != nil {\n",
+			"line": "99",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/pkg/memory/config.go",
+			"code": "50: \tpath := filepath.Join(workspaceDir, \"memory-config.json\")\n51: \tdata, err := os.ReadFile(path)\n52: \tif err != nil {\n",
+			"line": "51",
+			"column": "15",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/pkg/goal/manager.go",
+			"code": "475: \tpath := filepath.Join(m.dataDir, \"goals-checks\", goalID+\".jsonl\")\n476: \tf, err := os.Open(path)\n477: \tif err != nil {\n",
+			"line": "476",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/pkg/goal/manager.go",
+			"code": "462: \tpath := filepath.Join(dir, record.GoalID+\".jsonl\")\n463: \tf, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)\n464: \tif err != nil {\n",
+			"line": "463",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/pkg/cron/engine.go",
+			"code": "548: \tpath := filepath.Join(e.dataDir, \"runs\", record.JobID+\".jsonl\")\n549: \tf, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)\n550: \tif err != nil {\n",
+			"line": "549",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/pkg/cron/engine.go",
+			"code": "354: \tpath := filepath.Join(e.dataDir, \"runs\", jobID+\".jsonl\")\n355: \tf, err := os.Open(path)\n356: \tif err != nil {\n",
+			"line": "355",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/pkg/convlog/convlog.go",
+			"code": "132: func readAllEntries(p string) ([]Entry, int, error) {\n133: \tf, err := os.Open(p)\n134: \tif err != nil {\n",
+			"line": "133",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/pkg/convlog/convlog.go",
+			"code": "49: \t}\n50: \tf, err := os.OpenFile(p, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)\n51: \tif err != nil {\n",
+			"line": "50",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/pkg/config/config.go",
+			"code": "460: func Load(path string) (*Config, error) {\n461: \tdata, err := os.ReadFile(path)\n462: \tif err != nil {\n",
+			"line": "461",
+			"column": "15",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/pkg/chatlog/chatlog.go",
+			"code": "166: \tfp := m.entryFilePath(sessionID, channelID)\n167: \tf, err := os.Open(fp)\n168: \tif err != nil {\n",
+			"line": "167",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/pkg/chatlog/chatlog.go",
+			"code": "103: \tfp := m.entryFilePath(entry.SessionID, entry.ChannelID)\n104: \tf, err := os.OpenFile(fp, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)\n105: \tif err != nil {\n",
+			"line": "104",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/pkg/channel/telegram_api.go",
+			"code": "425: func (b *TelegramBot) SendFileToChat(chatID, threadID int64, filePath string) (string, error) {\n426: \tdata, err := os.ReadFile(filePath)\n427: \tif err != nil {\n",
+			"line": "426",
+			"column": "15",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/pkg/agent/relations.go",
+			"code": "119: func readRelationsFile(path string) []relRow {\n120: \tf, err := os.Open(path)\n121: \tif err != nil {\n",
+			"line": "120",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/pkg/agent/manager.go",
+			"code": "475: \tcfgPath := filepath.Join(m.rootDir, agentID, \"config.json\")\n476: \tdata, err := os.ReadFile(cfgPath)\n477: \tif err != nil {\n",
+			"line": "476",
+			"column": "15",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/pkg/agent/manager.go",
+			"code": "429: \n430: \tdata, err := os.ReadFile(cfgPath)\n431: \tif err != nil {\n",
+			"line": "430",
+			"column": "15",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/pkg/agent/manager.go",
+			"code": "332: \n333: \tdata, err := os.ReadFile(cfgPath)\n334: \tif err != nil {\n",
+			"line": "333",
+			"column": "15",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/pkg/agent/manager.go",
+			"code": "106: \n107: \t\tdata, err := os.ReadFile(cfgPath)\n108: \t\tif err != nil {\n",
+			"line": "107",
+			"column": "16",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/pkg/agent/identity.go",
+			"code": "54: func readMD(dir, filename string) (string, error) {\n55: \tdata, err := os.ReadFile(filepath.Join(dir, filename))\n56: \tif err != nil {\n",
+			"line": "55",
+			"column": "15",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/pkg/agent/capabilities.go",
+			"code": "93: \tif err != nil {\n94: \t\tdata, err = os.ReadFile(filepath.Join(wsDir, \"RELATIONS.md\"))\n95: \t\tif err != nil {\n",
+			"line": "94",
+			"column": "15",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/pkg/agent/capabilities.go",
+			"code": "91: func hasAnyRelations(wsDir string) bool {\n92: \tdata, err := os.ReadFile(filepath.Join(wsDir, \"network\", \"RELATIONS.md\"))\n93: \tif err != nil {\n",
+			"line": "92",
+			"column": "15",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/internal/api/update.go",
+			"code": "420: \tdefer in.Close()\n421: \tout, err := os.Create(dst)\n422: \tif err != nil {\n",
+			"line": "421",
+			"column": "14",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/internal/api/update.go",
+			"code": "415: func copyFile(src, dst string) error {\n416: \tin, err := os.Open(src)\n417: \tif err != nil {\n",
+			"line": "416",
+			"column": "13",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/internal/api/update.go",
+			"code": "306: \n307: \tf, err := os.Create(dest)\n308: \tif err != nil {\n",
+			"line": "307",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/internal/api/router.go",
+			"code": "607: func readLogFile(path string, limit int) ([]string, bool) {\n608: \tf, err := os.Open(path)\n609: \tif err != nil {\n",
+			"line": "608",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/internal/api/relations.go",
+			"code": "443: \t\tfilePath := relationsPath(ag.WorkspaceDir)\n444: \t\tdata, err := os.ReadFile(filePath)\n445: \t\tif err != nil {\n",
+			"line": "444",
+			"column": "16",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/internal/api/relations.go",
+			"code": "349: \tfilePath := relationsPath(ag.WorkspaceDir)\n350: \tdata, err := os.ReadFile(filePath)\n351: \tif err != nil {\n",
+			"line": "350",
+			"column": "15",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/internal/api/relations.go",
+			"code": "327: \tvar existing []RelationRow\n328: \tif data, err := os.ReadFile(filePath); err == nil {\n329: \t\texisting = parseRelationsMarkdown(string(data))\n",
+			"line": "328",
+			"column": "18",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/internal/api/relations.go",
+			"code": "298: \tvar rows []RelationRow\n299: \tif data, err := os.ReadFile(filePath); err == nil {\n300: \t\trows = parseRelationsMarkdown(string(data))\n",
+			"line": "299",
+			"column": "18",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/internal/api/relations.go",
+			"code": "253: \tvar rows []RelationRow\n254: \tif data, err := os.ReadFile(filePath); err == nil {\n255: \t\trows = parseRelationsMarkdown(string(data))\n",
+			"line": "254",
+			"column": "18",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/internal/api/relations.go",
+			"code": "205: \tfilePath := relationsPath(target.WorkspaceDir)\n206: \tdata, err := os.ReadFile(filePath)\n207: \tif err != nil {\n",
+			"line": "206",
+			"column": "15",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/internal/api/relations.go",
+			"code": "103: \tvar oldRows []RelationRow\n104: \tif oldData, err2 := os.ReadFile(filePath); err2 == nil {\n105: \t\toldRows = parseRelationsMarkdown(string(oldData))\n",
+			"line": "104",
+			"column": "22",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/internal/api/relations.go",
+			"code": "68: \tfilePath := relationsPath(ag.WorkspaceDir)\n69: \tdata, err := os.ReadFile(filePath)\n70: \tif err != nil {\n",
+			"line": "69",
+			"column": "15",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/internal/api/projects.go",
+			"code": "216: \n217: \tdata, err := os.ReadFile(absPath)\n218: \tif err != nil {\n",
+			"line": "217",
+			"column": "15",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/internal/api/files.go",
+			"code": "254: \t\t\t// Subsequent chunks: append\n255: \t\t\tf, err = os.OpenFile(absPath, os.O_APPEND|os.O_WRONLY, 0644)\n256: \t\t}\n",
+			"line": "255",
+			"column": "13",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/internal/api/files.go",
+			"code": "251: \t\t\t// First chunk: create or truncate\n252: \t\t\tf, err = os.OpenFile(absPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)\n253: \t\t} else {\n",
+			"line": "252",
+			"column": "13",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/internal/api/files.go",
+			"code": "165: \t// File content\n166: \tdata, err := os.ReadFile(absPath)\n167: \tif err != nil {\n",
+			"line": "166",
+			"column": "15",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/cmd/aipanel/cli.go",
+			"code": "856: \t\t\t\tidPath := filepath.Join(agentDir, \"identity.json\")\n857: \t\t\t\tif data, err := os.ReadFile(idPath); err == nil {\n858: \t\t\t\t\tfmt.Println(ansiBold + \"\\n  identity.json：\" + ansiReset)\n",
+			"line": "857",
+			"column": "21",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/cmd/aipanel/cli.go",
+			"code": "820: \t\t\t\tidPath := filepath.Join(agentsDir, e.Name(), \"identity.json\")\n821: \t\t\t\tif data, err := os.ReadFile(idPath); err == nil {\n822: \t\t\t\t\tvar id struct {\n",
+			"line": "821",
+			"column": "21",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/cmd/aipanel/cli.go",
+			"code": "375: \t\tcase \"1\":\n376: \t\t\tdata, err := os.ReadFile(configPath)\n377: \t\t\tif err != nil {\n",
+			"line": "376",
+			"column": "17",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "/workspace/cmd/aipanel/cli.go",
+			"code": "259: \t\t\tif strings.Contains(e.Name(), \"zyhive\") || strings.Contains(e.Name(), \"aipanel\") {\n260: \t\t\t\tdata, err := os.ReadFile(filepath.Join(dir, e.Name()))\n261: \t\t\t\tif err != nil {\n",
+			"line": "260",
+			"column": "18",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G302",
+			"details": "Expect file permissions to be 0600 or less",
+			"file": "/workspace/pkg/usage/store.go",
+			"code": "72: \t}\n73: \tf, err := os.OpenFile(s.monthFile(time.Now()), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)\n74: \tif err != nil {\n",
+			"line": "73",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G302",
+			"details": "Expect file permissions to be 0600 or less",
+			"file": "/workspace/pkg/tools/wish.go",
+			"code": "98: \n99: \tf, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0644)\n100: \tif err != nil {\n",
+			"line": "99",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G302",
+			"details": "Expect file permissions to be 0600 or less",
+			"file": "/workspace/pkg/tools/network.go",
+			"code": "271: \t\tentityID, section, strings.ReplaceAll(text, \"\\n\", \" \"))\n272: \tf, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)\n273: \tif err != nil {\n",
+			"line": "272",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G302",
+			"details": "Expect file permissions to be 0600 or less",
+			"file": "/workspace/pkg/session/store.go",
+			"code": "408: \t}\n409: \tf, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)\n410: \tif err != nil {\n",
+			"line": "409",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G302",
+			"details": "Expect file permissions to be 0600 or less",
+			"file": "/workspace/pkg/memory/memory.go",
+			"code": "146: \t}\n147: \tf, err := os.OpenFile(absPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)\n148: \tif err != nil {\n",
+			"line": "147",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G302",
+			"details": "Expect file permissions to be 0600 or less",
+			"file": "/workspace/pkg/memory/config.go",
+			"code": "98: \t}\n99: \tf, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)\n100: \tif err != nil {\n",
+			"line": "99",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G302",
+			"details": "Expect file permissions to be 0600 or less",
+			"file": "/workspace/pkg/goal/manager.go",
+			"code": "462: \tpath := filepath.Join(dir, record.GoalID+\".jsonl\")\n463: \tf, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)\n464: \tif err != nil {\n",
+			"line": "463",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G302",
+			"details": "Expect file permissions to be 0600 or less",
+			"file": "/workspace/pkg/cron/engine.go",
+			"code": "548: \tpath := filepath.Join(e.dataDir, \"runs\", record.JobID+\".jsonl\")\n549: \tf, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)\n550: \tif err != nil {\n",
+			"line": "549",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G302",
+			"details": "Expect file permissions to be 0600 or less",
+			"file": "/workspace/pkg/convlog/convlog.go",
+			"code": "49: \t}\n50: \tf, err := os.OpenFile(p, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)\n51: \tif err != nil {\n",
+			"line": "50",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G302",
+			"details": "Expect file permissions to be 0600 or less",
+			"file": "/workspace/pkg/chatlog/chatlog.go",
+			"code": "103: \tfp := m.entryFilePath(entry.SessionID, entry.ChannelID)\n104: \tf, err := os.OpenFile(fp, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)\n105: \tif err != nil {\n",
+			"line": "104",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G302",
+			"details": "Expect file permissions to be 0600 or less",
+			"file": "/workspace/internal/api/update.go",
+			"code": "239: \t}\n240: \tos.Chmod(binaryPath, 0755)\n241: \tos.Remove(tmpPath)\n",
+			"line": "240",
+			"column": "2",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G302",
+			"details": "Expect file permissions to be 0600 or less",
+			"file": "/workspace/internal/api/update.go",
+			"code": "195: \tif osName != \"windows\" {\n196: \t\tos.Chmod(tmpPath, 0755)\n197: \t}\n",
+			"line": "196",
+			"column": "3",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G302",
+			"details": "Expect file permissions to be 0600 or less",
+			"file": "/workspace/internal/api/files.go",
+			"code": "254: \t\t\t// Subsequent chunks: append\n255: \t\t\tf, err = os.OpenFile(absPath, os.O_APPEND|os.O_WRONLY, 0644)\n256: \t\t}\n",
+			"line": "255",
+			"column": "13",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G302",
+			"details": "Expect file permissions to be 0600 or less",
+			"file": "/workspace/internal/api/files.go",
+			"code": "251: \t\t\t// First chunk: create or truncate\n252: \t\t\tf, err = os.OpenFile(absPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)\n253: \t\t} else {\n",
+			"line": "252",
+			"column": "13",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G302",
+			"details": "Expect file permissions to be 0600 or less",
+			"file": "/workspace/cmd/aipanel/cli.go",
+			"code": "1015: \t// 赋权\n1016: \tos.Chmod(tmpPath, 0755)\n1017: \n",
+			"line": "1016",
+			"column": "2",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G301",
+			"details": "Expect directory permissions to be 0750 or less",
+			"file": "/workspace/pkg/usage/store.go",
+			"code": "68: \ts.mu.Lock()\n69: \tif err := os.MkdirAll(s.usageDir(), 0o755); err != nil {\n70: \t\ts.mu.Unlock()\n",
+			"line": "69",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G301",
+			"details": "Expect directory permissions to be 0750 or less",
+			"file": "/workspace/pkg/tools/tools.go",
+			"code": "96: \t}\n97: \tif err := os.MkdirAll(filepath.Dir(p.FilePath), 0755); err != nil {\n98: \t\treturn \"\", fmt.Errorf(\"create parent directories for %s failed: %v\", p.FilePath, err)\n",
+			"line": "97",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G301",
+			"details": "Expect directory permissions to be 0750 or less",
+			"file": "/workspace/pkg/tools/registry.go",
+			"code": "639: \t}\n640: \tif err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {\n641: \t\treturn \"\", err\n",
+			"line": "640",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G301",
+			"details": "Expect directory permissions to be 0750 or less",
+			"file": "/workspace/pkg/tools/network.go",
+			"code": "267: \tlogPath := filepath.Join(workspaceDir, \"network\", \"changes.log\")\n268: \t_ = os.MkdirAll(filepath.Dir(logPath), 0755)\n269: \tline := fmt.Sprintf(\"%s  note  %s  %s  %s\\n\",\n",
+			"line": "268",
+			"column": "6",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G301",
+			"details": "Expect directory permissions to be 0750 or less",
+			"file": "/workspace/pkg/subagent/manager.go",
+			"code": "76: \tif storeDir != \"\" {\n77: \t\tif err := os.MkdirAll(storeDir, 0755); err == nil {\n78: \t\t\tm.loadFromDisk()\n",
+			"line": "77",
+			"column": "13",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G301",
+			"details": "Expect directory permissions to be 0750 or less",
+			"file": "/workspace/pkg/skill/skill.go",
+			"code": "75: \tdir := skillDir(workspaceDir, meta.ID)\n76: \tif err := os.MkdirAll(dir, 0755); err != nil {\n77: \t\treturn err\n",
+			"line": "76",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G301",
+			"details": "Expect directory permissions to be 0750 or less",
+			"file": "/workspace/pkg/skill/index.go",
+			"code": "44: \tindexPath := filepath.Join(workspaceDir, \"skills\", \"INDEX.md\")\n45: \tif err := os.MkdirAll(filepath.Dir(indexPath), 0755); err != nil {\n46: \t\treturn err\n",
+			"line": "45",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G301",
+			"details": "Expect directory permissions to be 0750 or less",
+			"file": "/workspace/pkg/session/store.go",
+			"code": "39: \n40: \tif err := os.MkdirAll(s.dir, 0755); err != nil {\n41: \t\treturn \"\", false, err\n",
+			"line": "40",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G301",
+			"details": "Expect directory permissions to be 0750 or less",
+			"file": "/workspace/pkg/project/manager.go",
+			"code": "151: \tprojectDir := filepath.Join(m.rootDir, opts.ID)\n152: \tif err := os.MkdirAll(projectDir, 0755); err != nil {\n153: \t\treturn nil, fmt.Errorf(\"create project dir: %w\", err)\n",
+			"line": "152",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G301",
+			"details": "Expect directory permissions to be 0750 or less",
+			"file": "/workspace/pkg/project/manager.go",
+			"code": "73: \n74: \tif err := os.MkdirAll(m.rootDir, 0755); err != nil {\n75: \t\treturn fmt.Errorf(\"create projects dir: %w\", err)\n",
+			"line": "74",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G301",
+			"details": "Expect directory permissions to be 0750 or less",
+			"file": "/workspace/pkg/network/store.go",
+			"code": "57: func (s *Store) ensureChatsDir() error {\n58: \treturn os.MkdirAll(s.chatsDir(), 0755)\n59: }\n",
+			"line": "58",
+			"column": "9",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G301",
+			"details": "Expect directory permissions to be 0750 or less",
+			"file": "/workspace/pkg/network/store.go",
+			"code": "50: func (s *Store) ensureDirs() error {\n51: \treturn os.MkdirAll(s.contactsDir(), 0755)\n52: }\n",
+			"line": "51",
+			"column": "9",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G301",
+			"details": "Expect directory permissions to be 0750 or less",
+			"file": "/workspace/pkg/network/migrate.go",
+			"code": "21: \tnetDir := filepath.Join(workspaceDir, \"network\")\n22: \tif err := os.MkdirAll(filepath.Join(netDir, \"contacts\"), 0755); err != nil {\n23: \t\treturn fmt.Errorf(\"network.MigrateIfNeeded: mkdir: %w\", err)\n",
+			"line": "22",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G301",
+			"details": "Expect directory permissions to be 0750 or less",
+			"file": "/workspace/pkg/memory/search.go",
+			"code": "64: \tp := m.indexPath()\n65: \tif err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {\n66: \t\treturn err\n",
+			"line": "65",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G301",
+			"details": "Expect directory permissions to be 0750 or less",
+			"file": "/workspace/pkg/memory/memory.go",
+			"code": "143: \t}\n144: \tif err := os.MkdirAll(filepath.Dir(absPath), 0755); err != nil {\n145: \t\treturn err\n",
+			"line": "144",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G301",
+			"details": "Expect directory permissions to be 0750 or less",
+			"file": "/workspace/pkg/memory/memory.go",
+			"code": "131: \t}\n132: \tif err := os.MkdirAll(filepath.Dir(absPath), 0755); err != nil {\n133: \t\treturn err\n",
+			"line": "132",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G301",
+			"details": "Expect directory permissions to be 0750 or less",
+			"file": "/workspace/pkg/memory/memory.go",
+			"code": "89: \t}\n90: \tif err := os.MkdirAll(filepath.Dir(abs), 0755); err != nil {\n91: \t\treturn err\n",
+			"line": "90",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G301",
+			"details": "Expect directory permissions to be 0750 or less",
+			"file": "/workspace/pkg/memory/memory.go",
+			"code": "45: \tfor _, d := range dirs {\n46: \t\tif err := os.MkdirAll(filepath.Join(m.WorkspaceDir, d), 0755); err != nil {\n47: \t\t\treturn fmt.Errorf(\"create dir %s: %w\", d, err)\n",
+			"line": "46",
+			"column": "13",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G301",
+			"details": "Expect directory permissions to be 0750 or less",
+			"file": "/workspace/pkg/goal/manager.go",
+			"code": "458: \tdir := filepath.Join(m.dataDir, \"goals-checks\")\n459: \tif err := os.MkdirAll(dir, 0755); err != nil {\n460: \t\treturn err\n",
+			"line": "459",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G301",
+			"details": "Expect directory permissions to be 0750 or less",
+			"file": "/workspace/pkg/goal/manager.go",
+			"code": "49: \t}\n50: \tif err := os.MkdirAll(filepath.Join(m.dataDir, \"goals-checks\"), 0755); err != nil {\n51: \t\treturn err\n",
+			"line": "50",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G301",
+			"details": "Expect directory permissions to be 0750 or less",
+			"file": "/workspace/pkg/goal/manager.go",
+			"code": "46: \n47: \tif err := os.MkdirAll(m.dataDir, 0755); err != nil {\n48: \t\treturn err\n",
+			"line": "47",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G301",
+			"details": "Expect directory permissions to be 0750 or less",
+			"file": "/workspace/pkg/cron/engine.go",
+			"code": "134: \t}\n135: \tif err := os.MkdirAll(filepath.Join(e.dataDir, \"runs\"), 0755); err != nil {\n136: \t\treturn err\n",
+			"line": "135",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G301",
+			"details": "Expect directory permissions to be 0750 or less",
+			"file": "/workspace/pkg/cron/engine.go",
+			"code": "131: \n132: \tif err := os.MkdirAll(e.dataDir, 0755); err != nil {\n133: \t\treturn err\n",
+			"line": "132",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G301",
+			"details": "Expect directory permissions to be 0750 or less",
+			"file": "/workspace/pkg/convlog/convlog.go",
+			"code": "46: \tp := cl.path()\n47: \tif err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {\n48: \t\treturn err\n",
+			"line": "47",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G301",
+			"details": "Expect directory permissions to be 0750 or less",
+			"file": "/workspace/pkg/chatlog/chatlog.go",
+			"code": "92: \tdir := m.conversationsDir()\n93: \tif err := os.MkdirAll(dir, 0755); err != nil {\n94: \t\treturn fmt.Errorf(\"chatlog mkdir: %w\", err)\n",
+			"line": "93",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G301",
+			"details": "Expect directory permissions to be 0750 or less",
+			"file": "/workspace/pkg/channel/pending.go",
+			"code": "273: func NewApprovedStoreStr(dir, channelID string) *ApprovedStoreStr {\n274: \t_ = os.MkdirAll(dir, 0755)\n275: \ts := \u0026ApprovedStoreStr{\n",
+			"line": "274",
+			"column": "6",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G301",
+			"details": "Expect directory permissions to be 0750 or less",
+			"file": "/workspace/pkg/channel/pending.go",
+			"code": "197: func NewPendingStoreStr(dir, channelID string) *PendingStoreStr {\n198: \t_ = os.MkdirAll(dir, 0755)\n199: \tps := \u0026PendingStoreStr{\n",
+			"line": "198",
+			"column": "6",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G301",
+			"details": "Expect directory permissions to be 0750 or less",
+			"file": "/workspace/pkg/channel/pending.go",
+			"code": "109: func NewApprovedStore(dir, channelID string) *ApprovedStore {\n110: \t_ = os.MkdirAll(dir, 0755)\n111: \ts := \u0026ApprovedStore{\n",
+			"line": "110",
+			"column": "6",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G301",
+			"details": "Expect directory permissions to be 0750 or less",
+			"file": "/workspace/pkg/channel/pending.go",
+			"code": "30: func NewPendingStore(dir, channelID string) *PendingStore {\n31: \t_ = os.MkdirAll(dir, 0755)\n32: \tps := \u0026PendingStore{\n",
+			"line": "31",
+			"column": "6",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G301",
+			"details": "Expect directory permissions to be 0750 or less",
+			"file": "/workspace/pkg/browser/manager.go",
+			"code": "239: \tdir := filepath.Join(workspaceDir, \".browser_screenshots\")\n240: \t_ = os.MkdirAll(dir, 0755)\n241: \tname := fmt.Sprintf(\"screenshot_%d.png\", time.Now().UnixMilli())\n",
+			"line": "240",
+			"column": "6",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G301",
+			"details": "Expect directory permissions to be 0750 or less",
+			"file": "/workspace/pkg/agent/pool.go",
+			"code": "1128: \t\t\tsubSessionDir := filepath.Join(ag.SessionDir, \"subagent\")\n1129: \t\t\tif err := os.MkdirAll(subSessionDir, 0755); err != nil {\n1130: \t\t\t\tout \u003c- subagent.RunEvent{Type: \"error\", Error: fmt.Errorf(\"create subagent session dir: %w\", err)}\n",
+			"line": "1129",
+			"column": "14",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G301",
+			"details": "Expect directory permissions to be 0750 or less",
+			"file": "/workspace/pkg/agent/pool.go",
+			"code": "1011: \t\t\tsubSessionDir := filepath.Join(ag.SessionDir, \"subagent\")\n1012: \t\t\tif err := os.MkdirAll(subSessionDir, 0755); err != nil {\n1013: \t\t\t\tout \u003c- subagent.RunEvent{Type: \"error\", Error: fmt.Errorf(\"create subagent session dir: %w\", err)}\n",
+			"line": "1012",
+			"column": "14",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G301",
+			"details": "Expect directory permissions to be 0750 or less",
+			"file": "/workspace/pkg/agent/manager.go",
+			"code": "221: \tfor _, dir := range []string{workspaceDir, sessionDir} {\n222: \t\tif err := os.MkdirAll(dir, 0755); err != nil {\n223: \t\t\treturn nil, fmt.Errorf(\"create dir %s: %w\", dir, err)\n",
+			"line": "222",
+			"column": "13",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G301",
+			"details": "Expect directory permissions to be 0750 or less",
+			"file": "/workspace/pkg/agent/manager.go",
+			"code": "90: \n91: \tif err := os.MkdirAll(m.rootDir, 0755); err != nil {\n92: \t\treturn fmt.Errorf(\"create agents dir: %w\", err)\n",
+			"line": "91",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G301",
+			"details": "Expect directory permissions to be 0750 or less",
+			"file": "/workspace/internal/api/projects.go",
+			"code": "267: \n268: \tif err := os.MkdirAll(filepath.Dir(absPath), 0755); err != nil {\n269: \t\tc.JSON(http.StatusInternalServerError, gin.H{\"error\": err.Error()})\n",
+			"line": "268",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G301",
+			"details": "Expect directory permissions to be 0750 or less",
+			"file": "/workspace/internal/api/files.go",
+			"code": "238: \n239: \tif err := os.MkdirAll(filepath.Dir(absPath), 0755); err != nil {\n240: \t\tc.JSON(http.StatusInternalServerError, gin.H{\"error\": err.Error()})\n",
+			"line": "239",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G301",
+			"details": "Expect directory permissions to be 0750 or less",
+			"file": "/workspace/cmd/aipanel/cli.go",
+			"code": "1309: \t\t\t} else {\n1310: \t\t\t\tif err := os.MkdirAll(newDir, 0755); err != nil {\n1311: \t\t\t\t\tprintError(\"创建目录失败：\" + err.Error())\n",
+			"line": "1310",
+			"column": "15",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G301",
+			"details": "Expect directory permissions to be 0750 or less",
+			"file": "/workspace/cmd/aipanel/cli.go",
+			"code": "1263: \t\tcase \"1\":\n1264: \t\t\tos.MkdirAll(backupDir, 0755)\n1265: \t\t\tts := time.Now().Format(\"20060102-150405\")\n",
+			"line": "1264",
+			"column": "4",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G301",
+			"details": "Expect directory permissions to be 0750 or less",
+			"file": "/workspace/cmd/aipanel/cli.go",
+			"code": "1228: \tpath := backupDirStateFile()\n1229: \tif err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {\n1230: \t\treturn err\n",
+			"line": "1229",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G301",
+			"details": "Expect directory permissions to be 0750 or less",
+			"file": "/workspace/cmd/aipanel/cli.go",
+			"code": "432: \t\t\t} else {\n433: \t\t\t\tif err := os.MkdirAll(newDir, 0755); err != nil {\n434: \t\t\t\t\tprintError(\"创建目录失败：\" + err.Error())\n",
+			"line": "433",
+			"column": "15",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G306",
+			"details": "Expect WriteFile permissions to be 0600 or less",
+			"file": "/workspace/pkg/tools/wish.go",
+			"code": "89: \t\t\t\"\u003e 这是我（AI 成员）希望拥有的新能力清单。用户会看到并决定是否为我启用。\\n\\n\"\n90: \t\tif err := os.WriteFile(path, []byte(header), 0644); err != nil {\n91: \t\t\treturn \"\", fmt.Errorf(\"create WISHLIST.md: %w\", err)\n",
+			"line": "90",
+			"column": "13",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G306",
+			"details": "Expect WriteFile permissions to be 0600 or less",
+			"file": "/workspace/pkg/tools/tools.go",
+			"code": "153: \tresult := strings.Replace(src, p.OldString, p.NewString, 1)\n154: \tif err := os.WriteFile(p.FilePath, []byte(result), 0644); err != nil {\n155: \t\treturn \"\", fmt.Errorf(\"write %s failed: %v\", p.FilePath, err)\n",
+			"line": "154",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G306",
+			"details": "Expect WriteFile permissions to be 0600 or less",
+			"file": "/workspace/pkg/tools/tools.go",
+			"code": "99: \t}\n100: \tif err := os.WriteFile(p.FilePath, []byte(p.Content), 0644); err != nil {\n101: \t\treturn \"\", fmt.Errorf(\"write %s failed: %v\", p.FilePath, err)\n",
+			"line": "100",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G306",
+			"details": "Expect WriteFile permissions to be 0600 or less",
+			"file": "/workspace/pkg/tools/registry.go",
+			"code": "1048: \tsoulPath := filepath.Join(r.workspaceDir, \"SOUL.md\")\n1049: \tif err := os.WriteFile(soulPath, []byte(p.Content), 0644); err != nil {\n1050: \t\treturn \"\", fmt.Errorf(\"write SOUL.md: %w\", err)\n",
+			"line": "1049",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G306",
+			"details": "Expect WriteFile permissions to be 0600 or less",
+			"file": "/workspace/pkg/tools/registry.go",
+			"code": "1034: \t}\n1035: \tif err := os.WriteFile(configPath, out, 0644); err != nil {\n1036: \t\treturn \"\", fmt.Errorf(\"write config.json: %w\", err)\n",
+			"line": "1035",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G306",
+			"details": "Expect WriteFile permissions to be 0600 or less",
+			"file": "/workspace/pkg/tools/registry.go",
+			"code": "984: \t}\n985: \tif err := os.WriteFile(skillMdPath, []byte(promptContent), 0644); err != nil {\n986: \t\treturn \"\", fmt.Errorf(\"write SKILL.md: %w\", err)\n",
+			"line": "985",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G306",
+			"details": "Expect WriteFile permissions to be 0600 or less",
+			"file": "/workspace/pkg/tools/registry.go",
+			"code": "642: \t}\n643: \tif err := os.WriteFile(fullPath, []byte(p.Content), 0644); err != nil {\n644: \t\treturn \"\", fmt.Errorf(\"写入失败: %w\", err)\n",
+			"line": "643",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G306",
+			"details": "Expect WriteFile permissions to be 0600 or less",
+			"file": "/workspace/pkg/subagent/manager.go",
+			"code": "507: \tpath := filepath.Join(m.storeDir, task.ID+\".json\")\n508: \t_ = os.WriteFile(path, data, 0644)\n509: }\n",
+			"line": "508",
+			"column": "6",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G306",
+			"details": "Expect WriteFile permissions to be 0600 or less",
+			"file": "/workspace/pkg/skill/skill.go",
+			"code": "82: \t}\n83: \treturn os.WriteFile(filepath.Join(dir, \"skill.json\"), data, 0644)\n84: }\n",
+			"line": "83",
+			"column": "9",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G306",
+			"details": "Expect WriteFile permissions to be 0600 or less",
+			"file": "/workspace/pkg/skill/index.go",
+			"code": "47: \t}\n48: \treturn os.WriteFile(indexPath, []byte(sb.String()), 0644)\n49: }\n",
+			"line": "48",
+			"column": "9",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G306",
+			"details": "Expect WriteFile permissions to be 0600 or less",
+			"file": "/workspace/pkg/session/store.go",
+			"code": "399: \t}\n400: \treturn os.WriteFile(filepath.Join(s.dir, \"sessions.json\"), data, 0644)\n401: }\n",
+			"line": "400",
+			"column": "9",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G306",
+			"details": "Expect WriteFile permissions to be 0600 or less",
+			"file": "/workspace/pkg/project/manager.go",
+			"code": "239: \tdata, _ := json.MarshalIndent(meta, \"\", \"  \")\n240: \treturn os.WriteFile(filepath.Join(p.FilesDir, \"meta.json\"), data, 0644)\n241: }\n",
+			"line": "240",
+			"column": "9",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G306",
+			"details": "Expect WriteFile permissions to be 0600 or less",
+			"file": "/workspace/pkg/project/manager.go",
+			"code": "211: \tdata, _ := json.MarshalIndent(meta, \"\", \"  \")\n212: \treturn os.WriteFile(filepath.Join(p.FilesDir, \"meta.json\"), data, 0644)\n213: }\n",
+			"line": "212",
+			"column": "9",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G306",
+			"details": "Expect WriteFile permissions to be 0600 or less",
+			"file": "/workspace/pkg/project/manager.go",
+			"code": "175: \treadme := fmt.Sprintf(\"# %s\\n\\n%s\\n\", opts.Name, opts.Description)\n176: \t_ = os.WriteFile(filepath.Join(projectDir, \"README.md\"), []byte(readme), 0644)\n177: \n",
+			"line": "176",
+			"column": "6",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G306",
+			"details": "Expect WriteFile permissions to be 0600 or less",
+			"file": "/workspace/pkg/project/manager.go",
+			"code": "169: \t}\n170: \tif err := os.WriteFile(filepath.Join(projectDir, \"meta.json\"), data, 0644); err != nil {\n171: \t\treturn nil, fmt.Errorf(\"write meta.json: %w\", err)\n",
+			"line": "170",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G306",
+			"details": "Expect WriteFile permissions to be 0600 or less",
+			"file": "/workspace/pkg/network/store.go",
+			"code": "343: \tmd := renderIndexMD(summaries, chatSummaries, s.readRelationsRowsUnlocked())\n344: \treturn os.WriteFile(s.indexMDPath(), []byte(md), 0644)\n345: }\n",
+			"line": "344",
+			"column": "9",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G306",
+			"details": "Expect WriteFile permissions to be 0600 or less",
+			"file": "/workspace/pkg/network/store.go",
+			"code": "338: \t}\n339: \tif err := os.WriteFile(s.indexJSONPath(), jsonBytes, 0644); err != nil {\n340: \t\treturn err\n",
+			"line": "339",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G306",
+			"details": "Expect WriteFile permissions to be 0600 or less",
+			"file": "/workspace/pkg/network/store.go",
+			"code": "132: \tpath := filepath.Join(s.contactsDir(), filenameForID(c.ID))\n133: \tif err := os.WriteFile(path, []byte(renderContactMD(c)), 0644); err != nil {\n134: \t\treturn err\n",
+			"line": "133",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G306",
+			"details": "Expect WriteFile permissions to be 0600 or less",
+			"file": "/workspace/pkg/network/migrate.go",
+			"code": "45: \t\tif data, err := os.ReadFile(oldUP); err == nil \u0026\u0026 len(strings.TrimSpace(string(data))) \u003e 0 {\n46: \t\t\tif err := os.WriteFile(newUP, data, 0644); err != nil {\n47: \t\t\t\treturn fmt.Errorf(\"network.MigrateIfNeeded: write owner-profile: %w\", err)\n",
+			"line": "46",
+			"column": "14",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G306",
+			"details": "Expect WriteFile permissions to be 0600 or less",
+			"file": "/workspace/pkg/network/migrate.go",
+			"code": "36: \t\t\tpointer := \"\u003e RELATIONS.md 已迁移到 network/RELATIONS.md\\n\"\n37: \t\t\t_ = os.WriteFile(oldRel, []byte(pointer), 0644)\n38: \t\t}\n",
+			"line": "37",
+			"column": "8",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G306",
+			"details": "Expect WriteFile permissions to be 0600 or less",
+			"file": "/workspace/pkg/network/migrate.go",
+			"code": "30: \t\tif data, err := os.ReadFile(oldRel); err == nil {\n31: \t\t\tif err := os.WriteFile(newRel, data, 0644); err != nil {\n32: \t\t\t\treturn fmt.Errorf(\"network.MigrateIfNeeded: write new RELATIONS: %w\", err)\n",
+			"line": "31",
+			"column": "14",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G306",
+			"details": "Expect WriteFile permissions to be 0600 or less",
+			"file": "/workspace/pkg/network/chat_store.go",
+			"code": "100: \tpath := filepath.Join(s.chatsDir(), filenameForID(c.ID))\n101: \tif err := os.WriteFile(path, []byte(renderChatMD(c)), 0644); err != nil {\n102: \t\treturn err\n",
+			"line": "101",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G306",
+			"details": "Expect WriteFile permissions to be 0600 or less",
+			"file": "/workspace/pkg/memory/memory.go",
+			"code": "134: \t}\n135: \treturn os.WriteFile(absPath, []byte(content), 0644)\n136: }\n",
+			"line": "135",
+			"column": "9",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G306",
+			"details": "Expect WriteFile permissions to be 0600 or less",
+			"file": "/workspace/pkg/memory/memory.go",
+			"code": "109: func (m *MemoryTree) UpdateIndex(content string) error {\n110: \treturn os.WriteFile(filepath.Join(m.memDir(), \"INDEX.md\"), []byte(content), 0644)\n111: }\n",
+			"line": "110",
+			"column": "9",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G306",
+			"details": "Expect WriteFile permissions to be 0600 or less",
+			"file": "/workspace/pkg/memory/memory.go",
+			"code": "92: \t}\n93: \treturn os.WriteFile(abs, []byte(content), 0644)\n94: }\n",
+			"line": "93",
+			"column": "9",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G306",
+			"details": "Expect WriteFile permissions to be 0600 or less",
+			"file": "/workspace/pkg/memory/memory.go",
+			"code": "76: \t\tif _, err := os.Stat(gk); os.IsNotExist(err) {\n77: \t\t\t_ = os.WriteFile(gk, []byte(\"\"), 0644)\n78: \t\t}\n",
+			"line": "77",
+			"column": "8",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G306",
+			"details": "Expect WriteFile permissions to be 0600 or less",
+			"file": "/workspace/pkg/memory/config.go",
+			"code": "77: \t}\n78: \treturn os.WriteFile(path, data, 0644)\n79: }\n",
+			"line": "78",
+			"column": "9",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G306",
+			"details": "Expect WriteFile permissions to be 0600 or less",
+			"file": "/workspace/pkg/goal/manager.go",
+			"code": "517: \t}\n518: \treturn os.WriteFile(filepath.Join(m.dataDir, \"goals.json\"), data, 0644)\n519: }\n",
+			"line": "518",
+			"column": "9",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G306",
+			"details": "Expect WriteFile permissions to be 0600 or less",
+			"file": "/workspace/pkg/cron/engine.go",
+			"code": "567: \t}\n568: \treturn os.WriteFile(filepath.Join(e.dataDir, \"jobs.json\"), data, 0644)\n569: }\n",
+			"line": "568",
+			"column": "9",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G306",
+			"details": "Expect WriteFile permissions to be 0600 or less",
+			"file": "/workspace/pkg/config/config.go",
+			"code": "577: \t}\n578: \treturn os.WriteFile(path, data, 0644)\n579: }\n",
+			"line": "578",
+			"column": "9",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G306",
+			"details": "Expect WriteFile permissions to be 0600 or less",
+			"file": "/workspace/pkg/chatlog/chatlog.go",
+			"code": "302: \t}\n303: \treturn os.WriteFile(m.indexMDPath(), []byte(sb.String()), 0644)\n304: }\n",
+			"line": "303",
+			"column": "9",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G306",
+			"details": "Expect WriteFile permissions to be 0600 or less",
+			"file": "/workspace/pkg/chatlog/chatlog.go",
+			"code": "231: \ttmp := m.indexPath() + \".tmp\"\n232: \tif err := os.WriteFile(tmp, data, 0644); err != nil {\n233: \t\treturn err\n",
+			"line": "232",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G306",
+			"details": "Expect WriteFile permissions to be 0600 or less",
+			"file": "/workspace/pkg/channel/pending.go",
+			"code": "328: \tdata, _ := json.MarshalIndent(list, \"\", \"  \")\n329: \t_ = os.WriteFile(s.path, data, 0644)\n330: }\n",
+			"line": "329",
+			"column": "6",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G306",
+			"details": "Expect WriteFile permissions to be 0600 or less",
+			"file": "/workspace/pkg/channel/pending.go",
+			"code": "259: \tdata, _ := json.MarshalIndent(list, \"\", \"  \")\n260: \t_ = os.WriteFile(ps.path, data, 0644)\n261: }\n",
+			"line": "260",
+			"column": "6",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G306",
+			"details": "Expect WriteFile permissions to be 0600 or less",
+			"file": "/workspace/pkg/channel/pending.go",
+			"code": "175: \tdata, _ := json.MarshalIndent(list, \"\", \"  \")\n176: \t_ = os.WriteFile(s.path, data, 0644)\n177: }\n",
+			"line": "176",
+			"column": "6",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G306",
+			"details": "Expect WriteFile permissions to be 0600 or less",
+			"file": "/workspace/pkg/channel/pending.go",
+			"code": "93: \tdata, _ := json.MarshalIndent(list, \"\", \"  \")\n94: \t_ = os.WriteFile(ps.path, data, 0644)\n95: }\n",
+			"line": "94",
+			"column": "6",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G306",
+			"details": "Expect WriteFile permissions to be 0600 or less",
+			"file": "/workspace/pkg/browser/manager.go",
+			"code": "242: \tpath := filepath.Join(dir, name)\n243: \t_ = os.WriteFile(path, buf, 0644)\n244: \treturn path, base64.StdEncoding.EncodeToString(buf), nil\n",
+			"line": "243",
+			"column": "6",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G306",
+			"details": "Expect WriteFile permissions to be 0600 or less",
+			"file": "/workspace/pkg/agent/manager.go",
+			"code": "615: \tsoulPath := filepath.Join(a.WorkspaceDir, \"SOUL.md\")\n616: \tif err := os.WriteFile(soulPath, []byte(soul), 0644); err != nil {\n617: \t\tlog.Printf(\"[manager] warning: write config agent SOUL.md: %v\", err)\n",
+			"line": "616",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G306",
+			"details": "Expect WriteFile permissions to be 0600 or less",
+			"file": "/workspace/pkg/agent/manager.go",
+			"code": "485: \tout, _ := json.MarshalIndent(cfg, \"\", \"  \")\n486: \t_ = os.WriteFile(cfgPath, out, 0644)\n487: }\n",
+			"line": "486",
+			"column": "6",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G306",
+			"details": "Expect WriteFile permissions to be 0600 or less",
+			"file": "/workspace/pkg/agent/manager.go",
+			"code": "442: \t}\n443: \treturn os.WriteFile(cfgPath, out, 0644)\n444: }\n",
+			"line": "443",
+			"column": "9",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G306",
+			"details": "Expect WriteFile permissions to be 0600 or less",
+			"file": "/workspace/pkg/agent/manager.go",
+			"code": "386: \t}\n387: \treturn os.WriteFile(cfgPath, out, 0644)\n388: }\n",
+			"line": "387",
+			"column": "9",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G306",
+			"details": "Expect WriteFile permissions to be 0600 or less",
+			"file": "/workspace/pkg/agent/manager.go",
+			"code": "244: \t}\n245: \tif err := os.WriteFile(filepath.Join(agentDir, \"config.json\"), cfgData, 0644); err != nil {\n246: \t\treturn nil, fmt.Errorf(\"write config.json: %w\", err)\n",
+			"line": "245",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G306",
+			"details": "Expect WriteFile permissions to be 0600 or less",
+			"file": "/workspace/pkg/agent/identity.go",
+			"code": "62: func writeMD(dir, filename, content string) error {\n63: \treturn os.WriteFile(filepath.Join(dir, filename), []byte(content), 0644)\n64: }\n",
+			"line": "63",
+			"column": "9",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G306",
+			"details": "Expect WriteFile permissions to be 0600 or less",
+			"file": "/workspace/internal/api/relations.go",
+			"code": "413: \t}\n414: \treturn os.WriteFile(filePath, []byte(sb.String()), 0644)\n415: }\n",
+			"line": "414",
+			"column": "9",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G306",
+			"details": "Expect WriteFile permissions to be 0600 or less",
+			"file": "/workspace/internal/api/relations.go",
+			"code": "389: \tif len(rows) == 0 {\n390: \t\treturn os.WriteFile(filePath, []byte(\"\"), 0644)\n391: \t}\n",
+			"line": "390",
+			"column": "10",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G306",
+			"details": "Expect WriteFile permissions to be 0600 or less",
+			"file": "/workspace/internal/api/relations.go",
+			"code": "376: \t\tfilePath := relationsPath(ag.WorkspaceDir)\n377: \t\t_ = os.WriteFile(filePath, []byte(\"\"), 0644)\n378: \t}\n",
+			"line": "377",
+			"column": "7",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G306",
+			"details": "Expect WriteFile permissions to be 0600 or less",
+			"file": "/workspace/internal/api/relations.go",
+			"code": "108: \t// Write new content\n109: \tif err := os.WriteFile(filePath, body, 0644); err != nil {\n110: \t\tc.JSON(http.StatusInternalServerError, gin.H{\"error\": err.Error()})\n",
+			"line": "109",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G306",
+			"details": "Expect WriteFile permissions to be 0600 or less",
+			"file": "/workspace/internal/api/projects.go",
+			"code": "271: \t}\n272: \tif err := os.WriteFile(absPath, body, 0644); err != nil {\n273: \t\tc.JSON(http.StatusInternalServerError, gin.H{\"error\": err.Error()})\n",
+			"line": "272",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G306",
+			"details": "Expect WriteFile permissions to be 0600 or less",
+			"file": "/workspace/internal/api/files.go",
+			"code": "275: \n276: \tif err := os.WriteFile(absPath, body, 0644); err != nil {\n277: \t\tc.JSON(http.StatusInternalServerError, gin.H{\"error\": err.Error()})\n",
+			"line": "276",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G306",
+			"details": "Expect WriteFile permissions to be 0600 or less",
+			"file": "/workspace/internal/api/agent_skills.go",
+			"code": "90: \t}\n91: \tif err := os.WriteFile(skillMdPath, []byte(promptContent), 0644); err != nil {\n92: \t\tc.JSON(http.StatusInternalServerError, gin.H{\"error\": \"write SKILL.md: \" + err.Error()})\n",
+			"line": "91",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G306",
+			"details": "Expect WriteFile permissions to be 0600 or less",
+			"file": "/workspace/cmd/aipanel/cli.go",
+			"code": "1706: \n1707: \tif err := os.WriteFile(confPath, []byte(content), 0644); err != nil {\n1708: \t\tprintError(\"写入 Nginx 配置失败：\" + err.Error())\n",
+			"line": "1707",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G306",
+			"details": "Expect WriteFile permissions to be 0600 or less",
+			"file": "/workspace/cmd/aipanel/cli.go",
+			"code": "1621: \t}\n1622: \tif err := os.WriteFile(path, data, 0644); err != nil {\n1623: \t\tprintError(\"写入配置失败：\" + err.Error())\n",
+			"line": "1622",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G306",
+			"details": "Expect WriteFile permissions to be 0600 or less",
+			"file": "/workspace/cmd/aipanel/cli.go",
+			"code": "1231: \t}\n1232: \treturn os.WriteFile(path, []byte(dir), 0644)\n1233: }\n",
+			"line": "1232",
+			"column": "9",
+			"nosec": false,
+			"suppressions": null
+		}
+	],
+	"Stats": {
+		"files": 143,
+		"lines": 39344,
+		"nosec": 0,
+		"found": 217
+	},
+	"GosecVersion": "dev"
+}

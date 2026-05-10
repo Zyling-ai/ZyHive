@@ -1,0 +1,443 @@
+=== Symbol Results ===
+
+Vulnerability #1: GO-2026-4971
+    Panic in Dial and LookupPort when handling NUL byte on Windows in net
+  More info: https://pkg.go.dev/vuln/GO-2026-4971
+  Standard library
+    Found in: net@go1.22.2
+    Fixed in: net@go1.25.10
+    Example traces found:
+      #1: pkg/channel/feishu.go:199:36: channel.FeishuBot.runOnce calls websocket.Dialer.DialContext, which eventually calls net.Dialer.DialContext
+      #2: cmd/aipanel/main.go:526:30: aipanel.main calls http.Server.ListenAndServe, which calls net.Listen
+      #3: internal/api/agents.go:313:28: api.agentHandler.Message calls gin.Context.ShouldBindJSON, which eventually calls net.ResolveIPAddr
+      #4: internal/api/agents.go:313:28: api.agentHandler.Message calls gin.Context.ShouldBindJSON, which eventually calls net.ResolveTCPAddr
+      #5: internal/api/agents.go:313:28: api.agentHandler.Message calls gin.Context.ShouldBindJSON, which eventually calls net.ResolveUDPAddr
+
+Vulnerability #2: GO-2026-4947
+    Unexpected work during chain building in crypto/x509
+  More info: https://pkg.go.dev/vuln/GO-2026-4947
+  Standard library
+    Found in: crypto/x509@go1.22.2
+    Fixed in: crypto/x509@go1.25.9
+    Example traces found:
+      #1: pkg/llm/httpclient.go:247:20: llm.keepaliveReader.Read calls http.readWriteCloserBody.Read, which eventually calls x509.Certificate.Verify
+
+Vulnerability #3: GO-2026-4946
+    Inefficient policy validation in crypto/x509
+  More info: https://pkg.go.dev/vuln/GO-2026-4946
+  Standard library
+    Found in: crypto/x509@go1.22.2
+    Fixed in: crypto/x509@go1.25.9
+    Example traces found:
+      #1: pkg/llm/httpclient.go:247:20: llm.keepaliveReader.Read calls http.readWriteCloserBody.Read, which eventually calls x509.Certificate.Verify
+
+Vulnerability #4: GO-2026-4918
+    Infinite loop in HTTP/2 transport when given bad SETTINGS_MAX_FRAME_SIZE in
+    net/http/internal/http2 in golang.org/x/net
+  More info: https://pkg.go.dev/vuln/GO-2026-4918
+  Module: golang.org/x/net
+    Found in: golang.org/x/net@v0.25.0
+    Fixed in: golang.org/x/net@v0.53.0
+    Example traces found:
+      #1: pkg/channel/feishu.go:980:2: channel.SendFeishuApprovedNotice calls http2.transportResponseBody.Close, which eventually calls http2.clientConnReadLoop.processSettingsNoWrite
+
+  Standard library
+    Found in: net/http@go1.22.2
+    Fixed in: net/http@go1.25.10
+    Example traces found:
+      #1: pkg/channel/feishu.go:998:22: channel.SendFeishuApprovedNotice calls http.Client.Do
+      #2: cmd/aipanel/main.go:548:25: aipanel.getPublicIP calls http.Client.Get
+      #3: internal/api/update.go:370:26: api.isURLReachable calls http.Client.Head
+      #4: pkg/channel/feishu.go:925:26: channel.TestFeishuBot calls http.Client.Post
+      #5: pkg/browser/manager.go:83:20: browser.Manager.ensureBrowser calls launcher.Launcher.Launch, which eventually calls http.Get
+      #6: pkg/channel/feishu.go:972:24: channel.SendFeishuApprovedNotice calls http.Post
+
+Vulnerability #5: GO-2026-4870
+    Unauthenticated TLS 1.3 KeyUpdate record can cause persistent connection
+    retention and DoS in crypto/tls
+  More info: https://pkg.go.dev/vuln/GO-2026-4870
+  Standard library
+    Found in: crypto/tls@go1.22.2
+    Fixed in: crypto/tls@go1.25.9
+    Example traces found:
+      #1: cmd/aipanel/main.go:526:30: aipanel.main calls http.Server.ListenAndServe, which eventually calls tls.Conn.HandshakeContext
+      #2: pkg/llm/httpclient.go:247:20: llm.keepaliveReader.Read calls http.readWriteCloserBody.Read, which calls tls.Conn.Read
+      #3: pkg/goal/manager.go:469:13: goal.Manager.AppendCheckRecord calls fmt.Fprintf, which calls tls.Conn.Write
+      #4: pkg/browser/manager.go:87:49: browser.Manager.ensureBrowser calls rod.Browser.MustConnect, which eventually calls tls.Dial
+      #5: pkg/channel/feishu.go:998:22: channel.SendFeishuApprovedNotice calls http.Client.Do, which eventually calls tls.Dialer.DialContext
+
+Vulnerability #6: GO-2026-4869
+    Unbounded allocation for old GNU sparse in archive/tar
+  More info: https://pkg.go.dev/vuln/GO-2026-4869
+  Standard library
+    Found in: archive/tar@go1.22.2
+    Fixed in: archive/tar@go1.25.9
+    Example traces found:
+      #1: pkg/browser/manager.go:124:23: browser.Manager.resolveBin calls launcher.Browser.Get, which eventually calls tar.Reader.Next
+
+Vulnerability #7: GO-2026-4865
+    JsBraceDepth Context Tracking Bugs (XSS) in html/template
+  More info: https://pkg.go.dev/vuln/GO-2026-4865
+  Standard library
+    Found in: html/template@go1.22.2
+    Fixed in: html/template@go1.25.9
+    Example traces found:
+      #1: internal/api/agents.go:314:57: api.agentHandler.Message calls template.Error.Error
+      #2: pkg/logging/middleware.go:4:2: logging.init calls gin.init, which eventually calls template.Template.Parse
+      #3: cmd/aipanel/main.go:92:17: aipanel.main calls fmt.Fprintln, which eventually calls template.context.String
+
+Vulnerability #8: GO-2026-4602
+    FileInfo can escape from a Root in os
+  More info: https://pkg.go.dev/vuln/GO-2026-4602
+  Standard library
+    Found in: os@go1.22.2
+    Fixed in: os@go1.25.8
+    Example traces found:
+      #1: internal/api/files.go:336:18: api.downloadHandler.ServeFile calls gin.Context.FileAttachment, which eventually calls os.File.ReadDir
+      #2: internal/api/files.go:336:18: api.downloadHandler.ServeFile calls gin.Context.FileAttachment, which eventually calls os.File.Readdir
+      #3: internal/api/projects.go:198:27: api.projectFileHandler.Read calls os.ReadDir
+
+Vulnerability #9: GO-2026-4601
+    Incorrect parsing of IPv6 host literals in net/url
+  More info: https://pkg.go.dev/vuln/GO-2026-4601
+  Standard library
+    Found in: net/url@go1.22.2
+    Fixed in: net/url@go1.25.8
+    Example traces found:
+      #1: pkg/channel/telegram_api.go:357:40: channel.TestTelegramBot calls http.NewRequestWithContext, which calls url.Parse
+      #2: cmd/aipanel/main.go:526:30: aipanel.main calls http.Server.ListenAndServe, which eventually calls url.ParseRequestURI
+      #3: pkg/channel/feishu.go:998:22: channel.SendFeishuApprovedNotice calls http.Client.Do, which eventually calls url.URL.Parse
+
+Vulnerability #10: GO-2026-4341
+    Memory exhaustion in query parameter parsing in net/url
+  More info: https://pkg.go.dev/vuln/GO-2026-4341
+  Standard library
+    Found in: net/url@go1.22.2
+    Fixed in: net/url@go1.24.12
+    Example traces found:
+      #1: internal/api/usage.go:74:40: api.usageHandler.Records calls gin.Context.DefaultQuery, which eventually calls url.URL.Query
+
+Vulnerability #11: GO-2026-4340
+    Handshake messages may be processed at the incorrect encryption level in
+    crypto/tls
+  More info: https://pkg.go.dev/vuln/GO-2026-4340
+  Standard library
+    Found in: crypto/tls@go1.22.2
+    Fixed in: crypto/tls@go1.24.12
+    Example traces found:
+      #1: cmd/aipanel/main.go:526:30: aipanel.main calls http.Server.ListenAndServe, which eventually calls tls.Conn.HandshakeContext
+      #2: pkg/llm/httpclient.go:247:20: llm.keepaliveReader.Read calls http.readWriteCloserBody.Read, which calls tls.Conn.Read
+      #3: pkg/goal/manager.go:469:13: goal.Manager.AppendCheckRecord calls fmt.Fprintf, which calls tls.Conn.Write
+      #4: pkg/browser/manager.go:87:49: browser.Manager.ensureBrowser calls rod.Browser.MustConnect, which eventually calls tls.Dial
+      #5: pkg/channel/feishu.go:998:22: channel.SendFeishuApprovedNotice calls http.Client.Do, which eventually calls tls.Dialer.DialContext
+
+Vulnerability #12: GO-2026-4337
+    Unexpected session resumption in crypto/tls
+  More info: https://pkg.go.dev/vuln/GO-2026-4337
+  Standard library
+    Found in: crypto/tls@go1.22.2
+    Fixed in: crypto/tls@go1.24.13
+    Example traces found:
+      #1: cmd/aipanel/main.go:526:30: aipanel.main calls http.Server.ListenAndServe, which eventually calls tls.Conn.HandshakeContext
+      #2: pkg/llm/httpclient.go:247:20: llm.keepaliveReader.Read calls http.readWriteCloserBody.Read, which calls tls.Conn.Read
+      #3: pkg/goal/manager.go:469:13: goal.Manager.AppendCheckRecord calls fmt.Fprintf, which calls tls.Conn.Write
+      #4: pkg/browser/manager.go:87:49: browser.Manager.ensureBrowser calls rod.Browser.MustConnect, which eventually calls tls.Dial
+      #5: pkg/channel/feishu.go:998:22: channel.SendFeishuApprovedNotice calls http.Client.Do, which eventually calls tls.Dialer.DialContext
+
+Vulnerability #13: GO-2025-4175
+    Improper application of excluded DNS name constraints when verifying
+    wildcard names in crypto/x509
+  More info: https://pkg.go.dev/vuln/GO-2025-4175
+  Standard library
+    Found in: crypto/x509@go1.22.2
+    Fixed in: crypto/x509@go1.24.11
+    Example traces found:
+      #1: pkg/llm/httpclient.go:247:20: llm.keepaliveReader.Read calls http.readWriteCloserBody.Read, which eventually calls x509.Certificate.Verify
+
+Vulnerability #14: GO-2025-4155
+    Excessive resource consumption when printing error string for host
+    certificate validation in crypto/x509
+  More info: https://pkg.go.dev/vuln/GO-2025-4155
+  Standard library
+    Found in: crypto/x509@go1.22.2
+    Fixed in: crypto/x509@go1.24.11
+    Example traces found:
+      #1: pkg/llm/httpclient.go:247:20: llm.keepaliveReader.Read calls http.readWriteCloserBody.Read, which eventually calls x509.Certificate.Verify
+      #2: pkg/channel/feishu.go:199:36: channel.FeishuBot.runOnce calls websocket.Dialer.DialContext, which eventually calls x509.Certificate.VerifyHostname
+
+Vulnerability #15: GO-2025-4014
+    Unbounded allocation when parsing GNU sparse map in archive/tar
+  More info: https://pkg.go.dev/vuln/GO-2025-4014
+  Standard library
+    Found in: archive/tar@go1.22.2
+    Fixed in: archive/tar@go1.24.8
+    Example traces found:
+      #1: pkg/browser/manager.go:124:23: browser.Manager.resolveBin calls launcher.Browser.Get, which eventually calls tar.Reader.Next
+
+Vulnerability #16: GO-2025-4013
+    Panic when validating certificates with DSA public keys in crypto/x509
+  More info: https://pkg.go.dev/vuln/GO-2025-4013
+  Standard library
+    Found in: crypto/x509@go1.22.2
+    Fixed in: crypto/x509@go1.24.8
+    Example traces found:
+      #1: pkg/llm/httpclient.go:247:20: llm.keepaliveReader.Read calls http.readWriteCloserBody.Read, which eventually calls x509.Certificate.Verify
+
+Vulnerability #17: GO-2025-4012
+    Lack of limit when parsing cookies can cause memory exhaustion in net/http
+  More info: https://pkg.go.dev/vuln/GO-2025-4012
+  Standard library
+    Found in: net/http@go1.22.2
+    Fixed in: net/http@go1.24.8
+    Example traces found:
+      #1: pkg/channel/feishu.go:998:22: channel.SendFeishuApprovedNotice calls http.Client.Do
+      #2: cmd/aipanel/main.go:548:25: aipanel.getPublicIP calls http.Client.Get
+      #3: internal/api/update.go:370:26: api.isURLReachable calls http.Client.Head
+      #4: pkg/channel/feishu.go:925:26: channel.TestFeishuBot calls http.Client.Post
+      #5: pkg/browser/manager.go:83:20: browser.Manager.ensureBrowser calls launcher.Launcher.Launch, which eventually calls http.Get
+      #6: pkg/channel/feishu.go:972:24: channel.SendFeishuApprovedNotice calls http.Post
+      #7: pkg/channel/feishu.go:199:36: channel.FeishuBot.runOnce calls websocket.Dialer.DialContext, which calls http.Response.Cookies
+
+Vulnerability #18: GO-2025-4011
+    Parsing DER payload can cause memory exhaustion in encoding/asn1
+  More info: https://pkg.go.dev/vuln/GO-2025-4011
+  Standard library
+    Found in: encoding/asn1@go1.22.2
+    Fixed in: encoding/asn1@go1.24.8
+    Example traces found:
+      #1: pkg/session/worker.go:85:15: session.SessionWorker.Stop calls sync.Once.Do, which eventually calls asn1.Unmarshal
+
+Vulnerability #19: GO-2025-4010
+    Insufficient validation of bracketed IPv6 hostnames in net/url
+  More info: https://pkg.go.dev/vuln/GO-2025-4010
+  Standard library
+    Found in: net/url@go1.22.2
+    Fixed in: net/url@go1.24.8
+    Example traces found:
+      #1: pkg/channel/telegram_api.go:357:40: channel.TestTelegramBot calls http.NewRequestWithContext, which calls url.Parse
+      #2: cmd/aipanel/main.go:526:30: aipanel.main calls http.Server.ListenAndServe, which eventually calls url.ParseRequestURI
+      #3: pkg/channel/feishu.go:998:22: channel.SendFeishuApprovedNotice calls http.Client.Do, which eventually calls url.URL.Parse
+
+Vulnerability #20: GO-2025-4009
+    Quadratic complexity when parsing some invalid inputs in encoding/pem
+  More info: https://pkg.go.dev/vuln/GO-2025-4009
+  Standard library
+    Found in: encoding/pem@go1.22.2
+    Fixed in: encoding/pem@go1.24.8
+    Example traces found:
+      #1: pkg/session/worker.go:85:15: session.SessionWorker.Stop calls sync.Once.Do, which eventually calls pem.Decode
+
+Vulnerability #21: GO-2025-4008
+    ALPN negotiation error contains attacker controlled information in
+    crypto/tls
+  More info: https://pkg.go.dev/vuln/GO-2025-4008
+  Standard library
+    Found in: crypto/tls@go1.22.2
+    Fixed in: crypto/tls@go1.24.8
+    Example traces found:
+      #1: cmd/aipanel/main.go:526:30: aipanel.main calls http.Server.ListenAndServe, which eventually calls tls.Conn.HandshakeContext
+      #2: pkg/llm/httpclient.go:247:20: llm.keepaliveReader.Read calls http.readWriteCloserBody.Read, which calls tls.Conn.Read
+      #3: pkg/goal/manager.go:469:13: goal.Manager.AppendCheckRecord calls fmt.Fprintf, which calls tls.Conn.Write
+      #4: pkg/browser/manager.go:87:49: browser.Manager.ensureBrowser calls rod.Browser.MustConnect, which eventually calls tls.Dial
+      #5: pkg/channel/feishu.go:998:22: channel.SendFeishuApprovedNotice calls http.Client.Do, which eventually calls tls.Dialer.DialContext
+
+Vulnerability #22: GO-2025-4007
+    Quadratic complexity when checking name constraints in crypto/x509
+  More info: https://pkg.go.dev/vuln/GO-2025-4007
+  Standard library
+    Found in: crypto/x509@go1.22.2
+    Fixed in: crypto/x509@go1.24.9
+    Example traces found:
+      #1: pkg/session/worker.go:85:15: session.SessionWorker.Stop calls sync.Once.Do, which eventually calls x509.CertPool.AppendCertsFromPEM
+      #2: pkg/llm/httpclient.go:247:20: llm.keepaliveReader.Read calls http.readWriteCloserBody.Read, which eventually calls x509.Certificate.Verify
+      #3: pkg/session/worker.go:85:15: session.SessionWorker.Stop calls sync.Once.Do, which eventually calls x509.ParseCertificate
+
+Vulnerability #23: GO-2025-3956
+    Unexpected paths returned from LookPath in os/exec
+  More info: https://pkg.go.dev/vuln/GO-2025-3956
+  Standard library
+    Found in: os/exec@go1.22.2
+    Fixed in: os/exec@go1.23.12
+    Example traces found:
+      #1: internal/api/acp.go:133:30: api.acpHandler.Test calls exec.LookPath
+
+Vulnerability #24: GO-2025-3751
+    Sensitive headers not cleared on cross-origin redirect in net/http
+  More info: https://pkg.go.dev/vuln/GO-2025-3751
+  Standard library
+    Found in: net/http@go1.22.2
+    Fixed in: net/http@go1.23.10
+    Example traces found:
+      #1: pkg/channel/feishu.go:998:22: channel.SendFeishuApprovedNotice calls http.Client.Do
+      #2: cmd/aipanel/main.go:548:25: aipanel.getPublicIP calls http.Client.Get
+      #3: internal/api/update.go:370:26: api.isURLReachable calls http.Client.Head
+      #4: pkg/channel/feishu.go:925:26: channel.TestFeishuBot calls http.Client.Post
+      #5: pkg/browser/manager.go:83:20: browser.Manager.ensureBrowser calls launcher.Launcher.Launch, which eventually calls http.Get
+      #6: pkg/channel/feishu.go:972:24: channel.SendFeishuApprovedNotice calls http.Post
+
+Vulnerability #25: GO-2025-3750
+    Inconsistent handling of O_CREATE|O_EXCL on Unix and Windows in os in
+    syscall
+  More info: https://pkg.go.dev/vuln/GO-2025-3750
+  Standard library
+    Found in: syscall@go1.22.2
+    Fixed in: syscall@go1.23.10
+    Platforms: windows
+    Example traces found:
+      #1: internal/api/update.go:196:11: api.runUpdate calls os.Chmod
+      #2: pkg/memory/search.go:68:21: memory.MemoryTree.SaveIndex calls os.Create
+      #3: pkg/session/store.go:495:27: session.Store.TrimToLastN calls os.CreateTemp
+      #4: internal/api/files.go:336:18: api.downloadHandler.ServeFile calls gin.Context.FileAttachment, which eventually calls os.File.ReadDir
+      #5: internal/api/files.go:336:18: api.downloadHandler.ServeFile calls gin.Context.FileAttachment, which eventually calls os.File.Readdir
+      #6: pkg/memory/indexer.go:93:22: memory.chunkAllFiles calls filepath.Walk, which eventually calls os.File.Readdirnames
+      #7: pkg/safefs/safefs.go:70:30: safefs.ConfineToBase calls filepath.Abs, which eventually calls os.Getwd
+      #8: pkg/safefs/safefs.go:122:24: safefs.evalSymlinksOfDeepestExisting calls os.Lstat
+      #9: pkg/goal/manager.go:459:23: goal.Manager.AppendCheckRecord calls os.MkdirAll
+      #10: pkg/usage/store.go:8:2: usage.init calls os.init, which calls os.NewFile
+      #11: pkg/goal/manager.go:476:19: goal.Manager.ListCheckRecords calls os.Open
+      #12: pkg/goal/manager.go:463:23: goal.Manager.AppendCheckRecord calls os.OpenFile
+      #13: pkg/browser/manager.go:83:20: browser.Manager.ensureBrowser calls launcher.Launcher.Launch, which eventually calls os.Pipe
+      #14: internal/api/projects.go:198:27: api.projectFileHandler.Read calls os.ReadDir
+      #15: pkg/config/config.go:461:26: config.Load calls os.ReadFile
+      #16: pkg/session/store.go:508:12: session.Store.TrimToLastN calls os.Remove
+      #17: internal/api/files.go:291:24: api.fileHandler.Delete calls os.RemoveAll
+      #18: pkg/session/store.go:507:21: session.Store.TrimToLastN calls os.Rename
+      #19: pkg/browser/manager.go:83:20: browser.Manager.ensureBrowser calls launcher.Launcher.Launch, which eventually calls os.StartProcess
+      #20: internal/api/files.go:328:22: api.downloadHandler.ServeFile calls os.Stat
+      #21: cmd/aipanel/cli.go:1715:13: aipanel.generateNginxConfig calls os.Symlink
+      #22: pkg/config/config.go:578:21: config.Save calls os.WriteFile
+      #23: internal/api/projects.go:204:19: api.projectFileHandler.Read calls os.unixDirent.Info
+      #24: pkg/goal/manager.go:463:23: goal.Manager.AppendCheckRecord calls os.OpenFile, which eventually calls syscall.Open
+
+Vulnerability #26: GO-2025-3595
+    Incorrect Neutralization of Input During Web Page Generation in x/net in
+    golang.org/x/net
+  More info: https://pkg.go.dev/vuln/GO-2025-3595
+  Module: golang.org/x/net
+    Found in: golang.org/x/net@v0.25.0
+    Fixed in: golang.org/x/net@v0.38.0
+    Example traces found:
+      #1: internal/api/agents.go:313:28: api.agentHandler.Message calls gin.Context.ShouldBindJSON, which eventually calls html.Tokenizer.Next
+
+Vulnerability #27: GO-2025-3563
+    Request smuggling due to acceptance of invalid chunked data in net/http
+  More info: https://pkg.go.dev/vuln/GO-2025-3563
+  Standard library
+    Found in: net/http/internal@go1.22.2
+    Fixed in: net/http/internal@go1.23.8
+    Example traces found:
+      #1: pkg/llm/httpclient.go:247:20: llm.keepaliveReader.Read calls http.body.Read, which eventually calls internal.chunkedReader.Read
+
+Vulnerability #28: GO-2025-3503
+    HTTP Proxy bypass using IPv6 Zone IDs in golang.org/x/net
+  More info: https://pkg.go.dev/vuln/GO-2025-3503
+  Module: golang.org/x/net
+    Found in: golang.org/x/net@v0.25.0
+    Fixed in: golang.org/x/net@v0.36.0
+
+  Standard library
+    Found in: net/http@go1.22.2
+    Fixed in: net/http@go1.23.7
+    Example traces found:
+      #1: pkg/channel/feishu.go:199:36: channel.FeishuBot.runOnce calls websocket.Dialer.DialContext, which calls http.ProxyFromEnvironment
+
+Vulnerability #29: GO-2025-3447
+    Timing sidechannel for P-256 on ppc64le in crypto/internal/nistec
+  More info: https://pkg.go.dev/vuln/GO-2025-3447
+  Standard library
+    Found in: crypto/internal/nistec@go1.22.2
+    Fixed in: crypto/internal/nistec@go1.22.12
+    Platforms: ppc64le
+    Example traces found:
+      #1: pkg/llm/httpclient.go:247:20: llm.keepaliveReader.Read calls http.readWriteCloserBody.Read, which eventually calls nistec.P256Point.ScalarBaseMult
+      #2: pkg/llm/httpclient.go:247:20: llm.keepaliveReader.Read calls http.readWriteCloserBody.Read, which eventually calls nistec.P256Point.ScalarMult
+      #3: pkg/session/worker.go:85:15: session.SessionWorker.Stop calls sync.Once.Do, which eventually calls nistec.P256Point.SetBytes
+
+Vulnerability #30: GO-2025-3420
+    Sensitive headers incorrectly sent after cross-domain redirect in net/http
+  More info: https://pkg.go.dev/vuln/GO-2025-3420
+  Standard library
+    Found in: net/http@go1.22.2
+    Fixed in: net/http@go1.22.11
+    Example traces found:
+      #1: pkg/channel/feishu.go:998:22: channel.SendFeishuApprovedNotice calls http.Client.Do
+      #2: cmd/aipanel/main.go:548:25: aipanel.getPublicIP calls http.Client.Get
+      #3: internal/api/update.go:370:26: api.isURLReachable calls http.Client.Head
+      #4: pkg/channel/feishu.go:925:26: channel.TestFeishuBot calls http.Client.Post
+      #5: pkg/browser/manager.go:83:20: browser.Manager.ensureBrowser calls launcher.Launcher.Launch, which eventually calls http.Get
+      #6: pkg/channel/feishu.go:972:24: channel.SendFeishuApprovedNotice calls http.Post
+
+Vulnerability #31: GO-2025-3373
+    Usage of IPv6 zone IDs can bypass URI name constraints in crypto/x509
+  More info: https://pkg.go.dev/vuln/GO-2025-3373
+  Standard library
+    Found in: crypto/x509@go1.22.2
+    Fixed in: crypto/x509@go1.22.11
+    Example traces found:
+      #1: pkg/session/worker.go:85:15: session.SessionWorker.Stop calls sync.Once.Do, which eventually calls x509.CertPool.AppendCertsFromPEM
+      #2: pkg/llm/httpclient.go:247:20: llm.keepaliveReader.Read calls http.readWriteCloserBody.Read, which eventually calls x509.Certificate.Verify
+      #3: pkg/channel/feishu.go:199:36: channel.FeishuBot.runOnce calls websocket.Dialer.DialContext, which eventually calls x509.Certificate.VerifyHostname
+      #4: internal/api/agents.go:314:57: api.agentHandler.Message calls x509.HostnameError.Error
+      #5: pkg/session/worker.go:85:15: session.SessionWorker.Stop calls sync.Once.Do, which eventually calls x509.ParseCertificate
+
+Vulnerability #32: GO-2024-3106
+    Stack exhaustion in Decoder.Decode in encoding/gob
+  More info: https://pkg.go.dev/vuln/GO-2024-3106
+  Standard library
+    Found in: encoding/gob@go1.22.2
+    Fixed in: encoding/gob@go1.22.7
+    Example traces found:
+      #1: pkg/memory/search.go:56:36: memory.MemoryTree.LoadIndex calls gob.Decoder.Decode
+
+Vulnerability #33: GO-2024-2963
+    Denial of service due to improper 100-continue handling in net/http
+  More info: https://pkg.go.dev/vuln/GO-2024-2963
+  Standard library
+    Found in: net/http@go1.22.2
+    Fixed in: net/http@go1.22.5
+    Example traces found:
+      #1: pkg/channel/feishu.go:998:22: channel.SendFeishuApprovedNotice calls http.Client.Do
+      #2: cmd/aipanel/main.go:548:25: aipanel.getPublicIP calls http.Client.Get
+      #3: internal/api/update.go:370:26: api.isURLReachable calls http.Client.Head
+      #4: pkg/channel/feishu.go:925:26: channel.TestFeishuBot calls http.Client.Post
+      #5: pkg/browser/manager.go:83:20: browser.Manager.ensureBrowser calls launcher.Launcher.Launch, which eventually calls http.Get
+      #6: pkg/channel/feishu.go:972:24: channel.SendFeishuApprovedNotice calls http.Post
+
+Vulnerability #34: GO-2024-2888
+    Mishandling of corrupt central directory record in archive/zip
+  More info: https://pkg.go.dev/vuln/GO-2024-2888
+  Standard library
+    Found in: archive/zip@go1.22.2
+    Fixed in: archive/zip@go1.22.4
+    Example traces found:
+      #1: pkg/browser/manager.go:124:23: browser.Manager.resolveBin calls launcher.Browser.Get, which eventually calls zip.NewReader
+
+Vulnerability #35: GO-2024-2887
+    Unexpected behavior from Is methods for IPv4-mapped IPv6 addresses in
+    net/netip
+  More info: https://pkg.go.dev/vuln/GO-2024-2887
+  Standard library
+    Found in: net/netip@go1.22.2
+    Fixed in: net/netip@go1.22.4
+    Example traces found:
+      #1: cmd/aipanel/main.go:526:30: aipanel.main calls http.Server.ListenAndServe, which eventually calls netip.Addr.IsLoopback
+      #2: cmd/aipanel/main.go:526:30: aipanel.main calls http.Server.ListenAndServe, which eventually calls netip.Addr.IsMulticast
+
+Vulnerability #36: GO-2024-2824
+    Malformed DNS message can cause infinite loop in net
+  More info: https://pkg.go.dev/vuln/GO-2024-2824
+  Standard library
+    Found in: net@go1.22.2
+    Fixed in: net@go1.22.3
+    Example traces found:
+      #1: pkg/channel/feishu.go:199:36: channel.FeishuBot.runOnce calls websocket.Dialer.DialContext, which eventually calls net.Dialer.DialContext
+      #2: cmd/aipanel/main.go:526:30: aipanel.main calls http.Server.ListenAndServe, which calls net.Listen
+      #3: internal/api/agents.go:313:28: api.agentHandler.Message calls gin.Context.ShouldBindJSON, which eventually calls net.ResolveIPAddr
+      #4: internal/api/agents.go:313:28: api.agentHandler.Message calls gin.Context.ShouldBindJSON, which eventually calls net.ResolveTCPAddr
+      #5: internal/api/agents.go:313:28: api.agentHandler.Message calls gin.Context.ShouldBindJSON, which eventually calls net.ResolveUDPAddr
+
+Your code is affected by 36 vulnerabilities from 1 module and the Go standard library.
+This scan also found 12 vulnerabilities in packages you import and 11
+vulnerabilities in modules you require, but your code doesn't appear to call
+these vulnerabilities.
+Use '-show verbose' for more details.
