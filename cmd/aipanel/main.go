@@ -29,6 +29,7 @@ import (
 	"github.com/Zyling-ai/zyhive/pkg/aiteam/flags"
 	aiteamFXPkg "github.com/Zyling-ai/zyhive/pkg/aiteam/fx"
 	aiteamJudgePkg "github.com/Zyling-ai/zyhive/pkg/aiteam/judge"
+	aiteamPayrollPkg "github.com/Zyling-ai/zyhive/pkg/aiteam/payroll"
 	aiteamWalletPkg "github.com/Zyling-ai/zyhive/pkg/aiteam/wallet"
 	"github.com/Zyling-ai/zyhive/pkg/budget"
 	"github.com/Zyling-ai/zyhive/pkg/channel"
@@ -557,6 +558,42 @@ func main() {
 		}
 	}
 	pool.SetAITeamJudge(aiteamJudgeMgr)
+
+	// S8: aiteam Payroll — daily base + bonus(judge) - cost_offset(usage),
+	// credited to wallet. Needs at least the wallet to do anything useful;
+	// without it, RunFor marks entries skipped (dry-run mode).
+	var aiteamPayrollMgr *aiteamPayrollPkg.Manager
+	if flags.PayrollEnabled() {
+		payrollDir := filepath.Join(agentsDir, "aiteam", "payroll")
+		auditDir := filepath.Join(agentsDir, "aiteam")
+		auditLog, _ := aiteamAudit.New(auditDir)
+
+		var walletCredit aiteamPayrollPkg.WalletWriter
+		if aiteamWalletStore != nil {
+			walletCredit = func(agentID string, amt decimal.Decimal, reason string) error {
+				_, err := aiteamWalletStore.Credit(agentID, amt, reason)
+				return err
+			}
+		}
+		var usageReader aiteamPayrollPkg.UsageReader = usageStore
+
+		var pErr error
+		aiteamPayrollMgr, pErr = aiteamPayrollPkg.New(
+			payrollDir,
+			aiteamPayrollPkg.DefaultConfig(),
+			aiteamJudgeMgr,  // may be nil
+			walletCredit,    // may be nil
+			usageReader,
+			auditLog,
+		)
+		if pErr != nil {
+			log.Printf("[aiteam] payroll init failed: %v (payroll disabled)", pErr)
+			aiteamPayrollMgr = nil
+		} else {
+			log.Printf("[aiteam] PR-002 payroll ENABLED (state dir: %s)", payrollDir)
+		}
+	}
+	pool.SetAITeamPayroll(aiteamPayrollMgr)
 
 	// P1-03: Install the configured LLM throttle (process-global). When
 	// kind="" or "fixed" with GlobalMaxInflight=0, behaviour is identical
