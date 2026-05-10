@@ -4,6 +4,94 @@
 
 ---
 
+## [26.5.10v16] — 2026-05-10 · 🎉 aiteam S10 — Dashboard overview + Genesis demo (S0-S10 全程收官)
+
+aiteam 11 阶段全部落地。从 26.5.10v6 (S0) 到 26.5.10v16 (S10)，单天内完成 11
+个版本号，aiteam 自治经济体最小可行版（minimal viable autonomous economy）
+正式跑通端到端。
+
+### aiteam (experimental)
+
+* **PR-006 Dashboard overview** — `/api/aiteam/overview` 真聚合端点
+  - 一次拉满 8 个子系统状态：flags / wallet (per-agent + total) /
+    fx / guard / judge (7 日平均) / payroll / revenue
+  - 每个子系统按自身 flag 出现 / 缺席，gracefully 渲染
+  - `/api/aiteam/audit` v0 仅返回 503 + 提示直接读 `<dataDir>/aiteam/audit.log`
+    （UI 接入留后续 PR；后端核心数据流已完整）
+
+* **Genesis E2E 测试** — 新文件 `pkg/aiteam/genesis_test/genesis_e2e_test.go`
+  端到端验证 6 步完整闭环：
+  1. owner 给 alice 入金 $5 USDT (wallet credit)
+  2. LLM 调用 $0.30 → guard.Charge + wallet.Debit + brake.Charge 三订阅
+  3. Judge 启发式评分（不丢分）
+  4. Payroll 计算 base+bonus-offset → wallet.Credit
+  5. Revenue webhook $50 60/40 分账 → 双 wallet.Credit
+  6. 最终对账：alice=35 USDT，bob=20 USDT，audit 9 行
+  + 旁路验证：
+  - `GuardPanicsOnZeroBalance` 证 S6 联动
+  - `FullFlagsOffByteIdentical` 证零影响主线契约
+
+* **测试累计**: aiteam 11 程共 **110+ test cases** 全部 `-race -count=1` 绿
+  - flags: 6 / audit: 6 / promptdef: 8 / sandbox: 8 / wallet: 14 / fx: 7 /
+    budget: 11+7(S6) / judge: 13 / payroll: 14 / revenue: 12 / genesis: 3 /
+    registry+webfetch 集成: 8
+
+### 11-阶段总览
+
+| 程 | 内容 | 版本 |
+|---|------|------|
+| S0  | flag 框架 + AWS staging 部署管线 + 路由壳 | 26.5.10v6 |
+| S1  | B005-B015 主动 QA pass + B005/B014 修复 | 26.5.10v7 |
+| S2  | PR-007 工具沙箱 (process group kill + tmp HOME) | 26.5.10v8 |
+| S3  | PR-008 提示词注入防御 + audit 基础包 | 26.5.10v9 |
+| S4  | PR-003 BudgetGuard (USDT decimal + panic-stop + 持久化) | 26.5.10v10 |
+| S5  | PR-001 Wallet + FX 货币层 (USDT ledger + 9 币种) | 26.5.10v11 |
+| S6  | Guard × Wallet 联动 (0 余额 = panic) | 26.5.10v12 |
+| S7  | PR-004 Judge Agent (多维评分 v0 heuristic) | 26.5.10v13 |
+| S8  | PR-002 Payroll (base+bonus(judge)-offset → wallet) | 26.5.10v14 |
+| S9  | PR-005 Revenue webhook (HMAC + 分账) | 26.5.10v15 |
+| S10 | PR-006 Dashboard overview + Genesis demo | 26.5.10v16 |
+
+### 兼容性 / 零影响主线契约
+
+- 任一 `ZYHIVE_EXPERIMENTAL_*` 未设 → 该子系统不初始化，相关路由 404，工具不注册
+- 全部 flags 未设（默认）→ 行为字节等同 26.5.10v5（B004 修复后基线）
+- 11 次 AWS staging 部署，每次 smoke test 20/20 通过
+- 主线 80+ 工具 + B001-B004 安全回归 + 现有所有测试始终全绿
+
+### 待后续 PR（明确不在 S0-S10 计划内）
+
+- **UI 全栈**：`AiteamWalletView.vue`、`AiteamFXView.vue`、`AiteamJudgeView.vue`、
+  `AiteamPayrollView.vue`、`AiteamGuardView.vue`、`AiteamDashboardView.vue` +
+  顶栏货币切换器 + `useCurrency` composable。后端 API 全部已 ready，前端工作量
+  约等于 2-3 个独立大 PR
+- **LLM-driven Judge**：当前 `HeuristicScorer` 是中性 baseline；接入 LLM
+  打分 + transcript 走 promptdef 包裹是下一程必修
+- **Payroll cron**：现在 payroll 通过 REST 触发；接入 `pkg/cron` 自动每日
+  23:30 跑（goroutine 模式）
+- **Audit tail endpoint**：`/api/aiteam/audit` 接 disk 文件 tail
+- **ZyStudio repo 协议商定**：发 PR 到 `Zyling-ai/zystudio` 用本仓
+  `docs/aiteam-revenue-protocol.md` 商定 webhook 上线
+
+### 启用全套 aiteam
+
+```bash
+export ZYHIVE_EXPERIMENTAL_WALLET=1
+export ZYHIVE_EXPERIMENTAL_BUDGETGUARD=1
+export ZYHIVE_EXPERIMENTAL_JUDGE=1
+export ZYHIVE_EXPERIMENTAL_PAYROLL=1
+export ZYHIVE_EXPERIMENTAL_REVENUE=1
+export ZYHIVE_EXPERIMENTAL_SANDBOX=1
+export ZYHIVE_EXPERIMENTAL_PROMPTDEF=1
+export ZYHIVE_EXPERIMENTAL_AITEAM_DASHBOARD=1
+export ZYHIVE_AITEAM_REVENUE_SECRET="$(openssl rand -hex 32)"
+
+# 看全套状态
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/aiteam/overview
+```
+
+---
+
 ## [26.5.10v15] — 2026-05-10 · 🧪 aiteam S9 — PR-005 Revenue webhook (HMAC + 分账)
 
 ### aiteam (experimental)

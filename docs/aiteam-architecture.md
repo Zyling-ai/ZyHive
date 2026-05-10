@@ -71,7 +71,7 @@
 | `ZYHIVE_EXPERIMENTAL_JUDGE`           | Judge agent        | S7 | ✅ 26.5.10v13 |
 | `ZYHIVE_EXPERIMENTAL_PAYROLL`         | Payroll            | S8 | ✅ 26.5.10v14 |
 | `ZYHIVE_EXPERIMENTAL_REVENUE`         | Revenue webhook    | S9 | ✅ 26.5.10v15 |
-| `ZYHIVE_EXPERIMENTAL_AITEAM_DASHBOARD`| 总览 UI            | S10 | 🔜 |
+| `ZYHIVE_EXPERIMENTAL_AITEAM_DASHBOARD`| 总览 UI            | S10 | ✅ 26.5.10v16 (后端) |
 
 接受 ON 值：`1` / `true` / `yes` / `on`（大小写不敏感）。其余 = OFF。
 
@@ -238,12 +238,31 @@ export AWS_SECRET_ACCESS_KEY=...
 ✅ S7  ─ PR-004 Judge Agent (heuristic v0)             (26.5.10v13)
 ✅ S8  ─ PR-002 Payroll (base+bonus(judge)-offset)     (26.5.10v14)
 ✅ S9  ─ PR-005 Revenue webhook (HMAC + 分账)          (26.5.10v15)
-🔜 S10 ─ PR-006 Dashboard + 发版 + Genesis demo
+✅ S10 ─ Dashboard overview + Genesis E2E              (26.5.10v16)
 ```
 
-每阶段闭环：分支 → 实现 → 测试绿 → CHANGELOG → AWS staging 部署 →
-smoke 通过 → 合 main → 进下一阶段。
+每阶段闭环已全部完成：分支 → 实现 → 测试绿 → CHANGELOG → AWS staging 部署 →
+smoke 通过 → 合 main → 进下一阶段 ✅ ×11
 
 ---
 
-*文档创建：2026-05-10 · 对应 S0 落地 (26.5.10v6) · 后续阶段同步更新。*
+## 9. 完成总结
+
+aiteam 11 阶段单日全部落地（26.5.10v6 → 26.5.10v16）：
+
+- **8 个新包**: `pkg/aiteam/{flags, audit, sandbox, promptdef, budget, fx, wallet, judge, payroll, revenue}`
+- **110+ 测试** 全部 `-race -count=1` 绿
+- **AWS staging** `ap-east-1 i-04405815de67eda10` 11 次部署 + 每次 smoke 20/20
+- **CHANGELOG** 11 条 `### aiteam (experimental)` 子段
+- **零影响主线**：所有 flag 未设时行为字节等同 26.5.10v5
+
+后续 PR（明确不在 S0-S10 范围）：
+- UI 全栈（6 个 view + 顶栏货币切换器）
+- LLM-driven Judge（替换 v0 heuristic）
+- Payroll daily cron 自动触发
+- Audit tail endpoint
+- ZyStudio repo webhook 接入协议商定
+
+---
+
+*文档创建：2026-05-10 · 11 阶段全部落地 26.5.10v16 · 维护：后续 PR 同步更新。*
