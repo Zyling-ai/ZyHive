@@ -63,6 +63,13 @@ type SessionState struct {
 	Panicked bool            `json:"panicked"`
 }
 
+// BalanceReader is the minimal interface Guard needs from a wallet
+// implementation. *pkg/aiteam/wallet.Store satisfies it. Pluggable so
+// guard tests don't need to import the wallet package directly.
+type BalanceReader interface {
+	Balance(agentID string) decimal.Decimal
+}
+
 // Guard is the panic-stop state machine. Safe for concurrent use.
 type Guard struct {
 	cfg        Limits
@@ -75,6 +82,11 @@ type Guard struct {
 	agents   map[string]*AgentState
 	sessions map[string]*SessionState
 	globalUsed decimal.Decimal
+
+	// wallet — optional BalanceReader (S6). When set, Check() additionally
+	// panics on zero / negative balance. Wired via SetWallet from main.go
+	// after both subsystems are constructed.
+	wallet BalanceReader
 }
 
 // New constructs a Guard. dir is <dataDir>/aiteam/guard; created if
@@ -115,6 +127,18 @@ func New(dir string, cfg Limits, logIn *audit.Log) (*Guard, error) {
 // overridable Now() so tests can fast-forward the clock.
 func (g *Guard) todayKey() string {
 	return Now().In(g.tz).Format("2006-01-02")
+}
+
+// SetWallet wires an optional BalanceReader so the guard can panic on
+// zero-balance in addition to the usage-cap checks. Idempotent. Pass
+// nil to detach.
+func (g *Guard) SetWallet(w BalanceReader) {
+	if g == nil {
+		return
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.wallet = w
 }
 
 // stateFile is the persistence path.
@@ -261,6 +285,30 @@ func (g *Guard) Check(agentID, sessionID string) CheckResult {
 	g.rotateIfNeededLocked()
 
 	a := g.getAgentLocked(agentID)
+
+	// 0. Zero-balance check (S6 — Guard × Wallet integration). When a
+	// wallet reader is wired AND the agent's USDT balance is non-positive,
+	// trigger panic with reason "zero_balance". Done BEFORE the existing-
+	// panic check so a fresh over-spend immediately flips state instead
+	// of waiting for the cooldown path to release first.
+	if g.wallet != nil {
+		bal := g.wallet.Balance(agentID)
+		if !bal.IsPositive() {
+			// Only trigger if not already panicked for the same reason
+			// (avoid resetting CooldownUntil on every Check).
+			if !a.Panicked || a.PanicReason != "zero_balance" {
+				g.triggerPanicLocked(a, agentID, sessionID, "zero_balance", decimal.Zero)
+			}
+			return CheckResult{
+				Allowed:       false,
+				Scope:         "wallet",
+				UsedUSDT:      bal,
+				LimitUSDT:     decimal.Zero,
+				PanicReason:   "zero_balance",
+				CooldownUntil: a.CooldownUntil,
+			}
+		}
+	}
 
 	// 1. Existing panic — release only when cooldown elapsed.
 	if a.Panicked {
