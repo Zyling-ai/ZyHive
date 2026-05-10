@@ -17,10 +17,12 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/Zyling-ai/zyhive/pkg/agent"
+	"github.com/Zyling-ai/zyhive/pkg/budget"
 	"github.com/Zyling-ai/zyhive/pkg/channel"
 	"github.com/Zyling-ai/zyhive/pkg/config"
 	"github.com/Zyling-ai/zyhive/pkg/cron"
 	"github.com/Zyling-ai/zyhive/pkg/goal"
+	"github.com/Zyling-ai/zyhive/pkg/logging"
 	"github.com/Zyling-ai/zyhive/pkg/project"
 	"github.com/Zyling-ai/zyhive/pkg/session"
 	"github.com/Zyling-ai/zyhive/pkg/subagent"
@@ -46,10 +48,13 @@ type BotControl struct {
 
 // RegisterRoutes mounts all API handlers onto the Gin engine.
 // cfgPath is the active config file path (--config flag value); all writes go there.
-func RegisterRoutes(r *gin.Engine, cfg *config.Config, cfgPath string, mgr *agent.Manager, pool *agent.Pool, cronEngine *cron.Engine, uiFS fs.FS, runnerFunc channel.RunnerFunc, botCtrl BotControl, projectMgr *project.Manager, subagentMgr *subagent.Manager, workerPool *session.WorkerPool, usageStore *usage.Store) {
+func RegisterRoutes(r *gin.Engine, cfg *config.Config, cfgPath string, mgr *agent.Manager, pool *agent.Pool, cronEngine *cron.Engine, uiFS fs.FS, runnerFunc channel.RunnerFunc, botCtrl BotControl, projectMgr *project.Manager, subagentMgr *subagent.Manager, workerPool *session.WorkerPool, usageStore *usage.Store, budgetStore *budget.Store) {
 	configFilePath = cfgPath // wire the active config path for all API handlers
 	rf := runnerFunc
 	r.Use(corsMiddleware())
+	// P0-01: trace_id middleware MUST run before requestLogger so logs can
+	// reference it. We log the trace id later via slog.FromContext.
+	r.Use(logging.TraceMiddleware())
 	r.Use(requestLogger())
 
 	// File download endpoint — auth via ?token= query param (for shareable links).
@@ -101,7 +106,7 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, cfgPath string, mgr *agen
 	agents.DELETE("/:id/channels/:chId/allowed/:userId", agChH.RemoveAllowed)
 
 	// Chat (streaming SSE) — background worker architecture
-	chatH := &chatHandler{cfg: cfg, manager: mgr, projectMgr: projectMgr, subagentMgr: subagentMgr, workerPool: workerPool, usageStore: usageStore}
+	chatH := &chatHandler{cfg: cfg, manager: mgr, projectMgr: projectMgr, subagentMgr: subagentMgr, workerPool: workerPool, usageStore: usageStore, budgetStore: budgetStore}
 	agents.POST("/:id/chat", chatH.Chat)                          // enqueue + stream
 	agents.GET("/:id/chat/stream", chatH.StreamSession)           // reconnect: subscribe to broadcaster
 	agents.GET("/:id/chat/status", chatH.SessionStatus)           // poll status
@@ -343,8 +348,14 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, cfgPath string, mgr *agen
 	})
 
 	// Public health endpoint — no auth required
-	hzH := &healthzHandler{manager: mgr, cronEngine: cronEngine, cfg: cfg}
+	hzH := &healthzHandler{manager: mgr, cronEngine: cronEngine, cfg: cfg, workerPool: workerPool}
 	r.GET("/healthz", hzH.Handle)
+
+	// Public readiness probe — no auth required.
+	// 503 when cron has stopped ticking / session pool is overloaded /
+	// every probed Provider is failing. 200 on cold start (no probes yet).
+	rzH := &readyzHandler{cronEngine: cronEngine, workerPool: workerPool}
+	r.GET("/readyz", rzH.Handle)
 
 	// Feishu card action callback — no auth (Feishu calls this with its own token)
 	feishuCbH := &feishuCardCallbackHandler{manager: mgr, pool: pool}
@@ -357,6 +368,16 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, cfgPath string, mgr *agen
 
 	statsH := &statsHandler{manager: mgr}
 	v1.GET("/stats", statsH.Handle)
+
+	// Budget (P1-02): per-agent + global daily USD cap, emergency topup.
+	budH := &budgetHandler{store: budgetStore}
+	v1.GET("/budget", budH.Get)
+	v1.POST("/budget/topup", budH.Topup)
+	v1.PATCH("/budget/limits/:id", budH.SetLimit)
+
+	// LLM throttle (P1-03): read-only state snapshot.
+	thrH := throttleHandler{}
+	v1.GET("/llm/throttle", thrH.Get)
 
 	// Usage statistics
 	usageH := newUsageHandler(usageStore, mgr)

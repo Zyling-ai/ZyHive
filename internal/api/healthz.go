@@ -1,15 +1,19 @@
-// Package api — /healthz and /api/status endpoints for observability.
+// Package api — /healthz, /readyz and /api/status endpoints for observability.
 package api
 
 import (
 	"net/http"
 	"runtime"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/Zyling-ai/zyhive/pkg/agent"
 	"github.com/Zyling-ai/zyhive/pkg/config"
 	"github.com/Zyling-ai/zyhive/pkg/cron"
+	"github.com/Zyling-ai/zyhive/pkg/llm"
+	"github.com/Zyling-ai/zyhive/pkg/session"
 )
 
 // startTime records when the process started (set at package init).
@@ -21,6 +25,7 @@ type healthzHandler struct {
 	manager    *agent.Manager
 	cronEngine *cron.Engine
 	cfg        *config.Config
+	workerPool *session.WorkerPool
 }
 
 func (h *healthzHandler) Handle(c *gin.Context) {
@@ -71,6 +76,32 @@ func (h *healthzHandler) Handle(c *gin.Context) {
 	runtime.ReadMemStats(&ms)
 	memMB := ms.Alloc / 1024 / 1024
 
+	// ── Session worker pool ────────────────────────────────────────────────
+	sessionsTotal, sessionsBusy := 0, 0
+	if h.workerPool != nil {
+		sessionsTotal, sessionsBusy = h.workerPool.ActiveCount()
+	}
+
+	// ── Cron heartbeat freshness ───────────────────────────────────────────
+	cronLastTickAgo := int64(-1)
+	if h.cronEngine != nil {
+		t := h.cronEngine.LastTickAt()
+		if !t.IsZero() {
+			cronLastTickAgo = int64(time.Since(t).Seconds())
+		}
+	}
+
+	// ── Provider ping snapshot (read-only, never triggers a probe) ─────────
+	probes := llm.PingSnapshot()
+	probesOK, probesFail := 0, 0
+	for _, p := range probes {
+		if p.OK {
+			probesOK++
+		} else {
+			probesFail++
+		}
+	}
+
 	resp := gin.H{
 		"status":          "ok",
 		"version":         AppVersion,
@@ -80,9 +111,18 @@ func (h *healthzHandler) Handle(c *gin.Context) {
 			"active": agentActive,
 		},
 		"cron": gin.H{
-			"total":    cronTotal,
-			"disabled": cronDisabled,
-			"running":  cronRunning,
+			"total":              cronTotal,
+			"disabled":           cronDisabled,
+			"running":            cronRunning,
+			"last_tick_ago_secs": cronLastTickAgo,
+		},
+		"sessions": gin.H{
+			"total": sessionsTotal,
+			"busy":  sessionsBusy,
+		},
+		"providers": gin.H{
+			"probed_ok":   probesOK,
+			"probed_fail": probesFail,
 		},
 		"telegram": gin.H{
 			"connected":       telegramConnected,
@@ -93,6 +133,130 @@ func (h *healthzHandler) Handle(c *gin.Context) {
 
 	c.JSON(http.StatusOK, resp)
 }
+
+// ── /readyz ─────────────────────────────────────────────────────────────────
+//
+// readyzHandler answers the Kubernetes-style readiness question: is the system
+// ready to serve real traffic? Distinct from /healthz (process-up "I'm alive")
+// in that we deliberately fail with 503 when:
+//   - cron engine has stopped ticking (no heartbeat in >3× heartbeat interval)
+//   - session pool backlog is unhealthy (configurable cap; default very lax)
+//   - any provider that has been probed shows failures while ZERO providers
+//     are healthy (cold start with no probes is treated as "unknown -> ok")
+//
+// All thresholds are intentionally generous; we tune as we collect production
+// signal. None of the checks call out (e.g. trigger Pings) — they read in-memory
+// state populated by other code paths. Strict read-only.
+type readyzHandler struct {
+	cronEngine *cron.Engine
+	workerPool *session.WorkerPool
+}
+
+// readyzCheck holds the result of one named subsystem check.
+type readyzCheck struct {
+	OK     bool   `json:"ok"`
+	Detail string `json:"detail,omitempty"`
+}
+
+// staleCronAfter — if the cron engine's heartbeat hasn't refreshed in this
+// many seconds, /readyz treats it as failed. cron heartbeat fires every 10s
+// (see pkg/cron.heartbeatInterval), so 60s = 6 missed beats.
+const staleCronAfter = 60 * time.Second
+
+// sessionsBacklogCap — total active workers above this triggers fail.
+// Generous default. Operators can tune via future config; for now hard-coded.
+const sessionsBacklogCap = 200
+
+func (h *readyzHandler) Handle(c *gin.Context) {
+	checks := map[string]readyzCheck{}
+
+	// cron heartbeat
+	if h.cronEngine == nil {
+		// No engine wired — treat as ok (likely a unit-test or partial-init env).
+		checks["cron"] = readyzCheck{OK: true, Detail: "engine not wired"}
+	} else {
+		t := h.cronEngine.LastTickAt()
+		switch {
+		case t.IsZero():
+			checks["cron"] = readyzCheck{OK: false, Detail: "engine never started"}
+		case time.Since(t) > staleCronAfter:
+			ago := int64(time.Since(t).Seconds())
+			checks["cron"] = readyzCheck{
+				OK:     false,
+				Detail: "no heartbeat in " + strconv.FormatInt(ago, 10) + "s",
+			}
+		default:
+			checks["cron"] = readyzCheck{OK: true}
+		}
+	}
+
+	// session pool backlog
+	if h.workerPool == nil {
+		checks["sessions"] = readyzCheck{OK: true, Detail: "pool not wired"}
+	} else {
+		total, busy := h.workerPool.ActiveCount()
+		switch {
+		case total > sessionsBacklogCap:
+			checks["sessions"] = readyzCheck{
+				OK:     false,
+				Detail: "active workers " + strconv.Itoa(total) + " > cap " + strconv.Itoa(sessionsBacklogCap),
+			}
+		default:
+			checks["sessions"] = readyzCheck{
+				OK:     true,
+				Detail: "active=" + strconv.Itoa(total) + " busy=" + strconv.Itoa(busy),
+			}
+		}
+	}
+
+	// provider probes — cold start (zero probes) is treated as "ok unknown".
+	probes := llm.PingSnapshot()
+	if len(probes) == 0 {
+		checks["providers"] = readyzCheck{OK: true, Detail: "no probes yet (cold start)"}
+	} else {
+		okCount, failNotes := 0, []string{}
+		for _, p := range probes {
+			if p.OK {
+				okCount++
+			} else {
+				note := p.Error
+				if note == "" {
+					note = "fail"
+				}
+				failNotes = append(failNotes, note)
+			}
+		}
+		if okCount == 0 {
+			checks["providers"] = readyzCheck{
+				OK:     false,
+				Detail: "all probed providers failing: " + strings.Join(failNotes, "; "),
+			}
+		} else {
+			checks["providers"] = readyzCheck{
+				OK:     true,
+				Detail: strconv.Itoa(okCount) + "/" + strconv.Itoa(len(probes)) + " ok",
+			}
+		}
+	}
+
+	allOK := true
+	for _, ck := range checks {
+		if !ck.OK {
+			allOK = false
+			break
+		}
+	}
+	status := http.StatusOK
+	if !allOK {
+		status = http.StatusServiceUnavailable
+	}
+	c.JSON(status, gin.H{
+		"ready":   allOK,
+		"checks":  checks,
+		"version": AppVersion,
+	})
+}
+
 
 // statusHandler serves the authenticated GET /api/status endpoint.
 // Returns detailed system status including per-agent info and cron job list.

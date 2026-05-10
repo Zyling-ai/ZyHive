@@ -1,0 +1,33 @@
+# golangci-lint configuration for ZyHive.
+#
+# 入门姿态：先开公认稳健的几把检查器，避免一次性引入过多噪音。
+# CI 中对应 job 设置 continue-on-error，待存量清零后再改为 required。
+run:
+  timeout: 5m
+  go: '1.22'
+
+linters:
+  disable-all: true
+  enable:
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - gofmt
+
+issues:
+  exclude-dirs:
+    - cmd/aipanel/ui_dist
+    - ui_dist
+    - bin
+  exclude-rules:
+    # 测试文件里 t.Setenv / fmt.Fprintf 之类返回值经常忽略
+    - path: _test\.go
+      linters:
+        - errcheck
+    # ui_dist 是 go:embed 占位目录, 不参与 lint
+    - path: cmd/aipanel/ui_dist
+      linters:
+        - typecheck

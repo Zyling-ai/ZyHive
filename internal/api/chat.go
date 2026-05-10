@@ -28,6 +28,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/Zyling-ai/zyhive/pkg/agent"
+	"github.com/Zyling-ai/zyhive/pkg/budget"
 	"github.com/Zyling-ai/zyhive/pkg/chatlog"
 	"github.com/Zyling-ai/zyhive/pkg/config"
 	"github.com/Zyling-ai/zyhive/pkg/llm"
@@ -48,6 +49,10 @@ type chatHandler struct {
 	subagentMgr *subagent.Manager
 	workerPool  *session.WorkerPool
 	usageStore  *usage.Store // 记录每轮 token 用量到 .usage/*.jsonl
+	// budgetStore — P1-02 budget brake. May be nil (disabled). When non-nil,
+	// the SSE chat handler installs a BudgetCheck adapter on the runner so
+	// turns are pre-flighted before any LLM call.
+	budgetStore *budget.Store
 }
 
 // Chat POST /api/agents/:id/chat
@@ -367,6 +372,7 @@ func (h *chatHandler) execRunner(
 		ProjectContext:      runner.BuildProjectContext(h.projectMgr, agentID),
 		AgentEnv:            agEnv,
 		UsageRecorder:         usageRec,
+		BudgetCheck:           h.budgetCheckAdapter(),
 		CapabilitiesContext:   capCtx,
 		CurrentSessionContext: agent.BuildSessionContext(store, sessionID),
 	})
@@ -455,6 +461,27 @@ func runEventToJSON(ev runner.RunEvent) []byte {
 	}
 	data, _ := json.Marshal(m)
 	return data
+}
+
+// budgetCheckAdapter returns a runner BudgetCheck callback wired to
+// h.budgetStore, or nil when no budget store is configured. The runner
+// treats nil as "no enforcement", preserving today's behaviour.
+func (h *chatHandler) budgetCheckAdapter() func(string) runner.BudgetCheckResult {
+	if h.budgetStore == nil {
+		return nil
+	}
+	store := h.budgetStore
+	return func(agentID string) runner.BudgetCheckResult {
+		r := store.BeforeRun(agentID)
+		return runner.BudgetCheckResult{
+			Allowed:       r.Allowed,
+			Scope:         r.Scope,
+			Used:          r.Used,
+			EffectiveCap:  r.EffectiveCap,
+			Reason:        r.Reason,
+			WarnInjection: r.WarnInjection,
+		}
+	}
 }
 
 // resolveModel finds the model entry and API key for an agent.

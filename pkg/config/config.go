@@ -30,6 +30,60 @@ type Config struct {
 	Auth      AuthConfig       `json:"auth"`
 	// ToolPolicyRaw is stored as raw JSON and interpreted by the tools package to avoid import cycles.
 	ToolPolicyRaw json.RawMessage `json:"toolPolicy,omitempty"` // global tool allow/deny/profile
+
+	// Budget — daily USD cap with hard-stop enforcement before each runner turn.
+	// Disabled by default; opt-in via {"budget":{"enabled":true,...}}.
+	// See pkg/budget for semantics. Stored as raw JSON to keep this struct
+	// lightweight and avoid an import cycle (pkg/budget owns the schema).
+	Budget BudgetConfig `json:"budget,omitempty"`
+
+	// Throttle — provider-aware concurrency limiting for LLM calls.
+	// Default kind="fixed" with GlobalMaxInflight=0 (no gating); kind="adaptive"
+	// enables AIMD per-provider. See pkg/llm/throttle.go.
+	Throttle ThrottleConfig `json:"throttle,omitempty"`
+}
+
+// BudgetConfig mirrors pkg/budget.Config (kept here so config users don't
+// need to import pkg/budget). Wired by cmd/aipanel/main.go via NewStore.
+type BudgetConfig struct {
+	Enabled              bool    `json:"enabled,omitempty"`
+	GlobalDailyUSD       float64 `json:"global_daily_usd,omitempty"`
+	DefaultAgentDailyUSD float64 `json:"default_agent_daily_usd,omitempty"`
+	WarnAtPct            int     `json:"warn_at_pct,omitempty"`
+	TZ                   string  `json:"tz,omitempty"`
+}
+
+// ThrottleConfig configures pkg/llm provider throttling.
+//
+//	{
+//	  "throttle": {
+//	    "kind": "adaptive",                     # "fixed" (default, no-op) | "adaptive"
+//	    "default": { "min": 1, "max": 4, "init": 2, "grow_every": 20 },
+//	    "providers": {
+//	      "anthropic": { "min": 1, "max": 8,  "init": 4, "grow_every": 10 },
+//	      "openai":    { "min": 1, "max": 16, "init": 8, "grow_every": 10 }
+//	    }
+//	  }
+//	}
+//
+// Fixed Throttle (default): no gating unless GlobalMaxInflight > 0.
+// Adaptive Throttle: AIMD per-provider; halves cap on 429/503 with
+// Retry-After honored, grows after consecutive successes.
+type ThrottleConfig struct {
+	Kind              string                            `json:"kind,omitempty"`
+	GlobalMaxInflight int                               `json:"global_max_inflight,omitempty"`
+	Default           ThrottleProviderConfig            `json:"default,omitempty"`
+	Providers         map[string]ThrottleProviderConfig `json:"providers,omitempty"`
+}
+
+// ThrottleProviderConfig is the per-provider AIMD config (mirrors
+// pkg/llm.AdaptiveConfig). Zero values fall back to the package defaults.
+type ThrottleProviderConfig struct {
+	Min          int `json:"min,omitempty"`
+	Max          int `json:"max,omitempty"`
+	Init         int `json:"init,omitempty"`
+	GrowEvery    int `json:"grow_every,omitempty"`
+	MaxBackoffMs int `json:"max_backoff_ms,omitempty"`
 }
 
 // ProviderEntry 代表一个大模型服务商的凭据配置。
