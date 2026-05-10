@@ -1,6 +1,6 @@
 # 系统提示词构建与对话流程
 
-> 适用版本：26.4.22v1+
+> 适用版本：26.4.22v1+ · 26.4.24v1 加群档案（chats/）
 
 ---
 
@@ -25,10 +25,10 @@
 层 4 · 记忆索引
     ↓   memory/INDEX.md（轻量，完整记忆需 read 四层子目录）
 
-层 5 · 通讯录（渐进式披露三层）
-    ↓   network/INDEX.md      — 轻量列表（所有联系人名片）
+层 5 · 通讯录 / 群档案（渐进式披露三层，26.4.24v1 起含群）
+    ↓   network/INDEX.md      — 轻量列表（AI 同事 + 联系人 + 群聊三段）
     ↓   network/RELATIONS.md  — 关系表（双向同步）
-    ↓   当前对话对方摘要      — 运行时 network.Store.Summary 注入 ExtraContext
+    ↓   当前对话对方 + 当前群聊摘要  — 运行时 Store.Summary + Store.ChatSummary 注入 ExtraContext
 
 层 6 · 已装技能索引
     ↓   skills/INDEX.md
@@ -81,15 +81,18 @@
 │   ├── projects/            ← 项目相关记忆
 │   ├── daily/               ← 每日日志（短期记忆，含 notes-to-user.md）
 │   └── topics/              ← 主题归档
-├── network/                 ← ★ 通讯录（26.4.22v1 新增）
-│   ├── INDEX.md             ← 通讯录轻量索引（注入系统提示词）
-│   ├── INDEX.json           ← 机器索引（UI 读）
+├── network/                 ← ★ 通讯录 + 群档案（26.4.22v1 起，26.4.24v1 加 chats/）
+│   ├── INDEX.md             ← 轻量索引（AI 同事 + 联系人 + 群聊 三段，注入系统提示词）
+│   ├── INDEX.json           ← 机器索引（UI 读，含 contacts + chats 两组）
 │   ├── RELATIONS.md         ← 关系表（双向同步 · 含 toKind 字段）
-│   ├── changes.log          ← AI 改动审计日志（network_note 每次追加）
-│   └── contacts/
-│       ├── feishu-ou_abc.md ← 飞书联系人完整档案（read 按需）
-│       ├── telegram-123.md
-│       └── web-sid-xxx.md
+│   ├── changes.log          ← AI 改动审计日志（network_note / chat_note 每次追加，chat: 前缀区分）
+│   ├── contacts/
+│   │   ├── feishu-ou_abc.md     ← 飞书联系人完整档案（read 按需）
+│   │   ├── telegram-123.md
+│   │   └── web-sid-xxx.md
+│   └── chats/                   ← ★ 群档案（26.4.24v1）
+│       ├── feishu-oc_xyz.md     ← 飞书群完整档案（4 段：基础信息/群规则/重要议题/待跟进）
+│       └── telegram--1001234.md ← TG 群
 ├── skills/
 │   ├── INDEX.md             ← 技能索引
 │   └── {skillId}/
@@ -198,6 +201,63 @@ summary := store.Summary(contactID)  // ~300 chars
 - 累计对话次数 + 最后时间
 - 事实前 3 条 + 偏好前 2 条
 - 提示 `[完整档案 read("network/contacts/<file>.md")]`
+
+---
+
+## 二·五、群档案系统（chats/，26.4.24v1 起）
+
+### 核心概念：Chat
+
+> Contact 模型"人"，Chat 模型"群"。两者形状对称，物理隔离在 `chats/` 子目录。
+
+**Chat ID** 规范形式：`{source}:{externalChatId}` —— 与 contact 同样的字符串格式但不会冲突（chats/ 与 contacts/ 不同子目录）：
+- `feishu:oc_abc`（飞书群）
+- `telegram:-1001234`（TG 超级群，注意负号）
+
+**Chat 字段差异**：
+- 共有：ID / Source / ExternalID / Tags / CreatedAt / LastSeenAt / MsgCount / Body
+- 群专属：**Title** / **Kind** (group/supergroup/channel/private) / **MemberCount**
+- 砍掉：Aliases / Primary / IsOwner（群没有这些概念）
+
+**Chat 档案 Body 4 段**：基础信息 / 群规则 / 重要议题 / 待跟进
+
+### resolveChat 入口
+
+| 入口 | 源 | 触发条件 | 位置 |
+|------|----|---------|----|
+| Telegram | `telegram:{chatId}` | type ∈ {group, supergroup, channel} | `pkg/channel/telegram.go` |
+| 飞书 | `feishu:{chat_id}` | `isGroup=true` | `pkg/channel/feishu.go` |
+
+私聊 / 1-on-1 **不**建群档案 —— 已由 contact 覆盖。
+
+`ResolveChat(source, externalID, title, kind)` upsert — **仅在 title/kind 当前为空时回填**，保护用户编辑。
+
+### AI 主动工具：`chat_note`
+
+```go
+chat_note(chatId, section, text)
+```
+
+- `section` 枚举：`基础信息` / `群规则` / `重要议题` / `待跟进`
+- 复用 `appendToSection`（占位符自动清除、缺失 section 自动新建）
+- 失败时返回 3 个最近 chat ID 作为 Did-you-mean 提示
+- 审计 entityID 加 `chat:` 前缀，便于在 `network/changes.log` 区分 contact 与 chat
+
+### 运行时摘要注入
+
+群聊场景 channel 把 chat summary + sender contact summary **同时**追加到 `runner.Config.ExtraContext`（chat 在前，sender 在后）：
+
+```go
+extraCtx := chatBaseInfo
+if cs := store.ChatSummary(chatID); cs != "" {
+    extraCtx = extraCtx + "\n\n" + cs    // 【当前群聊】...
+}
+if ps := store.Summary(contactID); ps != "" {
+    extraCtx = extraCtx + "\n\n" + ps    // 【当前对话对方】...
+}
+```
+
+`ChatSummary` 含：群名 / 来源 / kind / 累计消息 / 成员数 / 标签 + 基础信息(3) / 群规则(3) / 重要议题(2) / 待跟进(2) + `[完整档案 read("network/chats/<file>.md")]`，硬 cap 1200 chars。
 
 ---
 

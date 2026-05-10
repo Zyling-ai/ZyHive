@@ -6,7 +6,7 @@
 [![GitHub Forks](https://img.shields.io/github/forks/Zyling-ai/zyhive?style=flat&logo=github&color=orange)](https://github.com/Zyling-ai/zyhive/network/members)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 [![Go 1.22+](https://img.shields.io/badge/Go-1.22+-00ADD8.svg)](https://golang.org)
-[![Version](https://img.shields.io/badge/version-26.4.23v7-brightgreen.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-26.4.24v1-brightgreen.svg)](CHANGELOG.md)
 [![官网](https://img.shields.io/badge/官网-zyling.ai-6366f1?logo=globe)](https://zyling.ai)
 
 **以团队为核心，每个 AI Agent 是团队成员。**
@@ -28,7 +28,7 @@ curl -sSL https://install.zyling.ai/install | bash
 
 ```
 ╔══════════════════════════════════════════════╗
-║  ✅  ZyHive 安装成功！版本: 26.4.23v7         ║
+║  ✅  ZyHive 安装成功！版本: 26.4.24v1         ║
 ╚══════════════════════════════════════════════╝
 
   📍 本地访问：  http://localhost:8080
@@ -84,17 +84,22 @@ curl -sSL https://install.zyling.ai/install | bash
 - **记忆蒸馏（Consolidator）**：自动将 daily 层短期日志提炼合并到 core 层长期记忆
 - **共享团队工作区（Projects）**：多成员共享项目文件夹，支持 per-agent 读写权限配置
 
-### 通讯录 & 关系网（network/）— 26.4.22v1 新增
-让 AI 在"每个消息来源都能准确回复" —— 把用户档案 / 关系网 / 外部联系人统一为一张图。
+### 通讯录 & 关系网（network/）— 26.4.22v1 起，26.4.24v1 加群档案
+让 AI 在"每个消息来源都能准确回复" —— 把用户档案 / 关系网 / 外部联系人 / 群档案统一为一张图。
 
-- **每个 agent 一本私有通讯录** `workspace/network/{INDEX.md, RELATIONS.md, contacts/*.md}`
+- **每个 agent 一本私有通讯录** `workspace/network/{INDEX.md, RELATIONS.md, contacts/*.md, chats/*.md}`
 - **三层渐进式披露**：
-  - 层 1：`network/INDEX.md` 永远注入（~500 chars 轻量列表）
-  - 层 2：当前对话对方摘要（frontmatter + 事实前 3 条，~300 chars）运行时注入
-  - 层 3：完整档案，AI 按需用 `read("network/contacts/<id>.md")` 自取
-- **自动建档**：面板/飞书/TG/Web Public 4 处消息入口检测到新 sender，立刻生成 `{source}:{externalId}.md`（例 `feishu-ou_abc.md`）
+  - 层 1：`network/INDEX.md` 永远注入（~500-1200 chars 轻量列表，含 AI 同事 + 真人联系人 + 群聊）
+  - 层 2：当前对话对方摘要 + 当前群聊摘要（frontmatter + 事实/规则前 N 条，~300 chars 各）运行时注入
+  - 层 3：完整档案，AI 按需用 `read("network/contacts/<id>.md")` / `read("network/chats/<id>.md")` 自取
+- **自动建档**：
+  - **联系人**：面板/飞书/TG/Web Public 4 处消息入口检测到新 sender，立刻生成 `contacts/{source}-{externalId}.md`
+  - **群档案 (26.4.24v1)**：飞书/TG 群聊场景自动生成 `chats/{source}-{externalChatId}.md`（私聊不建群档案）
 - **`network_note(entityId, section, text)` 工具**：AI 发现重要事实/偏好/待跟进时原子追加（section 严格枚举），旁路 `network/changes.log` 审计
-- **TeamView 融合**：菜单「团队」→「📇 通讯录」，顶部 tab 切换「🧑‍🤝‍🧑 AI 成员网络」｜「👥 联系人」。联系人列表跨 agent 聚合，可搜索 / 按来源 / 按 agent 筛选；点击开 540px 抽屉编辑（显示名、6 预设标签快捷 `#家人/#同事/#客户/#合作伙伴/#朋友/#AI 成员`、`isOwner` 标记、Markdown body）
+- **`chat_note(chatId, section, text)` 工具 (26.4.24v1)**：AI 发现群规则/重要议题/待跟进时原子追加到群档案（section: 基础信息/群规则/重要议题/待跟进）
+- **TeamView 融合**：菜单「团队」→「📇 通讯录」，顶部 tab 切换「🧑‍🤝‍🧑 AI 成员网络」｜「👥 联系人」。联系人 tab 内再分 sub-tab「👤 联系人」「💬 群聊」(26.4.24v1)。两类列表均跨 agent 聚合，可搜索 / 按来源 / 按 agent 筛选；点击开 540px 抽屉编辑：
+  - 联系人抽屉：显示名、6 预设标签快捷 `#家人/#同事/#客户/#合作伙伴/#朋友/#AI 成员`、`isOwner` 标记、Markdown body
+  - 群档案抽屉：群名、类型 select、成员数、4 预设标签 `#内部/#客户/#支持/#社区`、Markdown body
 - **关系双向同步**：`RELATIONS.md` 所有类型（上下级/平级/支持/其他/服务/客户/...）自动双向写入；`agent_spawn` 必须在关系表内（内置 agent 类型豁免）
 - **团队图谱 💡 建议连接**：未建立关系的成员对一键建立平级协作关系
 
@@ -114,6 +119,7 @@ curl -sSL https://install.zyling.ai/install | bash
 - **自我管理**：`self_list_skills` / `self_install_skill` / `self_uninstall_skill` / `self_rename` / `self_update_soul`
 - **愿望清单**：`wish_add(title, reason, priority)` / `wish_list` — AI 主动记录能力诉求
 - **通讯录维护**：`network_note(entityId, section, text)` — AI 追加事实/偏好/待跟进到联系人档案
+- **群档案维护 (26.4.24v1)**：`chat_note(chatId, section, text)` — AI 追加群规则/重要议题/待跟进到群档案
 
 ### 工具权限系统
 - 每个成员可独立配置工具策略：`allow`（默认允许）/ `deny`（默认拒绝）+ 精细白名单 / 黑名单
@@ -211,9 +217,9 @@ zyhive/
 │   ├── runner/          ← 对话主循环（工具调用循环）+ system_prompt.go 分层构建（9 层）
 │   ├── session/         ← 会话工作者池 + Broadcaster + 持久化
 │   ├── llm/             ← 10+ Provider 适配（StreamEvent 统一抽象）
-│   ├── tools/           ← 80+ 工具注册 + 权限策略（ToolPolicy）+ wish / network_note / capabilities
+│   ├── tools/           ← 80+ 工具注册 + 权限策略（ToolPolicy）+ wish / network_note / chat_note / capabilities
 │   ├── memory/          ← 四层记忆树 + INDEX.md + Consolidator 蒸馏 + 语义检索
-│   ├── network/         ← 通讯录（contact Store + codec + summary + migrate），每 agent 私有
+│   ├── network/         ← 通讯录（contact Store + codec + summary + migrate）+ 群档案（chat_store / chat_codec / chat_summary, 26.4.24v1），每 agent 私有
 │   ├── channel/         ← Telegram / 飞书 / 渠道路由 + Feishu WS 长连接
 │   ├── convlog/         ← 管理员可见的对话全量日志（JSONL）
 │   ├── chatlog/         ← 渠道消息日志
@@ -379,7 +385,8 @@ make release
 | **26.4.23v1** | **通讯录 5 个漏网 bug 修复**：`IsOwner=true` contact 跳过 summary 注入（防 owner-profile 双份）；displayName fallback 链（firstName/username 空时自动兜底到 externalID 前缀）；**合并后 alias 自动路由到 primary**（之前会复活空档案，合并白做）；`RELATIONS.md` 正式加 `toKind` 字段（6 列新格式 + 5 列 legacy 兼容），Graph 自动过滤 contact 边（不再创建幽灵节点），`agent_spawn` 权限检查正确忽略 contact ID；`network_note` 失败时返回最接近的 3 个 contact ID 作为 Did-you-mean 提示。测试覆盖：3 新 `TestParseRelationsMarkdown*` + `TestSummaryIsOwnerSkips` + `TestFallbackDisplayName`（6 子 case）+ `TestResolveRoutesThroughAliases` + `TestSuggestContactIDs` | ✅ |
 | **26.4.23v3** | **Session 自动主题命名 + UsageView 明细增强**：会话 title 不再只是"第一条 user message 前 60 字"；每当消息数到达 4 / 12 / 30 / 80 时自动后台调 LLM 总结主题（使用会话自己绑定的模型，fire-and-forget 不阻塞对话），生成 8-20 字中文主题；用户手动 PATCH rename → `TitleOverridden=true` 永不被 auto 覆盖；`usage.Record` 扩 `SessionID` 字段，`/api/usage/records` 响应附 `agentName` + `sessionTitle`；UsageView 明细列新增「成员」「Session」列，筛选栏加 Session 下拉（依选中成员联动）；测试：`TestSanitizeTitle`（7 case）+ `TestBuildRetitleInput*`（2）+ `TestNeedsAutoRetitle_Milestones` + `TestMaybeAutoRetitle_RunsSummarizer` | ✅ |
 | **26.4.23v2** | **生产稳定性地基（P0 全集）**：**LLM 错误分层 + 瞬时重试**（`pkg/llm/errors.go` 识别 429/5xx/connection reset/eof/tls 等 transient，`pkg/llm/retry.go` 指数退避 0.5s/2s/5s，业务错误 401/context length/content filter 立即上抛）；**SSE 自动重连**（网络断时按 1s/3s/7s 重试 resumeSSE，90s 兜底，含 Did-you-mean 信息）；**错误隔离**（LLM error 不再覆盖部分回复，原气泡打"因错误中断"footer + 独立系统气泡显示友好错误，`formatErrorMessage` 把 429/401/5xx/timeout/context_length 翻译为中文）；**Abort fence**（activeFence 组件级可观测，onUnmounted / session 切换自动 abort 在流 SSE，防止 late-arriving events 污染新会话 + 省 token）；**LLM Provider live health**（`pkg/llm/health.go` Ping 带 30s 缓存，max_tokens=1 最小请求；ToolHealth 响应追加 `providerHealth`，UI 显示 🟢/🔴 + 延迟 + "重新检测" 按钮，401/429/5xx 分类提示）；**Compaction 同步事件**（移到 turn 开头 同步跑 + `compaction_start` / `compaction_end` event，UI 显示"🗜️ 正在压缩..."→"✓ 已压缩 Xk→Yk tokens"）；Throttle 接口抽象（`Throttle` interface + `FixedThrottle` 默认实现，行为 100% 等同今天，留给未来 AdaptiveThrottle）。测试：`TestIsTransientMatches`（13 case）+ `TestRetryClient*`（4 case）+ `TestFixedThrottle*`（5 case） | ✅ |
-| P1（规划中）| Chat Profile（群档案）· 跨 agent 联系人聚合视图 · 头像 API 拉取 · AI 自动合并联系人 · Web 访客升级为命名 contact · `self_schedule` 自主闹钟工具 · 自主唤醒 budget 预算刹车 | 🔜 |
+| **26.4.24v1** | **Chat Profile（群档案）— 通讯录扩展到群聊**：把"每 agent 一本通讯录"对称扩展到群聊。新 `pkg/network/chat.go` Chat 数据模型 (Title/Kind/MemberCount/4 段 body)；新 `chat_store.go` `GetChat / SaveChat / DeleteChat / ListChats / TouchChat / ResolveChat` (复用同一 Store, 物理隔离 `chats/` 子目录, 与 `contacts/` ID 同名也不冲突)；`refreshIndexUnlocked` 同时重建 contacts + chats 段, INDEX.md 群段最多 20 个；`Store.ChatSummary` Layer-2 渲染 (硬 cap 1200 chars)；飞书 / Telegram 群聊场景自动 `ResolveChat` (私聊不建群档案)；新工具 `chat_note(chatId, section, text)` (section: 基础信息/群规则/重要议题/待跟进, Did-you-mean 提示)；新 REST `/api/agents/:id/network/chats` CRUD；TeamView 联系人 tab 加 sub-tab 「👤 联系人 / 💬 群聊」+ 540px 编辑 drawer (群名/类型/成员数/标签/markdown body)；`ResolveChat` 仅在 title/kind 当前为空时回填 (保护用户编辑)。25 个新测试用例 (`TestChatIDIsolation_DoesNotCollideWithContact` / `TestStoreResolveChatBackfillsEmptyFieldsButProtectsUserEdits` 等), 老 INDEX.json 兼容 (omitempty), 不动 contact 任何 API/数据 | ✅ |
+| P1（规划中）| 跨 agent 联系人/群聊聚合视图 · 头像 API 拉取 · AI 自动合并联系人/群 · Web 访客升级为命名 contact · `self_schedule` 自主闹钟工具 · 自主唤醒 budget 预算刹车 · 飞书拉群名 API · Bitable 视图 | 🔜 |
 
 ---
 
