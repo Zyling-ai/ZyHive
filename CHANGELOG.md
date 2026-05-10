@@ -4,6 +4,43 @@
 
 ---
 
+## [26.5.10v4] — 2026-05-10 · 🔒 安全修复 B003 无界请求体 OOM DoS（HIGH）
+
+Gin `ShouldBindJSON` 不带 size cap，50+ 端点裸用，导致任何 POST 几 GB body 即可 OOM 服务进程。
+
+### 漏洞
+
+`internal/api/router.go` 全局中间件链缺一个 body limit middleware，所有 `c.ShouldBindJSON` 路径无界。`/api/public_chat`、`/api/update/status` 等无认证端点也受影响。
+
+### 修复
+
+新增 `internal/api/bodylimit.go::bodyLimitMiddleware`：默认 4 MiB cap（`http.MaxBytesReader`），文件上传路由自动跳过（已有 per-chunk 5/10 MiB 限制）。
+
+通过 env `ZYHIVE_MAX_REQUEST_BODY_MB` 可调（`0` = 无限制，自托管 + 受信网络场景）。
+
+### 测试
+
+`internal/api/bodylimit_test.go` 4 用例全绿：
+- `TestBodyLimit_DefaultCapsAt4MiB`（5 MiB → 413/400）
+- `TestBodyLimit_AllowsSmallBody`
+- `TestBodyLimit_ExemptFileUploadRoute`
+- `TestIsBodyTooLarge_Detects`
+
+### 兼容性
+
+- 50+ JSON 端点正常负载远低于 4 MiB，不破坏
+- 文件上传路由保留 5/10 MiB chunk 限
+- 启动日志输出 `[api] request body limit: default 4 MiB` 让运维知道
+
+### 升级建议
+
+- ✅ 立即升级
+- 巨型上传场景：`ZYHIVE_MAX_REQUEST_BODY_MB=N` 调整或归零
+
+详见 [proposals/aiteam/bugs/B003-unbounded-body-oom.md](proposals/aiteam/bugs/B003-unbounded-body-oom.md).
+
+---
+
 ## [26.5.10v3] — 2026-05-10 · 🔒 安全修复 B002 Token 时延侧信道（HIGH）
 
 B001 修复后例行审视发现的 HIGH 严重度 timing 攻击。所有 Bearer / download / media token 比较都用 Go 的 `==` / `!=`，是短路比较 → 攻击者可在网络层做时延统计，逐字节恢复 token。
