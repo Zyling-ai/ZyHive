@@ -4,6 +4,47 @@
 
 ---
 
+## [26.5.10v8] — 2026-05-10 · 🧪 aiteam S2 — PR-007 工具沙箱
+
+### aiteam (experimental)
+
+* **PR-007 工具沙箱** — 新包 `pkg/aiteam/sandbox/`，纯 Go 零外部依赖
+  - **process group kill**：bash 派生后台子进程 `(sleep 600 &)` 在 wall-
+    clock 触发时被 `syscall.Kill(-pgid, SIGKILL)` 整组干掉
+  - **per-run tmp HOME**：`os.MkdirTemp("aiteam-exec-")` 隔离 bash history
+    / SSH key 等敏感目录；run 完即删
+  - **output truncation**：combined stdout+stderr 硬上限 1 MiB（默认），
+    防 fork-bomb 风格输出炸 RSS
+  - **wall-clock kill**：`context.WithTimeout` + Start/Wait 解决与 cmd.Run
+    并发写 cmd.Process 的 race condition
+  - **env 命名空间保护**：caller 传入 env 中的 `HOME`/`TMPDIR`/
+    `AITEAM_SANDBOX` 会被剥离，沙箱自己的赋值生效
+  - 跨平台：Linux + Darwin 完整沙箱；其他 GOOS 降级为 ctx-only
+* **`pkg/tools/registry.go::handleBashWS`** 接入：flag on 时走
+  `sandbox.Run`，flag off 时走 legacy 路径，行为 byte-identical 26.5.10v7
+* 测试：`Test_AITeam_Sandbox_*` 8 case + `Test_AITeam_Registry_*` 4 case
+  全部 `-race` 绿。覆盖：clean exit / wall-clock kill / fork child kill /
+  tmp HOME / output truncation / non-zero exit / format / 集成路由
+* 启用方式：`export ZYHIVE_EXPERIMENTAL_SANDBOX=1` 后所有 agent 的
+  `exec` 工具自动走沙箱
+
+### 兼容性
+
+- `ZYHIVE_EXPERIMENTAL_SANDBOX` 未设（默认）时 `exec` 工具行为字节等同
+  26.5.10v7
+- 主线 80+ 工具 / 所有渠道 / B001-B004 安全回归全绿
+- 单元测试在 macOS / Linux 上都过；Windows / 其他 GOOS 跳过 enforcement
+  测试
+
+### 升级建议
+
+- 普通用户：升不升都可（仅实验路径）
+- 想用沙箱：升级后 `export ZYHIVE_EXPERIMENTAL_SANDBOX=1` 启用
+
+详见 [proposals/aiteam/PR-007-sandbox.md](proposals/aiteam/PR-007-sandbox.md)。
+
+---
+
 ## [26.5.10v7] — 2026-05-10 · 🔒 aiteam S1 — 主动 QA pass + B005/B014 修复
 
 ### 安全（主线）

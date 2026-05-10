@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Zyling-ai/zyhive/pkg/aiteam/flags"
+	"github.com/Zyling-ai/zyhive/pkg/aiteam/sandbox"
 	"github.com/Zyling-ai/zyhive/pkg/llm"
 	"github.com/Zyling-ai/zyhive/pkg/project"
 	"github.com/Zyling-ai/zyhive/pkg/safefs"
@@ -897,16 +899,34 @@ func (r *Registry) handleBashWS(_ context.Context, input json.RawMessage) (strin
 		timeout = 120 * time.Second
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, "bash", "-c", command)
-
-	// Start with sanitized system env, then overlay agent-configured env vars
+	// Build env once — used by both sandbox and legacy paths.
 	env := sanitizeEnv(os.Environ())
 	for k, v := range r.agentEnv {
 		env = append(env, k+"="+v)
 	}
+
+	// PR-007 (S2, 26.5.10v8): when ZYHIVE_EXPERIMENTAL_SANDBOX=1, route
+	// the exec call through pkg/aiteam/sandbox which adds Setpgid +
+	// per-run tmp HOME + output truncation + process-group kill on
+	// timeout. When the flag is off (default) we fall through to the
+	// legacy path below — behaviour is byte-identical to 26.5.10v7.
+	if flags.SandboxEnabled() {
+		res, sbErr := sandbox.Run(context.Background(), sandbox.Options{
+			Command: command,
+			WorkDir: r.workspaceDir,
+			Env:     env,
+			Limits:  sandbox.Limits{WallClock: timeout},
+		})
+		if sbErr != nil {
+			return "", sbErr
+		}
+		return sandbox.FormatToolOutput(res, timeout), nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "bash", "-c", command)
 	cmd.Env = env
 
 	out, err := cmd.CombinedOutput()
