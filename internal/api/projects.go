@@ -13,6 +13,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/Zyling-ai/zyhive/pkg/project"
+	"github.com/Zyling-ai/zyhive/pkg/safefs"
 )
 
 // ─── Project CRUD ────────────────────────────────────────────────────────────
@@ -139,6 +140,8 @@ type projectFileHandler struct {
 }
 
 // resolveProjectPath validates project and resolves absolute file path.
+//
+// 26.5.10v2 安全修复 (B001): 改用 safefs.ConfineToBase, 见 files.go 同名注释.
 func (h *projectFileHandler) resolve(c *gin.Context) (string, string, bool) {
 	p, ok := h.mgr.Get(c.Param("id"))
 	if !ok {
@@ -146,12 +149,12 @@ func (h *projectFileHandler) resolve(c *gin.Context) (string, string, bool) {
 		return "", "", false
 	}
 	relPath := c.Param("path")
-	if relPath == "" || relPath == "/" {
-		relPath = "/"
+	relPath = strings.TrimPrefix(relPath, "/")
+	if relPath == "" {
+		relPath = "."
 	}
-	cleaned := filepath.Clean(relPath)
-	absPath := filepath.Join(p.FilesDir, cleaned)
-	if !strings.HasPrefix(absPath, p.FilesDir) {
+	absPath, err := safefs.ConfineToBase(p.FilesDir, relPath)
+	if err != nil {
 		c.JSON(http.StatusForbidden, gin.H{"error": "path escapes project"})
 		return "", "", false
 	}
