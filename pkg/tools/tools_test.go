@@ -212,12 +212,27 @@ func TestEdit(t *testing.T) {
 	})
 
 	t.Run("file_not_found", func(t *testing.T) {
+		// 26.5.10v2: now uses a workspace-relative path that doesn't exist;
+		// absolute paths outside workspace are rejected earlier with a security
+		// error (B001 fix).
 		_, err := call(r, "edit", map[string]any{
-			"file_path":  "/nonexistent/path/file.txt",
+			"file_path":  "no-such-file.txt",
 			"old_string": "x",
 			"new_string": "y",
 		})
 		assertErr(t, "edit/no-file", "file not found", err)
+	})
+
+	t.Run("absolute_path_outside_workspace_rejected", func(t *testing.T) {
+		// 26.5.10v2 (B001): AI can no longer pass /etc/passwd to file tools.
+		_, err := call(r, "edit", map[string]any{
+			"file_path":  "/etc/passwd",
+			"old_string": "x",
+			"new_string": "y",
+		})
+		if err == nil || !strings.Contains(err.Error(), "outside workspace") {
+			t.Errorf("expected 'outside workspace' rejection, got: %v", err)
+		}
 	})
 
 	t.Run("empty_old_string_rejected", func(t *testing.T) {
