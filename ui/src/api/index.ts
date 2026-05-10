@@ -288,6 +288,25 @@ export interface Contact extends ContactSummary {
   aliases?: string[]
   createdAt: string
 }
+
+// Chat profile (群档案) — sister type to Contact, lives in network/chats/.
+// 26.4.24v1+ only.
+export interface ChatSummary {
+  id: string
+  source: string
+  title: string
+  kind: string
+  tags?: string[]
+  memberCount?: number
+  lastSeenAt: string
+  msgCount: number
+}
+export interface Chat extends ChatSummary {
+  externalId: string
+  body: string
+  createdAt: string
+}
+
 export const networkApi = {
   list: (agentId: string) => api.get<{ contacts: ContactSummary[] }>(`/agents/${agentId}/network/contacts`),
   get: (agentId: string, contactId: string) =>
@@ -299,6 +318,15 @@ export const networkApi = {
   merge: (agentId: string, primaryId: string, aliasId: string) =>
     api.post(`/agents/${agentId}/network/contacts/${encodeURIComponent(primaryId)}/merge`, { aliasId }),
   refresh: (agentId: string) => api.post(`/agents/${agentId}/network/refresh`),
+
+  // Chat profile (26.4.24v1)
+  listChats: (agentId: string) => api.get<{ chats: ChatSummary[] }>(`/agents/${agentId}/network/chats`),
+  getChat: (agentId: string, chatId: string) =>
+    api.get<Chat>(`/agents/${agentId}/network/chats/${encodeURIComponent(chatId)}`),
+  updateChat: (agentId: string, chatId: string, patch: { title?: string; kind?: string; tags?: string[]; body?: string; memberCount?: number }) =>
+    api.patch<Chat>(`/agents/${agentId}/network/chats/${encodeURIComponent(chatId)}`, patch),
+  deleteChat: (agentId: string, chatId: string) =>
+    api.delete(`/agents/${agentId}/network/chats/${encodeURIComponent(chatId)}`),
 }
 
 export const config = {
