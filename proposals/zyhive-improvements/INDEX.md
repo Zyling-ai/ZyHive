@@ -74,7 +74,7 @@ CHANGELOG 已声明的 **P1 规划中** 项（散落在 README）：
 | ID | 提案 | 优先级 | 规模 | 关键依赖 |
 |----|------|-------|-----|---------|
 | B-01 | 会议系统 MVP（按 `docs/roadmap-v0.10.md` Feature 2 落地） | P1 | XL | `pkg/cron`、`pkg/agent.Pool`、新增 `pkg/meeting/` |
-| B-02 | Chat Profile（群档案）：飞书群/TG 群级别上下文聚合 | P1 | M | `pkg/network`、`pkg/channel` |
+| B-02 | ~~Chat Profile（群档案）：飞书群/TG 群级别上下文聚合~~ | ~~P1~~ | ~~M~~ | ✅ 已由 main 26.4.24v1 实现 |
 | B-03 | 跨 agent 联系人聚合视图 + 全局统一搜索 | P1 | M | `internal/api/network.go`、`TeamView.vue` |
 | B-04 | 跨 agent 任务流转 baton：A 把"某 sessionID + 上下文"原子转交 B | P2 | L | `pkg/session`、`pkg/agent.Pool`、新协议事件 |
 | B-05 | Web 访客升级为命名 contact：`web-visitor-xxx` 一键 promote | P1 | S | `pkg/network` |
