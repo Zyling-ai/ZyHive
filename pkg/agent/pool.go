@@ -16,6 +16,7 @@ import (
 
 	aiteamBudget "github.com/Zyling-ai/zyhive/pkg/aiteam/budget"
 	aiteamFX "github.com/Zyling-ai/zyhive/pkg/aiteam/fx"
+	aiteamJudge "github.com/Zyling-ai/zyhive/pkg/aiteam/judge"
 	aiteamWallet "github.com/Zyling-ai/zyhive/pkg/aiteam/wallet"
 	"github.com/Zyling-ai/zyhive/pkg/browser"
 	"github.com/Zyling-ai/zyhive/pkg/budget"
@@ -67,6 +68,10 @@ type Pool struct {
 	// aiteamFX — optional PR-001 FX service (S5). Ships with the wallet
 	// flag — they are the same display+ledger pair.
 	aiteamFX *aiteamFX.Service
+
+	// aiteamJudge — optional PR-004 Judge manager (S7). May be nil.
+	// Gated on ZYHIVE_EXPERIMENTAL_JUDGE.
+	aiteamJudge *aiteamJudge.Manager
 
 	cronEngine *cron.Engine // optional: enables cron_list/add/remove tools
 
@@ -459,6 +464,12 @@ func (p *Pool) SetAITeamFX(s *aiteamFX.Service) { p.aiteamFX = s }
 
 // AITeamFX exposes the FX service. May return nil.
 func (p *Pool) AITeamFX() *aiteamFX.Service { return p.aiteamFX }
+
+// SetAITeamJudge wires the PR-004 Judge manager. May be nil to disable.
+func (p *Pool) SetAITeamJudge(j *aiteamJudge.Manager) { p.aiteamJudge = j }
+
+// AITeamJudge exposes the Judge manager. May return nil.
+func (p *Pool) AITeamJudge() *aiteamJudge.Manager { return p.aiteamJudge }
 
 // budgetChecker returns a BudgetCheck adapter that chains the P1-02
 // brake and the PR-003 aiteam hard guard. When neither is configured the
