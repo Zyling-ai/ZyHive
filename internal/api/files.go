@@ -306,9 +306,9 @@ type downloadHandler struct {
 }
 
 func (h *downloadHandler) ServeFile(c *gin.Context) {
-	// Verify token
+	// Verify token (B002 26.5.10v3: constant-time compare).
 	token := c.Query("token")
-	if h.authToken != "" && token != h.authToken {
+	if h.authToken != "" && !secretsEqual(token, h.authToken) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
 		return
 	}

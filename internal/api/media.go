@@ -30,11 +30,12 @@ var allowedMediaExts = map[string]string{
 // Accepts auth via Authorization header OR ?token= query param
 // (query param needed because <img src=""> cannot send custom headers)
 func (h *mediaHandler) ServeMedia(c *gin.Context) {
-	// Auth: accept header or query param
+	// Auth: accept header or query param (B002 26.5.10v3: constant-time compare).
 	if h.token != "" {
 		auth := c.GetHeader("Authorization")
 		qToken := c.Query("token")
-		if auth != "Bearer "+h.token && qToken != h.token {
+		expectedHeader := "Bearer " + h.token
+		if !secretsEqual(auth, expectedHeader) && !secretsEqual(qToken, h.token) {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 			return
 		}

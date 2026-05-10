@@ -462,9 +462,12 @@ func authMiddleware(token string) gin.HandlerFunc {
 		log.Println("[WARN] Auth token is set to the default value 'changeme'. " +
 			"Please update auth.token in aipanel.json before exposing to the internet.")
 	}
+	expected := "Bearer " + token
 	return func(c *gin.Context) {
 		auth := c.GetHeader("Authorization")
-		if auth != "Bearer "+token {
+		// 26.5.10v3 (B002): constant-time comparison defeats timing attacks
+		// that would otherwise leak the token byte-by-byte.
+		if !secretsEqual(auth, expected) {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 			return
 		}
