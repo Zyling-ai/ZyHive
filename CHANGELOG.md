@@ -4,6 +4,57 @@
 
 ---
 
+## [26.5.10v6] — 2026-05-10 · 🧪 aiteam S0 — 实验性自治经济体路线启动
+
+零影响主线的实验性子系统骨架，所有 aiteam 行为默认 **off**，由 8 个独立 env flag 守卫。
+
+### aiteam (experimental)
+
+aiteam 是 ZyHive 在主线之上的"AI 自治经济体"实验路线（PR-001 ~ PR-008）。
+计划见 `proposals/aiteam/`，与 `Zyling-ai/zystudio` 商业化对外侧协同。
+全部默认关闭；启用任一子系统需显式 `export ZYHIVE_EXPERIMENTAL_<NAME>=1`。
+
+* **新包 `pkg/aiteam/flags`**：集中管理 8 个 env flag
+  (`ZYHIVE_EXPERIMENTAL_WALLET` / `_PAYROLL` / `_BUDGETGUARD` / `_JUDGE` /
+  `_REVENUE` / `_SANDBOX` / `_PROMPTDEF` / `_AITEAM_DASHBOARD`)；
+  接受 `1` / `true` / `yes` / `on`（大小写不敏感）为 ON；其余皆 OFF。
+* **新文件 `internal/api/aiteam_routes.go`**：`/api/aiteam/*` 路由壳
+  挂在 v1 auth 组下；flag 关时 404 `{"error":"not enabled","subsystem":...}`，
+  flag 开时 501 `{"error":"not implemented yet","lands_in":"Sx"}` 提示后续阶段。
+* **`/api/aiteam/flags`**：始终可用的发现端点，返回当前 8 个 flag 快照
+  + `any` 布尔。供 UI 决定菜单可见性。
+* **新部署管线**：
+  * `scripts/deploy-aws.sh` — ARM64 staging 热部署
+    (region=ap-east-1, i-04405815de67eda10, t4g.small Ubuntu 22.04 arm64)
+    走 EC2 Instance Connect 推 ed25519 公钥 + SCP + systemd 重启
+  * `scripts/test/smoke-aiteam.sh` — 全链路烟雾测试
+    (version/healthz/readyz/flags/gated-404/main-line-unaffected)
+  * `.github/workflows/deploy-staging.yml` — 自动部署
+    (tag `v*-staging` 或 `workflow_dispatch` 触发)
+* **测试** `Test_AITeam_*` 共 12 case：flag 解析（truthy/falsy 边界）、
+  路由 404/501 切换、子系统隔离。全包 `go test -race` 绿。
+
+### 兼容性
+
+- `ZYHIVE_EXPERIMENTAL_*` 全空（默认）时，行为字节等同 26.5.10v5：
+  - 所有 `/api/aiteam/*` 路由 404
+  - 不注册任何 aiteam 工具
+  - 不增加任何主路径开销
+- 现有 hive.lilianbot.com 生产部署 **不受影响**，AWS 18.162.161.138 是
+  独立 staging。
+- 主线测试（包括 B001-B004 安全回归）保持全绿。
+
+### 升级建议
+
+- ✅ 普通用户：可升可不升（仅基础设施落地，无功能差异）
+- 🧪 实验路线参与者：升级后通过 `ZYHIVE_EXPERIMENTAL_*` 选择开启
+- 后续 S1 (B005-B015 QA) → S2 (sandbox) → ... → S10 (dashboard) 持续推进
+
+详见 [proposals/aiteam/README.md](proposals/aiteam/README.md) 和
+[`docs/aiteam-architecture.md`](docs/aiteam-architecture.md)（待 S0 文档 commit）。
+
+---
+
 ## [26.5.10v5] — 2026-05-10 · 🔒 安全修复 B004 Slowloris（HIGH）
 
 `http.Server` 没设任何 timeout，攻击者用 Slowloris 慢速请求几行 Python 即可让服务进程 fd 耗尽下线。
