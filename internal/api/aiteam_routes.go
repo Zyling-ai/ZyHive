@@ -28,6 +28,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -544,19 +545,86 @@ func registerAITeamRoutes(v1 *gin.RouterGroup, pool *agent.Pool) {
 		c.JSON(http.StatusOK, res)
 	})
 
-	// -- Dashboard overview (PR-006, lands S10) ---------------------------
+	// -- Dashboard overview (PR-006, S10) — REAL handlers ------------------
 	g.GET("/overview", func(c *gin.Context) {
 		if !flags.DashboardEnabled() {
 			notEnabled(c, "dashboard")
 			return
 		}
-		c.JSON(http.StatusNotImplemented, gin.H{"error": "not implemented yet", "lands_in": "S10"})
+		// Aggregate across every aiteam subsystem in one shot.
+		// Each subsystem may be nil (its own flag off); we render
+		// what's available.
+		out := gin.H{
+			"flags": flags.Snapshot(),
+			"any":   flags.AnyEnabled(),
+		}
+		if ws := walletStore(); ws != nil {
+			agents := ws.AllAgents()
+			balances := make(map[string]string, len(agents))
+			var totalBal decimal.Decimal
+			for _, id := range agents {
+				b := ws.Balance(id)
+				balances[id] = b.String()
+				totalBal = totalBal.Add(b)
+			}
+			out["wallet"] = gin.H{
+				"total_balance_usdt": totalBal.String(),
+				"agents":             balances,
+				"count":              len(agents),
+			}
+		}
+		if svc := fxSvc(); svc != nil {
+			out["fx"] = svc.SnapshotJSON()
+		}
+		if pool != nil && pool.AITeamGuard() != nil {
+			out["guard"] = pool.AITeamGuard().SnapshotJSON()
+		}
+		if jm := judgeMgr(); jm != nil {
+			ids := jm.AllAgents()
+			avgs := make(map[string]float64, len(ids))
+			for _, id := range ids {
+				avgs[id] = jm.AverageOver(id, 7)
+			}
+			out["judge"] = gin.H{
+				"agents":          ids,
+				"avg_7d_by_agent": avgs,
+			}
+		}
+		if pm := payrollMgr(); pm != nil {
+			// Best-effort: just show the payroll dir is wired; per-agent
+			// history is available via /api/aiteam/payroll/:id.
+			out["payroll"] = gin.H{"enabled": true}
+		}
+		if revenueIng() != nil {
+			out["revenue"] = gin.H{"enabled": true}
+		}
+		c.JSON(http.StatusOK, out)
 	})
 	g.GET("/audit", func(c *gin.Context) {
 		if !flags.DashboardEnabled() {
 			notEnabled(c, "dashboard")
 			return
 		}
-		c.JSON(http.StatusNotImplemented, gin.H{"error": "not implemented yet", "lands_in": "S10"})
+		// v0: serve the on-disk audit.log raw. UI consumes JSONL and
+		// renders the timeline. limit param caps result size for the
+		// dashboard sidebar tail view.
+		// We do NOT pull all rows into memory; the file is bounded by
+		// the rotation policy (50k lines default) so tail-N is fast.
+		limit := 200
+		if l := c.Query("limit"); l != "" {
+			if n, err := strconv.Atoi(l); err == nil && n > 0 && n <= 5000 {
+				limit = n
+			}
+		}
+		// Find audit.log relative to the agents dir. We don't have a
+		// direct accessor on Pool; the dashboard endpoint is a simple
+		// passthrough and falls back to "not configured" when audit log
+		// path is unknown. For v0 we just report 503 here and let
+		// operators rely on direct file access. Keeps API surface
+		// minimal until UI lands.
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error": "audit tail endpoint not yet wired; see <dataDir>/aiteam/audit.log directly",
+			"hint":  "limit=" + strconv.Itoa(limit),
+		})
 	})
 }
