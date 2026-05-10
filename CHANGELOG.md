@@ -4,6 +4,68 @@
 
 ---
 
+## [26.5.10v2] — 2026-05-10 · 🔒 安全修复 B001 路径穿越（CRITICAL）
+
+下游 aiteam 实验项目 QA 发现的 CRITICAL 路径穿越漏洞（编号 B001）。本版聚焦修复，**不带新功能**。建议所有部署立即升级。
+
+### 🔥 漏洞概要
+
+旧代码 `internal/api/files.go::resolveWorkspacePath` / `projects.go::resolve` / `pkg/tools/registry.go::resolvePath` 各自写了一遍 "filepath.Join + strings.HasPrefix" 风格的边界校验。三类已知绕过：
+
+1. **兄弟前缀混淆** ⚡ 主漏洞
+   - `WorkspaceDir = /data/agents/alice`
+   - 攻击者请求 `GET /api/agents/alice/files/../alice-evil/secret.md`
+   - `filepath.Clean` + `filepath.Join` 拼成 `/data/agents/alice-evil/secret.md`
+   - `strings.HasPrefix("/data/agents/alice-evil/...", "/data/agents/alice")` = **TRUE**（因 `"alice"` 是 `"alice-evil"` 的字符前缀）
+   - 攻击者读到隔壁 agent 的工作区文件
+2. **Symlink TOCTOU 逃逸**：在 workspace 内放符号链接 → `/etc`，prefix 校验通过后 `os.ReadFile` 跟随 symlink
+3. **绝对路径直接注入**（仅 `pkg/tools/registry.go::resolvePath`）：`if filepath.IsAbs(p) { return p }` 让 AI 工具能 `read("/etc/passwd")` / `write("/etc/cron.d/poison", ...)` —— **AI 工具是最大攻击面**，配合 prompt injection 可直接 RCE
+
+### 🛠️ 修复
+
+新增 `pkg/safefs/safefs.go::ConfineToBase(base, rel)`，作为项目内 path 解析的**唯一入口**，一次性挡住 5 类攻击：
+
+1. 相对 `..` 逃逸
+2. 兄弟前缀混淆（用 `base + os.PathSeparator` 边界对齐）
+3. 绝对路径注入
+4. Symlink TOCTOU（`evalSymlinksOfDeepestExisting` 找到 candidate 最深存在祖先做 EvalSymlinks 再拼回未存在的尾部）
+5. NUL 字节注入
+
+切换 3 处调用：
+- `internal/api/files.go::resolveWorkspacePath`
+- `internal/api/projects.go::resolve`
+- `pkg/tools/registry.go::resolvePath`（含 resolveFilePathInInput 链式 error 上抛 + handleGrep/Glob 默认 path 改为 `"."` 以避开绝对路径分支）
+
+内部 trusted joins（`filepath.Join(workspaceDir, "skills/{id}/SKILL.md")` 等）保留 —— 这些路径由代码构造、不接受用户输入，无攻击面。
+
+### 行为变更（破坏性）
+
+- AI 工具 `read/write/edit/grep/glob` 不再接受跳出 workspace 的绝对路径
+- 例：`read("/etc/passwd")` → 错误 `absolute path "/etc/passwd" is outside workspace`
+- 工具链结果 / 用户提示词若依赖这种行为需要改 —— 用 `exec` 工具走显式审批
+- API：跨 agent 文件访问被 403 拦截
+
+### 测试矩阵
+
+| 文件 | case 数 | 关键回归 |
+|------|--------|---------|
+| `pkg/safefs/safefs_test.go` | 12 | `TestConfineToBase_RejectsSiblingPrefixConfusion` |
+| `internal/api/files_security_test.go` | 6 | `TestB001_RejectsSiblingPrefixBypass` (HTTP 层) |
+| `pkg/tools/registry_safefs_test.go` | 9 | `TestB001Tools_ReadSiblingPrefixBypassRejected` (工具层) |
+| `pkg/tools/tools_test.go` | +1 | `absolute_path_outside_workspace_rejected` |
+| **合计** | **27 新 case + 1 行为变更覆盖** | 全绿 |
+
+`go test -race -count=1 ./...` 全包绿（含 26.5.10v1 新增 budget / logging / readyz 等不受影响）。
+
+### 升级建议
+
+- ✅ **立即升级**：所有自托管实例
+- ⚠️ **安全公告**：建议项目方走 GitHub Security Advisory 发布 CVE
+- 🔄 **回滚**：本版无 schema/data 变更，可 `git revert` 安全回滚
+- 📝 **AI 工作流影响**：检查现有 prompt 是否依赖绝对路径文件读写，改为 workspace 相对路径或 `exec` 审批
+
+---
+
 ## [26.5.10v1] — 2026-05-10 · ZyHive 中长期开发计划 · 首批 P0/P1 全量落地
 
 引入 `proposals/zyhive-improvements/` 作为开发提案目录，制定 9 主题 / ~40 条 / 6 程的中长期路线图（`INDEX.md`），并在同一程内一次性落地 6 条 P0/P1 提案。
