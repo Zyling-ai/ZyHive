@@ -4,6 +4,54 @@
 
 ---
 
+## [26.5.10v7] — 2026-05-10 · 🔒 aiteam S1 — 主动 QA pass + B005/B014 修复
+
+### 安全（主线）
+
+* **B005 fix — Go toolchain bump 1.22 → 1.25.10**
+  govulncheck `./...` 由 36 个已知 CVE 降到 **0**。覆盖 TLS 1.3 KeyUpdate DoS
+  (GO-2026-4870)、HTTP/2 SETTINGS_MAX_FRAME_SIZE 无限循环 (GO-2026-4918)、
+  crypto/x509 chain build / policy validation 异常工作 (GO-2026-4946 +
+  GO-2026-4947 + 5 others)、archive/tar GNU sparse 无界分配 (GO-2026-4869)、
+  html/template JsBraceDepth XSS (GO-2026-4865) 等。
+  - `go.mod`: `go 1.22` → `go 1.25.10`
+  - `golang.org/x/net` v0.25.0 → v0.53.0；连带 crypto v0.50.0 / sys v0.43.0 / text v0.36.0
+  - `.github/workflows/{ci.yml,deploy-staging.yml}` `go-version: '1.22'` → `'1.25.10'`
+  - CGO_ENABLED=0 静态二进制，零运行时依赖变化
+
+* **B014 partial fix — `aipanel.json` / `zyhive.json` 写权限 0644 → 0600**
+  `pkg/config/config.go::Save` 修：新写配置文件强制 0600
+  （含 Provider API key 与 auth.token，原来 world-readable）。
+  老用户现有文件 mode 不自动调整（避免修改用户元数据）。
+
+### aiteam (experimental)
+
+* **S1 主动 QA pass 完成**：`gosec@latest` + `govulncheck@latest` 跑全仓库，
+  填实 11 个 bug markdown（B005-B015，详见
+  `proposals/aiteam/bugs/B0xx-*.md`）。
+  - 🟠 HIGH 真修：B005（本次落地，见上）
+  - 🟡 MEDIUM 待修：B006（飞书 protobuf int 溢出 → 推后 S3）、
+    B014（文件权限渐进式 → 本次先修 config）
+  - 🟢 LOW false-positive：B007/B008/B009/B010/B011/B012/B015
+  - 🟡 后续：B013（filepath.Walk → WalkDir）
+  - 原始扫描产物落 `bugs/_qa-pass-26.5.10v6-{gosec.json,govulncheck.txt}`
+* `INDEX.md` 与 `README.md` bug 状态表全刷新。
+
+### 兼容性
+
+- Go 1.25.10 完全向前兼容 1.22 代码（无 syntax/API 变化）
+- CI / staging deploy workflow 同步更新 Go 版本
+- 现有 hive.lilianbot.com 部署不动；下次 `deploy-hive.sh` 跑会自动用新 Go
+- 主线测试（B001-B004 安全回归 + 现有所有）保持全绿
+- govulncheck 现在线上 0 已知 CVE（之前 36 个）
+
+### 升级建议
+
+- 🔴 **强烈推荐立即升级**（解决 stdlib 多个 DoS / TLS / parsing CVE）
+- 升级方式：拉新 main → `make build` 或 staging tag push → 自动重启
+
+---
+
 ## [26.5.10v6] — 2026-05-10 · 🧪 aiteam S0 — 实验性自治经济体路线启动
 
 零影响主线的实验性子系统骨架，所有 aiteam 行为默认 **off**，由 8 个独立 env flag 守卫。

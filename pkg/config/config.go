@@ -570,12 +570,18 @@ func migrateFromLegacy(raw legacyConfig, lm legacyModelsConfig) Config {
 }
 
 // Save writes config back to disk.
+//
+// File mode is 0600 (B014 fix, 26.5.10v7): the config holds Provider API
+// keys and the auth bearer token, both of which leak credentials if any
+// non-owner user on a shared host can read them. New saves are always
+// 0600; we do NOT chmod existing files on upgrade (avoid modifying
+// user-managed file metadata; see B014 spec for rationale).
 func Save(path string, cfg *Config) error {
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0644)
+	return os.WriteFile(path, data, 0600)
 }
 
 // Default returns sensible defaults for first run.
