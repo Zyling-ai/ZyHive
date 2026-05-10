@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -100,6 +101,13 @@ type Engine struct {
 
 	// announce delivers output to the user when delivery.mode == "announce".
 	announce AnnounceFunc
+
+	// lastTickAtMs is updated by a lightweight heartbeat goroutine while the
+	// engine is running, so /readyz can verify the scheduler is alive even
+	// when no jobs happen to be triggering.
+	lastTickAtMs int64        // accessed via atomic load/store
+	heartbeatMu  sync.Mutex   // guards heartbeatStop
+	heartbeatStop chan struct{}
 }
 
 // NewEngine creates a new cron engine.
@@ -129,32 +137,90 @@ func (e *Engine) Load() error {
 	}
 
 	data, err := os.ReadFile(filepath.Join(e.dataDir, "jobs.json"))
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
+	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
 
-	var jobs []*Job
-	if err := json.Unmarshal(data, &jobs); err != nil {
-		return fmt.Errorf("parse jobs.json: %w", err)
-	}
-
-	for _, j := range jobs {
-		e.jobs[j.ID] = j
-		if j.Enabled {
-			e.scheduleJobLocked(j)
+	if err == nil {
+		var jobs []*Job
+		if err := json.Unmarshal(data, &jobs); err != nil {
+			return fmt.Errorf("parse jobs.json: %w", err)
+		}
+		for _, j := range jobs {
+			e.jobs[j.ID] = j
+			if j.Enabled {
+				e.scheduleJobLocked(j)
+			}
 		}
 	}
 
+	// Start the scheduler and heartbeat regardless of whether jobs.json existed,
+	// so /readyz can verify the engine is alive even on a fresh install with
+	// zero jobs configured.
 	e.cron.Start()
+	e.startHeartbeat()
 	return nil
 }
 
-func (e *Engine) Start() { e.cron.Start() }
+func (e *Engine) Start() {
+	e.cron.Start()
+	e.startHeartbeat()
+}
 
-func (e *Engine) Stop() context.Context { return e.cron.Stop() }
+func (e *Engine) Stop() context.Context {
+	e.stopHeartbeat()
+	return e.cron.Stop()
+}
+
+// heartbeatInterval — how often the engine refreshes its liveness timestamp.
+// /readyz treats lastTickAt older than ~3× this as "stale".
+const heartbeatInterval = 10 * time.Second
+
+// startHeartbeat launches a goroutine that periodically updates lastTickAtMs.
+// Idempotent: calling twice (Load + Start) only spawns one goroutine.
+func (e *Engine) startHeartbeat() {
+	e.heartbeatMu.Lock()
+	defer e.heartbeatMu.Unlock()
+	if e.heartbeatStop != nil {
+		return
+	}
+	stop := make(chan struct{})
+	e.heartbeatStop = stop
+	atomic.StoreInt64(&e.lastTickAtMs, time.Now().UnixMilli())
+	go func() {
+		ticker := time.NewTicker(heartbeatInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				atomic.StoreInt64(&e.lastTickAtMs, time.Now().UnixMilli())
+			}
+		}
+	}()
+}
+
+func (e *Engine) stopHeartbeat() {
+	e.heartbeatMu.Lock()
+	defer e.heartbeatMu.Unlock()
+	if e.heartbeatStop != nil {
+		close(e.heartbeatStop)
+		e.heartbeatStop = nil
+	}
+}
+
+// LastTickAt returns the engine's last heartbeat timestamp.
+//
+// Returns the zero time before the engine has been started. /readyz uses this
+// to fail-fast when the scheduler goroutine has somehow stopped ticking.
+func (e *Engine) LastTickAt() time.Time {
+	ms := atomic.LoadInt64(&e.lastTickAtMs)
+	if ms == 0 {
+		return time.Time{}
+	}
+	return time.UnixMilli(ms)
+}
 
 // Add adds a new job, persists to disk, and schedules it if enabled.
 func (e *Engine) Add(job *Job) error {

@@ -24,7 +24,12 @@
 
     <el-card shadow="hover">
       <el-table :data="jobs" stripe>
-        <el-table-column prop="name" label="名称" min-width="150" />
+        <el-table-column label="名称" min-width="150">
+          <template #default="{ row }">
+            <span>{{ row.name }}</span>
+            <el-tag v-if="row.remark === 'self_schedule'" size="small" type="warning" effect="plain" style="margin-left: 6px;">AI 自设</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="所属成员" width="120">
           <template #default="{ row }">
             <el-tag v-if="row.agentId" size="small" type="primary" style="cursor:pointer" @click="goToAgent(row)">
@@ -35,7 +40,8 @@
         </el-table-column>
         <el-table-column label="备注" min-width="150" show-overflow-tooltip>
           <template #default="{ row }">
-            <span v-if="row.remark" style="font-size: 13px; color: #606266;">{{ row.remark }}</span>
+            <span v-if="row.remark === 'self_schedule'" style="color: #c0c4cc; font-size: 12px;">—</span>
+            <span v-else-if="row.remark" style="font-size: 13px; color: #606266;">{{ row.remark }}</span>
             <span v-else style="color: #c0c4cc; font-size: 12px;">—</span>
           </template>
         </el-table-column>

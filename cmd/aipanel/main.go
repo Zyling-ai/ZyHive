@@ -22,9 +22,12 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/Zyling-ai/zyhive/internal/api"
 	"github.com/Zyling-ai/zyhive/pkg/agent"
+	"github.com/Zyling-ai/zyhive/pkg/budget"
 	"github.com/Zyling-ai/zyhive/pkg/channel"
 	"github.com/Zyling-ai/zyhive/pkg/config"
 	"github.com/Zyling-ai/zyhive/pkg/cron"
+	"github.com/Zyling-ai/zyhive/pkg/llm"
+	"github.com/Zyling-ai/zyhive/pkg/logging"
 	"github.com/Zyling-ai/zyhive/pkg/project"
 	"github.com/Zyling-ai/zyhive/pkg/session"
 	"github.com/Zyling-ai/zyhive/pkg/subagent"
@@ -62,6 +65,11 @@ func main() {
 	serveMode := flag.Bool("serve", false, "直接启动服务（跳过 CLI 菜单）")
 	showVersion := flag.Bool("version", false, "打印版本号并退出")
 	flag.Parse()
+
+	// P0-01: structured logging facade. Honours LOG_FORMAT (text|json) and
+	// LOG_LEVEL (debug|info|warn|error) env vars. Idempotent — fine even if
+	// a subcommand later re-Inits.
+	logging.Init(os.Getenv("LOG_FORMAT"), os.Getenv("LOG_LEVEL"))
 
 	if *showVersion {
 		fmt.Println("ZyHive " + Version)
@@ -432,7 +440,29 @@ func main() {
 	usageStore := usage.NewStore(agentsDir)
 	pool.SetUsageStore(usageStore)
 
-	api.RegisterRoutes(r, cfg, *configPath, mgr, pool, cronEngine, uiFS, runnerFunc, botCtrl, projectMgr, subagentMgr, workerPool, usageStore)
+	// P1-02: Budget store. Disabled by default; reads cfg.Budget. Wired to
+	// usageStore via SetBudgetCharger so every recorded LLM call is also
+	// charged to the running daily total.
+	budgetStore := budget.NewStore(budget.Config{
+		Enabled:              cfg.Budget.Enabled,
+		GlobalDailyUSD:       cfg.Budget.GlobalDailyUSD,
+		DefaultAgentDailyUSD: cfg.Budget.DefaultAgentDailyUSD,
+		WarnAtPct:            cfg.Budget.WarnAtPct,
+		TZ:                   cfg.Budget.TZ,
+	})
+	usageStore.SetBudgetCharger(func(agentID string, costUSD float64) {
+		budgetStore.Charge(agentID, costUSD)
+	})
+	pool.SetBudgetStore(budgetStore)
+
+	// P1-03: Install the configured LLM throttle (process-global). When
+	// kind="" or "fixed" with GlobalMaxInflight=0, behaviour is identical
+	// to today (no gating). kind="adaptive" enables AIMD per-provider.
+	if t := buildLLMThrottle(cfg.Throttle); t != nil {
+		llm.SetGlobalThrottle(t)
+	}
+
+	api.RegisterRoutes(r, cfg, *configPath, mgr, pool, cronEngine, uiFS, runnerFunc, botCtrl, projectMgr, subagentMgr, workerPool, usageStore, budgetStore)
 
 	// Print access URLs
 	port := cfg.Gateway.Port
@@ -647,4 +677,40 @@ func startupDefaultBaseURL(provider string) string {
 	default:
 		return ""
 	}
+}
+
+// buildLLMThrottle constructs the configured throttle. Returns nil when
+// no enforcement is requested (kind="" or "fixed" with GlobalMaxInflight=0)
+// so callers can leave the global slot empty (identical to pre-P1-03 behaviour).
+func buildLLMThrottle(cfg config.ThrottleConfig) llm.Throttle {
+	switch cfg.Kind {
+	case "", "fixed":
+		if cfg.GlobalMaxInflight <= 0 {
+			return nil
+		}
+		return llm.NewFixedThrottle(cfg.GlobalMaxInflight)
+	case "adaptive":
+		def := convertProviderConfig(cfg.Default)
+		perProv := map[string]llm.AdaptiveConfig{}
+		for k, v := range cfg.Providers {
+			perProv[k] = convertProviderConfig(v)
+		}
+		return llm.NewAdaptiveThrottle(def, perProv)
+	default:
+		log.Printf("[throttle] unknown kind %q, falling back to no-op", cfg.Kind)
+		return nil
+	}
+}
+
+func convertProviderConfig(p config.ThrottleProviderConfig) llm.AdaptiveConfig {
+	out := llm.AdaptiveConfig{
+		Min:       p.Min,
+		Max:       p.Max,
+		Init:      p.Init,
+		GrowEvery: p.GrowEvery,
+	}
+	if p.MaxBackoffMs > 0 {
+		out.MaxBackoff = time.Duration(p.MaxBackoffMs) * time.Millisecond
+	}
+	return out
 }

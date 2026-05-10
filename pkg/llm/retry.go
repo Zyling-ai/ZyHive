@@ -15,8 +15,9 @@ package llm
 
 import (
 	"context"
-	"log"
 	"time"
+
+	"github.com/Zyling-ai/zyhive/pkg/logging"
 )
 
 // RetryClient wraps an underlying Client with automatic transient-error retry.
@@ -73,8 +74,12 @@ func (r *RetryClient) Stream(ctx context.Context, req *ChatRequest) (<-chan Stre
 			return nil, err
 		}
 		backoff := r.attempts[attempt]
-		log.Printf("[llm-retry] transient error (attempt %d/%d): %v — retrying in %v",
-			attempt+1, len(r.attempts), err, backoff)
+		logging.FromContext(ctx).Warn("llm transient error",
+			"attempt", attempt+1,
+			"max_attempts", len(r.attempts),
+			"err", err.Error(),
+			"backoff", backoff,
+		)
 		attempt++
 		select {
 		case <-time.After(backoff):
