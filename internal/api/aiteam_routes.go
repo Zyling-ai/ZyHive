@@ -25,6 +25,8 @@ package api
 
 import (
 	"context"
+	"errors"
+	"io"
 	"net/http"
 	"time"
 
@@ -36,6 +38,7 @@ import (
 	aiteamFX "github.com/Zyling-ai/zyhive/pkg/aiteam/fx"
 	aiteamJudge "github.com/Zyling-ai/zyhive/pkg/aiteam/judge"
 	aiteamPayroll "github.com/Zyling-ai/zyhive/pkg/aiteam/payroll"
+	aiteamRevenue "github.com/Zyling-ai/zyhive/pkg/aiteam/revenue"
 	"github.com/Zyling-ai/zyhive/pkg/aiteam/wallet"
 )
 
@@ -86,6 +89,12 @@ func registerAITeamRoutes(v1 *gin.RouterGroup, pool *agent.Pool) {
 			return nil
 		}
 		return pool.AITeamPayroll()
+	}
+	revenueIng := func() *aiteamRevenue.Ingester {
+		if pool == nil {
+			return nil
+		}
+		return pool.AITeamRevenue()
 	}
 
 	// -- Flags status (always available, never gated) ---------------------
@@ -489,16 +498,50 @@ func registerAITeamRoutes(v1 *gin.RouterGroup, pool *agent.Pool) {
 		c.JSON(http.StatusOK, gin.H{"period": body.Period, "entries": entries})
 	})
 
-	// -- Revenue webhook (PR-005, lands S9) -------------------------------
-	// NOTE: in real handler, revenue webhook authenticates via HMAC, NOT
-	// the bearer token middleware. The stub still requires auth to keep
-	// the negative-path 404 deterministic.
+	// -- Revenue webhook (PR-005, S9) — REAL handler -----------------------
+	// In production the market posts to this endpoint with an
+	// HMAC-SHA256 signature in the `X-Revenue-Signature` header.
+	// Although this lives inside the bearer-auth group, the market is
+	// expected to supply BOTH the bearer token AND the HMAC, so the
+	// HMAC check is the secondary defence-in-depth layer.
 	g.POST("/revenue/incoming", func(c *gin.Context) {
 		if !flags.RevenueEnabled() {
 			notEnabled(c, "revenue")
 			return
 		}
-		c.JSON(http.StatusNotImplemented, gin.H{"error": "not implemented yet", "lands_in": "S9"})
+		ing := revenueIng()
+		if ing == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "revenue not initialised"})
+			return
+		}
+		// Raw body — needed for HMAC over the exact bytes.
+		body, err := io.ReadAll(c.Request.Body)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "read body: " + err.Error()})
+			return
+		}
+		sig := c.GetHeader("X-Revenue-Signature")
+		if sig == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "missing X-Revenue-Signature header"})
+			return
+		}
+		res, accErr := ing.Accept(body, sig)
+		if accErr != nil {
+			status := http.StatusBadRequest
+			switch {
+			case errors.Is(accErr, aiteamRevenue.ErrBadSignature):
+				status = http.StatusUnauthorized
+			case errors.Is(accErr, aiteamRevenue.ErrStaleTimestamp):
+				status = http.StatusGone
+			case errors.Is(accErr, aiteamRevenue.ErrReplayedNonce):
+				status = http.StatusConflict
+			case errors.Is(accErr, aiteamRevenue.ErrInvalidSplit):
+				status = http.StatusBadRequest
+			}
+			c.JSON(status, gin.H{"error": accErr.Error(), "result": res})
+			return
+		}
+		c.JSON(http.StatusOK, res)
 	})
 
 	// -- Dashboard overview (PR-006, lands S10) ---------------------------
