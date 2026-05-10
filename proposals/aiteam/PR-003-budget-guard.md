@@ -1,6 +1,6 @@
 # PR-003 · BudgetGuard 预算护栏 + panic-stop
 
-> 状态: 🟡 初稿 v0（部分设计已定，几个关键单位/策略待用户确认）
+> 状态: ✅ landed S4 (26.5.10v10) — USDT decimal 内核 + 持久化 panic-stop
 > 优先级: 🔴 P0（aiteam Genesis 跑真业务前必备）
 > 依赖: `pkg/usage`（已有）；与 ZyHive 26.5.10v1 的 `pkg/budget` brake 协同（非冲突，下文 § 4 详述）
 > 默认 off：experimental flag `ZYHIVE_EXPERIMENTAL_BUDGETGUARD=1`

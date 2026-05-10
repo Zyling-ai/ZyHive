@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	aiteamBudget "github.com/Zyling-ai/zyhive/pkg/aiteam/budget"
 	"github.com/Zyling-ai/zyhive/pkg/browser"
 	"github.com/Zyling-ai/zyhive/pkg/budget"
 	"github.com/Zyling-ai/zyhive/pkg/channel"
@@ -51,6 +52,11 @@ type Pool struct {
 	// store reports Enabled, every runner.New() in this pool is configured
 	// with a BudgetCheck adapter that pre-flights LLM turns.
 	budgetStore *budget.Store
+
+	// aiteamGuard — optional PR-003 hard-stop guard (S4, USDT decimal +
+	// cooldown + per-session). May be nil. Independent flag
+	// ZYHIVE_EXPERIMENTAL_BUDGETGUARD gates it.
+	aiteamGuard *aiteamBudget.Guard
 
 	cronEngine *cron.Engine // optional: enables cron_list/add/remove tools
 
@@ -421,24 +427,69 @@ func (p *Pool) SetUsageStore(s *usage.Store) { p.usageStore = s }
 // SetBudgetStore wires the budget store. May be nil to disable. Idempotent.
 func (p *Pool) SetBudgetStore(s *budget.Store) { p.budgetStore = s }
 
-// budgetChecker returns a BudgetCheck adapter wired to p.budgetStore.
-// Returns nil when no budget store is configured, which causes the runner
-// to skip the pre-flight (= today's behaviour, fully backward-compatible).
+// SetAITeamGuard wires the aiteam PR-003 hard-stop budget guard. May be
+// nil (default; no guard enforcement). When non-nil and the guard's flag
+// is on, every runner turn is pre-flighted through guard.Check IN
+// ADDITION TO the P1-02 brake; either layer blocking stops the turn.
+func (p *Pool) SetAITeamGuard(g *aiteamBudget.Guard) { p.aiteamGuard = g }
+
+// AITeamGuard exposes the guard for API handlers / CLI / smoke tests.
+// May return nil when not configured.
+func (p *Pool) AITeamGuard() *aiteamBudget.Guard { return p.aiteamGuard }
+
+// budgetChecker returns a BudgetCheck adapter that chains the P1-02
+// brake and the PR-003 aiteam hard guard. When neither is configured the
+// returned func is nil (runner skips the pre-flight, today's behaviour).
+//
+// Order of evaluation: brake first (it has soft-warn injection), then
+// guard. If the brake blocks we return immediately; if the brake allows
+// but the guard panics, we return the guard's verdict with a synthesised
+// Reason / Scope so the SSE error event looks the same to clients.
 func (p *Pool) budgetChecker() func(agentID string) runner.BudgetCheckResult {
-	if p.budgetStore == nil {
+	hasBrake := p.budgetStore != nil
+	hasGuard := p.aiteamGuard != nil
+	if !hasBrake && !hasGuard {
 		return nil
 	}
-	store := p.budgetStore
+	brake := p.budgetStore
+	guard := p.aiteamGuard
 	return func(agentID string) runner.BudgetCheckResult {
-		r := store.BeforeRun(agentID)
-		return runner.BudgetCheckResult{
-			Allowed:       r.Allowed,
-			Scope:         r.Scope,
-			Used:          r.Used,
-			EffectiveCap:  r.EffectiveCap,
-			Reason:        r.Reason,
-			WarnInjection: r.WarnInjection,
+		// 1. Brake (P1-02): soft warn + simple hard stop in USD.
+		var braked runner.BudgetCheckResult
+		braked.Allowed = true
+		if brake != nil {
+			r := brake.BeforeRun(agentID)
+			braked = runner.BudgetCheckResult{
+				Allowed:       r.Allowed,
+				Scope:         r.Scope,
+				Used:          r.Used,
+				EffectiveCap:  r.EffectiveCap,
+				Reason:        r.Reason,
+				WarnInjection: r.WarnInjection,
+			}
+			if !braked.Allowed {
+				return braked
+			}
 		}
+		// 2. Guard (PR-003): hard panic-stop in USDT decimal with cooldown.
+		// sessionID is unknown at this call site (Pool→runner); pass
+		// empty string. Per-session enforcement happens via the chat
+		// handler when it has the session ID.
+		if guard != nil {
+			r := guard.Check(agentID, "")
+			if !r.Allowed {
+				usedF, _ := r.UsedUSDT.Float64()
+				capF, _ := r.LimitUSDT.Float64()
+				return runner.BudgetCheckResult{
+					Allowed:      false,
+					Scope:        "aiteam_guard:" + r.Scope,
+					Used:         usedF,
+					EffectiveCap: capF,
+					Reason:       "aiteam guard panic: " + r.PanicReason,
+				}
+			}
+		}
+		return braked
 	}
 }
 

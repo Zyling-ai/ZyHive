@@ -27,6 +27,9 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/shopspring/decimal"
+
+	"github.com/Zyling-ai/zyhive/pkg/agent"
 	"github.com/Zyling-ai/zyhive/pkg/aiteam/flags"
 )
 
@@ -42,14 +45,17 @@ func notEnabled(c *gin.Context, subsystem string) {
 	})
 }
 
-// registerAITeamRoutes mounts every /api/aiteam/* stub onto the auth-
+// registerAITeamRoutes mounts every /api/aiteam/* handler onto the auth-
 // protected v1 group. Called from RegisterRoutes after the main aipanel
 // routes are wired so it can pick up any shared dependencies that get
 // added later.
 //
+// pool may be nil during early bring-up / tests; in that case all
+// gated handlers fall back to 501 even with the flag on.
+//
 // v1 is the authenticated /api group (i.e. r.Group("/api") with auth
 // middleware applied).
-func registerAITeamRoutes(v1 *gin.RouterGroup) {
+func registerAITeamRoutes(v1 *gin.RouterGroup, pool *agent.Pool) {
 	g := v1.Group("/aiteam")
 
 	// -- Flags status (always available, never gated) ---------------------
@@ -121,27 +127,65 @@ func registerAITeamRoutes(v1 *gin.RouterGroup) {
 		c.JSON(http.StatusNotImplemented, gin.H{"error": "not implemented yet", "lands_in": "S5"})
 	})
 
-	// -- BudgetGuard (PR-003, lands S4) -----------------------------------
+	// -- BudgetGuard (PR-003, S4) — REAL handlers --------------------------
 	g.GET("/guard", func(c *gin.Context) {
 		if !flags.BudgetGuardEnabled() {
 			notEnabled(c, "budgetguard")
 			return
 		}
-		c.JSON(http.StatusNotImplemented, gin.H{"error": "not implemented yet", "lands_in": "S4"})
+		if pool == nil || pool.AITeamGuard() == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "guard not initialised"})
+			return
+		}
+		c.JSON(http.StatusOK, pool.AITeamGuard().SnapshotJSON())
 	})
 	g.POST("/guard/:agentId/release", func(c *gin.Context) {
 		if !flags.BudgetGuardEnabled() {
 			notEnabled(c, "budgetguard")
 			return
 		}
-		c.JSON(http.StatusNotImplemented, gin.H{"error": "not implemented yet", "lands_in": "S4"})
+		if pool == nil || pool.AITeamGuard() == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "guard not initialised"})
+			return
+		}
+		var body struct {
+			Operator string `json:"operator"`
+			Reason   string `json:"reason"`
+		}
+		_ = c.ShouldBindJSON(&body)
+		if body.Operator == "" {
+			body.Operator = "api"
+		}
+		ok := pool.AITeamGuard().Release(c.Param("agentId"), body.Operator, body.Reason)
+		if !ok {
+			c.JSON(http.StatusNotFound, gin.H{"error": "agent not panicked or not found"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"released": true, "agentId": c.Param("agentId")})
 	})
 	g.PATCH("/guard/:agentId/limit", func(c *gin.Context) {
 		if !flags.BudgetGuardEnabled() {
 			notEnabled(c, "budgetguard")
 			return
 		}
-		c.JSON(http.StatusNotImplemented, gin.H{"error": "not implemented yet", "lands_in": "S4"})
+		if pool == nil || pool.AITeamGuard() == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "guard not initialised"})
+			return
+		}
+		var body struct {
+			LimitUSDT string `json:"limit_usdt"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "bad json"})
+			return
+		}
+		d, err := decimal.NewFromString(body.LimitUSDT)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid limit_usdt", "detail": err.Error()})
+			return
+		}
+		pool.AITeamGuard().SetAgentLimit(c.Param("agentId"), d)
+		c.JSON(http.StatusOK, gin.H{"updated": true, "agentId": c.Param("agentId"), "limit_usdt": d.String()})
 	})
 
 	// -- Judge (PR-004, lands S7) -----------------------------------------

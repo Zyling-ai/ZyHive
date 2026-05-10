@@ -20,8 +20,13 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/shopspring/decimal"
+
 	"github.com/Zyling-ai/zyhive/internal/api"
 	"github.com/Zyling-ai/zyhive/pkg/agent"
+	aiteamAudit "github.com/Zyling-ai/zyhive/pkg/aiteam/audit"
+	aiteamBudget "github.com/Zyling-ai/zyhive/pkg/aiteam/budget"
+	"github.com/Zyling-ai/zyhive/pkg/aiteam/flags"
 	"github.com/Zyling-ai/zyhive/pkg/budget"
 	"github.com/Zyling-ai/zyhive/pkg/channel"
 	"github.com/Zyling-ai/zyhive/pkg/config"
@@ -450,10 +455,41 @@ func main() {
 		WarnAtPct:            cfg.Budget.WarnAtPct,
 		TZ:                   cfg.Budget.TZ,
 	})
+	// Two-tier budget tracking:
+	//   1. pkg/budget — soft warn + simple hard stop (P1-02, USD float64,
+	//      ephemeral, no cooldown). Always on by default.
+	//   2. pkg/aiteam/budget — hard panic-stop state machine with
+	//      cooldown, per-session ceiling, persistent state (PR-003,
+	//      USDT decimal). Gated by ZYHIVE_EXPERIMENTAL_BUDGETGUARD.
+	// Both subscribe to the same usage stream below.
+	var aiteamGuard *aiteamBudget.Guard
+	if flags.BudgetGuardEnabled() {
+		guardDir := filepath.Join(agentsDir, "aiteam", "guard")
+		auditDir := filepath.Join(agentsDir, "aiteam")
+		auditLog, _ := aiteamAudit.New(auditDir)
+		var gErr error
+		aiteamGuard, gErr = aiteamBudget.New(guardDir, aiteamBudget.Limits{
+			TZ:       cfg.Budget.TZ,
+			Cooldown: time.Hour,
+		}, auditLog)
+		if gErr != nil {
+			log.Printf("[aiteam] guard init failed: %v (guard disabled)", gErr)
+			aiteamGuard = nil
+		} else {
+			log.Printf("[aiteam] PR-003 budget guard ENABLED (state dir: %s)", guardDir)
+		}
+	}
+
 	usageStore.SetBudgetCharger(func(agentID string, costUSD float64) {
+		// brake (P1-02) — always wired
 		budgetStore.Charge(agentID, costUSD)
+		// guard (PR-003) — only when flag on and init succeeded
+		if aiteamGuard != nil {
+			aiteamGuard.Charge(agentID, "", decimal.NewFromFloat(costUSD))
+		}
 	})
 	pool.SetBudgetStore(budgetStore)
+	pool.SetAITeamGuard(aiteamGuard)
 
 	// P1-03: Install the configured LLM throttle (process-global). When
 	// kind="" or "fixed" with GlobalMaxInflight=0, behaviour is identical
