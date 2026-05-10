@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Zyling-ai/zyhive/pkg/aiteam/promptdef"
 	lllm "github.com/Zyling-ai/zyhive/pkg/llm"
 )
 
@@ -362,8 +363,22 @@ func handleWebFetch(_ context.Context, input json.RawMessage) (string, error) {
 		return "", fmt.Errorf("HTTP %d %s\nURL: %s\nResponse: %s",
 			resp.StatusCode, resp.Status, p.URL, snippet)
 	}
-	return string(body), nil
+	// PR-008 (S3, 26.5.10v9): when ZYHIVE_EXPERIMENTAL_PROMPTDEF=1, run
+	// the fetched body through promptdef so any inline jailbreak / role-
+	// override text is wrapped in <untrusted_external_content>. The Guard
+	// is a no-op when the flag is off (legacy behaviour preserved).
+	// Audit logging is enabled per-registry via SetPromptDefGuard; here
+	// we only have a free function so we use the package's nil-audit
+	// guard. Registry callers that want audit logs go through Registry.
+	res := promptDefGuard.Wrap(string(body), promptdef.SourceWebFetch, "", "")
+	return res.Wrapped, nil
 }
+
+// promptDefGuard is a package-level Guard used by free function tool
+// handlers (e.g. handleWebFetch). Registry-method handlers should use
+// the registry's own Guard so audit log entries carry agent/session
+// context. The package-level Guard never writes to audit.
+var promptDefGuard = promptdef.New(nil)
 
 // ── Self-Management Tools ────────────────────────────────────────────────────
 // These tools let an agent manage its own skills, name, and soul.
