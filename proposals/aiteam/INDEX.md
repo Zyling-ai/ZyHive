@@ -18,7 +18,8 @@
 | B001 | [bugs/B001-path-traversal.md](bugs/B001-path-traversal.md) | 🔴 CRITICAL | ✅ 26.5.10v2 |
 | B002 | [bugs/B002-timing-attack.md](bugs/B002-timing-attack.md) | 🟠 HIGH | ✅ 26.5.10v3 |
 | B003 | [bugs/B003-unbounded-body-oom.md](bugs/B003-unbounded-body-oom.md) | 🟠 HIGH | ✅ 26.5.10v4 |
-| B004-B015 | bugs/B0xx-template.md | ? | 待用户贴 markdown |
+| B004 | [bugs/B004-slowloris.md](bugs/B004-slowloris.md) | 🟠 HIGH | ✅ 26.5.10v5 |
+| B005-B015 | bugs/B0xx-template.md | ? | 待用户贴 markdown |
 
 ## 与 ZyHive 主项目协调
 
