@@ -8,6 +8,11 @@ vendor/
 # UI
 ui/node_modules/
 ui/dist/
+# vue-tsc emits .js files alongside .ts/.vue when running -b incremental — never commit
+ui/src/**/*.js
+ui/src/**/*.vue.js
+ui/tsconfig.*.tsbuildinfo
+ui/*.tsbuildinfo
 # Keep embedded UI dist (committed)
 !cmd/aipanel/ui_dist/
 
