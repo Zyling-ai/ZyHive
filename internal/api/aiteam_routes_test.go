@@ -91,22 +91,29 @@ func Test_AITeam_Routes_FlagOffReturns404(t *testing.T) {
 	}
 }
 
-func Test_AITeam_Routes_FlagOnReturns501Stub(t *testing.T) {
-	// With the wallet flag on, the stub should return 501 ("not implemented")
-	// instead of 404, signalling the route exists but the real handler
-	// is not yet wired.
+func Test_AITeam_Routes_FlagOnReturns501OrSvcUnavailable(t *testing.T) {
+	// With the wallet flag on but pool=nil (no wallet store):
+	//   - S5-and-prior subsystems with real handlers → 503 (not initialised)
+	//   - Subsystems still on stubs → 501 (not implemented yet)
+	// Both are accepted as "real handler exists and gated correctly".
 	t.Setenv(flags.EnvWallet, "1")
+	t.Setenv(flags.EnvJudge, "1")
 
 	r := newAITeamRouter(t)
+
+	// Wallet: handler is real (S5) → 503 because pool/wallet are nil.
 	code, body := doAITeam(t, r, "GET", "/api/aiteam/wallet/alice")
+	if code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 (wallet not initialised), got %d body=%+v", code, body)
+	}
+
+	// Judge: handler is still a stub (S7 not landed yet) → 501.
+	code, body = doAITeam(t, r, "POST", "/api/aiteam/judge/run")
 	if code != http.StatusNotImplemented {
-		t.Fatalf("expected 501, got %d body=%+v", code, body)
+		t.Fatalf("expected 501 (judge stub), got %d body=%+v", code, body)
 	}
-	if body["agentId"] != "alice" {
-		t.Fatalf("agentId path param not extracted: %+v", body)
-	}
-	if body["lands_in"] != "S5" {
-		t.Fatalf("expected lands_in=S5, got %v", body["lands_in"])
+	if body["lands_in"] != "S7" {
+		t.Fatalf("expected lands_in=S7, got %v", body["lands_in"])
 	}
 }
 
@@ -118,10 +125,10 @@ func Test_AITeam_Routes_PerSubsystemIsolation(t *testing.T) {
 
 	r := newAITeamRouter(t)
 
-	// wallet should be 501 (enabled but unimplemented)
+	// wallet is real handler but pool=nil → 503 (not 404)
 	code, _ := doAITeam(t, r, "GET", "/api/aiteam/wallet/alice")
-	if code != http.StatusNotImplemented {
-		t.Fatalf("wallet should be 501 (flag on), got %d", code)
+	if code != http.StatusServiceUnavailable {
+		t.Fatalf("wallet should be 503 (flag on, pool nil), got %d", code)
 	}
 	// guard should still be 404 (flag off)
 	code, body := doAITeam(t, r, "GET", "/api/aiteam/guard")

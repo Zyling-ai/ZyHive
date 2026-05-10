@@ -27,6 +27,8 @@ import (
 	aiteamAudit "github.com/Zyling-ai/zyhive/pkg/aiteam/audit"
 	aiteamBudget "github.com/Zyling-ai/zyhive/pkg/aiteam/budget"
 	"github.com/Zyling-ai/zyhive/pkg/aiteam/flags"
+	aiteamFXPkg "github.com/Zyling-ai/zyhive/pkg/aiteam/fx"
+	aiteamWalletPkg "github.com/Zyling-ai/zyhive/pkg/aiteam/wallet"
 	"github.com/Zyling-ai/zyhive/pkg/budget"
 	"github.com/Zyling-ai/zyhive/pkg/channel"
 	"github.com/Zyling-ai/zyhive/pkg/config"
@@ -480,6 +482,31 @@ func main() {
 		}
 	}
 
+	// aiteam PR-001 (S5): wallet + FX layer, gated on
+	// ZYHIVE_EXPERIMENTAL_WALLET. The wallet automatically charges
+	// per-LLM-call cost to the agent's ledger when on. FX is unrelated
+	// to billing — it only powers the multi-currency display.
+	var aiteamWalletStore *aiteamWalletPkg.Store
+	var aiteamFXSvc *aiteamFXPkg.Service
+	if flags.WalletEnabled() {
+		fxCache := filepath.Join(agentsDir, "aiteam", "fx-cache.json")
+		aiteamFXSvc = aiteamFXPkg.New(fxCache)
+		aiteamFXSvc.RefreshAsync() // best-effort warm-up
+
+		walletDir := filepath.Join(agentsDir, "aiteam", "wallet")
+		auditDir := filepath.Join(agentsDir, "aiteam")
+		auditLog, _ := aiteamAudit.New(auditDir)
+		var werr error
+		aiteamWalletStore, werr = aiteamWalletPkg.New(walletDir, aiteamFXSvc, auditLog)
+		if werr != nil {
+			log.Printf("[aiteam] wallet init failed: %v (wallet disabled)", werr)
+			aiteamWalletStore = nil
+			aiteamFXSvc = nil
+		} else {
+			log.Printf("[aiteam] PR-001 wallet ENABLED (ledger dir: %s)", walletDir)
+		}
+	}
+
 	usageStore.SetBudgetCharger(func(agentID string, costUSD float64) {
 		// brake (P1-02) — always wired
 		budgetStore.Charge(agentID, costUSD)
@@ -487,9 +514,23 @@ func main() {
 		if aiteamGuard != nil {
 			aiteamGuard.Charge(agentID, "", decimal.NewFromFloat(costUSD))
 		}
+		// wallet (PR-001) — debit the agent's USDT balance 1:1 with USD
+		// cost. Insufficient funds are logged but not fatal — Guard
+		// (S4/S6) handles the panic-stop policy; wallet just records.
+		if aiteamWalletStore != nil && costUSD > 0 {
+			if _, err := aiteamWalletStore.Debit(agentID, decimal.NewFromFloat(costUSD), "llm_call"); err != nil {
+				// ErrInsufficientFunds expected during over-spend; keep
+				// the ledger consistent and let guard fire.
+				if err != aiteamWalletPkg.ErrInsufficientFunds {
+					log.Printf("[aiteam] wallet debit failed agent=%s cost=%v err=%v", agentID, costUSD, err)
+				}
+			}
+		}
 	})
 	pool.SetBudgetStore(budgetStore)
 	pool.SetAITeamGuard(aiteamGuard)
+	pool.SetAITeamWallet(aiteamWalletStore)
+	pool.SetAITeamFX(aiteamFXSvc)
 
 	// P1-03: Install the configured LLM throttle (process-global). When
 	// kind="" or "fixed" with GlobalMaxInflight=0, behaviour is identical

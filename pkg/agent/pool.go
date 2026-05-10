@@ -15,6 +15,8 @@ import (
 	"time"
 
 	aiteamBudget "github.com/Zyling-ai/zyhive/pkg/aiteam/budget"
+	aiteamFX "github.com/Zyling-ai/zyhive/pkg/aiteam/fx"
+	aiteamWallet "github.com/Zyling-ai/zyhive/pkg/aiteam/wallet"
 	"github.com/Zyling-ai/zyhive/pkg/browser"
 	"github.com/Zyling-ai/zyhive/pkg/budget"
 	"github.com/Zyling-ai/zyhive/pkg/channel"
@@ -57,6 +59,14 @@ type Pool struct {
 	// cooldown + per-session). May be nil. Independent flag
 	// ZYHIVE_EXPERIMENTAL_BUDGETGUARD gates it.
 	aiteamGuard *aiteamBudget.Guard
+
+	// aiteamWallet — optional PR-001 wallet ledger (S5). May be nil.
+	// Independent flag ZYHIVE_EXPERIMENTAL_WALLET gates it.
+	aiteamWallet *aiteamWallet.Store
+
+	// aiteamFX — optional PR-001 FX service (S5). Ships with the wallet
+	// flag — they are the same display+ledger pair.
+	aiteamFX *aiteamFX.Service
 
 	cronEngine *cron.Engine // optional: enables cron_list/add/remove tools
 
@@ -437,6 +447,19 @@ func (p *Pool) SetAITeamGuard(g *aiteamBudget.Guard) { p.aiteamGuard = g }
 // May return nil when not configured.
 func (p *Pool) AITeamGuard() *aiteamBudget.Guard { return p.aiteamGuard }
 
+// SetAITeamWallet wires the PR-001 wallet ledger. May be nil to disable.
+// Idempotent. Wallet is also reachable from tool registries via Pool.
+func (p *Pool) SetAITeamWallet(w *aiteamWallet.Store) { p.aiteamWallet = w }
+
+// AITeamWallet exposes the wallet. May return nil.
+func (p *Pool) AITeamWallet() *aiteamWallet.Store { return p.aiteamWallet }
+
+// SetAITeamFX wires the PR-001 FX service.
+func (p *Pool) SetAITeamFX(s *aiteamFX.Service) { p.aiteamFX = s }
+
+// AITeamFX exposes the FX service. May return nil.
+func (p *Pool) AITeamFX() *aiteamFX.Service { return p.aiteamFX }
+
 // budgetChecker returns a BudgetCheck adapter that chains the P1-02
 // brake and the PR-003 aiteam hard guard. When neither is configured the
 // returned func is nil (runner skips the pre-flight, today's behaviour).
@@ -528,6 +551,13 @@ func (p *Pool) configureToolRegistry(reg *tools.Registry, ag *Agent, fileSender 
 	}
 	if p.SubagentMgr != nil {
 		reg.WithSubagentManager(p.SubagentMgr)
+	}
+	// aiteam PR-001 (S5): inject wallet store so the wallet_balance tool
+	// can read the ledger. The tool itself is only registered when
+	// flags.WalletEnabled() (in NewRegistry), so this is harmless when
+	// the wallet flag is off.
+	if p.aiteamWallet != nil {
+		reg.SetWallet(p.aiteamWallet)
 	}
 	// Register agent_list so agents can discover peers.
 	reg.WithAgentLister(func() []tools.AgentSummary {

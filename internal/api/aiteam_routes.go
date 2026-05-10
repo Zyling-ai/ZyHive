@@ -24,13 +24,17 @@
 package api
 
 import (
+	"context"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/shopspring/decimal"
 
 	"github.com/Zyling-ai/zyhive/pkg/agent"
 	"github.com/Zyling-ai/zyhive/pkg/aiteam/flags"
+	aiteamFX "github.com/Zyling-ai/zyhive/pkg/aiteam/fx"
+	"github.com/Zyling-ai/zyhive/pkg/aiteam/wallet"
 )
 
 // notEnabled is the canonical disabled-subsystem 404 response.
@@ -57,6 +61,18 @@ func notEnabled(c *gin.Context, subsystem string) {
 // middleware applied).
 func registerAITeamRoutes(v1 *gin.RouterGroup, pool *agent.Pool) {
 	g := v1.Group("/aiteam")
+	walletStore := func() *wallet.Store {
+		if pool == nil {
+			return nil
+		}
+		return pool.AITeamWallet()
+	}
+	fxSvc := func() *aiteamFX.Service {
+		if pool == nil {
+			return nil
+		}
+		return pool.AITeamFX()
+	}
 
 	// -- Flags status (always available, never gated) ---------------------
 	// Public to authenticated callers; useful for UI to decide which
@@ -68,17 +84,24 @@ func registerAITeamRoutes(v1 *gin.RouterGroup, pool *agent.Pool) {
 		})
 	})
 
-	// -- Wallet (PR-001, lands S5) ----------------------------------------
+	// -- Wallet (PR-001, S5) — REAL handlers -------------------------------
 	g.GET("/wallet/:agentId", func(c *gin.Context) {
 		if !flags.WalletEnabled() {
 			notEnabled(c, "wallet")
 			return
 		}
-		c.JSON(http.StatusNotImplemented, gin.H{
-			"error":      "not implemented yet",
-			"subsystem":  "wallet",
-			"lands_in":   "S5",
-			"agentId":    c.Param("agentId"),
+		ws := walletStore()
+		if ws == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "wallet not initialised"})
+			return
+		}
+		agentID := c.Param("agentId")
+		bal := ws.Balance(agentID)
+		ledger, _ := ws.Ledger(agentID, 20)
+		c.JSON(http.StatusOK, gin.H{
+			"agentId":         agentID,
+			"balance_usdt":    bal.String(),
+			"recent_ledger":   ledger,
 		})
 	})
 	g.POST("/wallet/:agentId/credit", func(c *gin.Context) {
@@ -86,45 +109,140 @@ func registerAITeamRoutes(v1 *gin.RouterGroup, pool *agent.Pool) {
 			notEnabled(c, "wallet")
 			return
 		}
-		c.JSON(http.StatusNotImplemented, gin.H{"error": "not implemented yet", "lands_in": "S5"})
+		ws := walletStore()
+		if ws == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "wallet not initialised"})
+			return
+		}
+		var body struct {
+			AmountUSDT string `json:"amount_usdt"`
+			Reason     string `json:"reason"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "bad json"})
+			return
+		}
+		amt, err := decimal.NewFromString(body.AmountUSDT)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid amount_usdt", "detail": err.Error()})
+			return
+		}
+		e, err := ws.Credit(c.Param("agentId"), amt, body.Reason)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, e)
 	})
 	g.POST("/wallet/:agentId/transfer", func(c *gin.Context) {
 		if !flags.WalletEnabled() {
 			notEnabled(c, "wallet")
 			return
 		}
-		c.JSON(http.StatusNotImplemented, gin.H{"error": "not implemented yet", "lands_in": "S5"})
+		ws := walletStore()
+		if ws == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "wallet not initialised"})
+			return
+		}
+		var body struct {
+			To         string `json:"to"`
+			AmountUSDT string `json:"amount_usdt"`
+			Reason     string `json:"reason"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "bad json"})
+			return
+		}
+		amt, err := decimal.NewFromString(body.AmountUSDT)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid amount_usdt", "detail": err.Error()})
+			return
+		}
+		if err := ws.Transfer(c.Param("agentId"), body.To, amt, body.Reason); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"transferred": true, "from": c.Param("agentId"), "to": body.To, "amount_usdt": amt.String()})
 	})
 	g.GET("/wallet/:agentId/ledger", func(c *gin.Context) {
 		if !flags.WalletEnabled() {
 			notEnabled(c, "wallet")
 			return
 		}
-		c.JSON(http.StatusNotImplemented, gin.H{"error": "not implemented yet", "lands_in": "S5"})
+		ws := walletStore()
+		if ws == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "wallet not initialised"})
+			return
+		}
+		entries, err := ws.Ledger(c.Param("agentId"), 0)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"agentId": c.Param("agentId"), "entries": entries})
 	})
 
-	// -- FX / Currency layer (PR-001 § 2.7, lands S5) ---------------------
-	// FX runs under wallet flag — they ship together.
+	// -- FX / Currency layer (PR-001 § 2.7) — REAL handlers ---------------
 	g.GET("/fx/rates", func(c *gin.Context) {
 		if !flags.WalletEnabled() {
 			notEnabled(c, "wallet")
 			return
 		}
-		c.JSON(http.StatusNotImplemented, gin.H{"error": "not implemented yet", "lands_in": "S5"})
+		svc := fxSvc()
+		if svc == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "fx not initialised"})
+			return
+		}
+		c.JSON(http.StatusOK, svc.SnapshotJSON())
+	})
+	g.POST("/fx/refresh", func(c *gin.Context) {
+		if !flags.WalletEnabled() {
+			notEnabled(c, "wallet")
+			return
+		}
+		svc := fxSvc()
+		if svc == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "fx not initialised"})
+			return
+		}
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 12*time.Second)
+		defer cancel()
+		src := svc.RefreshSync(ctx)
+		c.JSON(http.StatusOK, gin.H{"source": src, "snap": svc.SnapshotJSON()})
 	})
 	g.POST("/fx/override", func(c *gin.Context) {
 		if !flags.WalletEnabled() {
 			notEnabled(c, "wallet")
 			return
 		}
-		c.JSON(http.StatusNotImplemented, gin.H{"error": "not implemented yet", "lands_in": "S5"})
+		svc := fxSvc()
+		if svc == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "fx not initialised"})
+			return
+		}
+		var body struct {
+			Currency string  `json:"currency"`
+			Rate     float64 `json:"rate"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "bad json"})
+			return
+		}
+		svc.SetOverride(body.Currency, body.Rate)
+		c.JSON(http.StatusOK, gin.H{"currency": body.Currency, "rate": body.Rate})
 	})
 	g.DELETE("/fx/override/:currency", func(c *gin.Context) {
 		if !flags.WalletEnabled() {
 			notEnabled(c, "wallet")
 			return
 		}
-		c.JSON(http.StatusNotImplemented, gin.H{"error": "not implemented yet", "lands_in": "S5"})
+		svc := fxSvc()
+		if svc == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "fx not initialised"})
+			return
+		}
+		svc.SetOverride(c.Param("currency"), 0)
+		c.JSON(http.StatusOK, gin.H{"cleared": c.Param("currency")})
 	})
 
 	// -- BudgetGuard (PR-003, S4) — REAL handlers --------------------------

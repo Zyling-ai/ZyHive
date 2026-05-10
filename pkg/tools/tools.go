@@ -380,6 +380,17 @@ func handleWebFetch(_ context.Context, input json.RawMessage) (string, error) {
 // context. The package-level Guard never writes to audit.
 var promptDefGuard = promptdef.New(nil)
 
+// ── aiteam wallet_balance (PR-001 S5) ────────────────────────────────────────
+
+var walletBalanceDef = lllm.ToolDef{
+	Name: "wallet_balance",
+	Description: "Query your own USDT wallet balance. " +
+		"Returns the current balance and the 10 most recent ledger entries. " +
+		"This is read-only — you cannot transfer or deduct from here.",
+	InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
+}
+
+
 // ── Self-Management Tools ────────────────────────────────────────────────────
 // These tools let an agent manage its own skills, name, and soul.
 

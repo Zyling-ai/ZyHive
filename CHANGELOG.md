@@ -4,6 +4,85 @@
 
 ---
 
+## [26.5.10v11] — 2026-05-10 · 🧪 aiteam S5 — PR-001 Wallet + FX 货币层
+
+aiteam 自治经济体最大单 PR：钱包内核（USDT decimal ledger）+ 多币种显示层
+（CoinGecko / exchangerate.host / 硬编码兜底）落地。S6（guard×wallet）下一程
+做联动。
+
+### aiteam (experimental)
+
+* **PR-001 Wallet** — 新包 `pkg/aiteam/wallet/`
+  - per-agent append-only JSONL ledger `<dataDir>/aiteam/wallet/<id>.jsonl` 0600
+  - 启动时回放 ledger → 内存余额缓存
+  - `Credit / Debit / Transfer` 全 `decimal.Decimal` (USDT)
+  - 拒绝透支 (`ErrInsufficientFunds`)；amount<=0 (`ErrInvalidAmount`)
+  - Transfer 跨账户原子（双锁，lexicographic order 防死锁）
+  - 每条 entry 持久化 `fx_snapshot` 用于历史多币种重算
+  - 自动旁路 `aiteam/audit.log`（`wallet.credit/debit/transfer_in/transfer_out`）
+
+* **PR-001 § 2.7 FX 货币层** — 新包 `pkg/aiteam/fx/`
+  - 支持 9 币种：`USDT / USD / CNY / EUR / JPY / GBP / KRW / HKD / TWD`
+  - 三层 fallback：CoinGecko (主) → exchangerate.host (备) → 硬编码兜底
+  - disk 缓存 `fx-cache.json` 防冷启动空窗
+  - `SetOverride(currency, rate)` 手动覆盖 + 持久化
+  - `FormatMoney(usdt, currency, rate)` 显示工具
+  - 启动时 `RefreshAsync` 后台拉，主请求不阻塞
+
+* **Usage 钩子三订阅**：`usage.SetBudgetCharger` 同时驱动
+  - brake (P1-02): pkg/budget.Charge USD
+  - guard (PR-003): aiteam/budget.Charge USDT 1:1
+  - **wallet (PR-001 新增): aiteamWallet.Debit USDT 1:1**（自动扣费）
+
+* **AI 工具**：`wallet_balance` (read-only, 仅 USDT 数值，不暴露 transfer/debit)
+  - 仅在 `flags.WalletEnabled()` 时注册
+  - 返回 `{agent_id, balance_usdt:"x.x", currency:"USDT", recent_ledger:[...10]}`
+
+* **REST `/api/aiteam/wallet/*` + `/api/aiteam/fx/*`** — 全替换 S0 stubs:
+  - `GET    /api/aiteam/wallet/:agentId` — balance + 最近 20 笔
+  - `POST   /api/aiteam/wallet/:agentId/credit` — owner 入金
+  - `POST   /api/aiteam/wallet/:agentId/transfer` — owner 转账
+  - `GET    /api/aiteam/wallet/:agentId/ledger` — 完整 ledger
+  - `GET    /api/aiteam/fx/rates` — Snapshot (含 source/fetchedAt/overrides)
+  - `POST   /api/aiteam/fx/refresh` — 立即强制刷新
+  - `POST   /api/aiteam/fx/override` body `{currency, rate}` — 手动覆盖
+  - `DELETE /api/aiteam/fx/override/:currency` — 取消覆盖
+
+* **测试** 25 case 全 `-race` 绿:
+  - `Test_AITeam_Wallet_*` 14: empty/credit/debit/overdraft/transfer/
+    self-transfer-disallowed/invalid-amounts/persist/ledger/limit/
+    concurrent/decimal-precision/fx-snapshot/audit/nil-safe
+  - `Test_AITeam_FX_*` 7: hardcoded fallback / CoinGecko / override /
+    disk cache / format / no-network / snapshot
+
+* **新依赖**：（无新增；shopspring/decimal 已在 S4 引入）
+
+### 兼容性
+
+- `ZYHIVE_EXPERIMENTAL_WALLET` 未设（默认）→ wallet/FX 不初始化，
+  `wallet_balance` 工具不注册，路由 404 not enabled；行为字节等同 26.5.10v10
+- 主线 80+ 工具 / B001-B004 安全回归 / 5 阶段累计 60+ aiteam 测试全绿
+
+### 启用方式
+
+```bash
+# 显式开启 wallet（FX 同步启动；通常配 guard 一起）
+export ZYHIVE_EXPERIMENTAL_WALLET=1
+export ZYHIVE_EXPERIMENTAL_BUDGETGUARD=1
+
+# 给 agent 入金（owner 操作）
+curl -X POST http://localhost:8080/api/aiteam/wallet/alice/credit \
+     -H 'Authorization: Bearer ...' -H 'Content-Type: application/json' \
+     -d '{"amount_usdt":"5.00","reason":"genesis"}'
+
+# 查看汇率
+curl -H 'Authorization: Bearer ...' http://localhost:8080/api/aiteam/fx/rates
+```
+
+详见 [proposals/aiteam/PR-001-wallet.md](proposals/aiteam/PR-001-wallet.md) (待 S6 一起更新 v0.1 spec)。
+
+---
+
 ## [26.5.10v10] — 2026-05-10 · 🧪 aiteam S4 — PR-003 BudgetGuard (硬熔断 + USDT)
 
 ### aiteam (experimental)

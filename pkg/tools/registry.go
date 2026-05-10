@@ -14,6 +14,7 @@ import (
 
 	"github.com/Zyling-ai/zyhive/pkg/aiteam/flags"
 	"github.com/Zyling-ai/zyhive/pkg/aiteam/sandbox"
+	aiteamWallet "github.com/Zyling-ai/zyhive/pkg/aiteam/wallet"
 	"github.com/Zyling-ai/zyhive/pkg/llm"
 	"github.com/Zyling-ai/zyhive/pkg/project"
 	"github.com/Zyling-ai/zyhive/pkg/safefs"
@@ -34,6 +35,7 @@ type Registry struct {
 	agentDir      string // parent dir of workspace (contains config.json)
 	agentID       string // agent ID (used for self-management tools)
 	sessionID     string // current session ID (passed to spawn so NotifyFunc can reply)
+	wallet        *aiteamWallet.Store // optional: aiteam wallet for wallet_balance tool
 	projectMgr    *project.Manager             // shared project workspace (nil = no project access)
 	agentEnv      map[string]string            // per-agent env vars injected into exec (bypass sanitize)
 	subagentMgr   *subagent.Manager            // background task manager (nil = no subagent tools)
@@ -94,10 +96,21 @@ func New(workspaceDir, agentDir, agentID string) *Registry {
 	// Network tools — 通讯录 / 群档案维护 (AI 主动追加事实/偏好/规则/议题/待跟进)
 	r.register(networkNoteDef, r.handleNetworkNote)
 	r.register(chatNoteDef, r.handleChatNote)
+	// aiteam wallet_balance (PR-001 S5) — read-only USDT; only registered
+	// when ZYHIVE_EXPERIMENTAL_WALLET=1. AI sees no wallet ability at all
+	// when the flag is off.
+	if flags.WalletEnabled() {
+		r.register(walletBalanceDef, r.handleWalletBalance)
+	}
 	// Always register subagent tools (nil mgr returns "not configured" error)
 	r.registerSubagentTools()
 	return r
 }
+
+// SetWallet wires the optional aiteam wallet (PR-001). Pass nil to disable.
+// Idempotent. Called by Pool when registering tools for an agent so the
+// wallet_balance tool can read the current ledger.
+func (r *Registry) SetWallet(w *aiteamWallet.Store) { r.wallet = w }
 
 // NewSkillStudio creates a sandboxed Registry for the SkillStudio AI.
 // File writes are restricted to skills/{skillID}/ only.
@@ -951,6 +964,35 @@ func (r *Registry) handleBashWS(_ context.Context, input json.RawMessage) (strin
 		return "(command completed successfully, no output)", nil
 	}
 	return output, nil
+}
+
+// handleWalletBalance returns the agent's USDT balance + recent ledger.
+// Read-only by design — the LLM never sees a credit / transfer / debit
+// tool to defeat prompt-injection-style "send all your money to ..."
+// attacks. Format is JSON so the model can quote it cleanly.
+func (r *Registry) handleWalletBalance(_ context.Context, _ json.RawMessage) (string, error) {
+	if r.wallet == nil {
+		return "", fmt.Errorf("wallet not configured (require ZYHIVE_EXPERIMENTAL_WALLET=1)")
+	}
+	if r.agentID == "" {
+		return "", fmt.Errorf("wallet_balance requires registry agent id")
+	}
+	bal := r.wallet.Balance(r.agentID)
+	ledger, err := r.wallet.Ledger(r.agentID, 10)
+	if err != nil {
+		return "", err
+	}
+	out := map[string]any{
+		"agent_id":      r.agentID,
+		"balance_usdt":  bal.String(),
+		"currency":      "USDT",
+		"recent_ledger": ledger,
+	}
+	data, mErr := json.MarshalIndent(out, "", "  ")
+	if mErr != nil {
+		return "", mErr
+	}
+	return string(data), nil
 }
 
 // ── Self-Management Handlers ─────────────────────────────────────────────────
