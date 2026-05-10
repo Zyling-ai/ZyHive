@@ -32,6 +32,7 @@ func TestParseLevel(t *testing.T) {
 
 // TestFromContext_NilSafe — nil ctx must not panic.
 func TestFromContext_NilSafe(t *testing.T) {
+	//lint:ignore SA1012 deliberate nil to verify nil-safety guarantee
 	if l := FromContext(nil); l == nil {
 		t.Fatal("FromContext(nil) returned nil logger")
 	}

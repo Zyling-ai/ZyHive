@@ -4,6 +4,148 @@
 
 ---
 
+## [26.5.10v1] — 2026-05-10 · ZyHive 中长期开发计划 · 首批 P0/P1 全量落地
+
+引入 `proposals/zyhive-improvements/` 作为开发提案目录，制定 9 主题 / ~40 条 / 6 程的中长期路线图（`INDEX.md`），并在同一程内一次性落地 6 条 P0/P1 提案。
+
+> 关键性质：所有新功能默认 off / no-op，零破坏性变更，可显式禁用回退到上一版行为。
+
+### 🆕 新功能
+
+#### P0-01 · 结构化日志 + trace_id 全链路传播
+
+新增 `pkg/logging/`（`log/slog` 门面，无新外部依赖）：
+
+- `Init(format, level)` 启动一次：`LOG_FORMAT=text|json`、`LOG_LEVEL=debug|info|warn|error`
+- `TraceMiddleware()` 自动从 `X-Trace-Id` 头读取或生成 8-byte hex，注入 ctx + 回写响应头
+- `FromContext(ctx)` 自动把 trace_id / agent_id / session_id 拍进 `*slog.Logger` With 链
+- `pkg/llm/retry.go` 演示新模式：`log.Printf` → `logging.FromContext(ctx).Warn(...)` 结构化字段
+
+> 存量 `log.Printf` 没有大规模替换；基础设施先到位，逐步迁移不阻塞此版本。
+
+#### P0-02 · `/readyz` 就绪探针 + 健康指标补全
+
+- 新端点 `GET /readyz`（无鉴权，200/503）：cron 心跳过期 / sessions 过载 / 探活的 provider 全失败 任一即 503，冷启动算 ok
+- `pkg/llm/health.go` 加 `PingSnapshot()`（read-only，绝不触发新探活）
+- `pkg/cron/engine.go` 加心跳 goroutine + `LastTickAt()`，`Start()`/`Load()` 都启心跳，幂等
+- `pkg/session/worker.go` 加 `WorkerPool.ActiveCount() (total, busy)`
+- `/healthz` 扩字段：`cron.last_tick_ago_secs`、`sessions.{total,busy}`、`providers.{probed_ok,probed_fail}`
+
+> **顺手修一个 bug**：`pkg/cron.Engine.Load()` 在 `jobs.json` 不存在时早返回，跳过 `cron.Start()`，导致新装系统不调度任务。现在无论是否有 jobs.json 都正常起调度器+心跳。
+
+#### P0-03 · GitHub Actions CI
+
+- `.github/workflows/ci.yml`：3 job（`go test/vet/build` · `golangci-lint` advisory · `vite build`）
+- `.golangci.yml`：启用 `errcheck/govet/staticcheck/gosimple/ineffassign/unused/gofmt`
+- lint job 当前 `continue-on-error: true`，待存量清零后改为 required check
+- README 顶部加 CI 徽章
+
+#### P1-01 · `self_schedule` 自主闹钟工具
+
+`README` 路线图标注的 P1 项落地：
+
+- `pkg/cron/whenparse.go::ParseWhen()` 支持 `30m / 2h / 1h30m`、`today HH:MM`、`tomorrow [HH:MM]` (默认 09:00)、`next monday [HH:MM]`、`YYYY-MM-DD HH:MM` (按 Asia/Shanghai 解释)、`2026-05-10T09:00:00+08:00` (RFC 3339)
+- 已过去的时间一律拒绝；错误信息含格式举例帮 AI 自纠
+- `pkg/tools/self_schedule.go` 新工具 `self_schedule(when, note)`，复用 cron `kind=at` 不引入新存储
+- 防滥用：每 agent PENDING self_schedule job 上限 20 个
+- `ui/src/views/CronView.vue` 任务名后显示「AI 自设」chip
+
+#### P1-02 · 预算刹车（per-agent + global daily USD cap）
+
+- 新 `pkg/budget/` Store：tz-aware 日累计、Charge/Topup/SetLimit/SnapshotFor/BeforeRun
+- 默认 `enabled: false`（opt-in via `zyhive.json`）
+- 软警告（>= warn%）注入 system prompt 末尾让 AI 自我克制
+- 硬刹（>= 100%）runner 入口拦截不进 LLM Stream，返回结构化 `budgetExceededErr`
+- API：
+  - `GET /api/budget` 始终可用，返回 Snapshot
+  - `POST /api/budget/topup` `{agent_id, amount_usd}`（当日有效，跨日失效）
+  - `PATCH /api/budget/limits/:id` `{daily_usd}`（0 = 移除覆盖）
+- 接入 5 个 `runner.New` 调用点 + `chat.go` SSE 入口
+- `usage.Store` 加 `SetBudgetCharger` 回调，每次 record 同步 Charge
+
+> **联动 P1-01**：self_schedule 给 AI 自我排程能力，启用 self_schedule 时建议立即开 budget brake 防失控。配置示例：
+> ```json
+> { "budget": { "enabled": true, "default_agent_daily_usd": 1.0, "global_daily_usd": 5.0, "warn_at_pct": 80 } }
+> ```
+
+#### P1-03 · AdaptiveThrottle（AIMD per-provider 并发限流）
+
+新 `pkg/llm/throttle.go`：
+
+- `Throttle` interface + `FixedThrottle`（默认 no-op）+ `AdaptiveThrottle`（AIMD per-provider）
+- 命中 429/503 → `cap /= 2`（floored at Min）
+- 错误字符串里的 `retry-after: N` 被解析并设 cooldown（capped 60s）
+- 连续 N 次成功后 `cap += 1`（capped at Max）
+- 401/4xx 等非 transient 错误不动 cap
+- 进程级槽位：`SetGlobalThrottle` / `GlobalThrottle`，`runner.New` 自动包装：`WithRetry(WithThrottle(client, t, providerID))`
+- API：`GET /api/llm/throttle` 暴露 per-provider 状态
+- 默认 `kind=""` 或 `kind="fixed"` + `GlobalMaxInflight=0` 与今日完全等价
+
+配置示例：
+
+```json
+{
+  "throttle": {
+    "kind": "adaptive",
+    "default": { "min": 1, "max": 4, "init": 2, "grow_every": 20 },
+    "providers": {
+      "anthropic": { "min": 1, "max": 8, "init": 4, "grow_every": 10 },
+      "openai":    { "min": 1, "max": 16, "init": 8, "grow_every": 10 }
+    }
+  }
+}
+```
+
+### ✅ 验证
+
+| 检查 | 结果 |
+|------|------|
+| `go vet ./...` | ✅ |
+| `go test ./... -race -count=1` | ✅（128 顶级测试 全 PASS / 0 fail / 0 skip / 无 race） |
+| `go build ./...` | ✅ |
+| `make build` 端到端（vite + sync-ui + go） | ✅，二进制 24M / version 26.5.10v1 (via ldflags) |
+| `cd ui && npm ci && npm run build` | ✅ |
+| `staticcheck ./...`（新代码） | ✅ 全清 |
+| 启服务 + curl /healthz /readyz /api/budget /api/llm/throttle | ✅ 全部正确响应；`X-Trace-Id` 自动生成且支持外部传入复用 |
+
+### 🔢 测试新增明细
+
+| 包 | 新测试 |
+|---|---|
+| `pkg/cron`（heartbeat 3 + ParseWhen 11） | 14 |
+| `pkg/tools`（self_schedule 5 + countPending 1） | 6 |
+| `pkg/budget`（10 个 case） | 10 |
+| `pkg/llm`（throttle 10 个） | 10 |
+| `pkg/logging`（5 个） | 5 |
+| `internal/api`（healthz/readyz/PingSnapshot 4 个） | 4 |
+| **合计** | **49 个新测试** |
+
+### 🔄 兼容性矩阵
+
+| 改动 | 默认行为 | 启用条件 |
+|------|----------|----------|
+| `/readyz` 端点 | 始终可用，200 即可 | — |
+| `self_schedule` 工具 | 注册（agent 可见） | 自动（cron engine 存在时） |
+| budget brake | **enabled=false**, 永远放行 | `zyhive.json` `budget.enabled=true` |
+| AdaptiveThrottle | **kind="" 或 "fixed"**, no-op | `zyhive.json` `throttle.kind="adaptive"` |
+| 结构化日志 | **format=text**, 与今日 `log.Printf` 几乎等价 | `LOG_FORMAT=json` |
+| CI workflow | 新增 actions（仅影响新 PR） | — |
+| 修 `cron.Engine.Load()` 早返回 bug | 行为变得"更正确"（启用 cron 但无 jobs 现在真的会调度） | — |
+
+零破坏性变更。
+
+### 🗂 文档
+
+- 新 `proposals/zyhive-improvements/INDEX.md`：9 主题 / ~40 条 / 6 程执行顺序
+- 新 6 份子提案：`P0-01-structured-logging.md` `P0-02-readiness-probe.md` `P0-03-ci-workflow.md` `P1-01-self-schedule-tool.md` `P1-02-budget-brake.md` `P1-03-adaptive-throttle.md`
+- README：新增「可观测性环境变量」+ CI 徽章 + 版本号 26.5.10v1
+
+### 🛣️ 下一程
+
+INDEX 第 4 节"第 3 程 · 资产可恢复"建议优先：`P1-04 quota-per-agent`（基于 P1-02 budget 路径）· `P1-05 backup-restore-cli` · `P1-06 update-rollback` · `P1-07 session-store-abstraction`。
+
+---
+
 ## [26.4.23v7] — 2026-04-23 · 修复顶栏「新版本」按钮不显示 bug
 
 用户反馈：生产 26.4.23v5 已能检测到 26.4.23v6，但顶栏没有绿色"升级到 26.4.23v6"按钮；设置页"发现新版本"正常显示。
