@@ -10,6 +10,7 @@
 | PR-002 | [PR-002-payroll.md](PR-002-payroll.md) | 📝 spec 收集中 | 🔴 P0 |
 | PR-003 | [PR-003-budget-guard.md](PR-003-budget-guard.md) | 🟡 初稿 v0 | 🔴 P0 |
 | PR-004 | [PR-004-judge-agent.md](PR-004-judge-agent.md) | 📝 spec 收集中 | 🔴 P0 |
+| PR-007 | [PR-007-sandbox.md](PR-007-sandbox.md) | ✅ landed S2 | 🟠 P1 |
 
 ## Bugs
 
