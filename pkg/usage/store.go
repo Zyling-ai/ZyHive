@@ -304,3 +304,22 @@ func readJSONL(path string) []Record {
 func NewID() string {
 	return fmt.Sprintf("%d", time.Now().UnixNano())
 }
+
+// UsageOn returns the total USD cost the agent spent on `period`
+// (YYYY-MM-DD, UTC). Wraps Summarize with the period's [00:00,
+// 24:00) range. Returns 0 when there is no data. Implements the
+// payroll.UsageReader interface so pkg/aiteam/payroll can be wired
+// directly to a *Store.
+func (s *Store) UsageOn(agentID, period string) float64 {
+	if s == nil || period == "" {
+		return 0
+	}
+	t, err := time.Parse("2006-01-02", period)
+	if err != nil {
+		return 0
+	}
+	from := t.UTC().Unix()
+	to := t.AddDate(0, 0, 1).UTC().Unix()
+	sum := s.Summarize(from, to, agentID, "")
+	return sum.TotalCost
+}

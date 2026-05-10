@@ -113,15 +113,23 @@ func Test_AITeam_Routes_FlagOnReturns501OrSvcUnavailable(t *testing.T) {
 		t.Fatalf("expected 503 (judge not initialised), got %d body=%+v", code, body)
 	}
 
-	// Payroll: handler is still a stub (S8 not landed yet) → 501.
+	// Payroll: handler is real (S8) → 503 (pool nil).
 	t.Setenv(flags.EnvPayroll, "1")
 	r = newAITeamRouter(t)
 	code, body = doAITeam(t, r, "GET", "/api/aiteam/payroll/alice")
-	if code != http.StatusNotImplemented {
-		t.Fatalf("expected 501 (payroll stub), got %d body=%+v", code, body)
+	if code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 (payroll not initialised), got %d body=%+v", code, body)
 	}
-	if body["lands_in"] != "S8" {
-		t.Fatalf("expected lands_in=S8, got %v", body["lands_in"])
+
+	// Revenue: handler is still a stub (S9 not landed yet).
+	t.Setenv(flags.EnvRevenue, "1")
+	r = newAITeamRouter(t)
+	code, body = doAITeam(t, r, "POST", "/api/aiteam/revenue/incoming")
+	if code != http.StatusNotImplemented {
+		t.Fatalf("expected 501 (revenue stub), got %d body=%+v", code, body)
+	}
+	if body["lands_in"] != "S9" {
+		t.Fatalf("expected lands_in=S9, got %v", body["lands_in"])
 	}
 }
 

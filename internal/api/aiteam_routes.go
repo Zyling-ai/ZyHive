@@ -35,6 +35,7 @@ import (
 	"github.com/Zyling-ai/zyhive/pkg/aiteam/flags"
 	aiteamFX "github.com/Zyling-ai/zyhive/pkg/aiteam/fx"
 	aiteamJudge "github.com/Zyling-ai/zyhive/pkg/aiteam/judge"
+	aiteamPayroll "github.com/Zyling-ai/zyhive/pkg/aiteam/payroll"
 	"github.com/Zyling-ai/zyhive/pkg/aiteam/wallet"
 )
 
@@ -79,6 +80,12 @@ func registerAITeamRoutes(v1 *gin.RouterGroup, pool *agent.Pool) {
 			return nil
 		}
 		return pool.AITeamJudge()
+	}
+	payrollMgr := func() *aiteamPayroll.Manager {
+		if pool == nil {
+			return nil
+		}
+		return pool.AITeamPayroll()
 	}
 
 	// -- Flags status (always available, never gated) ---------------------
@@ -432,20 +439,54 @@ func registerAITeamRoutes(v1 *gin.RouterGroup, pool *agent.Pool) {
 		c.JSON(http.StatusOK, gin.H{"agents": jm.AllAgents()})
 	})
 
-	// -- Payroll (PR-002, lands S8) ---------------------------------------
+	// -- Payroll (PR-002, S8) — REAL handlers ------------------------------
 	g.GET("/payroll/:agentId", func(c *gin.Context) {
 		if !flags.PayrollEnabled() {
 			notEnabled(c, "payroll")
 			return
 		}
-		c.JSON(http.StatusNotImplemented, gin.H{"error": "not implemented yet", "lands_in": "S8"})
+		pm := payrollMgr()
+		if pm == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "payroll not initialised"})
+			return
+		}
+		hist, err := pm.History(c.Param("agentId"), 30)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"agentId": c.Param("agentId"), "history": hist})
 	})
 	g.POST("/payroll/run", func(c *gin.Context) {
 		if !flags.PayrollEnabled() {
 			notEnabled(c, "payroll")
 			return
 		}
-		c.JSON(http.StatusNotImplemented, gin.H{"error": "not implemented yet", "lands_in": "S8"})
+		pm := payrollMgr()
+		if pm == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "payroll not initialised"})
+			return
+		}
+		var body struct {
+			AgentID  string   `json:"agent_id"`  // empty → all
+			AgentIDs []string `json:"agent_ids"` // explicit list overrides AgentID
+			Period   string   `json:"period"`
+		}
+		_ = c.ShouldBindJSON(&body)
+		if body.AgentID != "" && len(body.AgentIDs) == 0 {
+			body.AgentIDs = []string{body.AgentID}
+		}
+		if len(body.AgentIDs) == 0 && pool != nil {
+			for _, a := range pool.Manager().List() {
+				body.AgentIDs = append(body.AgentIDs, a.ID)
+			}
+		}
+		entries, err := pm.RunForAll(body.AgentIDs, body.Period)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"period": body.Period, "entries": entries})
 	})
 
 	// -- Revenue webhook (PR-005, lands S9) -------------------------------
