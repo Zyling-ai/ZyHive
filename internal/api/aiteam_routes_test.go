@@ -19,7 +19,8 @@ func newAITeamRouter(t *testing.T) *gin.Engine {
 	r := gin.New()
 	v1 := r.Group("/api")
 	// no auth in test mode → mimics empty cfg.Auth.Token
-	registerAITeamRoutes(v1)
+	// pool=nil → guard handlers return 503 (init failed) when flag on
+	registerAITeamRoutes(v1, nil)
 	return r
 }
 

@@ -4,6 +4,71 @@
 
 ---
 
+## [26.5.10v10] — 2026-05-10 · 🧪 aiteam S4 — PR-003 BudgetGuard (硬熔断 + USDT)
+
+### aiteam (experimental)
+
+* **PR-003 BudgetGuard** — 新包 `pkg/aiteam/budget/`，与主线
+  `pkg/budget` (P1-02 soft brake) 互补：guard 是 **硬熔断 panic-stop**
+  状态机，支持 cooldown / 跨日重置 / 持久化。
+  - 单位：**USDT** (`github.com/shopspring/decimal`)，6 位定点，
+    USD 入账时按 1:1 转换；与 PLAN § 2.7 内核统一货币层一致
+  - 三层 cap：`PerAgentDailyUSDT` / `GlobalDailyUSDT` / `PerSessionUSDT`
+  - panic 触发后默认 1h cooldown；跨日（Asia/Shanghai 默认时区）
+    或手动 `Release` 都可清除
+  - 状态持久化到 `<dataDir>/aiteam/guard/state.json`（0600）；
+    重启不丢 panic / cooldown / used 累计
+  - 每个状态转换（panic / cooldown_elapsed / release / limit_set）
+    都旁路 `<dataDir>/aiteam/audit.log`
+
+* **Pool 集成**：`pkg/agent/Pool.SetAITeamGuard` + `budgetChecker` 现在
+  **链式调用** brake (P1-02) 然后 guard (PR-003)。
+  - brake 优先（含 soft warn 注入）
+  - brake 放行后 guard 仍可拒绝（panic 状态）
+  - 任一拒绝即停 LLM 调用，runner 拿到 `Scope=aiteam_guard:agent` 等
+
+* **Usage 钩子双订阅**：`pkg/usage.SetBudgetCharger` 同时驱动
+  brake.Charge 和 guard.Charge（仅当 flag on 时）
+
+* **REST API** (`/api/aiteam/guard*`)：
+  - `GET  /api/aiteam/guard` — Snapshot（含每 agent used / 限额 /
+    panic / cooldown_until）
+  - `POST /api/aiteam/guard/:agentId/release` — body
+    `{operator, reason}` 手动解封
+  - `PATCH /api/aiteam/guard/:agentId/limit` — body
+    `{limit_usdt:"5.00"}` 覆盖 per-agent 限额
+
+* **依赖**：新增 `github.com/shopspring/decimal v1.4.0`
+  （纯 Go，无 cgo，~150KB，全 aiteam 金融运算共用）
+
+* **测试** 11 case 全 `-race` 绿:
+  `Test_AITeam_Guard_*` 覆盖：FlagOff_AlwaysAllowed /
+  AgentDailyTriggers / GlobalDailyTriggers / PerSessionTriggers /
+  PanicCooldownReleasesAfterTime / CrossDayResetsState /
+  ManualReleaseClearsPanic / NilCheckIsNoOp /
+  StatePersistsAcrossRestart / AuditLogsTransitions /
+  ChargerFromUSDConverts1to1 / SnapshotShape
+
+### 兼容性
+
+- `ZYHIVE_EXPERIMENTAL_BUDGETGUARD` 未设（默认）→ guard.Check 永远返回
+  Allowed=true，行为字节等同 26.5.10v9
+- pkg/budget brake 行为不变（默认仍以 cfg.Budget.Enabled 控）
+- pkg/usage / pkg/runner / SSE chat 链路全绿
+- 主线 80+ 工具 / B001-B004 安全回归全绿
+
+### 启用方式
+
+```bash
+export ZYHIVE_EXPERIMENTAL_BUDGETGUARD=1
+# 然后在 zyhive.json budget 段配置限额（可选；不配则只走 panic record）
+# 或通过 PATCH /api/aiteam/guard/:agentId/limit 动态调
+```
+
+详见 [proposals/aiteam/PR-003-budget-guard.md](proposals/aiteam/PR-003-budget-guard.md)。
+
+---
+
 ## [26.5.10v9] — 2026-05-10 · 🧪 aiteam S3 — PR-008 提示词注入防御 + audit 基础
 
 ### aiteam (experimental)
