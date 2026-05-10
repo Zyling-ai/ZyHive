@@ -30,6 +30,7 @@ import (
 	aiteamFXPkg "github.com/Zyling-ai/zyhive/pkg/aiteam/fx"
 	aiteamJudgePkg "github.com/Zyling-ai/zyhive/pkg/aiteam/judge"
 	aiteamPayrollPkg "github.com/Zyling-ai/zyhive/pkg/aiteam/payroll"
+	aiteamRevenuePkg "github.com/Zyling-ai/zyhive/pkg/aiteam/revenue"
 	aiteamWalletPkg "github.com/Zyling-ai/zyhive/pkg/aiteam/wallet"
 	"github.com/Zyling-ai/zyhive/pkg/budget"
 	"github.com/Zyling-ai/zyhive/pkg/channel"
@@ -594,6 +595,43 @@ func main() {
 		}
 	}
 	pool.SetAITeamPayroll(aiteamPayrollMgr)
+
+	// S9: aiteam Revenue webhook — accepts signed payouts from upstream
+	// task market (e.g. ZyStudio). Requires shared HMAC secret via env
+	// `ZYHIVE_AITEAM_REVENUE_SECRET`. Without the secret revenue is
+	// silently disabled even if the flag is on.
+	var aiteamRevenueIng *aiteamRevenuePkg.Ingester
+	if flags.RevenueEnabled() {
+		secret := os.Getenv("ZYHIVE_AITEAM_REVENUE_SECRET")
+		if secret == "" {
+			log.Printf("[aiteam] revenue flag ON but ZYHIVE_AITEAM_REVENUE_SECRET unset; disabling")
+		} else {
+			revDir := filepath.Join(agentsDir, "aiteam", "revenue")
+			auditDir := filepath.Join(agentsDir, "aiteam")
+			auditLog, _ := aiteamAudit.New(auditDir)
+
+			var walletCredit aiteamRevenuePkg.WalletCredit
+			if aiteamWalletStore != nil {
+				walletCredit = func(agentID string, amt decimal.Decimal, reason string) error {
+					_, err := aiteamWalletStore.Credit(agentID, amt, reason)
+					return err
+				}
+			}
+
+			var rErr error
+			aiteamRevenueIng, rErr = aiteamRevenuePkg.New(revDir, aiteamRevenuePkg.Config{
+				Secret:          []byte(secret),
+				FreshnessWindow: 5 * time.Minute,
+			}, walletCredit, auditLog)
+			if rErr != nil {
+				log.Printf("[aiteam] revenue init failed: %v (revenue disabled)", rErr)
+				aiteamRevenueIng = nil
+			} else {
+				log.Printf("[aiteam] PR-005 revenue webhook ENABLED at /api/aiteam/revenue/incoming (state dir: %s)", revDir)
+			}
+		}
+	}
+	pool.SetAITeamRevenue(aiteamRevenueIng)
 
 	// P1-03: Install the configured LLM throttle (process-global). When
 	// kind="" or "fixed" with GlobalMaxInflight=0, behaviour is identical

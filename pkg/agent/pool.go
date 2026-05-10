@@ -18,6 +18,7 @@ import (
 	aiteamFX "github.com/Zyling-ai/zyhive/pkg/aiteam/fx"
 	aiteamJudge "github.com/Zyling-ai/zyhive/pkg/aiteam/judge"
 	aiteamPayroll "github.com/Zyling-ai/zyhive/pkg/aiteam/payroll"
+	aiteamRevenue "github.com/Zyling-ai/zyhive/pkg/aiteam/revenue"
 	aiteamWallet "github.com/Zyling-ai/zyhive/pkg/aiteam/wallet"
 	"github.com/Zyling-ai/zyhive/pkg/browser"
 	"github.com/Zyling-ai/zyhive/pkg/budget"
@@ -76,6 +77,9 @@ type Pool struct {
 
 	// aiteamPayroll — optional PR-002 Payroll manager (S8).
 	aiteamPayroll *aiteamPayroll.Manager
+
+	// aiteamRevenue — optional PR-005 Revenue ingester (S9).
+	aiteamRevenue *aiteamRevenue.Ingester
 
 	cronEngine *cron.Engine // optional: enables cron_list/add/remove tools
 
@@ -480,6 +484,12 @@ func (p *Pool) SetAITeamPayroll(pm *aiteamPayroll.Manager) { p.aiteamPayroll = p
 
 // AITeamPayroll exposes the Payroll manager. May return nil.
 func (p *Pool) AITeamPayroll() *aiteamPayroll.Manager { return p.aiteamPayroll }
+
+// SetAITeamRevenue wires the PR-005 Revenue ingester.
+func (p *Pool) SetAITeamRevenue(r *aiteamRevenue.Ingester) { p.aiteamRevenue = r }
+
+// AITeamRevenue exposes the Revenue ingester. May return nil.
+func (p *Pool) AITeamRevenue() *aiteamRevenue.Ingester { return p.aiteamRevenue }
 
 // Manager returns the underlying agent manager (used by API handlers to
 // list agents for payroll batch run, etc.).

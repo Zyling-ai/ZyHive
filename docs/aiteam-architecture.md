@@ -70,7 +70,7 @@
 | `ZYHIVE_EXPERIMENTAL_WALLET`          | Wallet + FX 货币层 | S5 | ✅ 26.5.10v11 |
 | `ZYHIVE_EXPERIMENTAL_JUDGE`           | Judge agent        | S7 | ✅ 26.5.10v13 |
 | `ZYHIVE_EXPERIMENTAL_PAYROLL`         | Payroll            | S8 | ✅ 26.5.10v14 |
-| `ZYHIVE_EXPERIMENTAL_REVENUE`         | Revenue webhook    | S9 | 🔜 |
+| `ZYHIVE_EXPERIMENTAL_REVENUE`         | Revenue webhook    | S9 | ✅ 26.5.10v15 |
 | `ZYHIVE_EXPERIMENTAL_AITEAM_DASHBOARD`| 总览 UI            | S10 | 🔜 |
 
 接受 ON 值：`1` / `true` / `yes` / `on`（大小写不敏感）。其余 = OFF。
@@ -237,7 +237,7 @@ export AWS_SECRET_ACCESS_KEY=...
 ✅ S6  ─ Guard × Wallet 联动 (0 余额=panic)            (26.5.10v12)
 ✅ S7  ─ PR-004 Judge Agent (heuristic v0)             (26.5.10v13)
 ✅ S8  ─ PR-002 Payroll (base+bonus(judge)-offset)     (26.5.10v14)
-🔜 S9  ─ PR-005 Revenue webhook
+✅ S9  ─ PR-005 Revenue webhook (HMAC + 分账)          (26.5.10v15)
 🔜 S10 ─ PR-006 Dashboard + 发版 + Genesis demo
 ```
 
