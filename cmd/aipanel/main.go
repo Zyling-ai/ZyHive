@@ -532,6 +532,15 @@ func main() {
 	pool.SetAITeamWallet(aiteamWalletStore)
 	pool.SetAITeamFX(aiteamFXSvc)
 
+	// S6: link guard ← wallet so guard.Check() also panics on
+	// zero-balance. Only meaningful when both subsystems exist; if
+	// only one flag is on, the other is nil and SetWallet(nil) is a
+	// safe no-op pattern.
+	if aiteamGuard != nil && aiteamWalletStore != nil {
+		aiteamGuard.SetWallet(aiteamWalletStore)
+		log.Printf("[aiteam] S6 guard×wallet linkage ENABLED (zero balance triggers panic)")
+	}
+
 	// P1-03: Install the configured LLM throttle (process-global). When
 	// kind="" or "fixed" with GlobalMaxInflight=0, behaviour is identical
 	// to today (no gating). kind="adaptive" enables AIMD per-provider.

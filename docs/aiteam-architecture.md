@@ -234,7 +234,7 @@ export AWS_SECRET_ACCESS_KEY=...
 ✅ S3  ─ PR-008 提示词注入防御 + audit 基础           (26.5.10v9)
 ✅ S4  ─ PR-003 BudgetGuard (USDT + cooldown + 持久化) (26.5.10v10)
 ✅ S5  ─ PR-001 Wallet + FX (USDT ledger + 9 币种显示)  (26.5.10v11)
-🔜 S6  ─ Guard × Wallet 联动
+✅ S6  ─ Guard × Wallet 联动 (0 余额=panic)            (26.5.10v12)
 🔜 S7  ─ PR-004 Judge Agent
 🔜 S8  ─ PR-002 Payroll
 🔜 S9  ─ PR-005 Revenue webhook
