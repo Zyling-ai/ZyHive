@@ -144,6 +144,11 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, cfgPath string, mgr *agen
 	agents.DELETE("/:id/network/contacts/:cid", netH.DeleteContact)
 	agents.POST("/:id/network/contacts/:cid/merge", netH.MergeContact)
 	agents.POST("/:id/network/refresh", netH.RefreshIndex)
+	// 群档案 (Chat Profile, 26.4.24v1)
+	agents.GET("/:id/network/chats", netH.ListChats)
+	agents.GET("/:id/network/chats/:cid", netH.GetChat)
+	agents.PATCH("/:id/network/chats/:cid", netH.UpdateChat)
+	agents.DELETE("/:id/network/chats/:cid", netH.DeleteChat)
 
 	// Memory tree API
 	memH := &memoryHandler{manager: mgr, cronEngine: cronEngine, pool: pool}

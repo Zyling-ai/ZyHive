@@ -146,6 +146,112 @@ INDEX 第 4 节"第 3 程 · 资产可恢复"建议优先：`P1-04 quota-per-age
 
 ---
 
+## [26.4.24v1] — 2026-04-24 · Chat Profile（群档案）— 通讯录扩展到群聊
+
+26.4.22v1 通讯录上线后，AI 在群聊场景看到的 chat_id 是裸字符串，没有任何上下文。本版做对称扩展：把"每 agent 一本通讯录"从只覆盖**人**升级为同时覆盖**群**。
+
+> README P1 列表第 1 项 ✅ 完成。
+
+### 🏗️ 架构（chats/ 与 contacts/ 物理隔离）
+
+```
+workspace/network/
+├── INDEX.md              ← 现在同时含「真人联系人」+「群聊」+「AI 同事」三段
+├── INDEX.json            ← Index struct 加 chats 字段（omitempty 向后兼容）
+├── contacts/             ← 不变
+└── chats/                ← 新目录, 第一次群消息时按需创建
+    └── <source>-<externalChatId>.md
+```
+
+ID 命名空间共用 `{source}:{externalId}` 但物理隔离，同一 source+id 也不会冲突（验证：`TestChatIDIsolation_DoesNotCollideWithContact`）。
+
+### 📦 数据模型 `pkg/network/chat.go`（新）
+
+Chat 与 Contact 形状对称但更简洁：
+- 共有: ID / Source / ExternalID / Tags / CreatedAt / LastSeenAt / MsgCount / Body
+- 群专属: **Title** / **Kind** (group/supergroup/channel/private) / **MemberCount**
+- 砍掉: Aliases / Primary / IsOwner（群没有"是同一个群"概念，没"主人本人"概念）
+
+Body 4 段默认模板：基础信息 / 群规则 / 重要议题 / 待跟进
+
+### 🔧 Store 操作 `pkg/network/chat_store.go`（同一 Store 实例，方法集对称）
+
+`GetChat / SaveChat / DeleteChat / ListChats / TouchChat / ResolveChat / ChatSummary`
+
+- `ResolveChat(source, externalID, title, kind)` upsert：已存在则 bump LastSeenAt+MsgCount，**仅在 title/kind 当前为空时回填**（保护用户编辑，验证：`TestStoreResolveChatBackfillsEmptyFieldsButProtectsUserEdits`）
+- 每次 mutate 自动 `refreshIndexUnlocked` 同时重建 contacts + chats 段
+- `renderIndexMD` 群段最多 20 个，超出折叠为 "...另有 N 个"
+
+### 🎨 Layer-2 渲染 `pkg/network/chat_summary.go`
+
+`Store.ChatSummary(chatID)` — 与 `Summary` 对称，输出包含：
+- 群名 / 来源 / kind / 累计消息 / 成员数 / 标签
+- 基础信息 (最近 3) / 群规则 (最近 3) / 重要议题 (最近 2) / 待跟进 (最近 2)
+- 完整档案 read 路径
+
+硬 cap 1200 chars，自动跳过 placeholder 项。
+
+### 🔌 入口（飞书 / Telegram 群聊自动建档）
+
+- `pkg/channel/feishu.go` ：`isGroup` 时调 `ResolveChat(SourceFeishu, msg.ChatID, "", msg.ChatType)` — 飞书消息事件不带群名，用 `""` 让 `defaultChatBody` 兜底，AI 后续可用 `chat_note` 自补
+- `pkg/channel/telegram.go`：`type ∈ {group, supergroup, channel}` 时调 `ResolveChat(SourceTelegram, chatID, msg.Chat.Title, type)` — TG 直接给群名，立即回填
+- 私聊（p2p / private）**不**建群档案，走原 contact 路径
+- Layer-2 注入：群聊 extraCtx **同时**含 `ChatSummary` + 发送者 `Summary`（chat 在前，sender 在后）
+
+### 🛠️ AI 工具 `chat_note(chatId, section, text)` `pkg/tools/chat_note.go`（新）
+
+对称 `network_note`：
+- section 严格枚举：`基础信息 | 群规则 | 重要议题 | 待跟进`
+- 复用 `appendToSection`（占位符自动清除、缺失 section 自动新建）
+- 失败时调用 `suggestChatIDs` 给出 3 个最近 chat ID 作为 Did-you-mean 提示
+- 旁路 `network/changes.log` 审计，entityID 加 `chat:` 前缀与 contact 区分
+- 注册到 `Registry.New` + `policy.go` 新 `group:network`（含 network_note + chat_note）
+
+### 🌐 REST API `internal/api/network_chats.go`（新）
+
+```
+GET    /api/agents/:id/network/chats
+GET    /api/agents/:id/network/chats/:cid
+PATCH  /api/agents/:id/network/chats/:cid    body: {title?, kind?, tags?, body?, memberCount?}
+DELETE /api/agents/:id/network/chats/:cid
+```
+
+复用 `networkHandler` 结构体（跨文件方法集）+ `normalizeContactID`（Contact 与 Chat ID 同一线上格式）。
+
+### 🎨 UI（TeamView 联系人 tab 加 sub-tab）
+
+`ui/src/views/TeamView.vue`：
+- 联系人 tab 顶部加 sub-tab pill：「👤 联系人」「💬 群聊」
+- 群聊列表行：头像（首字 hash 色块）+ title + source + kind + 标签 + 成员数 + msgCount + lastSeen + 所属 agent chip
+- 540px 编辑 drawer：群名 input + 类型 select + 成员数 input-number + 标签编辑（4 预设：内部/客户/支持/社区）+ 群档案 markdown body
+- 全部 chats 跨 agent 聚合（与联系人列表同模式）
+- `ui/src/api/index.ts`：`networkApi` 新增 `listChats / getChat / updateChat / deleteChat`
+
+### ✅ 测试
+
+| 文件 | case 数 |
+|------|--------|
+| `pkg/network/chat_test.go` | 12 |
+| `pkg/network/chat_summary_test.go` | 4 |
+| `pkg/network/integration_test.go` | 3 |
+| `pkg/tools/chat_note_test.go` | 6 |
+| **小计** | **25 新 case** |
+
+`go test -race -count=1 ./...` 全绿，现有 contact / network_note 测试不回归。
+
+### 兼容性 / 迁移
+
+- 老 `INDEX.json`（无 `chats` 字段）继续可读，`omitempty` 保证缺省即 nil
+- 老 agent workspace 第一次群消息时 `chats/` 目录按需创建（`ensureChatsDir`）
+- **不动** contact 任何 API / 数据 / 文件路径
+- 私聊 / panel 路径完全不变
+
+### 仓库清理（merged）
+
+- `.gitignore`：`ui/src/**/*.js` + `*.tsbuildinfo` 模式（vue-tsc -b 偶尔会写出 .vue.js 兄弟文件，曾在 P6 commit 误混入）
+
+---
+
 ## [26.4.23v7] — 2026-04-23 · 修复顶栏「新版本」按钮不显示 bug
 
 用户反馈：生产 26.4.23v5 已能检测到 26.4.23v6，但顶栏没有绿色"升级到 26.4.23v6"按钮；设置页"发现新版本"正常显示。
