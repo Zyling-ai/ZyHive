@@ -4,6 +4,46 @@
 
 ---
 
+## [26.5.10v5] — 2026-05-10 · 🔒 安全修复 B004 Slowloris（HIGH）
+
+`http.Server` 没设任何 timeout，攻击者用 Slowloris 慢速请求几行 Python 即可让服务进程 fd 耗尽下线。
+
+### 漏洞
+
+`cmd/aipanel/main.go::main` 的 server 构造：
+```go
+srv := &http.Server{Addr: addr, Handler: r}  // ⚠️ 缺 timeouts
+```
+
+无 `ReadHeaderTimeout` / `IdleTimeout` → 攻击者打开 N 个 TCP 连接、每个发头部时拖延几分钟，服务端 fd 池打满。
+
+### 修复
+
+```go
+srv := &http.Server{
+    Addr:              addr,
+    Handler:           r,
+    ReadHeaderTimeout: 10 * time.Second,
+    IdleTimeout:       120 * time.Second,
+    // ReadTimeout / WriteTimeout 不设: SSE chat 需要长连接
+}
+```
+
+### 兼容性
+
+- 普通客户端无感知（头部 < 100ms 完成）
+- SSE chat 完整保留
+- 反向代理层不受影响
+
+### 升级建议
+
+- ✅ 立即升级（公开端口实例尤其）
+- 验证可走 staging + slowhttptest
+
+详见 [proposals/aiteam/bugs/B004-slowloris.md](proposals/aiteam/bugs/B004-slowloris.md).
+
+---
+
 ## [26.5.10v4] — 2026-05-10 · 🔒 安全修复 B003 无界请求体 OOM DoS（HIGH）
 
 Gin `ShouldBindJSON` 不带 size cap，50+ 端点裸用，导致任何 POST 几 GB body 即可 OOM 服务进程。

@@ -486,8 +486,23 @@ func main() {
 	}
 	fmt.Println("")
 
-	// Graceful shutdown
-	srv := &http.Server{Addr: addr, Handler: r}
+	// Graceful shutdown.
+	//
+	// 26.5.10v5 (B004): set timeouts to defeat Slowloris-style attacks where a
+	// malicious client opens many TCP connections and sends headers byte-by-byte,
+	// holding file descriptors forever.
+	//
+	// - ReadHeaderTimeout: 10s — kills connections stuck in header read
+	// - IdleTimeout:       120s — closes idle keep-alive connections
+	// - ReadTimeout / WriteTimeout: NOT set, because SSE streams (chat) need
+	//   to stay open for minutes. Per-request body size is bounded by the
+	//   bodyLimitMiddleware (B003 fix).
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           r,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
 
 	go func() {
 		sigCh := make(chan os.Signal, 1)
