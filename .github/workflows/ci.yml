@@ -33,7 +33,10 @@ jobs:
   lint-go:
     name: golangci-lint (advisory)
     runs-on: ubuntu-latest
-    # 首次接入：lint 只产生告警，不阻断 PR 合入；待存量清零后改为 required check。
+    # 首次接入：lint 只产生告警，不阻断 PR 合入；待存量清零后再改为 required check。
+    # 用 --issues-exit-code=0 让 golangci-lint 始终 exit 0：issues 仍出现在
+    # job log 里供审查，但 check 状态报告 SUCCESS，避免 GitHub 将 PR 标 UNSTABLE。
+    # continue-on-error 保留作为双保险（万一 lint binary 自身 OOM 等）。
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
@@ -44,7 +47,7 @@ jobs:
       - uses: golangci/golangci-lint-action@v6
         with:
           version: v1.64.5
-          args: --timeout=5m
+          args: --timeout=5m --issues-exit-code=0
 
   ui:
     name: UI (build)
