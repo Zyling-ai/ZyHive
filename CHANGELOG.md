@@ -4,6 +4,42 @@
 
 ---
 
+## [26.5.10v12] — 2026-05-10 · 🧪 aiteam S6 — Guard×Wallet 联动（0 余额 = panic）
+
+### aiteam (experimental)
+
+* **S6 Guard × Wallet 联动**：guard 现在可以读 wallet 余额，发现
+  零或负数即触发 `panic_reason="zero_balance"`，scope=`wallet`。
+  - 新接口 `pkg/aiteam/budget.BalanceReader { Balance(agentID) decimal }`
+  - `Guard.SetWallet(reader)` — 可选注入，nil = 不联动（行为同 S4）
+  - `cmd/aipanel/main.go` 在 wallet + guard 都启用时自动调用
+    `aiteamGuard.SetWallet(aiteamWalletStore)`
+  - 零余额检查放在所有 cap 检查之前 — fresh under-spent agent 不会被
+    "yesterday's daily cap" 状态卡住
+  - Manual release + wallet topup → 立即恢复（验证用例覆盖）
+* **新增测试** 7 case `Test_AITeam_S6_*` 全 `-race` 绿:
+  - ZeroBalanceTriggersPanic / NegativeBalanceTriggersPanic
+  - PositiveBalanceAllowed / NilWalletReturnsToOriginalBehaviour
+  - FlagOffAllowsEvenZeroBalance / ZeroBalanceAuditLogged
+  - ManualReleaseAllowsTopupRecovery
+
+### 兼容性
+
+- 任一 flag 关 → 联动不激活；S4 / S5 行为字节等同 26.5.10v11
+- 主线全绿；aiteam 累计 6 程 68+ 测试全 `-race` 绿
+
+### 启用方式
+
+```bash
+# 两个 flag 都开才有联动
+export ZYHIVE_EXPERIMENTAL_WALLET=1
+export ZYHIVE_EXPERIMENTAL_BUDGETGUARD=1
+# 然后 wallet 余额 ≤ 0 即触发 panic_reason=zero_balance
+# /api/aiteam/wallet/:id/credit 给 agent 入金 → /api/aiteam/guard/:id/release 解封
+```
+
+---
+
 ## [26.5.10v11] — 2026-05-10 · 🧪 aiteam S5 — PR-001 Wallet + FX 货币层
 
 aiteam 自治经济体最大单 PR：钱包内核（USDT decimal ledger）+ 多币种显示层
