@@ -167,6 +167,27 @@ func (p *WorkerPool) remove(sessionID string) {
 	delete(p.workers, sessionID)
 }
 
+// ActiveCount returns (totalWorkers, busyWorkers) for the pool.
+//
+// totalWorkers is the number of workers currently in the pool (each represents
+// one active or recently-active session). busyWorkers is the subset currently
+// processing a request. Used by /readyz / /api/status for observability.
+func (p *WorkerPool) ActiveCount() (total int, busy int) {
+	p.mu.Lock()
+	workers := make([]*SessionWorker, 0, len(p.workers))
+	for _, w := range p.workers {
+		workers = append(workers, w)
+	}
+	p.mu.Unlock()
+	total = len(workers)
+	for _, w := range workers {
+		if w.IsBusy() {
+			busy++
+		}
+	}
+	return total, busy
+}
+
 // StopAll stops all workers (used on server shutdown).
 func (p *WorkerPool) StopAll() {
 	p.mu.Lock()

@@ -2,11 +2,12 @@
 
 > zyling 旗下 AI 团队操作系统 — 让每一个 AI 成员各司其职、协同引领
 
+[![CI](https://github.com/Zyling-ai/ZyHive/actions/workflows/ci.yml/badge.svg)](https://github.com/Zyling-ai/ZyHive/actions/workflows/ci.yml)
 [![GitHub Stars](https://img.shields.io/github/stars/Zyling-ai/zyhive?style=flat&logo=github&color=yellow)](https://github.com/Zyling-ai/zyhive/stargazers)
 [![GitHub Forks](https://img.shields.io/github/forks/Zyling-ai/zyhive?style=flat&logo=github&color=orange)](https://github.com/Zyling-ai/zyhive/network/members)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 [![Go 1.22+](https://img.shields.io/badge/Go-1.22+-00ADD8.svg)](https://golang.org)
-[![Version](https://img.shields.io/badge/version-26.4.24v1-brightgreen.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-26.5.10v1-brightgreen.svg)](CHANGELOG.md)
 [![官网](https://img.shields.io/badge/官网-zyling.ai-6366f1?logo=globe)](https://zyling.ai)
 
 **以团队为核心，每个 AI Agent 是团队成员。**
@@ -344,6 +345,15 @@ make release
 ```
 
 > ⚠️ 直接 `go build` 会缺少 UI 静态文件（go:embed ui_dist），**必须用 `make build`**
+
+### 可观测性环境变量（P0-01）
+
+| 变量 | 取值 | 默认 | 说明 |
+|------|------|------|------|
+| `LOG_FORMAT` | `text` / `json` | `text` | 生产建议 `json` 便于日志聚合 |
+| `LOG_LEVEL` | `debug` / `info` / `warn` / `error` | `info` | 日志级别 |
+
+每条 HTTP 请求自动分配 `trace_id`（响应头 `X-Trace-Id`），并贯穿 SSE / runner / 工具 / LLM client 全程；可通过 `journalctl -u zyhive | grep <trace_id>` 把一次对话的全部日志拉到一起。
 
 ---
 

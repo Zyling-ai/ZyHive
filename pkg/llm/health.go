@@ -212,3 +212,43 @@ func ClearPingCache() {
 	pingCache = make(map[string]*PingResult)
 	pingCacheMu.Unlock()
 }
+
+// SnapshotEntry is a sanitized view of one cached ping result.
+//
+// Used by /readyz and observability endpoints. The cache key is intentionally
+// elided (it embeds an API-key fragment); callers identify providers by their
+// own ProviderID list and call Ping() lazily.
+type SnapshotEntry struct {
+	OK           bool      `json:"ok"`
+	StatusCode   int       `json:"statusCode,omitempty"`
+	Error        string    `json:"error,omitempty"`
+	LatencyMs    int64     `json:"latencyMs"`
+	CheckedAt    time.Time `json:"checkedAt"`
+	AgeSeconds   int64     `json:"ageSeconds"`
+}
+
+// PingSnapshot returns a copy of all currently cached ping results, regardless
+// of TTL. Returns an empty slice on cold start (before any Ping call has run).
+//
+// This function does NOT trigger any new probes — it's strictly read-only and
+// safe to call from health endpoints on every request.
+func PingSnapshot() []SnapshotEntry {
+	pingCacheMu.RLock()
+	defer pingCacheMu.RUnlock()
+	out := make([]SnapshotEntry, 0, len(pingCache))
+	now := time.Now()
+	for _, r := range pingCache {
+		if r == nil {
+			continue
+		}
+		out = append(out, SnapshotEntry{
+			OK:         r.OK,
+			StatusCode: r.StatusCode,
+			Error:      r.Error,
+			LatencyMs:  r.Latency.Milliseconds(),
+			CheckedAt:  r.CheckedAt,
+			AgeSeconds: int64(now.Sub(r.CheckedAt).Seconds()),
+		})
+	}
+	return out
+}
