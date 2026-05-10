@@ -1,9 +1,27 @@
 # PR-002 · Payroll 工资发放
 
-> 状态: 📝 spec 收集中
+> 状态: ✅ landed S8 (26.5.10v14)
 > 优先级: 🔴 P0
-> 依赖: PR-001 (Wallet) + PR-004 (Judge, 评分输入)
-> 默认 off：experimental flag `ZYHIVE_EXPERIMENTAL_PAYROLL=1`
+> 依赖: PR-001 (Wallet) ✅ + PR-004 (Judge) ✅
+> Flag: `ZYHIVE_EXPERIMENTAL_PAYROLL=1`
+
+## 落地总结
+
+公式：
+
+```
+net = base + (bonusMax * judgeAvg/10) - (usageUSD * offsetRatio)
+```
+
+默认配置：base = 0.10 USDT / bonusMax = 0.50 USDT / lookback = 7d / offset = 50%.
+
+* net ≤ 0 → 行记 skipped:true 但不扣钱（防 debt-spiral）
+* net > 0 → 自动调 `wallet.Credit`
+* 持久化 `<dataDir>/aiteam/payroll/<period>.jsonl`
+* 旁路 audit log: `payroll.run`
+* AI 工具：暂未暴露（v0 通过 REST 触发 + cron 自动跑留作 v1）
+* 测试：`Test_AITeam_Payroll_*` 14 case 全 -race 绿
+* 触发：REST `POST /api/aiteam/payroll/run`；daily cron 自动 23:30 留作后续 PR
 
 ---
 
