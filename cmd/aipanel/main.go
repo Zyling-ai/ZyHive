@@ -28,6 +28,7 @@ import (
 	aiteamBudget "github.com/Zyling-ai/zyhive/pkg/aiteam/budget"
 	"github.com/Zyling-ai/zyhive/pkg/aiteam/flags"
 	aiteamFXPkg "github.com/Zyling-ai/zyhive/pkg/aiteam/fx"
+	aiteamJudgePkg "github.com/Zyling-ai/zyhive/pkg/aiteam/judge"
 	aiteamWalletPkg "github.com/Zyling-ai/zyhive/pkg/aiteam/wallet"
 	"github.com/Zyling-ai/zyhive/pkg/budget"
 	"github.com/Zyling-ai/zyhive/pkg/channel"
@@ -540,6 +541,22 @@ func main() {
 		aiteamGuard.SetWallet(aiteamWalletStore)
 		log.Printf("[aiteam] S6 guard×wallet linkage ENABLED (zero balance triggers panic)")
 	}
+
+	// S7: aiteam Judge — multi-dimensional 0-10 scoring with heuristic
+	// v0 + manual override. Gated on ZYHIVE_EXPERIMENTAL_JUDGE.
+	var aiteamJudgeMgr *aiteamJudgePkg.Manager
+	if flags.JudgeEnabled() {
+		judgeDir := filepath.Join(agentsDir, "aiteam", "judge")
+		var jErr error
+		aiteamJudgeMgr, jErr = aiteamJudgePkg.New(judgeDir, nil) // nil → HeuristicScorer
+		if jErr != nil {
+			log.Printf("[aiteam] judge init failed: %v (judge disabled)", jErr)
+			aiteamJudgeMgr = nil
+		} else {
+			log.Printf("[aiteam] PR-004 judge ENABLED (state dir: %s)", judgeDir)
+		}
+	}
+	pool.SetAITeamJudge(aiteamJudgeMgr)
 
 	// P1-03: Install the configured LLM throttle (process-global). When
 	// kind="" or "fixed" with GlobalMaxInflight=0, behaviour is identical

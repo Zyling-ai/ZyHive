@@ -4,6 +4,61 @@
 
 ---
 
+## [26.5.10v13] — 2026-05-10 · 🧪 aiteam S7 — PR-004 Judge Agent (多维评分)
+
+### aiteam (experimental)
+
+* **PR-004 Judge Agent** — 新包 `pkg/aiteam/judge/`
+  - 多维 0-10 评分：`completion / quality / communication / creativity / cost`
+  - average = 5 维平均
+  - v0 用 `HeuristicScorer`：cost 维按 usage 阈值映射，其他维给中性 7-6
+    分（无 LLM 评分信号）。**留 LLM-driven 评分作为后续 v1 工作**
+    — 但 API 已经稳定，未来替换 Scorer 不会破坏 Score / Manager 接口
+  - 持久化 `<dataDir>/aiteam/judge/<agentID>/<period>.jsonl`（0600）
+  - `Override(agentID, period, operator, rationale, dims...)` 手动覆盖，
+    clamp 到 [0, 10]，自动标记 `source="manual"`
+  - `History(agentID, n)` / `AverageOver(agentID, n)` 供 PR-002 payroll
+    bonus 计算 + PR-006 dashboard 趋势图
+
+* **REST `/api/aiteam/judge/*`**:
+  - `POST /api/aiteam/judge/run` — 启发式评分一次
+    body: `{agent_id, period, usage_cost_usd, call_count, notes}`
+  - `GET  /api/aiteam/judge/scores/:agentId` — 30 日历史 + 平均
+    `?period=YYYY-MM-DD` 查特定一天的全部 rows
+  - `POST /api/aiteam/judge/override` — owner 手动覆盖
+  - `GET  /api/aiteam/judge/agents` — 列出所有已评 agent
+
+* **Pool 集成**：`SetAITeamJudge` / `AITeamJudge`，main.go 在
+  `flags.JudgeEnabled()` 时自动初始化
+
+* **测试** 13 case 全 `-race` 绿:
+  - HeuristicScorerInRange / CostDimensionSlidesWithUsage /
+    RunForPersistsAndReads / OverrideClampsToRange /
+    LatestPicksMostRecent / ReadAllRowsOldestFirst / LatestEmpty /
+    AverageOverBlendsHistory / HistoryRespectsLimit / AllAgentsLists /
+    NilManagerSafe / FormatBreakdownReadable / EmptyAgentIDRejected
+
+### 兼容性
+
+- `ZYHIVE_EXPERIMENTAL_JUDGE` 未设 → Judge 不初始化，路由 404；
+  行为字节等同 26.5.10v12
+- 主线全绿；aiteam 累计 7 程 80+ 测试 `-race` 全通
+
+### 启用方式
+
+```bash
+export ZYHIVE_EXPERIMENTAL_JUDGE=1
+# 手动跑一次评分
+curl -X POST http://localhost:8080/api/aiteam/judge/run \
+     -H 'Authorization: Bearer ...' -H 'Content-Type: application/json' \
+     -d '{"agent_id":"alice","usage_cost_usd":0.30,"call_count":12}'
+# 查 alice 最近 30 天的评分趋势
+curl -H 'Authorization: Bearer ...' \
+     'http://localhost:8080/api/aiteam/judge/scores/alice'
+```
+
+---
+
 ## [26.5.10v12] — 2026-05-10 · 🧪 aiteam S6 — Guard×Wallet 联动（0 余额 = panic）
 
 ### aiteam (experimental)
