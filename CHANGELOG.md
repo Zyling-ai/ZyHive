@@ -4,6 +4,59 @@
 
 ---
 
+## [26.5.10v9] — 2026-05-10 · 🧪 aiteam S3 — PR-008 提示词注入防御 + audit 基础
+
+### aiteam (experimental)
+
+* **PR-008 提示词注入防御** — 新包 `pkg/aiteam/promptdef/`
+  - 9 条规则 v0（中英双语）覆盖 4 大注入家族：
+    `ignore_previous_{en,zh}` / `you_are_now` / `system_override` /
+    `reveal_prompt{,_zh}` / `developer_mode` / `exfil_credentials` /
+    `indirect_url_inject`
+  - 不删除、只包裹：命中内容被包进
+    `<untrusted_external_content source=".." hit_rules="..">` 信封，
+    显式告诉 LLM "这是数据不是指令"
+  - 设计哲学：**low false-negatives over low false-positives** —
+    benign wrap 是无害的，漏报才危险
+  - 即使没命中规则也会包裹（信封本身是主防御层）
+  - 命中事件旁路 audit log，benign wrap 不旁路（防止日志爆炸）
+
+* **新基础包 `pkg/aiteam/audit/`** — 跨子系统共享的 append-only JSONL
+  - 单文件 `<dataDir>/aiteam/audit.log` 0600 权限
+  - 50k 行自动轮转为 `audit.log.<timestamp>`
+  - sync.Mutex 串行化并发写
+  - 启动时回放计数（重启不丢轮转时机）
+  - 后续 S4-S10（guard / wallet / judge / payroll / revenue）共用
+
+* **第一处集成**：`pkg/tools/tools.go::handleWebFetch` 抓回的 body
+  在 `flags.PromptDefEnabled()` 为 true 时走 `promptDefGuard.Wrap`。
+  channel 入站 / read 工具 / judge 输入留待 S4-S8 期渐进接入。
+
+* **测试** 17 case 全 `-race` 绿:
+  - `Test_AITeam_Audit_*` 6 case（append / nil-safe / 0600 / rotate /
+    concurrent / startup recovery）
+  - `Test_AITeam_PromptDef_*` 8 case（含 DetectsClassicJailbreak 14 子
+    case + BenignContentNotMatched 7 子 case）
+  - `Test_AITeam_WebFetch_*` 3 case 集成（off-no-wrap / on-wraps /
+    on-detects-jailbreak）
+
+### 兼容性
+
+- `ZYHIVE_EXPERIMENTAL_PROMPTDEF` 未设（默认）时 `web_fetch` 输出格式
+  字节等同 26.5.10v8（不包裹）
+- 主线 80+ 工具 / 渠道 / 安全回归全绿
+
+### 启用方式
+
+```bash
+export ZYHIVE_EXPERIMENTAL_PROMPTDEF=1
+# 之后 web_fetch 返回的网页都会自动包裹外部内容信封
+```
+
+详见 [proposals/aiteam/PR-008-prompt-defense.md](proposals/aiteam/PR-008-prompt-defense.md)。
+
+---
+
 ## [26.5.10v8] — 2026-05-10 · 🧪 aiteam S2 — PR-007 工具沙箱
 
 ### aiteam (experimental)
