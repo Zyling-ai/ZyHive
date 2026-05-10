@@ -17,6 +17,7 @@ import (
 	aiteamBudget "github.com/Zyling-ai/zyhive/pkg/aiteam/budget"
 	aiteamFX "github.com/Zyling-ai/zyhive/pkg/aiteam/fx"
 	aiteamJudge "github.com/Zyling-ai/zyhive/pkg/aiteam/judge"
+	aiteamPayroll "github.com/Zyling-ai/zyhive/pkg/aiteam/payroll"
 	aiteamWallet "github.com/Zyling-ai/zyhive/pkg/aiteam/wallet"
 	"github.com/Zyling-ai/zyhive/pkg/browser"
 	"github.com/Zyling-ai/zyhive/pkg/budget"
@@ -72,6 +73,9 @@ type Pool struct {
 	// aiteamJudge — optional PR-004 Judge manager (S7). May be nil.
 	// Gated on ZYHIVE_EXPERIMENTAL_JUDGE.
 	aiteamJudge *aiteamJudge.Manager
+
+	// aiteamPayroll — optional PR-002 Payroll manager (S8).
+	aiteamPayroll *aiteamPayroll.Manager
 
 	cronEngine *cron.Engine // optional: enables cron_list/add/remove tools
 
@@ -470,6 +474,16 @@ func (p *Pool) SetAITeamJudge(j *aiteamJudge.Manager) { p.aiteamJudge = j }
 
 // AITeamJudge exposes the Judge manager. May return nil.
 func (p *Pool) AITeamJudge() *aiteamJudge.Manager { return p.aiteamJudge }
+
+// SetAITeamPayroll wires the PR-002 Payroll manager.
+func (p *Pool) SetAITeamPayroll(pm *aiteamPayroll.Manager) { p.aiteamPayroll = pm }
+
+// AITeamPayroll exposes the Payroll manager. May return nil.
+func (p *Pool) AITeamPayroll() *aiteamPayroll.Manager { return p.aiteamPayroll }
+
+// Manager returns the underlying agent manager (used by API handlers to
+// list agents for payroll batch run, etc.).
+func (p *Pool) Manager() *Manager { return p.manager }
 
 // budgetChecker returns a BudgetCheck adapter that chains the P1-02
 // brake and the PR-003 aiteam hard guard. When neither is configured the

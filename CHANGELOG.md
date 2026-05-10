@@ -4,6 +4,67 @@
 
 ---
 
+## [26.5.10v14] — 2026-05-10 · 🧪 aiteam S8 — PR-002 Payroll (cron + wallet+judge 联动)
+
+### aiteam (experimental)
+
+* **PR-002 Payroll** — 新包 `pkg/aiteam/payroll/`
+  - 每日工资 = `base + bonus(judge avg / 10) - cost_offset(usage * ratio)`
+  - 默认配置：`base=0.10 USDT / bonusMax=0.50 USDT / lookback=7d / offsetRatio=0.5`
+  - net ≤ 0 时 **不扣钱**（防 debt spiral），仍持久化为 `skipped:true` 行
+  - net > 0 时调 `wallet.Credit(net, "payroll YYYY-MM-DD")` 自动入账
+  - `pkg/usage.UsageOn(agentID, period)` 新增 helper，给 payroll 读"今日 USD 消耗"
+  - 持久化 `<dataDir>/aiteam/payroll/<period>.jsonl`（0600）
+  - audit log 旁路（`payroll.run` type）
+  - 与 Judge / Wallet / Usage 全松耦合（interface adapter；任一缺失降级 graceful）
+
+* **REST `/api/aiteam/payroll/*`**:
+  - `GET  /api/aiteam/payroll/:agentId` — 30 日工资单
+  - `POST /api/aiteam/payroll/run` body `{agent_id?, agent_ids?, period?}`
+    - 不传 agent_ids → 自动跑所有 agent
+    - 不传 period → 默认今天
+
+* **Pool 集成**：`SetAITeamPayroll` / `AITeamPayroll`；
+  `main.go` 在 `flags.PayrollEnabled()` 时自动 init，wallet/judge/usage 都自动接
+
+* **测试** 14 case 全 `-race` 绿:
+  - BaseOnlyWhenNoJudgeNoUsage / BonusScalesWithJudgeAverage /
+    CostOffsetReducesNet / NetNegativeMarkedSkipped /
+    RunForCreditsWallet / WalletFailureMarksSkipped /
+    PersistsToJSONL / HistoryFiltersAgent /
+    RunForAllPaysEveryone / NilManagerSafe / EmptyAgentRejected /
+    ComputeIsDeterministic / DryRunWithoutWallet / DecimalAccuracy
+
+### 兼容性
+
+- `ZYHIVE_EXPERIMENTAL_PAYROLL` 未设 → payroll 不初始化，路由 404；
+  行为字节等同 26.5.10v13
+- 累计 8 程 95+ aiteam 测试全绿
+
+### Genesis demo 路径（v0 完整闭环）
+
+```bash
+export ZYHIVE_EXPERIMENTAL_WALLET=1
+export ZYHIVE_EXPERIMENTAL_BUDGETGUARD=1
+export ZYHIVE_EXPERIMENTAL_JUDGE=1
+export ZYHIVE_EXPERIMENTAL_PAYROLL=1
+
+# 1. owner 给 alice 入金 $5
+curl -X POST .../api/aiteam/wallet/alice/credit -d '{"amount_usdt":"5.00","reason":"genesis"}'
+
+# 2. alice 跑一天对话，usage 自动扣 wallet
+# 3. judge 评分
+curl -X POST .../api/aiteam/judge/run -d '{"agent_id":"alice","usage_cost_usd":0.30}'
+
+# 4. payroll 发工资
+curl -X POST .../api/aiteam/payroll/run -d '{"agent_id":"alice"}'
+
+# 5. 查 alice 余额
+curl .../api/aiteam/wallet/alice  # base + bonus - offset 已入账
+```
+
+---
+
 ## [26.5.10v13] — 2026-05-10 · 🧪 aiteam S7 — PR-004 Judge Agent (多维评分)
 
 ### aiteam (experimental)
