@@ -1,9 +1,21 @@
 # PR-001 · Wallet 钱包抽象
 
-> 状态: 📝 spec 收集中
+> 状态: ✅ landed S5 (26.5.10v11)
 > 优先级: 🔴 P0（aiteam Genesis 跑真业务前必备）
 > 依赖: 无（钱包是 Payroll / Judge / Revenue 的基础）
-> 默认 off：experimental flag `ZYHIVE_EXPERIMENTAL_WALLET=1`
+> Flag: `ZYHIVE_EXPERIMENTAL_WALLET=1`
+
+完整协议规范见 [docs/aiteam-wallet-protocol.md](../../docs/aiteam-wallet-protocol.md)
+和 [docs/aiteam-fx-and-currency.md](../../docs/aiteam-fx-and-currency.md)。
+
+## 落地总结
+
+* 内核单位：USDT (`github.com/shopspring/decimal`，6 位定点)
+* 持久化：`<dataDir>/aiteam/wallet/<agentID>.jsonl` 每条 entry 含 `fx_snapshot`
+* 显示层：9 币种切换（USDT/USD/CNY/EUR/JPY/GBP/KRW/HKD/TWD），FX 三级回退
+  CoinGecko → exchangerate.host → 硬编码
+* AI 仅 read：`wallet_balance` 工具，不暴露 transfer/debit 给 LLM
+* 测试：`Test_AITeam_Wallet_*` 14 case + `Test_AITeam_FX_*` 7 case，全 -race 绿
 
 ---
 
