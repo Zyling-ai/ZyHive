@@ -4,6 +4,59 @@
 
 ---
 
+## [26.5.10v15] — 2026-05-10 · 🧪 aiteam S9 — PR-005 Revenue webhook (HMAC + 分账)
+
+### aiteam (experimental)
+
+* **PR-005 Revenue Ingester** — 新包 `pkg/aiteam/revenue/`
+  - HMAC-SHA256 over raw body + `X-Revenue-Signature` header (constant-time compare)
+  - 5-minute freshness window via `ts` field
+  - 10k-entry in-memory nonce FIFO 防 replay
+  - split ratios 必须 sum=1.0 ± 0.0001
+  - 每个 share 调 `wallet.Credit`；单 share 失败不影响整体 accept
+  - 旁路 audit log: `revenue.incoming` + 每 share `revenue.split`
+  - 持久化 `<dataDir>/aiteam/revenue/<period>.jsonl`
+
+* **REST `/api/aiteam/revenue/incoming`** — 实战 handler:
+  - 401 bad signature / missing header
+  - 410 stale timestamp
+  - 409 replayed nonce
+  - 400 invalid amount / ratio / split sum
+  - 503 not initialised (flag on but no secret)
+  - 200 with full ShareResult breakdown
+
+* **Pool 集成**: `SetAITeamRevenue` / `AITeamRevenue`
+* **main.go bootstrap**: 需要 `ZYHIVE_AITEAM_REVENUE_SECRET` env 才会启动；
+  没设则 flag on 也禁用并 log warning
+
+* **新文档** `docs/aiteam-revenue-protocol.md` — v1 协议规范（payload schema /
+  HMAC 计算 / 错误码 / curl 测试样例 / 与 ZyStudio 协议商定）
+
+* **测试** 12 case 全 `-race` 绿:
+  - AcceptsValidWebhook / RejectsBadHMAC / RejectsStaleTimestamp /
+    RejectsReplayedNonce / RejectsBadSplitSum / SplitsExactlyOnePercent /
+    WalletFailurePropagatesPerShare / PersistsLedgerRow /
+    NilIngesterRejected / MissingSecretRejected / BadJSONRejected /
+    MissingNonceRejected
+
+### 兼容性
+
+- `ZYHIVE_EXPERIMENTAL_REVENUE` 未设（默认）→ revenue 不初始化，路由 404；
+  行为字节等同 26.5.10v14
+- 累计 9 程 107+ aiteam 测试全绿
+
+### 启用方式
+
+```bash
+export ZYHIVE_EXPERIMENTAL_REVENUE=1
+export ZYHIVE_EXPERIMENTAL_WALLET=1
+export ZYHIVE_AITEAM_REVENUE_SECRET="$(openssl rand -hex 32)"
+
+# 然后市场侧按 docs/aiteam-revenue-protocol.md 调用 webhook
+```
+
+---
+
 ## [26.5.10v14] — 2026-05-10 · 🧪 aiteam S8 — PR-002 Payroll (cron + wallet+judge 联动)
 
 ### aiteam (experimental)
