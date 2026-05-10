@@ -14,6 +14,7 @@ import (
 
 	"github.com/Zyling-ai/zyhive/pkg/llm"
 	"github.com/Zyling-ai/zyhive/pkg/project"
+	"github.com/Zyling-ai/zyhive/pkg/safefs"
 	"github.com/Zyling-ai/zyhive/pkg/skill"
 	"github.com/Zyling-ai/zyhive/pkg/subagent"
 )
@@ -110,9 +111,12 @@ func NewSkillStudio(workspaceDir, agentDir, agentID, skillID string) *Registry {
 
 	// Sandboxed write: only allowed within skills/{skillID}/
 	r.register(writeToolDef, func(ctx context.Context, input json.RawMessage) (string, error) {
-		resolved := r.resolveFilePathInInput(input, "file_path")
+		resolved, err := r.resolveFilePathInInput(input, "file_path")
+		if err != nil {
+			return "", err
+		}
 		var m map[string]json.RawMessage
-		if err := json.Unmarshal(resolved, &m); err == nil {
+		if uErr := json.Unmarshal(resolved, &m); uErr == nil {
 			var path string
 			if err2 := json.Unmarshal(m["file_path"], &path); err2 == nil {
 				if !(strings.HasPrefix(path, allowedPrefix+string(filepath.Separator)) || path == allowedPrefix) {
@@ -125,9 +129,12 @@ func NewSkillStudio(workspaceDir, agentDir, agentID, skillID string) *Registry {
 
 	// Sandboxed edit: only allowed within skills/{skillID}/
 	r.register(editToolDef, func(ctx context.Context, input json.RawMessage) (string, error) {
-		resolved := r.resolveFilePathInInput(input, "file_path")
+		resolved, err := r.resolveFilePathInInput(input, "file_path")
+		if err != nil {
+			return "", err
+		}
 		var m map[string]json.RawMessage
-		if err := json.Unmarshal(resolved, &m); err == nil {
+		if uErr := json.Unmarshal(resolved, &m); uErr == nil {
 			var path string
 			if err2 := json.Unmarshal(m["file_path"], &path); err2 == nil {
 				if !(strings.HasPrefix(path, allowedPrefix+string(filepath.Separator)) || path == allowedPrefix) {
@@ -679,13 +686,43 @@ func (r *Registry) handleProjectGlob(_ context.Context, input json.RawMessage) (
 	return strings.Join(lines, "\n"), nil
 }
 
-// resolvePath resolves p relative to the workspace directory.
-// Absolute paths are returned unchanged.
-func (r *Registry) resolvePath(p string) string {
-	if filepath.IsAbs(p) {
-		return p
+// resolvePath resolves p relative to the workspace directory using safefs
+// to enforce a strict workspace boundary.
+//
+// 26.5.10v2 (B001 fix): no longer accepts absolute paths from AI input;
+// no longer trusts strings.HasPrefix-style boundary checks. AI tool callers
+// MUST use workspace-relative paths.
+//
+// Special cases handled here for backward-compat with existing handlers
+// that pre-populate r.workspaceDir as a default value:
+//   - p == r.workspaceDir → returns it (the workspace root itself)
+//   - p == "" → returns r.workspaceDir
+//
+// Returns error on:
+//   - explicit absolute path NOT equal to workspaceDir
+//   - relative path that escapes workspace (../, sibling-prefix, symlink)
+//   - NUL byte injection
+func (r *Registry) resolvePath(p string) (string, error) {
+	if r.workspaceDir == "" {
+		// No workspace bound — treat p as-is. (Some test/init paths.)
+		return p, nil
 	}
-	return filepath.Join(r.workspaceDir, p)
+	if p == "" || p == "." {
+		return r.workspaceDir, nil
+	}
+	// Allow the exact workspace path or sub-paths supplied as absolute by
+	// our own handlers (handleGrepWS / handleGlobWS pre-populate as default).
+	if filepath.IsAbs(p) {
+		// Convert to relative-against-workspace and then re-confine to catch
+		// any escape (e.g. an attacker-supplied "/etc/passwd" that doesn't
+		// live under workspace will fail the rel check).
+		rel, err := filepath.Rel(r.workspaceDir, p)
+		if err != nil || strings.HasPrefix(rel, "..") {
+			return "", fmt.Errorf("absolute path %q is outside workspace", p)
+		}
+		return safefs.ConfineToBase(r.workspaceDir, rel)
+	}
+	return safefs.ConfineToBase(r.workspaceDir, p)
 }
 
 // Definitions returns all tool definitions for inclusion in LLM requests.
@@ -726,10 +763,16 @@ func (r *Registry) register(def llm.ToolDef, h Handler) {
 
 // resolveFilePathInInput rewrites "file_path" (and optionally "path") fields
 // in a JSON object to be absolute, relative to workspaceDir.
-func (r *Registry) resolveFilePathInInput(input json.RawMessage, fields ...string) json.RawMessage {
+// resolveFilePathInInput rewrites the named JSON fields, replacing each
+// supplied path with its workspace-confined absolute form.
+//
+// 26.5.10v2 (B001 fix): now returns an error if any field's path escapes
+// workspace. Callers MUST propagate the error to the LLM so it can self-correct
+// rather than silently widening the file scope.
+func (r *Registry) resolveFilePathInInput(input json.RawMessage, fields ...string) (json.RawMessage, error) {
 	var m map[string]json.RawMessage
 	if err := json.Unmarshal(input, &m); err != nil {
-		return input
+		return input, nil
 	}
 	for _, field := range fields {
 		raw, ok := m[field]
@@ -740,59 +783,82 @@ func (r *Registry) resolveFilePathInInput(input json.RawMessage, fields ...strin
 		if err := json.Unmarshal(raw, &s); err != nil || s == "" {
 			continue
 		}
-		resolved := r.resolvePath(s)
-		b, err := json.Marshal(resolved)
-		if err == nil {
+		resolved, err := r.resolvePath(s)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", field, err)
+		}
+		b, mErr := json.Marshal(resolved)
+		if mErr == nil {
 			m[field] = b
 		}
 	}
 	out, err := json.Marshal(m)
 	if err != nil {
-		return input
+		return input, nil
 	}
-	return out
+	return out, nil
 }
 
 func (r *Registry) handleReadWS(ctx context.Context, input json.RawMessage) (string, error) {
-	return handleRead(ctx, r.resolveFilePathInInput(input, "file_path"))
+	rewritten, err := r.resolveFilePathInInput(input, "file_path")
+	if err != nil {
+		return "", err
+	}
+	return handleRead(ctx, rewritten)
 }
 
 func (r *Registry) handleWriteWS(ctx context.Context, input json.RawMessage) (string, error) {
-	return handleWrite(ctx, r.resolveFilePathInInput(input, "file_path"))
+	rewritten, err := r.resolveFilePathInInput(input, "file_path")
+	if err != nil {
+		return "", err
+	}
+	return handleWrite(ctx, rewritten)
 }
 
 func (r *Registry) handleEditWS(ctx context.Context, input json.RawMessage) (string, error) {
-	return handleEdit(ctx, r.resolveFilePathInInput(input, "file_path"))
+	rewritten, err := r.resolveFilePathInInput(input, "file_path")
+	if err != nil {
+		return "", err
+	}
+	return handleEdit(ctx, rewritten)
 }
 
 func (r *Registry) handleGrepWS(ctx context.Context, input json.RawMessage) (string, error) {
-	// Default path to workspaceDir if not specified
+	// Default path to "." (workspace root) if not specified
 	var m map[string]json.RawMessage
 	if err := json.Unmarshal(input, &m); err == nil {
 		if raw, ok := m["path"]; !ok || string(raw) == `""` || string(raw) == "null" {
-			b, _ := json.Marshal(r.workspaceDir)
+			b, _ := json.Marshal(".")
 			m["path"] = b
 			if out, err := json.Marshal(m); err == nil {
 				input = out
 			}
 		}
 	}
-	return handleGrep(ctx, r.resolveFilePathInInput(input, "path"))
+	rewritten, err := r.resolveFilePathInInput(input, "path")
+	if err != nil {
+		return "", err
+	}
+	return handleGrep(ctx, rewritten)
 }
 
 func (r *Registry) handleGlobWS(ctx context.Context, input json.RawMessage) (string, error) {
-	// If base_dir is empty, default to workspaceDir
+	// If base_dir is empty, default to "." (workspace root)
 	var m map[string]json.RawMessage
 	if err := json.Unmarshal(input, &m); err == nil {
 		if _, ok := m["base_dir"]; !ok {
-			b, _ := json.Marshal(r.workspaceDir)
+			b, _ := json.Marshal(".")
 			m["base_dir"] = b
 			if out, err := json.Marshal(m); err == nil {
 				input = out
 			}
 		}
 	}
-	return handleGlob(ctx, r.resolveFilePathInInput(input, "base_dir"))
+	rewritten, err := r.resolveFilePathInInput(input, "base_dir")
+	if err != nil {
+		return "", err
+	}
+	return handleGlob(ctx, rewritten)
 }
 
 // handleBashWS runs bash commands in the agent's workspace directory,
