@@ -14,6 +14,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/Zyling-ai/zyhive/pkg/agent"
+	"github.com/Zyling-ai/zyhive/pkg/safefs"
 )
 
 type fileHandler struct {
@@ -79,6 +80,10 @@ func buildFileTree(absDir, relBase string) []*FileNode {
 }
 
 // resolveWorkspacePath validates the agent and returns absolute workspace path.
+//
+// 26.5.10v2 安全修复 (B001): 改用 safefs.ConfineToBase, 抵御 sibling-prefix
+// 混淆 / symlink 逃逸 / 绝对路径注入. 旧版 strings.HasPrefix 校验有以下
+// 已知绕过, 见 pkg/safefs/safefs.go 顶部注释.
 func (h *fileHandler) resolveWorkspacePath(c *gin.Context) (string, string, bool) {
 	id := c.Param("id")
 	ag, ok := h.manager.Get(id)
@@ -87,14 +92,15 @@ func (h *fileHandler) resolveWorkspacePath(c *gin.Context) (string, string, bool
 		return "", "", false
 	}
 	relPath := c.Param("path")
-	if relPath == "" || relPath == "/" {
-		relPath = "/"
+	// gin's *path captures keep a leading "/", strip it so safefs sees a
+	// pure relative path (otherwise IsAbs would reject it).
+	relPath = strings.TrimPrefix(relPath, "/")
+	if relPath == "" {
+		// caller wants the workspace root itself
+		relPath = "."
 	}
-	// Clean and ensure we stay inside workspace
-	cleaned := filepath.Clean(relPath)
-	absPath := filepath.Join(ag.WorkspaceDir, cleaned)
-	// Security: ensure resolved path is within workspace
-	if !strings.HasPrefix(absPath, ag.WorkspaceDir) {
+	absPath, err := safefs.ConfineToBase(ag.WorkspaceDir, relPath)
+	if err != nil {
 		c.JSON(http.StatusForbidden, gin.H{"error": "path escapes workspace"})
 		return "", "", false
 	}
