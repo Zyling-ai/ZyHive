@@ -66,7 +66,7 @@
 |---------|--------|----------|------|
 | `ZYHIVE_EXPERIMENTAL_SANDBOX`         | 工具沙箱           | S2 | ✅ 26.5.10v8 |
 | `ZYHIVE_EXPERIMENTAL_PROMPTDEF`       | 注入防御           | S3 | ✅ 26.5.10v9 |
-| `ZYHIVE_EXPERIMENTAL_BUDGETGUARD`     | 预算硬熔断         | S4 | 🔜 |
+| `ZYHIVE_EXPERIMENTAL_BUDGETGUARD`     | 预算硬熔断         | S4 | ✅ 26.5.10v10 |
 | `ZYHIVE_EXPERIMENTAL_WALLET`          | Wallet + FX 货币层 | S5 | 🔜 |
 | `ZYHIVE_EXPERIMENTAL_JUDGE`           | Judge agent        | S7 | 🔜 |
 | `ZYHIVE_EXPERIMENTAL_PAYROLL`         | Payroll            | S8 | 🔜 |
@@ -232,7 +232,7 @@ export AWS_SECRET_ACCESS_KEY=...
 ✅ S1  ─ B005-B015 主动 QA pass + B005/B014 修复     (26.5.10v7)
 ✅ S2  ─ PR-007 工具沙箱                              (26.5.10v8)
 ✅ S3  ─ PR-008 提示词注入防御 + audit 基础           (26.5.10v9)
-🔜 S4  ─ PR-003 BudgetGuard
+✅ S4  ─ PR-003 BudgetGuard (USDT + cooldown + 持久化) (26.5.10v10)
 🔜 S5  ─ PR-001 Wallet + FX 货币层
 🔜 S6  ─ Guard × Wallet 联动
 🔜 S7  ─ PR-004 Judge Agent

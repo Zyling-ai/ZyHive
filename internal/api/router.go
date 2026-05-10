@@ -79,11 +79,14 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, cfgPath string, mgr *agen
 	v1 := r.Group("/api")
 	v1.Use(authMiddleware(cfg.Auth.Token))
 
-	// aiteam (autonomous-economy experimental subsystem) — S0 route stubs.
+	// aiteam (autonomous-economy experimental subsystem) — route handlers.
 	// Every handler gates on its own ZYHIVE_EXPERIMENTAL_* flag and returns
 	// 404 when off, so default behaviour is byte-identical to a build
-	// without aiteam compiled in. See pkg/aiteam/flags + internal/api/aiteam_routes.go.
-	registerAITeamRoutes(v1)
+	// without aiteam compiled in. See pkg/aiteam/flags + internal/api/aiteam_*.
+	//
+	// S4 (PR-003): pass the Pool so handlers can reach the guard. Pool
+	// may be nil during tests; route stubs fall back to 501.
+	registerAITeamRoutes(v1, pool)
 
 	// Update (check + apply)
 	updH := &updateHandler{}
