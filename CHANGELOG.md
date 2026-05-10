@@ -4,6 +4,45 @@
 
 ---
 
+## [26.5.10v3] — 2026-05-10 · 🔒 安全修复 B002 Token 时延侧信道（HIGH）
+
+B001 修复后例行审视发现的 HIGH 严重度 timing 攻击。所有 Bearer / download / media token 比较都用 Go 的 `==` / `!=`，是短路比较 → 攻击者可在网络层做时延统计，逐字节恢复 token。
+
+### 漏洞 3 处
+
+| 文件 | 端点影响 |
+|------|---------|
+| `internal/api/router.go::authMiddleware` | 所有 `/api/*` 端点 |
+| `internal/api/files.go::downloadHandler` | `/api/download?token=` |
+| `internal/api/media.go::mediaHandler` | `/api/media?token=` |
+
+### 修复
+
+新建 `internal/api/authcompare.go::secretsEqual(a, b string) bool`，包装 `crypto/subtle.ConstantTimeCompare`，3 处调用点切换。
+
+### 测试
+
+`internal/api/authcompare_test.go` 18 用例（含子测）全绿，含：
+- 边界 case（空 / 同长 / 异长）
+- `authMiddleware` 6 子 case（empty / wrong scheme / wrong tail / truncated / completely wrong / correct）
+- `downloadHandler` 401 验证
+- `mediaHandler` 3 子 case（query / header / no auth）
+
+`go test -race -count=1 ./...` 全包绿。
+
+### 兼容性
+
+零 API 变更、零行为变更，客户端无感知。
+
+### 升级建议
+
+- ✅ 立即升级
+- ⚠️ 已公网暴露 admin 面板的实例：升级后**轮换 token**，假定旧 token 已被探测
+
+详见 [proposals/aiteam/bugs/B002-timing-attack.md](proposals/aiteam/bugs/B002-timing-attack.md).
+
+---
+
 ## [26.5.10v2] — 2026-05-10 · 🔒 安全修复 B001 路径穿越（CRITICAL）
 
 下游 aiteam 实验项目 QA 发现的 CRITICAL 路径穿越漏洞（编号 B001）。本版聚焦修复，**不带新功能**。建议所有部署立即升级。
