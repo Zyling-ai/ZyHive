@@ -19,7 +19,18 @@
 | B002 | [bugs/B002-timing-attack.md](bugs/B002-timing-attack.md) | 🟠 HIGH | ✅ 26.5.10v3 |
 | B003 | [bugs/B003-unbounded-body-oom.md](bugs/B003-unbounded-body-oom.md) | 🟠 HIGH | ✅ 26.5.10v4 |
 | B004 | [bugs/B004-slowloris.md](bugs/B004-slowloris.md) | 🟠 HIGH | ✅ 26.5.10v5 |
-| B005-B015 | bugs/B0xx-template.md | ? | 待用户贴 markdown |
+| B005 | [bugs/B005-stdlib-cve-toolchain.md](bugs/B005-stdlib-cve-toolchain.md) | 🟠 HIGH | 🔄 S1 修复中 (Go toolchain bump) |
+| B006 | [bugs/B006-feishu-proto-int-overflow.md](bugs/B006-feishu-proto-int-overflow.md) | 🟡 MEDIUM | 🔄 推后 S3 |
+| B007 | [bugs/B007-self-restart-exec.md](bugs/B007-self-restart-exec.md) | 🟢 LOW | 📝 不修 (false positive) |
+| B008 | [bugs/B008-cli-editor-exec.md](bugs/B008-cli-editor-exec.md) | 🟢 LOW | 📝 不修 (false positive) |
+| B009 | [bugs/B009-llm-retry-weakrand.md](bugs/B009-llm-retry-weakrand.md) | 🟢 LOW | 📝 不修 (非安全敏感) |
+| B010 | [bugs/B010-startup-test-ssrf.md](bugs/B010-startup-test-ssrf.md) | 🟢 LOW | 📝 不修 (false positive) |
+| B011 | [bugs/B011-cli-token-display-as-credential.md](bugs/B011-cli-token-display-as-credential.md) | 🟢 LOW | 📝 不修 (false positive) |
+| B012 | [bugs/B012-tool-readwrite-path-taint.md](bugs/B012-tool-readwrite-path-taint.md) | 🟢 LOW | ✅ B001 已覆盖 |
+| B013 | [bugs/B013-memory-indexer-race-walk.md](bugs/B013-memory-indexer-race-walk.md) | 🟢 LOW | 🟡 后续闲时切 WalkDir |
+| B014 | [bugs/B014-file-perms-lax.md](bugs/B014-file-perms-lax.md) | 🟡 MEDIUM | 🔄 S2-S4 渐进修 |
+| B015 | [bugs/B015-untracked-error-returns.md](bugs/B015-untracked-error-returns.md) | 🟢 LOW | 🔄 S5 (wallet) 核心路径 |
+| QA artifacts | `bugs/_qa-pass-26.5.10v6-*.{json,txt}` | — | 原始扫描产物 |
 
 ## 与 ZyHive 主项目协调
 
