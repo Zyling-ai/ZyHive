@@ -34,6 +34,7 @@ import (
 	"github.com/Zyling-ai/zyhive/pkg/agent"
 	"github.com/Zyling-ai/zyhive/pkg/aiteam/flags"
 	aiteamFX "github.com/Zyling-ai/zyhive/pkg/aiteam/fx"
+	aiteamJudge "github.com/Zyling-ai/zyhive/pkg/aiteam/judge"
 	"github.com/Zyling-ai/zyhive/pkg/aiteam/wallet"
 )
 
@@ -72,6 +73,12 @@ func registerAITeamRoutes(v1 *gin.RouterGroup, pool *agent.Pool) {
 			return nil
 		}
 		return pool.AITeamFX()
+	}
+	judgeMgr := func() *aiteamJudge.Manager {
+		if pool == nil {
+			return nil
+		}
+		return pool.AITeamJudge()
 	}
 
 	// -- Flags status (always available, never gated) ---------------------
@@ -306,27 +313,123 @@ func registerAITeamRoutes(v1 *gin.RouterGroup, pool *agent.Pool) {
 		c.JSON(http.StatusOK, gin.H{"updated": true, "agentId": c.Param("agentId"), "limit_usdt": d.String()})
 	})
 
-	// -- Judge (PR-004, lands S7) -----------------------------------------
+	// -- Judge (PR-004, S7) — REAL handlers --------------------------------
 	g.POST("/judge/run", func(c *gin.Context) {
 		if !flags.JudgeEnabled() {
 			notEnabled(c, "judge")
 			return
 		}
-		c.JSON(http.StatusNotImplemented, gin.H{"error": "not implemented yet", "lands_in": "S7"})
+		jm := judgeMgr()
+		if jm == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "judge not initialised"})
+			return
+		}
+		var body struct {
+			AgentID      string  `json:"agent_id"`
+			Period       string  `json:"period"`
+			UsageCostUSD float64 `json:"usage_cost_usd"`
+			CallCount    int     `json:"call_count"`
+			Notes        string  `json:"notes"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "bad json"})
+			return
+		}
+		sc, err := jm.RunFor(aiteamJudge.Signals{
+			AgentID:      body.AgentID,
+			Period:       body.Period,
+			UsageCostUSD: body.UsageCostUSD,
+			CallCount:    body.CallCount,
+			Notes:        body.Notes,
+		})
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, sc)
 	})
 	g.GET("/judge/scores/:agentId", func(c *gin.Context) {
 		if !flags.JudgeEnabled() {
 			notEnabled(c, "judge")
 			return
 		}
-		c.JSON(http.StatusNotImplemented, gin.H{"error": "not implemented yet", "lands_in": "S7"})
+		jm := judgeMgr()
+		if jm == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "judge not initialised"})
+			return
+		}
+		agentID := c.Param("agentId")
+		period := c.Query("period")
+		// If period is provided → return all rows that period; else
+		// return last 30 daily latests.
+		if period != "" {
+			rows, err := jm.Read(agentID, period)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+			c.JSON(http.StatusOK, gin.H{"agentId": agentID, "period": period, "rows": rows})
+			return
+		}
+		hist, err := jm.History(agentID, 30)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"agentId": agentID, "history": hist, "average_30d": jm.AverageOver(agentID, 30)})
 	})
 	g.POST("/judge/override", func(c *gin.Context) {
 		if !flags.JudgeEnabled() {
 			notEnabled(c, "judge")
 			return
 		}
-		c.JSON(http.StatusNotImplemented, gin.H{"error": "not implemented yet", "lands_in": "S7"})
+		jm := judgeMgr()
+		if jm == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "judge not initialised"})
+			return
+		}
+		var body struct {
+			AgentID       string `json:"agent_id"`
+			Period        string `json:"period"`
+			Operator      string `json:"operator"`
+			Rationale     string `json:"rationale"`
+			Completion    int    `json:"completion"`
+			Quality       int    `json:"quality"`
+			Communication int    `json:"communication"`
+			Creativity    int    `json:"creativity"`
+			Cost          int    `json:"cost"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "bad json"})
+			return
+		}
+		if body.AgentID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "agent_id required"})
+			return
+		}
+		if body.Operator == "" {
+			body.Operator = "api"
+		}
+		sc, err := jm.Override(body.AgentID, body.Period, body.Operator, body.Rationale,
+			body.Completion, body.Quality, body.Communication, body.Creativity, body.Cost)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, sc)
+	})
+	// Convenience: list all judged agents (for dashboard sidebar)
+	g.GET("/judge/agents", func(c *gin.Context) {
+		if !flags.JudgeEnabled() {
+			notEnabled(c, "judge")
+			return
+		}
+		jm := judgeMgr()
+		if jm == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "judge not initialised"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"agents": jm.AllAgents()})
 	})
 
 	// -- Payroll (PR-002, lands S8) ---------------------------------------
