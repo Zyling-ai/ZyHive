@@ -56,6 +56,12 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, cfgPath string, mgr *agen
 	// reference it. We log the trace id later via slog.FromContext.
 	r.Use(logging.TraceMiddleware())
 	r.Use(requestLogger())
+	// 26.5.10v4 (B003): cap request body at 4 MiB by default to defeat
+	// OOM DoS via giant POST bodies. Override with env
+	// ZYHIVE_MAX_REQUEST_BODY_MB. File-upload endpoints are exempted (they
+	// have their own per-chunk io.LimitReader).
+	r.Use(bodyLimitMiddleware())
+	log.Printf("[api] request body limit: %s", describeBodyLimit())
 
 	// File download endpoint — auth via ?token= query param (for shareable links).
 	// This endpoint is intentionally outside the auth middleware group.
