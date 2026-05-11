@@ -59,9 +59,8 @@
     <el-card v-if="walletData" shadow="never">
       <template #header>
         <span>账本（最近 20 条）</span>
-        <span style="float:right;display:flex;gap:8px">
-          <el-button link size="small" @click="loadLedger">全部账本</el-button>
-          <el-button link size="small" @click="downloadCSV" type="primary">📥 CSV 导出</el-button>
+        <span style="float:right">
+          <el-button link size="small" @click="downloadCSV" type="primary">📥 CSV 导出（全部账本）</el-button>
         </span>
       </template>
       <el-table :data="walletData.recent_ledger" size="small" max-height="500">
@@ -146,7 +145,7 @@ async function refreshOverview() {
     allAgentIds.value = Object.keys(overview.value.agents || {}).sort()
     // Auto-pick first agent if none selected.
     if (!selectedAgent.value && allAgentIds.value.length > 0) {
-      selectedAgent.value = allAgentIds.value[0]
+      selectedAgent.value = allAgentIds.value[0] || ''
       await onAgentChange(selectedAgent.value)
     } else if (selectedAgent.value) {
       // Refresh selected agent too.
@@ -172,11 +171,6 @@ async function onAgentChange(agentId: string) {
   } catch {
     walletData.value = null
   }
-}
-
-async function loadLedger() {
-  // Could open a fuller dialog; for now just show a message about scroll
-  ElMessage.info('完整账本可点 CSV 导出获取；当前展示最近 20 条')
 }
 
 function downloadCSV() {
@@ -214,6 +208,21 @@ function downloadCSV() {
 async function submitCredit() {
   if (!creditForm.value.agentId || !creditForm.value.amount) {
     ElMessage.warning('请填 agent + 金额')
+    return
+  }
+  // B025 fix: validate amount is a positive finite number before sending.
+  const amt = parseFloat(creditForm.value.amount)
+  if (!Number.isFinite(amt)) {
+    ElMessage.warning('金额必须是数字，例如 5.00')
+    return
+  }
+  if (amt <= 0) {
+    ElMessage.warning('金额必须大于 0')
+    return
+  }
+  // Reject absurd inputs that would corrupt the ledger (>1e9 USDT in a single op).
+  if (amt > 1e9) {
+    ElMessage.warning('单次入金不可超过 10 亿 USDT')
     return
   }
   submitting.value = true
