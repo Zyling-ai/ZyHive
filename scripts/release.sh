@@ -21,7 +21,7 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 
 # Step 1: 构建 Vue UI
 echo "📦 [1/4] 构建 Vue UI..."
-cd ui && npm install --silent && npx vite build --silent && cd ..
+cd ui && npm install --silent && npx vite build 2>&1 | tail -3 && cd ..
 echo "   ✅ UI 构建完成"
 
 # Step 2: ⚠️ 关键：同步 ui/dist → cmd/aipanel/ui_dist
