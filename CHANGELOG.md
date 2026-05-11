@@ -4,6 +4,97 @@
 
 ---
 
+## [26.5.10v25] — 2026-05-11 · 🎉 aiteam Phase 3 收官 — 生产闭环 + 安全清理
+
+Phase 3 全部 8 阶段（P3-S0 → P3-S7）落地。aiteam 自治经济体从「能跑通 demo」
+升级到「可放心给真用户跑」：LLM 真评分、panic 推送 owner、Prometheus 指标、
+CSV 对账、移动端、真 staging demo 9 步、清掉 GitHub PAT + 生产 root 密码。
+
+### aiteam (experimental)
+
+* **P3-S0 LLMScorer wired** — `pkg/aiteam/judge/llm_adapter.go`
+  - `LLMCallFromClient(client, model, apiKey, maxTokens, timeout)` 适配器
+  - `cfg.Aiteam.Judge.{Model, MaxTokens, TimeoutMs}` 配置字段
+  - main.go 在 `JUDGE` flag + Model 设置后自动切到 LLMScorer
+  - HeuristicScorer 作 fallback；garbled JSON / API failures 自动降级
+  - 6 个 -race 测试覆盖 happy / error / nil / empty / E2E
+
+* **P3-S1 Panic notify** — Guard panic 触发 → 推送 Telegram owner chat
+  - `Guard.SetNotifyHook(func(agentID, reason, message))` 注入回调
+  - Hook 在 mu 外 + goroutine 跑，panic 中带 recover()
+  - 永远 log to journalctl `[PANIC]` 前缀（grep 友好）
+  - 当 `ZYHIVE_AITEAM_PANIC_TG_CHAT` env 配置 + agent 有 active TG bot → 推送
+  - 6 个 -race 测试
+
+* **P3-S2 Prometheus /metrics** — 0 新依赖
+  - `pkg/aiteam/metrics/` 自写 Registry (counter/gauge + Prom text format)
+  - 5 KPI: wallet_balance_usdt, guard_panic_total, payroll_runs_total,
+    judge_score_avg_7d, revenue_incoming_usdt_total
+  - `GET /metrics` 公开端点（Prom 惯例）
+  - Wallet `WriteHook` 让每次 Credit/Debit/Transfer 都刷新 gauge
+  - 11 个 -race 测试
+
+* **P3-S3 CSV ledger export** — `GET /api/aiteam/wallet/:agentId/ledger.csv`
+  - RFC 4180 CSV (encoding/csv)
+  - 7 列：timestamp_ms / iso8601 / type / amount / balance_after / reason / counterparty
+  - UI 加「📥 CSV 导出」按钮（fetch+blob+a[download] 兼容 bearer auth）
+  - 3 个 -race 测试
+
+* **P3-S4 移动端响应式** — `ui/src/assets/aiteam-mobile.css`
+  - 6 aiteam view 在 ≤ 720px 单列堆叠 + 字号缩放
+  - SVG 图表 max-width:100% 自适应
+  - el-table font-size 11px for 窄屏可读
+  - 0 新 npm 依赖
+
+* **P3-S5 Genesis demo** — `docs/aiteam-genesis-demo.md`
+  - 9 step 实跑 staging 真数据（v25-rc2 26.5.10v25-rc2 @ 18.162.161.138）
+  - alice 5.9 USDT, bob 10.1 USDT, payroll counter 2, audit 3 entries
+  - CoinGecko 实时 FX (CNY=6.79, fetched 2026-05-11)
+  - 完整 curl 复现 snippet
+  - JSON artifacts 存 `/opt/cursor/artifacts/genesis-demo/`
+
+### 安全（主线）
+
+* **B016 GitHub PAT 清理** — `scripts/release.sh`
+  - 删硬编码 `github_pat_...`，改为 `gh auth token` fallback + 强制 env var
+  - Token 跑过期 (release v24 时发现 401)，但仓库历史里仍可见
+  - 仓库所有者需 GitHub UI revoke 这个 PAT
+
+* **B017 生产 root 密码清理** — `scripts/deploy-hive.sh` + `release.sh`
+  - 删硬编码 `PASSWORD="${HIVE_ROOT_PASS:-123ABCDabcd}"` 默认值
+  - 改为强制 env var（`${HIVE_ROOT_PASS:?...}` fail-fast）
+  - 仓库所有者需立即改 hive.lilianbot.com root 密码 + 切到 SSH key
+
+### 兼容性
+
+- 全部 aiteam 改动仍由 `ZYHIVE_EXPERIMENTAL_*` flag 守卫，默认 off
+- 主线 80+ 工具 + Phase 1 110+ + Phase 2 35+ + Phase 3 36+ test cases 累计
+  **180+** 全 `-race -count=1` 绿
+- 26.5.10v24 → v25 升级零行为变化（仅当显式启 aiteam flag 才看到改动）
+
+### Phase 3 累计
+
+| 阶段 | 内容 | 测试 |
+|------|------|------|
+| P3-S0 | LLMScorer 真接 LLM client | 6 |
+| P3-S1 | Panic notify hook (Telegram push) | 6 |
+| P3-S2 | Prometheus /metrics (0 dep, 5 KPI) | 11 |
+| P3-S3 | CSV ledger export | 3 |
+| P3-S4 | 移动端响应式 CSS | 0 (CSS only) |
+| P3-S5 | Genesis demo 9 步 + JSON artifacts | live data |
+| P3-S6 | B016/B017 secrets cleanup | 0 (doc) |
+| P3-S7 | 收尾 + 发版 | — |
+
+### 待用户手动跟进（agent 工具能力外）
+
+1. 🔴 GitHub UI revoke 旧 PAT `github_pat_11B6WUQCQ0...`
+2. 🔴 SSH 到 hive.lilianbot.com 改 root 密码 + 切 SSH key auth
+3. 🟡 GitHub Secrets 添加 `HIVE_ROOT_PASS` + `AWS_*` + `ZYHIVE_STAGING_TOKEN`
+4. 🟡 走 GHSA 流程申报 B001-B004
+5. 🟡 检查 hive.lilianbot.com auth.log 排查密码泄漏期间可疑登录
+
+---
+
 ## [26.5.10v24] — 2026-05-10 · 🎉 aiteam Phase 2 收官 — Judge UI + 全栈打通
 
 aiteam Phase 2 全部 8 阶段（P2-S0 → P2-S7）落地。单天 19 次 staging
