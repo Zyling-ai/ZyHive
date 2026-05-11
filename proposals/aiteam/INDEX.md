@@ -36,6 +36,12 @@
 | B015 | [bugs/B015-untracked-error-returns.md](bugs/B015-untracked-error-returns.md) | 🟢 LOW | 🔄 S5 (wallet) 核心路径 |
 | **B016** | [bugs/B016-hardcoded-github-pat.md](bugs/B016-hardcoded-github-pat.md) | 🟠 HIGH | ✅ 脚本修 P3-S6 / 仓库所有者需 revoke PAT |
 | **B017** | [bugs/B017-hardcoded-prod-root-password.md](bugs/B017-hardcoded-prod-root-password.md) | 🔴 CRITICAL | ✅ 脚本修 P3-S6 / 仓库所有者需改服务器密码 |
+| **B018** | `wallet WriteHook panic propagates` | 🟠 HIGH | ✅ P3-S8 修 (recover()) |
+| **B019** | `wallet replay aborts on corrupt line` | 🟡 MEDIUM | ✅ P3-S8 修 (skip + continue) |
+| **B020** | `guard SetAgentLimit accepts negative` | 🟡 MEDIUM | ✅ P3-S8 修 (clamp to 0) |
+| **B021** | `agent_id no length/format validation` | 🟠 HIGH | ✅ P3-S8 修 (`^[a-zA-Z0-9_-]{1,64}$`) |
+| **B022** | `FX override rate unbounded (1e30 etc.)` | 🔴 CRITICAL | ✅ P3-S8 修 (clamp [1e-6, 1e6]) |
+| **B023** | `payroll mass-run pays system agents` | 🟢 LOW | ✅ P3-S8 修 (a.System filter) |
 | QA artifacts | `bugs/_qa-pass-26.5.10v6-*.{json,txt}` | — | 原始扫描产物 |
 
 ## 与 ZyHive 主项目协调

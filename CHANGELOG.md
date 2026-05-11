@@ -4,6 +4,61 @@
 
 ---
 
+## [26.5.10v26] — 2026-05-11 · 🐛 aiteam P3-S8 — 边界硬化 + 5 个 bug 修复
+
+Phase 3 后做了一轮全面 edge case + adversarial smoke 测试，发现 5 个真实 bug 并
+修复，加 50+ 新边界测试，aiteam 累计测试数从 180+ 升到 230+。
+
+### 修复的 5 个 bug
+
+| ID | 严重度 | 位置 | 问题 | 修复 |
+|----|--------|------|------|------|
+| **B018** | 🟠 HIGH | `pkg/aiteam/wallet/wallet.go::writeLocked` | WriteHook panic 一路冒到 caller，破坏聊天流 | hook 包 `recover()`，永远 fire-and-forget |
+| **B019** | 🟡 MEDIUM | `pkg/aiteam/wallet/wallet.go::replay` | 单行 JSON 损坏 → 整个 agent 钱包不可恢复 | 损坏行 silently skip + continue |
+| **B020** | 🟡 MEDIUM | `pkg/aiteam/budget/guard.go::SetAgentLimit` | 负 limit 永久 panic agent (admin typo) | 负值 clamp 到 0 + audit row 记录 |
+| **B021** | 🟠 HIGH | `internal/api/aiteam_routes.go` (`*/wallet/:agentId`) | 4000 字符 / SQL-injection-style agent_id 通过 | `validateAgentIDParam` 检查 `^[a-zA-Z0-9_-]{1,64}$` |
+| **B022** | 🔴 CRITICAL | `internal/api/aiteam_routes.go` (`/fx/override`) | `rate=1e30` 永久污染 FX 显示层 | clamp 到 [1e-6, 1e6] |
+| **B023** | 🟢 LOW | `internal/api/aiteam_routes.go` (`/payroll/run` empty body) | mass-implicit-all 含 `__config__` 等系统 agent | `a.System` 过滤 |
+
+### aiteam (experimental) — 新增 50+ edge case 测试
+
+* `pkg/aiteam/wallet/wallet_edges_test.go` (9 case)
+* `pkg/aiteam/budget/guard_edges_test.go` (10 case)
+* `pkg/aiteam/revenue/revenue_edges_test.go` (13 case)
+* `pkg/aiteam/fx/fx_edges_test.go` (9 case)
+* `pkg/aiteam/audit/audit_edges_test.go` (6 case)
+* `pkg/aiteam/metrics/metrics_edges_test.go` (6 case)
+* `internal/api/aiteam_edges_test.go` (9 case)
+
+测试覆盖：负额 / 超大额 / NUL bytes / 特殊字符 ID / 并发写读 / 损坏文件
+replay / panic hook / SQL injection / path traversal / 极端 FX rate /
+nonce eviction / 高基数指标 / RFC 4180 CSV / etc.
+
+### 兼容性
+
+- 全部修复在 aiteam 内部，主线零影响
+- 主线 80+ 工具 + 全 phases 230+ aiteam tests 全 `-race -count=1` 绿
+- 26.5.10v25 → v26 升级零行为变化（仅安全/正确性提升）
+
+### Production adversarial smoke (10 个攻击向量)
+
+直接对 staging (18.162.161.138) 跑：
+
+| 编号 | 攻击 | v25 行为 | v26 行为 |
+|------|------|---------|---------|
+| A1 | 4000-char agent_id | ✅ 200 创建空钱包 | ❌ 400 invalid agent_id |
+| A2 | `alice'OR'1=1` | ✅ 200 创建奇怪钱包 | ❌ 400 invalid agent_id |
+| A3 | `../../etc/passwd` | ❌ 404 (gin 自然拦截) | ❌ 404 (无变化) |
+| A4 | 5 MiB POST body | ❌ 400 bad json (B003 4MiB cap) | ❌ 400 (无变化) |
+| A5 | 无 auth header | ❌ 401 | ❌ 401 (无变化) |
+| A6 | 错 bearer | ❌ 401 | ❌ 401 (无变化) |
+| A7 | FX rate 1e30 | ✅ 200 永久污染显示 | ❌ 400 out of range |
+| A8 | judge override 15/-5 | ✅ clamped 10/0 | ✅ clamped 10/0 (无变化, 已 OK) |
+| A9 | payroll empty body | ✅ 200 含 `__config__` | ✅ 200 跳过系统 agent |
+| A10 | revenue no signature | ❌ 401 | ❌ 401 (无变化) |
+
+---
+
 ## [26.5.10v25] — 2026-05-11 · 🎉 aiteam Phase 3 收官 — 生产闭环 + 安全清理
 
 Phase 3 全部 8 阶段（P3-S0 → P3-S7）落地。aiteam 自治经济体从「能跑通 demo」
