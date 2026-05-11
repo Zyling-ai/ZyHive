@@ -749,8 +749,16 @@ func main() {
 			FireTime: fireTime,
 			TZ:       tz,
 			AgentLister: func() []string {
+				// BUG-FIX P3-S8 (B023 part 2): cron must also skip system
+				// agents. The REST handler had this filter; the cron
+				// path was missed in the original fix. Verified
+				// against staging audit log which showed __config__ /
+				// genesis / main accumulating $0.10 payroll each day.
 				ids := make([]string, 0)
 				for _, a := range mgr.List() {
+					if a.System {
+						continue
+					}
 					ids = append(ids, a.ID)
 				}
 				return ids
