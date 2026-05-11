@@ -139,6 +139,43 @@ const router = createRouter({
     {
       path: '/config',
       redirect: '/config/models'
+    },
+    // ── aiteam (experimental) ─────────────────────────────────────
+    {
+      path: '/aiteam',
+      name: 'aiteam-dashboard',
+      component: () => import('../views/AiteamDashboardView.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/aiteam/wallet',
+      name: 'aiteam-wallet',
+      component: () => import('../views/AiteamWalletView.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/aiteam/fx',
+      name: 'aiteam-fx',
+      component: () => import('../views/AiteamFXView.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/aiteam/guard',
+      name: 'aiteam-guard',
+      component: () => import('../views/AiteamGuardView.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/aiteam/judge',
+      name: 'aiteam-judge',
+      component: () => import('../views/AiteamJudgeView.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/aiteam/payroll',
+      name: 'aiteam-payroll',
+      component: () => import('../views/AiteamPayrollView.vue'),
+      meta: { requiresAuth: true }
     }
   ]
 })

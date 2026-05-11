@@ -58,6 +58,24 @@
             {{ updater.updateStatus.value?.progress != null ? updater.updateStatus.value.progress + '%' : '' }}
           </span>
         </span>
+        <!-- aiteam currency switcher — only when any aiteam flag is on -->
+        <el-dropdown v-if="aiteamAny" @command="changeCurrency" trigger="click" size="small" style="margin-left:6px">
+          <span class="header-link" style="cursor:pointer" title="显示币种">
+            💱 <span class="header-hide-xs">{{ currencyHook.currency.value }}</span>
+          </span>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item
+                v-for="c in SUPPORTED_CURRENCIES"
+                :key="c"
+                :command="c"
+                :class="{ 'is-active': currencyHook.currency.value === c }"
+              >
+                {{ c }}
+              </el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
         <el-divider direction="vertical" style="margin:0 4px;border-color:rgba(255,255,255,0.2)" />
         <span class="header-link" style="cursor:pointer" @click="logout" title="退出登录">
           退出
@@ -234,6 +252,38 @@
             <el-icon><Tools /></el-icon>
             <template #title>系统设置</template>
           </el-menu-item>
+
+          <!-- aiteam experimental — only shown when any aiteam flag is on -->
+          <el-sub-menu v-if="aiteamAny" index="aiteam-group">
+            <template #title>
+              <el-icon><Coin /></el-icon>
+              <span>🧪 aiteam</span>
+            </template>
+            <el-menu-item index="/aiteam">
+              <el-icon><DataAnalysis /></el-icon>
+              <template #title>总览</template>
+            </el-menu-item>
+            <el-menu-item index="/aiteam/wallet" v-if="aiteamFlags.ZYHIVE_EXPERIMENTAL_WALLET">
+              <el-icon><Wallet /></el-icon>
+              <template #title>钱包</template>
+            </el-menu-item>
+            <el-menu-item index="/aiteam/fx" v-if="aiteamFlags.ZYHIVE_EXPERIMENTAL_WALLET">
+              <el-icon><Money /></el-icon>
+              <template #title>汇率</template>
+            </el-menu-item>
+            <el-menu-item index="/aiteam/guard" v-if="aiteamFlags.ZYHIVE_EXPERIMENTAL_BUDGETGUARD">
+              <el-icon><Warning /></el-icon>
+              <template #title>护栏</template>
+            </el-menu-item>
+            <el-menu-item index="/aiteam/judge" v-if="aiteamFlags.ZYHIVE_EXPERIMENTAL_JUDGE">
+              <el-icon><Medal /></el-icon>
+              <template #title>评分</template>
+            </el-menu-item>
+            <el-menu-item index="/aiteam/payroll" v-if="aiteamFlags.ZYHIVE_EXPERIMENTAL_PAYROLL">
+              <el-icon><Tickets /></el-icon>
+              <template #title>工资</template>
+            </el-menu-item>
+          </el-sub-menu>
         </el-menu>
 
         <!-- Sidebar footer -->
@@ -257,8 +307,14 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+// Element Plus icons for the aiteam menu group (P2-S4)
+import {
+  Coin, DataAnalysis, Wallet, Money, Warning, Medal, Tickets,
+} from '@element-plus/icons-vue'
 import api from './api'
 import { useUpdater } from './composables/useUpdater'
+import { useCurrency, SUPPORTED_CURRENCIES, type Currency } from './composables/useCurrency'
+import { getFlags } from './api/aiteam'
 
 const route = useRoute()
 const router = useRouter()
@@ -268,6 +324,26 @@ const appVersion = ref('')
 const updateInfo = ref<{ latest: string; releaseUrl: string } | null>(null)
 const isMobile = ref(false)
 const mobileDrawerOpen = ref(false)
+
+// aiteam (experimental) state — P2-S4
+const aiteamAny = ref(false)
+const aiteamFlags = ref<Record<string, boolean>>({})
+const currencyHook = useCurrency()
+
+async function refreshAITeamFlags() {
+  try {
+    const f = await getFlags()
+    aiteamAny.value = !!f.any
+    aiteamFlags.value = f.flags || {}
+  } catch {
+    aiteamAny.value = false
+    aiteamFlags.value = {}
+  }
+}
+
+function changeCurrency(c: Currency) {
+  currencyHook.setCurrency(c)
+}
 
 // 全局升级器：顶栏按钮点击直接弹确认 → 一键升级，进度条显示在 header 下方 banner
 const updater = useUpdater()
@@ -411,6 +487,9 @@ function logout() {
 onMounted(async () => {
   checkMobile()
   window.addEventListener('resize', checkMobile)
+
+  // P2-S4: fetch aiteam flags so the menu group can decide visibility
+  refreshAITeamFlags()
 
   // Fetch current version
   try {
