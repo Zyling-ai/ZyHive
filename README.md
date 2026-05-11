@@ -7,7 +7,7 @@
 [![GitHub Forks](https://img.shields.io/github/forks/Zyling-ai/zyhive?style=flat&logo=github&color=orange)](https://github.com/Zyling-ai/zyhive/network/members)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 [![Go 1.25+](https://img.shields.io/badge/Go-1.25+-00ADD8.svg)](https://golang.org)
-[![Version](https://img.shields.io/badge/version-26.5.10v23-brightgreen.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-26.5.10v24-brightgreen.svg)](CHANGELOG.md)
 [![官网](https://img.shields.io/badge/官网-zyling.ai-6366f1?logo=globe)](https://zyling.ai)
 
 **以团队为核心，每个 AI Agent 是团队成员。**
@@ -399,6 +399,38 @@ make release
 | P1（规划中）| 跨 agent 联系人/群聊聚合视图 · 头像 API 拉取 · AI 自动合并联系人/群 · Web 访客升级为命名 contact · `self_schedule` 自主闹钟工具 · 自主唤醒 budget 预算刹车 · 飞书拉群名 API · Bitable 视图 | 🔜 |
 
 ---
+
+## 🧪 Experimental: aiteam 自治经济体（默认 off）
+
+ZyHive 在主线之上孵化一个 **aiteam** 实验路线：让 AI 成员有自己的钱包、被
+评分、领工资、接外部任务付款 — 把 "AI 团队" 升级为 "可跑业务的自治经济体"。
+
+**默认完全关闭**，对普通用户零影响。需要全部 8 个独立 env flag 显式启用：
+
+```bash
+export ZYHIVE_EXPERIMENTAL_WALLET=1
+export ZYHIVE_EXPERIMENTAL_BUDGETGUARD=1
+export ZYHIVE_EXPERIMENTAL_JUDGE=1
+export ZYHIVE_EXPERIMENTAL_PAYROLL=1
+export ZYHIVE_EXPERIMENTAL_REVENUE=1
+export ZYHIVE_EXPERIMENTAL_SANDBOX=1
+export ZYHIVE_EXPERIMENTAL_PROMPTDEF=1
+export ZYHIVE_EXPERIMENTAL_AITEAM_DASHBOARD=1
+export ZYHIVE_AITEAM_REVENUE_SECRET="$(openssl rand -hex 32)"
+```
+
+启用后侧边栏出现 "🧪 aiteam" 折叠菜单（钱包 / 汇率 / 护栏 / 评分 / 工资 /
+总览），顶栏出现 💱 9 币种切换器。
+
+完整设计 + 协议规范见：
+
+- [docs/aiteam-architecture.md](docs/aiteam-architecture.md) — 总览图、子系统边界、数据流
+- [docs/aiteam-wallet-protocol.md](docs/aiteam-wallet-protocol.md) — USDT ledger 协议
+- [docs/aiteam-fx-and-currency.md](docs/aiteam-fx-and-currency.md) — 多币种显示层
+- [docs/aiteam-revenue-protocol.md](docs/aiteam-revenue-protocol.md) — ZyStudio webhook v1
+- [docs/aiteam-deploy-aws.md](docs/aiteam-deploy-aws.md) — AWS staging 部署
+
+> aiteam 共 19 次 staging 部署，每次 smoke 20/20 通过。详见 CHANGELOG `26.5.10v6` ~ `26.5.10v24`。
 
 ## 📄 License
 

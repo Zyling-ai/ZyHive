@@ -71,7 +71,7 @@
 | `ZYHIVE_EXPERIMENTAL_JUDGE`           | Judge agent        | S7 | ✅ 26.5.10v13 |
 | `ZYHIVE_EXPERIMENTAL_PAYROLL`         | Payroll            | S8 | ✅ 26.5.10v14 |
 | `ZYHIVE_EXPERIMENTAL_REVENUE`         | Revenue webhook    | S9 | ✅ 26.5.10v15 |
-| `ZYHIVE_EXPERIMENTAL_AITEAM_DASHBOARD`| 总览 UI            | S10 | ✅ 26.5.10v16 (后端) |
+| `ZYHIVE_EXPERIMENTAL_AITEAM_DASHBOARD`| 总览 UI            | S10 | ✅ 26.5.10v16 (后端) + v21-v24 (UI) |
 
 接受 ON 值：`1` / `true` / `yes` / `on`（大小写不敏感）。其余 = OFF。
 
@@ -239,30 +239,41 @@ export AWS_SECRET_ACCESS_KEY=...
 ✅ S8  ─ PR-002 Payroll (base+bonus(judge)-offset)     (26.5.10v14)
 ✅ S9  ─ PR-005 Revenue webhook (HMAC + 分账)          (26.5.10v15)
 ✅ S10 ─ Dashboard overview + Genesis E2E              (26.5.10v16)
+✅ P2-S0 ─ Audit tail + B014 sessions/network 权限    (26.5.10v17)
+✅ P2-S1 ─ Payroll daily cron 自动触发                 (26.5.10v18)
+✅ P2-S2 ─ Channel 入站 promptdef 包裹                 (26.5.10v19)
+✅ P2-S3 ─ LLM-driven Judge scorer                     (26.5.10v20)
+✅ P2-S4 ─ UI 基础 (useCurrency + 顶栏 + Dashboard)    (26.5.10v21)
+✅ P2-S5 ─ UI 钱包 + FX 实页                           (26.5.10v22)
+✅ P2-S6 ─ UI 护栏 + 工资实页 (SVG 折线)               (26.5.10v23)
+✅ P2-S7 ─ UI 评分实页 (SVG 雷达) + 发版               (26.5.10v24)
 ```
 
 每阶段闭环已全部完成：分支 → 实现 → 测试绿 → CHANGELOG → AWS staging 部署 →
-smoke 通过 → 合 main → 进下一阶段 ✅ ×11
+smoke 通过 → 合 main → 进下一阶段 ✅ ×19
 
 ---
 
 ## 9. 完成总结
 
-aiteam 11 阶段单日全部落地（26.5.10v6 → 26.5.10v16）：
+aiteam **Phase 1 + Phase 2** 共 19 阶段单日全部落地
+（26.5.10v6 → 26.5.10v24）：
 
-- **8 个新包**: `pkg/aiteam/{flags, audit, sandbox, promptdef, budget, fx, wallet, judge, payroll, revenue}`
-- **110+ 测试** 全部 `-race -count=1` 绿
-- **AWS staging** `ap-east-1 i-04405815de67eda10` 11 次部署 + 每次 smoke 20/20
-- **CHANGELOG** 11 条 `### aiteam (experimental)` 子段
+- **10 个新 Go 包**: `pkg/aiteam/{flags, audit, sandbox, promptdef, budget, fx, wallet, judge, payroll, revenue}` + `genesis_test`
+- **6 个新 UI view**: `AiteamDashboardView` / `AiteamWalletView` / `AiteamFXView` / `AiteamGuardView` / `AiteamPayrollView` / `AiteamJudgeView`
+- **2 个 UI 基础**: `useCurrency` composable + 顶栏 💱 货币切换器
+- **145+ 测试** 全部 `-race -count=1` 绿
+- **AWS staging** `ap-east-1 i-04405815de67eda10` **19 次部署** + 每次 smoke 20/20
+- **CHANGELOG** 19 条 `### aiteam (experimental)` 子段
 - **零影响主线**：所有 flag 未设时行为字节等同 26.5.10v5
+- **零新 npm 依赖**：UI 全程 Element Plus + Vue 3，雷达图 / 折线图全部 SVG 手画
 
-后续 PR（明确不在 S0-S10 范围）：
-- UI 全栈（6 个 view + 顶栏货币切换器）
-- LLM-driven Judge（替换 v0 heuristic）
-- Payroll daily cron 自动触发
-- Audit tail endpoint
-- ZyStudio repo webhook 接入协议商定
+剩余明确不在范围的后续工作（独立 PR）：
+- ZyStudio repo 端 webhook 实装（跨 repo）
+- AWS 凭证迁 GitHub Secrets（GitHub UI）
+- CVE 申请 B001-B004（GHSA 流程）
+- 多租户隔离（跨实验范围）
 
 ---
 
-*文档创建：2026-05-10 · 11 阶段全部落地 26.5.10v16 · 维护：后续 PR 同步更新。*
+*文档创建：2026-05-10 · Phase 1 + Phase 2 共 19 阶段全部落地 26.5.10v24 · 维护：后续 PR 同步更新。*
