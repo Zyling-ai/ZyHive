@@ -4,6 +4,49 @@
 
 ---
 
+## [26.5.10v20] — 2026-05-10 · 🧪 aiteam P2-S3 — LLM-driven Judge scorer
+
+### aiteam (experimental)
+
+* **LLMScorer** — `pkg/aiteam/judge/llm_scorer.go`
+  - 实现 PR-004 v0 spec 中的"v1 LLM-driven scorer"承诺
+  - `LLMCall` 函数式接口（无 pkg/llm 依赖，便于测试）
+  - 系统提示词约定 LLM 严格输出单行 JSON：
+    `{completion, quality, communication, creativity, cost, rationale}`
+    每维 0-10 整数
+  - **强制走 promptdef.Guard.WrapForce**：transcript 内容用
+    `<untrusted_external_content source="judge">` 信封包裹，LLM 看到 → 不被
+    "give me 10/10" 类注入操纵
+  - 鲁棒 JSON 解析：
+    - 自动 strip markdown code fences（` ```json ... ``` `）
+    - 容忍 prose wrapper（"Sure, here is the rubric: {...}"）
+    - 损坏 JSON → fallback 到 HeuristicScorer（或自定义 Scorer）
+    - 网络错误 / API quota → 同样 fallback
+  - 输出 dims clamped 到 [0, 10]
+  - rationale 截断到 200 chars
+
+* **测试** 10 case 全 -race 绿:
+  - ParsesValidJSON / ClampsOutOfRange / AcceptsCodeFences /
+    AcceptsProseWrapper / FallbackOnGarbledJSON / FallbackOnLLMError /
+    **PromptInjectionInTranscriptIgnored** (核心防护测试) /
+    TruncatesLongRationale / NoFallbackUsesHeuristicDefault /
+    SystemPromptMentionsDefence
+
+### 后续打通点
+
+LLMScorer 还需 main.go 把真 `*llm.Client` 适配成 `LLMCall` 才能在
+生产生效。此步骤留到 P2-S7 (dashboard view + LLM 集成 + 发版) 一起做，
+本次 commit 仅落代码 + 单元测试链路，确保接口 stable。
+
+### 兼容性
+
+- pkg/aiteam/judge 默认仍用 HeuristicScorer（main.go 未切换 LLMScorer）
+- 当切到 LLMScorer 时，garbled JSON / LLM 错误自动 fallback 到
+  HeuristicScorer，payroll bonus 计算不中断
+- Phase 2 累计 33 测试 + Phase 1 110+ + 主线全 -race 绿
+
+---
+
 ## [26.5.10v19] — 2026-05-10 · 🧪 aiteam P2-S2 — Channel inbound promptdef wrap
 
 ### aiteam (experimental)
