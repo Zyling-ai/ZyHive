@@ -11,7 +11,22 @@ if [ -z "$VERSION" ]; then
 fi
 
 REPO="Zyling-ai/ZyHive"
-GITHUB_TOKEN="${GITHUB_TOKEN:-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}"
+
+# Token: prefer explicit env, then `gh auth token`. The hardcoded PAT
+# that previously lived here (commit history before 26.5.10v25) has been
+# REVOKED — never paste secrets into version control. Use:
+#   export GITHUB_TOKEN=$(gh auth token)
+#   ./scripts/release.sh 26.5.10v25
+if [ -z "${GITHUB_TOKEN}" ]; then
+  if command -v gh >/dev/null 2>&1; then
+    GITHUB_TOKEN=$(gh auth token 2>/dev/null || true)
+  fi
+fi
+if [ -z "${GITHUB_TOKEN}" ]; then
+  echo "❌ GITHUB_TOKEN unset. Run 'gh auth login' or 'export GITHUB_TOKEN=ghp_...'" >&2
+  exit 1
+fi
+
 DIST_DIR="/tmp/zyhive-release-${VERSION}"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
@@ -62,5 +77,5 @@ echo "   GitHub: https://github.com/${REPO}/releases/tag/${VERSION}"
 echo "   CF镜像: https://install.zyling.ai/dl/${VERSION}/zyhive-linux-amd64"
 echo ""
 echo "⚠️  部署生产服务器请运行:"
-echo "   sshpass -p '123ABCDabcd' scp ${DIST_DIR}/zyhive-linux-amd64 root@43.164.0.138:/tmp/zyhive-new"
-echo "   sshpass -p '123ABCDabcd' ssh root@43.164.0.138 'systemctl stop zyhive && cp /tmp/zyhive-new /usr/local/bin/zyhive && systemctl start zyhive'"
+echo "   HIVE_ROOT_PASS=... ./scripts/deploy-hive.sh ${VERSION}"
+echo "   (或用 SSH key 部署，推荐)"

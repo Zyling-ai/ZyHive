@@ -34,6 +34,8 @@
 | B013 | [bugs/B013-memory-indexer-race-walk.md](bugs/B013-memory-indexer-race-walk.md) | 🟢 LOW | 🟡 后续闲时切 WalkDir |
 | B014 | [bugs/B014-file-perms-lax.md](bugs/B014-file-perms-lax.md) | 🟡 MEDIUM | 🔄 S2-S4 渐进修 |
 | B015 | [bugs/B015-untracked-error-returns.md](bugs/B015-untracked-error-returns.md) | 🟢 LOW | 🔄 S5 (wallet) 核心路径 |
+| **B016** | [bugs/B016-hardcoded-github-pat.md](bugs/B016-hardcoded-github-pat.md) | 🟠 HIGH | ✅ 脚本修 P3-S6 / 仓库所有者需 revoke PAT |
+| **B017** | [bugs/B017-hardcoded-prod-root-password.md](bugs/B017-hardcoded-prod-root-password.md) | 🔴 CRITICAL | ✅ 脚本修 P3-S6 / 仓库所有者需改服务器密码 |
 | QA artifacts | `bugs/_qa-pass-26.5.10v6-*.{json,txt}` | — | 原始扫描产物 |
 
 ## 与 ZyHive 主项目协调

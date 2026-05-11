@@ -16,7 +16,10 @@ cd "$REPO_ROOT"
 VERSION="${1:-$(git describe --tags --abbrev=0 2>/dev/null || echo dev)}"
 HOST="43.164.0.138"
 USER="root"
-PASSWORD="${HIVE_ROOT_PASS:-123ABCDabcd}"
+# B017 fix: hardcoded password removed. Set HIVE_ROOT_PASS env var (or
+# use SSH key auth — recommended). The previous fallback default has
+# been REVOKED at the server.
+PASSWORD="${HIVE_ROOT_PASS:?需要设置 HIVE_ROOT_PASS env var (deploy aborted)}"
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "▶ 部署 ZyHive 到 hive.lilianbot.com"
