@@ -4,6 +4,66 @@
 
 ---
 
+## [26.5.10v24] — 2026-05-10 · 🎉 aiteam Phase 2 收官 — Judge UI + 全栈打通
+
+aiteam Phase 2 全部 8 阶段（P2-S0 → P2-S7）落地。单天 19 次 staging
+部署、累计 35+ Phase 2 test cases + 110+ Phase 1 cases + 主线全部
+-race 绿。从 26.5.10v6 (Phase 1 S0) 到 26.5.10v24 (Phase 2 S7)，
+19 个版本号串起 "Genesis 跑通 + UI 全栈" 的完整链路。
+
+### aiteam (experimental) UI
+
+* **`AiteamJudgeView.vue`** 完整实现，aiteam UI 6 个 view 全数交付：
+  - Agent 下拉 + 30 日平均分大字显示
+  - **5 维雷达图 (SVG 手画)**: 5 边形 4 层 ring + 5 spoke + 实际值
+    高亮多边形 + 5 维中文 label
+  - **30 日平均分趋势线** (SVG 手画 polyline + 圆点 + gridline)
+  - 评分历史表格（5 维分列 + average 色梯度 + source tag + override 操作）
+  - "立即跑评分" dialog → POST `/api/aiteam/judge/run`（含 usage_cost_usd + call_count）
+  - "手动覆盖" dialog → POST `/api/aiteam/judge/override` 用 5 个
+    `el-slider` 拖动 0-10 + operator + rationale
+
+* **README 新章节 🧪 Experimental: aiteam 自治经济体** —
+  突出默认 off + 8 个 flag 启用清单 + 5 篇 docs 链接 + 19 次 staging
+  部署历史
+
+### Phase 2 总结
+
+| # | 阶段 | 内容 | 版本 |
+|---|------|------|------|
+| P2-S0 | 后端遗留 1 | Audit tail endpoint + B014 sessions/network 权限收紧 | v17 |
+| P2-S1 | 后端遗留 2 | Payroll daily cron 自动触发 (goroutine timer + 防双触) | v18 |
+| P2-S2 | 后端遗留 3 | Channel 入站 promptdef wrap (telegram/feishu/public_chat) | v19 |
+| P2-S3 | 后端遗留 4 | LLM-driven Judge `LLMScorer` (transcript 强制走 promptdef) | v20 |
+| P2-S4 | UI 基础 | useCurrency + 顶栏 💱 + aiteam 菜单 + DashboardView 真实页 | v21 |
+| P2-S5 | UI 钱包 | AiteamWalletView + AiteamFXView 真实页 | v22 |
+| P2-S6 | UI 风险/工资 | AiteamGuardView + AiteamPayrollView 真实页 + SVG 折线 | v23 |
+| P2-S7 | UI 评分 + 发版 | AiteamJudgeView (含 SVG 雷达图) + README experimental 段 | v24 |
+
+### 累计验收
+
+* **8 new aiteam Go 包** (flags / audit / sandbox / promptdef / budget /
+  fx / wallet / judge / payroll / revenue) + **6 new UI views**
+* **145+ aiteam test cases** 全 `-race -count=1` 绿
+* **19 次 AWS staging 部署** 每次 smoke 20/20
+* **0 引入 npm 依赖**：UI 全程用 Element Plus + Vue 3，雷达图 / 折线图
+  全部 SVG 手画
+* **零影响主线**：所有 flag 未设时行为字节等同 26.5.10v5
+
+### 不在 Phase 2 范围（保持划清）
+
+后续独立 PR：
+1. ZyStudio repo 端 webhook 实装（跨 repo）
+2. AWS 凭证迁 GitHub Secrets（GitHub UI 操作，工具外）
+3. CVE 申请 B001-B004（GHSA 私下流程）
+4. 多租户隔离（跨 aiteam 实验范围）
+5. i18n / 移动端打磨（主线路线图）
+
+详见 [docs/aiteam-architecture.md](docs/aiteam-architecture.md)
+和 [proposals/aiteam/](proposals/aiteam/)。
+
+---
+
 ## [26.5.10v23] — 2026-05-10 · 🧪 aiteam P2-S6 — UI 风险/工资域 (Guard + Payroll 实页)
 
 ### aiteam (experimental) UI
