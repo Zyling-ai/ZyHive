@@ -566,13 +566,53 @@ func main() {
 		log.Printf("[aiteam] S6 guard×wallet linkage ENABLED (zero balance triggers panic)")
 	}
 
-	// S7: aiteam Judge — multi-dimensional 0-10 scoring with heuristic
-	// v0 + manual override. Gated on ZYHIVE_EXPERIMENTAL_JUDGE.
+	// S7 + P3-S0: aiteam Judge — heuristic v0 + LLM-driven v1.
+	// When cfg.Aiteam.Judge.Model is non-empty, build an LLMScorer
+	// (with HeuristicScorer fallback). Otherwise pure heuristic.
 	var aiteamJudgeMgr *aiteamJudgePkg.Manager
 	if flags.JudgeEnabled() {
 		judgeDir := filepath.Join(agentsDir, "aiteam", "judge")
+		var scorer aiteamJudgePkg.Scorer = aiteamJudgePkg.HeuristicScorer{}
+
+		// P3-S0: try to build an LLMScorer if a judge model is configured.
+		if cfg.Aiteam.Judge.Model != "" {
+			modelEntry := cfg.FindModel(cfg.Aiteam.Judge.Model)
+			if modelEntry == nil {
+				log.Printf("[aiteam] judge model id %q not found in cfg.Models — heuristic fallback", cfg.Aiteam.Judge.Model)
+			} else {
+				// Reuse config.ResolveCredentials (same code path as the
+				// main /chat handler) so the judge model gets keys + base
+				// url from Provider registry / model.apiKey / env var
+				// fallback in a consistent way.
+				apiKey, baseURL := config.ResolveCredentials(modelEntry, cfg.Providers)
+				if apiKey == "" {
+					log.Printf("[aiteam] judge model %q has no api key wired — heuristic fallback", cfg.Aiteam.Judge.Model)
+				} else {
+					llmClient := llm.NewClient(modelEntry.Provider, baseURL)
+					timeout := 30 * time.Second
+					if cfg.Aiteam.Judge.TimeoutMs > 0 {
+						timeout = time.Duration(cfg.Aiteam.Judge.TimeoutMs) * time.Millisecond
+					}
+					call := aiteamJudgePkg.LLMCallFromClient(
+						llmClient,
+						modelEntry.Model,
+						apiKey,
+						cfg.Aiteam.Judge.MaxTokens,
+						timeout,
+					)
+					scorer = aiteamJudgePkg.LLMScorer{
+						Call:        call,
+						PromptGuard: aiteamPromptDef.New(aiteamAuditLog),
+						Fallback:    aiteamJudgePkg.HeuristicScorer{},
+					}
+					log.Printf("[aiteam] judge LLMScorer ENABLED (model=%s provider=%s)",
+						modelEntry.Model, modelEntry.Provider)
+				}
+			}
+		}
+
 		var jErr error
-		aiteamJudgeMgr, jErr = aiteamJudgePkg.New(judgeDir, nil) // nil → HeuristicScorer
+		aiteamJudgeMgr, jErr = aiteamJudgePkg.New(judgeDir, scorer)
 		if jErr != nil {
 			log.Printf("[aiteam] judge init failed: %v (judge disabled)", jErr)
 			aiteamJudgeMgr = nil
