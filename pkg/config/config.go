@@ -41,6 +41,32 @@ type Config struct {
 	// Default kind="fixed" with GlobalMaxInflight=0 (no gating); kind="adaptive"
 	// enables AIMD per-provider. See pkg/llm/throttle.go.
 	Throttle ThrottleConfig `json:"throttle,omitempty"`
+
+	// Aiteam — Phase 3 P3-S0: optional experimental subsystem config.
+	// Only consulted when ZYHIVE_EXPERIMENTAL_* env flags are set.
+	Aiteam AiteamConfig `json:"aiteam,omitempty"`
+}
+
+// AiteamConfig holds Phase 3 hooks for aiteam subsystems. Each nested
+// config is consulted only when the corresponding ZYHIVE_EXPERIMENTAL_*
+// flag is on. Empty = use the package default behaviour.
+type AiteamConfig struct {
+	Judge AiteamJudgeConfig `json:"judge,omitempty"`
+}
+
+// AiteamJudgeConfig wires the LLM-driven Judge scorer (P3-S0). When
+// Model is non-empty AND ZYHIVE_EXPERIMENTAL_JUDGE=1, main.go constructs
+// an LLMScorer using that model id (looked up in cfg.Models registry)
+// with HeuristicScorer as fallback. Empty Model = HeuristicScorer only.
+type AiteamJudgeConfig struct {
+	// Model is an entry id from cfg.Models[].ID (e.g. "claude-sonnet-4-6").
+	// The model entry's provider + api key + base url are used to build
+	// the underlying *llm.Client.
+	Model string `json:"model,omitempty"`
+	// MaxTokens caps the LLM response length. Default 1024.
+	MaxTokens int `json:"max_tokens,omitempty"`
+	// TimeoutMs is the hard wall-clock cap per call. Default 30000.
+	TimeoutMs int `json:"timeout_ms,omitempty"`
 }
 
 // BudgetConfig mirrors pkg/budget.Config (kept here so config users don't
