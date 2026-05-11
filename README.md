@@ -424,6 +424,7 @@ export ZYHIVE_AITEAM_REVENUE_SECRET="$(openssl rand -hex 32)"
 
 完整设计 + 协议规范见：
 
+- 🎬 [docs/aiteam-genesis-demo.md](docs/aiteam-genesis-demo.md) — **5 分钟跑通整个自治经济体**（真实 staging 数据）
 - [docs/aiteam-architecture.md](docs/aiteam-architecture.md) — 总览图、子系统边界、数据流
 - [docs/aiteam-wallet-protocol.md](docs/aiteam-wallet-protocol.md) — USDT ledger 协议
 - [docs/aiteam-fx-and-currency.md](docs/aiteam-fx-and-currency.md) — 多币种显示层

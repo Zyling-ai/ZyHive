@@ -568,6 +568,16 @@ func main() {
 	pool.SetAITeamWallet(aiteamWalletStore)
 	pool.SetAITeamFX(aiteamFXSvc)
 
+	// P3-S2: wire wallet write hook to refresh the metric gauge after
+	// every Credit / Debit / Transfer (not just usage debits).
+	if aiteamWalletStore != nil && aiteamMetricsReg != nil {
+		aiteamWalletStore.SetWriteHook(func(agentID string, bal decimal.Decimal) {
+			f, _ := bal.Float64()
+			aiteamMetricsReg.SetGauge(aiteamMetricsPkg.NameWalletBalance,
+				map[string]string{"agent_id": agentID}, f)
+		})
+	}
+
 	// S6: link guard ← wallet so guard.Check() also panics on
 	// zero-balance. Only meaningful when both subsystems exist; if
 	// only one flag is on, the other is nil and SetWallet(nil) is a
@@ -691,6 +701,21 @@ func main() {
 		var usageReader aiteamPayrollPkg.UsageReader = usageStore
 
 		var pErr error
+		// P3-S2: wrap walletCredit to bump the payroll metric after every
+		// successful payslip credit. Skipped entries don't count.
+		if walletCredit != nil && aiteamMetricsReg != nil {
+			inner := walletCredit
+			walletCredit = func(id string, amt decimal.Decimal, reason string) error {
+				if err := inner(id, amt, reason); err != nil {
+					aiteamMetricsReg.IncCounter(aiteamMetricsPkg.NamePayrollRuns,
+						map[string]string{"outcome": "failed"}, 1)
+					return err
+				}
+				aiteamMetricsReg.IncCounter(aiteamMetricsPkg.NamePayrollRuns,
+					map[string]string{"outcome": "paid"}, 1)
+				return nil
+			}
+		}
 		aiteamPayrollMgr, pErr = aiteamPayrollPkg.New(
 			payrollDir,
 			aiteamPayrollPkg.DefaultConfig(),
@@ -757,6 +782,18 @@ func main() {
 				walletCredit = func(agentID string, amt decimal.Decimal, reason string) error {
 					_, err := aiteamWalletStore.Credit(agentID, amt, reason)
 					return err
+				}
+				// P3-S2: bump revenue counter on each share credited.
+				if aiteamMetricsReg != nil {
+					inner := walletCredit
+					walletCredit = func(agentID string, amt decimal.Decimal, reason string) error {
+						if err := inner(agentID, amt, reason); err != nil {
+							return err
+						}
+						f, _ := amt.Float64()
+						aiteamMetricsReg.IncCounter(aiteamMetricsPkg.NameRevenueIncome, nil, f)
+						return nil
+					}
 				}
 			}
 
