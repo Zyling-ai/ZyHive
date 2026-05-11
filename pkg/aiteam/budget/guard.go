@@ -87,6 +87,12 @@ type Guard struct {
 	// panics on zero / negative balance. Wired via SetWallet from main.go
 	// after both subsystems are constructed.
 	wallet BalanceReader
+
+	// notifyHook — optional P3-S1 callback fired when a panic is
+	// triggered. Receives the agentID, the canonical reason
+	// ("agent_daily" / "global_daily" / "session" / "zero_balance"),
+	// and a human-readable message. nil = no notification.
+	notifyHook func(agentID, reason, message string)
 }
 
 // New constructs a Guard. dir is <dataDir>/aiteam/guard; created if
@@ -139,6 +145,23 @@ func (g *Guard) SetWallet(w BalanceReader) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.wallet = w
+}
+
+// SetNotifyHook wires an optional callback fired once per panic
+// transition. Called WITHOUT holding g.mu so the hook is free to do
+// network IO. Idempotent. Pass nil to detach.
+//
+// The hook receives:
+//   * agentID — the agent that just panicked
+//   * reason — canonical: "agent_daily" / "global_daily" / "session" / "zero_balance"
+//   * message — pre-formatted human-readable line for operators
+func (g *Guard) SetNotifyHook(hook func(agentID, reason, message string)) {
+	if g == nil {
+		return
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.notifyHook = hook
 }
 
 // stateFile is the persistence path.
@@ -398,6 +421,42 @@ func (g *Guard) triggerPanicLocked(a *AgentState, agentID, sessionID, reason str
 		"cooldown_until":  a.CooldownUntil.UnixMilli(),
 	})
 	g.saveStateLocked()
+
+	// P3-S1: fire the notification hook OUTSIDE the mutex so the hook
+	// is free to do network IO (Telegram / Feishu push). Snapshot the
+	// hook + formatted message under the lock; release; then call.
+	if g.notifyHook != nil {
+		hook := g.notifyHook
+		msg := formatPanicMessage(agentID, reason, a.UsedDailyUSDT, cap, a.CooldownUntil)
+		// Defer-style release: we're inside Check/Charge which holds
+		// g.mu. The hook should not be invoked while holding mu, so we
+		// spawn it on a goroutine. Errors / panics in the hook do not
+		// affect the guard's correctness.
+		go func() {
+			defer func() { _ = recover() }()
+			hook(agentID, reason, msg)
+		}()
+	}
+}
+
+// formatPanicMessage builds the human-readable line passed to the
+// notify hook. Kept stable so dashboards / pushed messages stay
+// grep-able.
+func formatPanicMessage(agentID, reason string, used, cap decimal.Decimal, cooldownUntil time.Time) string {
+	reasonZH := map[string]string{
+		"agent_daily":   "agent 日累计超限",
+		"global_daily":  "全局日累计超限",
+		"session":       "单 session 超限",
+		"zero_balance":  "钱包余额耗尽",
+	}[reason]
+	if reasonZH == "" {
+		reasonZH = reason
+	}
+	cooldownDesc := cooldownUntil.Format("2006-01-02 15:04")
+	return fmt.Sprintf(
+		"⚠️ aiteam 护栏触发熔断\nagent: %s\n原因: %s (%s)\n已用: %s USDT / 上限: %s USDT\n冷却到: %s",
+		agentID, reasonZH, reason, used.String(), cap.String(), cooldownDesc,
+	)
 }
 
 // appendAuditLocked writes to audit.log if configured; never blocks long
