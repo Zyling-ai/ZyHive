@@ -98,7 +98,7 @@ func (s *Store) saveChatUnlocked(c *Chat) error {
 		return err
 	}
 	path := filepath.Join(s.chatsDir(), filenameForID(c.ID))
-	if err := os.WriteFile(path, []byte(renderChatMD(c)), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(renderChatMD(c)), 0o600); err != nil {
 		return err
 	}
 	return s.refreshIndexUnlocked()

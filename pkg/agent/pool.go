@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	aiteamAudit "github.com/Zyling-ai/zyhive/pkg/aiteam/audit"
 	aiteamBudget "github.com/Zyling-ai/zyhive/pkg/aiteam/budget"
 	aiteamFX "github.com/Zyling-ai/zyhive/pkg/aiteam/fx"
 	aiteamJudge "github.com/Zyling-ai/zyhive/pkg/aiteam/judge"
@@ -80,6 +81,9 @@ type Pool struct {
 
 	// aiteamRevenue — optional PR-005 Revenue ingester (S9).
 	aiteamRevenue *aiteamRevenue.Ingester
+
+	// aiteamAudit — optional shared audit log (P2-S0 exposed for tail API).
+	aiteamAudit *aiteamAudit.Log
 
 	cronEngine *cron.Engine // optional: enables cron_list/add/remove tools
 
@@ -490,6 +494,12 @@ func (p *Pool) SetAITeamRevenue(r *aiteamRevenue.Ingester) { p.aiteamRevenue = r
 
 // AITeamRevenue exposes the Revenue ingester. May return nil.
 func (p *Pool) AITeamRevenue() *aiteamRevenue.Ingester { return p.aiteamRevenue }
+
+// SetAITeamAudit wires the shared audit log so route handlers can tail it.
+func (p *Pool) SetAITeamAudit(a *aiteamAudit.Log) { p.aiteamAudit = a }
+
+// AITeamAudit exposes the audit log. May return nil.
+func (p *Pool) AITeamAudit() *aiteamAudit.Log { return p.aiteamAudit }
 
 // Manager returns the underlying agent manager (used by API handlers to
 // list agents for payroll batch run, etc.).

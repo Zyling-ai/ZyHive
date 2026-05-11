@@ -4,6 +4,53 @@
 
 ---
 
+## [26.5.10v17] — 2026-05-10 · 🧪 aiteam P2-S0 — Audit tail endpoint + B014 续修
+
+aiteam Phase 2 启动。Phase 1 (S0-S10) 收官后用户要求继续全面开发，新增 8 阶段
+Phase 2（P2-S0 → P2-S7）。本次落 P2-S0 — 收掉 Phase 1 标记 follow-up 的
+audit tail + B014 文件权限两条尾巴。
+
+### aiteam (experimental)
+
+* **Audit Tail endpoint** — `pkg/aiteam/audit.Log.Tail(n)` 新增
+  - 反向 chunked back-scan 读最后 n 行，单文件 ≥ 50k 行也快
+  - 损坏行 silently skip（恢复 partial-write 韧性）
+  - `nil` log 安全返回空切片
+  - `/api/aiteam/audit?limit=200`（上限 5000）现在返回真实 JSON 列表
+  - 共享单一 audit log instance：main.go 在 `flags.AnyEnabled()` 时创建一次，
+    传递给 guard / wallet / payroll / judge / revenue 全部子系统；
+    `pool.SetAITeamAudit / AITeamAudit` 访问器供 dashboard 复用
+* **测试** 5 新 case 全 -race 绿:
+  - TailReturnsLastN / TailNilSafe / TailEmptyOrMissingFile /
+    TailMoreThanExisting / TailSkipsCorruptLines / TailLargeFileChunking
+
+### 安全（主线，B014 续修）
+
+* **B014 partial fix #2** — 把权限收紧扩展到主线核心数据：
+  - `pkg/session/store.go`: sessions 目录 0755 → 0700，sessions.json 0644 → 0600，
+    每个 session JSONL 0644 → 0600
+  - `pkg/network/store.go`: contacts/chats 目录 0755 → 0700，INDEX.{md,json}
+    + contact md 文件 0644 → 0600
+  - `pkg/network/chat_store.go`: chat md 文件 0644 → 0600
+  - `pkg/network/migrate.go`: 迁移路径 0755/0644 → 0700/0600
+  - 已存在文件 mode **不自动调整**（保留用户元数据；只对新写文件强制 secure mode）
+
+### 兼容性
+
+- audit tail 仅当 `ZYHIVE_EXPERIMENTAL_AITEAM_DASHBOARD=1` 时返回 200，
+  否则 404 not enabled（沿用 Phase 1 路由壳契约）
+- 文件权限修：只影响 **新写** 的 session/network 文件；老用户现有数据完整保留
+- 主线 80+ 工具 + Phase 1 110+ aiteam 测试 + Phase 2 新增 7 测试全 -race 绿
+
+### 升级建议
+
+- ✅ 推荐升级（共享单一 audit log 降低重复 io，文件权限收敛减少同机其他
+  用户读取风险）
+
+详见 [proposals/aiteam/bugs/B014-file-perms-lax.md](proposals/aiteam/bugs/B014-file-perms-lax.md)。
+
+---
+
 ## [26.5.10v16] — 2026-05-10 · 🎉 aiteam S10 — Dashboard overview + Genesis demo (S0-S10 全程收官)
 
 aiteam 11 阶段全部落地。从 26.5.10v6 (S0) 到 26.5.10v16 (S10)，单天内完成 11

@@ -19,7 +19,7 @@ func MigrateIfNeeded(workspaceDir string) error {
 		return nil
 	}
 	netDir := filepath.Join(workspaceDir, "network")
-	if err := os.MkdirAll(filepath.Join(netDir, "contacts"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(netDir, "contacts"), 0o700); err != nil {
 		return fmt.Errorf("network.MigrateIfNeeded: mkdir: %w", err)
 	}
 
@@ -28,13 +28,13 @@ func MigrateIfNeeded(workspaceDir string) error {
 	newRel := filepath.Join(netDir, "RELATIONS.md")
 	if _, err := os.Stat(newRel); os.IsNotExist(err) {
 		if data, err := os.ReadFile(oldRel); err == nil {
-			if err := os.WriteFile(newRel, data, 0644); err != nil {
+			if err := os.WriteFile(newRel, data, 0o600); err != nil {
 				return fmt.Errorf("network.MigrateIfNeeded: write new RELATIONS: %w", err)
 			}
 			// Leave the old file as a breadcrumb pointer for a grace period —
 			// safer than deleting. Replace content with a pointer stub.
 			pointer := "> RELATIONS.md 已迁移到 network/RELATIONS.md\n"
-			_ = os.WriteFile(oldRel, []byte(pointer), 0644)
+			_ = os.WriteFile(oldRel, []byte(pointer), 0o600)
 		}
 	}
 
@@ -43,7 +43,7 @@ func MigrateIfNeeded(workspaceDir string) error {
 	newUP := filepath.Join(workspaceDir, "memory", "core", "owner-profile.md")
 	if _, err := os.Stat(newUP); os.IsNotExist(err) {
 		if data, err := os.ReadFile(oldUP); err == nil && len(strings.TrimSpace(string(data))) > 0 {
-			if err := os.WriteFile(newUP, data, 0644); err != nil {
+			if err := os.WriteFile(newUP, data, 0o600); err != nil {
 				return fmt.Errorf("network.MigrateIfNeeded: write owner-profile: %w", err)
 			}
 			// Remove the old file so system_prompt stops injecting it twice
