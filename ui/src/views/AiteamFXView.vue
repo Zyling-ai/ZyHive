@@ -176,6 +176,12 @@ async function submitOverride() {
     ElMessage.warning('请输入大于 0 的数值')
     return
   }
+  // B033 fix: match server-side guard `[1e-6, 1e6]` so the user gets a
+  // helpful message instead of a generic 400 from the API.
+  if (r < 1e-6 || r > 1e6) {
+    ElMessage.warning('汇率必须在 1e-6 ~ 1e6 之间（极端值会破坏显示层）')
+    return
+  }
   submitting.value = true
   try {
     await overrideFx(overrideForm.value.currency, r)

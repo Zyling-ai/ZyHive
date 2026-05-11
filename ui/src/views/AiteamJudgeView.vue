@@ -180,7 +180,7 @@ async function refresh() {
     const a = await listJudgeAgents()
     agentIds.value = a.agents
     if (!selectedAgent.value && agentIds.value.length > 0) {
-      selectedAgent.value = agentIds.value[0]
+      selectedAgent.value = agentIds.value[0] || ''
     }
     if (selectedAgent.value) await loadHistory()
   } catch (e: any) {
@@ -209,7 +209,7 @@ async function loadHistory() {
 
 const latestScore = computed<JudgeScore | null>(() => {
   if (history.value.length === 0) return null
-  return history.value[history.value.length - 1]
+  return history.value[history.value.length - 1] ?? null
 })
 
 // ── radar geometry ──────────────────────────────────────────────
@@ -272,12 +272,23 @@ function openRunDialog() {
 }
 
 async function submitRun() {
+  // B031 fix: validate numeric inputs so we never POST `null` / `NaN`.
+  const usageUSD = parseFloat(runForm.value.usageUSD)
+  const callCount = parseInt(runForm.value.callCount, 10)
+  if (!Number.isFinite(usageUSD) || usageUSD < 0) {
+    ElMessage.warning('usage USD 必须是 ≥ 0 的数字')
+    return
+  }
+  if (!Number.isFinite(callCount) || callCount < 0) {
+    ElMessage.warning('调用次数必须是 ≥ 0 的整数')
+    return
+  }
   submitting.value = true
   try {
     await runJudge(
       selectedAgent.value,
-      parseFloat(runForm.value.usageUSD),
-      parseInt(runForm.value.callCount, 10),
+      usageUSD,
+      callCount,
     )
     ElMessage.success(`已对 ${selectedAgent.value} 跑评分`)
     runDialog.value = false

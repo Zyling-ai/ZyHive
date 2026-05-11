@@ -198,6 +198,20 @@ function openLimit(agentId: string, currentLimit: string) {
 }
 
 async function submitLimit() {
+  // B028 fix: validate input is a non-negative finite number.
+  const amt = parseFloat(limitForm.value.amount)
+  if (!Number.isFinite(amt)) {
+    ElMessage.warning('上限必须是数字，例如 10.00；填 0 表示不限')
+    return
+  }
+  if (amt < 0) {
+    ElMessage.warning('上限不能为负值；填 0 表示不限')
+    return
+  }
+  if (amt > 1e9) {
+    ElMessage.warning('上限不可超过 10 亿 USDT')
+    return
+  }
   submitting.value = true
   try {
     await setGuardLimit(limitForm.value.agentId, limitForm.value.amount)
