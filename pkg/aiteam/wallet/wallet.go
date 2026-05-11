@@ -83,6 +83,28 @@ type Store struct {
 
 	mu       sync.RWMutex
 	accounts map[string]*account
+
+	// writeHook (P3-S2): optional callback fired after every successful
+	// Credit / Debit / Transfer with the affected agentID and post-op
+	// balance. Used by main.go to keep the Prometheus wallet balance
+	// gauge fresh. Nil = no hook. Hook runs synchronously inside the
+	// per-account lock — keep it FAST (no IO, no network).
+	writeHook func(agentID string, balanceUSDT decimal.Decimal)
+}
+
+// SetWriteHook installs an optional callback fired after every wallet
+// write. Idempotent; pass nil to detach. The hook is called WITH the
+// per-account mutex held — implementations must be cheap and never
+// block (no network IO, no disk IO, no nested wallet calls).
+//
+// Typical use: refresh in-memory Prometheus gauges.
+func (s *Store) SetWriteHook(hook func(agentID string, balanceUSDT decimal.Decimal)) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.writeHook = hook
 }
 
 // New creates a Store rooted at dir (typically <dataDir>/aiteam/wallet).
@@ -324,6 +346,14 @@ func (s *Store) writeLocked(acc *account, t EntryType, amount decimal.Decimal, r
 				"counterparty":       counterparty,
 			},
 		})
+	}
+	// P3-S2: fire the write hook (typically refreshes metric gauge).
+	// Snapshot it under s.mu for thread-safety with SetWriteHook.
+	s.mu.RLock()
+	hook := s.writeHook
+	s.mu.RUnlock()
+	if hook != nil {
+		hook(acc.id, newBal)
 	}
 	return &e, nil
 }
