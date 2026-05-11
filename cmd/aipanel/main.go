@@ -566,6 +566,41 @@ func main() {
 		log.Printf("[aiteam] S6 guard×wallet linkage ENABLED (zero balance triggers panic)")
 	}
 
+	// P3-S1: wire a panic notification hook to the Guard. When set,
+	// every panic transition pushes a formatted message to:
+	//   1. journalctl / stderr (always, with [PANIC] prefix for grep)
+	//   2. owner Telegram chat (only when ZYHIVE_AITEAM_PANIC_TG_CHAT is
+	//      configured AND the panicked agent has an active Telegram bot)
+	if aiteamGuard != nil {
+		ownerTGChatStr := os.Getenv("ZYHIVE_AITEAM_PANIC_TG_CHAT")
+		var ownerTGChat int64
+		if ownerTGChatStr != "" {
+			fmt.Sscanf(ownerTGChatStr, "%d", &ownerTGChat)
+		}
+		aiteamGuard.SetNotifyHook(func(agentID, reason, message string) {
+			// 1. Always log (operators with monitoring grep this).
+			log.Printf("[PANIC] aiteam/budget agent=%s reason=%s\n%s", agentID, reason, message)
+
+			// 2. Try Telegram if owner chat configured.
+			if ownerTGChat != 0 {
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				// Try the panicked agent's own bot first, fall back to
+				// any active bot in the pool.
+				if err := botCtrl.Notify(ctx, agentID, "", ownerTGChat, 0, message); err != nil {
+					log.Printf("[PANIC] tg push failed (agent=%s): %v", agentID, err)
+				}
+			}
+		})
+		log.Printf("[aiteam] P3-S1 panic notify hook installed (tg_chat=%s)",
+			func() string {
+				if ownerTGChatStr == "" {
+					return "<unset; stderr-only>"
+				}
+				return ownerTGChatStr
+			}())
+	}
+
 	// S7 + P3-S0: aiteam Judge — heuristic v0 + LLM-driven v1.
 	// When cfg.Aiteam.Judge.Model is non-empty, build an LLMScorer
 	// (with HeuristicScorer fallback). Otherwise pure heuristic.
