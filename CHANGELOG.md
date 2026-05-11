@@ -4,6 +4,40 @@
 
 ---
 
+## [26.5.10v22] — 2026-05-10 · 🧪 aiteam P2-S5 — UI 钱包域 (Wallet + FX 实页)
+
+### aiteam (experimental) UI
+
+* **`AiteamWalletView.vue`** 替换 placeholder 为真实页面：
+  - Top 5 余额排行卡（自动从 `/api/aiteam/overview` 拉）
+  - Agent 下拉 + 选中后大字体余额显示（USDT 数值 + useCurrency 渲染当前币种）
+  - 最近 20 条账本表格（类型 tag + 金额 +/- 颜色 + 变动后余额 + 备注 + 对方）
+  - "入金" dialog：选 agent / 金额 USDT / 原因 → POST `/api/aiteam/wallet/:id/credit`
+  - 5 种账本 type 映射友好中文 + tag 颜色
+
+* **`AiteamFXView.vue`** 替换 placeholder 为真实页面：
+  - Source 状态卡：当前活跃源 + 基准币种 + 最近刷新时间 + 启用硬编码/磁盘
+    缓存时的警告横幅
+  - 9 币种汇率表格：当前 rate + override 状态 tag + "$1 USDT 显示为..." 预览
+  - 操作列：「编辑」开 dialog 覆盖 / 「清除覆盖」回到实时
+  - 覆盖 dialog 显式提示「只改显示，ledger 历史 fx_snapshot 不动」
+  - 「立即刷新（拉远端）」按钮 → POST `/api/aiteam/fx/refresh`，成功后立即
+    更新顶栏货币切换器的实时汇率
+
+### 设计哲学呼应
+
+- AI 永远只看 USDT 数值（钱包页面也是 — 显示币种切换不影响 ledger 数值）
+- override 操作显式标记「只改显示」防误解
+- 任何 404 都被映射为「未启用」提示（不让用户面对原始错误）
+
+### 兼容性
+
+- 这两个 view 在 wallet flag 关时不会被菜单显示（菜单 v-if 控制）
+- 主线 + Phase 1 + Phase 2 累计 33 test cases 全 -race 绿
+- `npm run build` 通过 ; bundle size 与 P2-S4 持平（48 个 asset）
+
+---
+
 ## [26.5.10v21] — 2026-05-10 · 🧪 aiteam P2-S4 — UI 基础（货币切换器 + 路由 + 总览页）
 
 ### aiteam (experimental) UI
