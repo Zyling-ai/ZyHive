@@ -4,6 +4,43 @@
 
 ---
 
+## [26.5.10v19] — 2026-05-10 · 🧪 aiteam P2-S2 — Channel inbound promptdef wrap
+
+### aiteam (experimental)
+
+* **Channel inbound promptdef integration** — 把 PR-008 提示词注入防御从
+  仅 `web_fetch` 扩展到所有渠道入站消息
+  - main.go 的 `runnerFunc`（被 Telegram / Feishu / public_chat 三个渠道
+    + 内部 SSE API 调用共享）在调用 `pool.Run` 前用
+    `promptDefGuard.Wrap(message, SourceChannel, agentID, "")` 包裹
+  - 关 flag 时 Wrap 内部 short-circuit，行为字节等同 26.5.10v18
+  - 开 flag 时：所有外部用户的消息（Telegram 群聊 / 飞书私聊 / Web 公开聊天）
+    都会被 `<untrusted_external_content source="channel" hit_rules="...">`
+    信封包裹，命中规则旁路到共享 audit log（`promptdef.hit` type）
+  - 单点集成：任何新加渠道自动继承防御，无需 per-channel 修改
+* 音频日志共享：`aiteamAuditLog` 现在初始化时机提前到 runnerFunc 构造之前，
+  channel-prompt guard + 所有 aiteam 子系统 + dashboard tail endpoint 都
+  指向同一个 audit log 实例
+
+### 兼容性
+
+- `ZYHIVE_EXPERIMENTAL_PROMPTDEF` 未设（默认）→ 渠道消息完全不变，
+  既有 110+ aiteam 测试 + 主线测试 + Phase 2 累计 23 测试全 -race 绿
+- 同时启 `PROMPTDEF` + `WALLET` 等 flag 时 audit log 单一实例，
+  全子系统旁路汇总
+
+### 启用方式
+
+```bash
+export ZYHIVE_EXPERIMENTAL_PROMPTDEF=1
+export ZYHIVE_EXPERIMENTAL_AITEAM_DASHBOARD=1  # 可选：查看命中事件
+# 此后所有外部入站消息都自动包裹；查看命中事件:
+curl -H "Authorization: Bearer $TOKEN" \
+     "http://localhost:8080/api/aiteam/audit?limit=50" | jq '.entries[] | select(.type=="promptdef.hit")'
+```
+
+---
+
 ## [26.5.10v18] — 2026-05-10 · 🧪 aiteam P2-S1 — Payroll daily cron 自动触发
 
 ### aiteam (experimental)

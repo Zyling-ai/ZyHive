@@ -30,6 +30,7 @@ import (
 	aiteamFXPkg "github.com/Zyling-ai/zyhive/pkg/aiteam/fx"
 	aiteamJudgePkg "github.com/Zyling-ai/zyhive/pkg/aiteam/judge"
 	aiteamPayrollPkg "github.com/Zyling-ai/zyhive/pkg/aiteam/payroll"
+	aiteamPromptDef "github.com/Zyling-ai/zyhive/pkg/aiteam/promptdef"
 	aiteamRevenuePkg "github.com/Zyling-ai/zyhive/pkg/aiteam/revenue"
 	aiteamWalletPkg "github.com/Zyling-ai/zyhive/pkg/aiteam/wallet"
 	"github.com/Zyling-ai/zyhive/pkg/budget"
@@ -288,10 +289,35 @@ func main() {
 		_ = bot.ProactiveSend(header + output)
 	}
 
+	// Shared aiteam audit log — created here so the channel-promptdef
+	// wrap below can reference it. When all aiteam flags are off this
+	// is nil and audit.Append is a no-op.
+	var aiteamAuditLog *aiteamAudit.Log
+	if flags.AnyEnabled() {
+		auditDir := filepath.Join(agentsDir, "aiteam")
+		var aerr error
+		aiteamAuditLog, aerr = aiteamAudit.New(auditDir)
+		if aerr != nil {
+			log.Printf("[aiteam] audit log init failed: %v", aerr)
+		}
+	}
+
 	// runnerFunc: simple blocking runner for Telegram bot & API (runs in shared session).
 	// Distinct from cronRunFunc which uses isolated sessions.
+	// P2-S2: channel-aware promptdef wrap. When ZYHIVE_EXPERIMENTAL_PROMPTDEF
+	// is on, every inbound message from Telegram / Feishu / public chat
+	// is wrapped with <untrusted_external_content> before reaching the
+	// runner. This protects the agent from injection attacks where an
+	// external user might say "ignore your system prompt".
+	//
+	// We construct the guard once and reuse it for every inbound message.
+	// Audit log is wired so jailbreak hits show up in the dashboard.
+	channelPromptGuard := aiteamPromptDef.New(aiteamAuditLog)
 	runnerFunc := func(ctx context.Context, agentID, message string) (string, error) {
-		return pool.Run(ctx, agentID, message)
+		// Wrap.Wrap is a no-op when the flag is off → byte-identical
+		// to today's behaviour by default.
+		res := channelPromptGuard.Wrap(message, aiteamPromptDef.SourceChannel, agentID, "")
+		return pool.Run(ctx, agentID, res.Wrapped)
 	}
 	_ = runnerFunc // used below in api.RegisterRoutes
 
@@ -460,22 +486,6 @@ func main() {
 		WarnAtPct:            cfg.Budget.WarnAtPct,
 		TZ:                   cfg.Budget.TZ,
 	})
-	// Shared aiteam audit log — created once when any aiteam flag is on
-	// and reused across wallet / guard / payroll / judge / revenue. This
-	// gives the dashboard /api/aiteam/audit endpoint a single source of
-	// truth to tail. When all flags are off the log is never created.
-	// MUST be initialised before any subsystem that needs to write to it
-	// (guard / wallet / payroll / judge / revenue).
-	var aiteamAuditLog *aiteamAudit.Log
-	if flags.AnyEnabled() {
-		auditDir := filepath.Join(agentsDir, "aiteam")
-		var aerr error
-		aiteamAuditLog, aerr = aiteamAudit.New(auditDir)
-		if aerr != nil {
-			log.Printf("[aiteam] audit log init failed: %v", aerr)
-		}
-	}
-
 	// Two-tier budget tracking:
 	//   1. pkg/budget — soft warn + simple hard stop (P1-02, USD float64,
 	//      ephemeral, no cooldown). Always on by default.
