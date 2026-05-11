@@ -1,0 +1,103 @@
+/*
+ * aiteam · mobile responsive overrides (P3-S4)
+ *
+ * Applied globally so every aiteam-prefixed view adapts on small
+ * screens (iPhone SE 375px → iPad Mini portrait 768px). Keeps SVG
+ * charts visible by using viewBox-only sizing (width 100%).
+ *
+ * Activation: imported once in main.ts. Effects gated by class
+ * prefix `.aiteam-*` so non-aiteam views are unaffected.
+ */
+
+@media (max-width: 720px) {
+  /* dashboard cards → single column stack */
+  .aiteam-dashboard .aiteam-cards,
+  .aiteam-guard .overall-cards {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+  }
+
+  /* All aiteam views share a 24px page padding desktop;
+     on small screens reduce so content edges aren't cut. */
+  .aiteam-dashboard,
+  .aiteam-wallet,
+  .aiteam-fx,
+  .aiteam-guard,
+  .aiteam-judge,
+  .aiteam-payroll {
+    padding: 12px !important;
+  }
+
+  /* large balance display shrinks */
+  .aiteam-wallet .balance-value {
+    font-size: 26px !important;
+  }
+  .aiteam-dashboard .aiteam-card-value,
+  .aiteam-guard .overall-card .card-value {
+    font-size: 22px !important;
+  }
+
+  /* page header stacks: title above buttons */
+  .aiteam-wallet .page-header,
+  .aiteam-fx .page-header,
+  .aiteam-guard .page-header,
+  .aiteam-judge .page-header,
+  .aiteam-payroll .page-header {
+    flex-wrap: wrap !important;
+  }
+  .aiteam-wallet .page-header > div[style*="margin-left:auto"],
+  .aiteam-fx .page-header > div[style*="margin-left:auto"],
+  .aiteam-guard .page-header > div[style*="margin-left:auto"],
+  .aiteam-judge .page-header > div[style*="margin-left:auto"],
+  .aiteam-payroll .page-header > div[style*="margin-left:auto"] {
+    margin-left: 0 !important;
+    margin-top: 8px !important;
+    width: 100% !important;
+  }
+
+  /* judge charts row: stack instead of side-by-side */
+  .aiteam-judge .charts-row {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* leaderboard cards in wallet collapse */
+  .aiteam-wallet .leaderboard {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* el-table headers wrap differently on narrow viewports; allow horizontal
+     scroll so columns aren't truncated. Element Plus already handles
+     overflow internally but we hint the user. */
+  .aiteam-dashboard .el-table,
+  .aiteam-wallet .el-table,
+  .aiteam-fx .el-table,
+  .aiteam-guard .el-table,
+  .aiteam-judge .el-table,
+  .aiteam-payroll .el-table {
+    font-size: 11px;
+  }
+
+  /* SVG charts: ensure they shrink with viewport (already width=100% in
+     view files but defensive). */
+  .aiteam-payroll .chart-wrap svg,
+  .aiteam-judge svg {
+    max-width: 100%;
+    height: auto;
+  }
+
+  /* Hide currency code in top-bar dropdown on xs to save space */
+  .header-right .header-hide-xs {
+    /* already handled by existing class, but emphasize behaviour */
+  }
+}
+
+/* iPhone SE width — strictly narrow, force even tighter */
+@media (max-width: 380px) {
+  .aiteam-wallet .balance-value {
+    font-size: 22px !important;
+  }
+  .aiteam-dashboard .aiteam-card-title,
+  .aiteam-dashboard .aiteam-card-sub {
+    font-size: 11px;
+  }
+}
