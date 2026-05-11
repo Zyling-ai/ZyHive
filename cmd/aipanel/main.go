@@ -460,6 +460,22 @@ func main() {
 		WarnAtPct:            cfg.Budget.WarnAtPct,
 		TZ:                   cfg.Budget.TZ,
 	})
+	// Shared aiteam audit log — created once when any aiteam flag is on
+	// and reused across wallet / guard / payroll / judge / revenue. This
+	// gives the dashboard /api/aiteam/audit endpoint a single source of
+	// truth to tail. When all flags are off the log is never created.
+	// MUST be initialised before any subsystem that needs to write to it
+	// (guard / wallet / payroll / judge / revenue).
+	var aiteamAuditLog *aiteamAudit.Log
+	if flags.AnyEnabled() {
+		auditDir := filepath.Join(agentsDir, "aiteam")
+		var aerr error
+		aiteamAuditLog, aerr = aiteamAudit.New(auditDir)
+		if aerr != nil {
+			log.Printf("[aiteam] audit log init failed: %v", aerr)
+		}
+	}
+
 	// Two-tier budget tracking:
 	//   1. pkg/budget — soft warn + simple hard stop (P1-02, USD float64,
 	//      ephemeral, no cooldown). Always on by default.
@@ -470,13 +486,11 @@ func main() {
 	var aiteamGuard *aiteamBudget.Guard
 	if flags.BudgetGuardEnabled() {
 		guardDir := filepath.Join(agentsDir, "aiteam", "guard")
-		auditDir := filepath.Join(agentsDir, "aiteam")
-		auditLog, _ := aiteamAudit.New(auditDir)
 		var gErr error
 		aiteamGuard, gErr = aiteamBudget.New(guardDir, aiteamBudget.Limits{
 			TZ:       cfg.Budget.TZ,
 			Cooldown: time.Hour,
-		}, auditLog)
+		}, aiteamAuditLog)
 		if gErr != nil {
 			log.Printf("[aiteam] guard init failed: %v (guard disabled)", gErr)
 			aiteamGuard = nil
@@ -497,10 +511,8 @@ func main() {
 		aiteamFXSvc.RefreshAsync() // best-effort warm-up
 
 		walletDir := filepath.Join(agentsDir, "aiteam", "wallet")
-		auditDir := filepath.Join(agentsDir, "aiteam")
-		auditLog, _ := aiteamAudit.New(auditDir)
 		var werr error
-		aiteamWalletStore, werr = aiteamWalletPkg.New(walletDir, aiteamFXSvc, auditLog)
+		aiteamWalletStore, werr = aiteamWalletPkg.New(walletDir, aiteamFXSvc, aiteamAuditLog)
 		if werr != nil {
 			log.Printf("[aiteam] wallet init failed: %v (wallet disabled)", werr)
 			aiteamWalletStore = nil
@@ -566,8 +578,6 @@ func main() {
 	var aiteamPayrollMgr *aiteamPayrollPkg.Manager
 	if flags.PayrollEnabled() {
 		payrollDir := filepath.Join(agentsDir, "aiteam", "payroll")
-		auditDir := filepath.Join(agentsDir, "aiteam")
-		auditLog, _ := aiteamAudit.New(auditDir)
 
 		var walletCredit aiteamPayrollPkg.WalletWriter
 		if aiteamWalletStore != nil {
@@ -582,10 +592,10 @@ func main() {
 		aiteamPayrollMgr, pErr = aiteamPayrollPkg.New(
 			payrollDir,
 			aiteamPayrollPkg.DefaultConfig(),
-			aiteamJudgeMgr,  // may be nil
-			walletCredit,    // may be nil
+			aiteamJudgeMgr,    // may be nil
+			walletCredit,      // may be nil
 			usageReader,
-			auditLog,
+			aiteamAuditLog,
 		)
 		if pErr != nil {
 			log.Printf("[aiteam] payroll init failed: %v (payroll disabled)", pErr)
@@ -607,8 +617,6 @@ func main() {
 			log.Printf("[aiteam] revenue flag ON but ZYHIVE_AITEAM_REVENUE_SECRET unset; disabling")
 		} else {
 			revDir := filepath.Join(agentsDir, "aiteam", "revenue")
-			auditDir := filepath.Join(agentsDir, "aiteam")
-			auditLog, _ := aiteamAudit.New(auditDir)
 
 			var walletCredit aiteamRevenuePkg.WalletCredit
 			if aiteamWalletStore != nil {
@@ -622,7 +630,7 @@ func main() {
 			aiteamRevenueIng, rErr = aiteamRevenuePkg.New(revDir, aiteamRevenuePkg.Config{
 				Secret:          []byte(secret),
 				FreshnessWindow: 5 * time.Minute,
-			}, walletCredit, auditLog)
+			}, walletCredit, aiteamAuditLog)
 			if rErr != nil {
 				log.Printf("[aiteam] revenue init failed: %v (revenue disabled)", rErr)
 				aiteamRevenueIng = nil
@@ -632,6 +640,7 @@ func main() {
 		}
 	}
 	pool.SetAITeamRevenue(aiteamRevenueIng)
+	pool.SetAITeamAudit(aiteamAuditLog)
 
 	// P1-03: Install the configured LLM throttle (process-global). When
 	// kind="" or "fixed" with GlobalMaxInflight=0, behaviour is identical

@@ -48,14 +48,14 @@ func (s *Store) indexJSONPath() string {
 
 // ensureDirs creates network/ and network/contacts/ if missing.
 func (s *Store) ensureDirs() error {
-	return os.MkdirAll(s.contactsDir(), 0755)
+	return os.MkdirAll(s.contactsDir(), 0o700)
 }
 
 // ensureChatsDir creates network/ and network/chats/ if missing. Called
 // lazily on first chat write so old workspaces without any group activity
 // never get an empty chats/ directory.
 func (s *Store) ensureChatsDir() error {
-	return os.MkdirAll(s.chatsDir(), 0755)
+	return os.MkdirAll(s.chatsDir(), 0o700)
 }
 
 // ── Contact ID helpers ────────────────────────────────────────────────────
@@ -130,7 +130,7 @@ func (s *Store) saveUnlocked(c *Contact) error {
 		return err
 	}
 	path := filepath.Join(s.contactsDir(), filenameForID(c.ID))
-	if err := os.WriteFile(path, []byte(renderContactMD(c)), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(renderContactMD(c)), 0o600); err != nil {
 		return err
 	}
 	return s.refreshIndexUnlocked()
@@ -336,12 +336,12 @@ func (s *Store) refreshIndexUnlocked() error {
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(s.indexJSONPath(), jsonBytes, 0644); err != nil {
+	if err := os.WriteFile(s.indexJSONPath(), jsonBytes, 0o600); err != nil {
 		return err
 	}
 	// INDEX.md
 	md := renderIndexMD(summaries, chatSummaries, s.readRelationsRowsUnlocked())
-	return os.WriteFile(s.indexMDPath(), []byte(md), 0644)
+	return os.WriteFile(s.indexMDPath(), []byte(md), 0o600)
 }
 
 // RefreshIndex is the public thread-safe version.

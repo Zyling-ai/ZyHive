@@ -37,7 +37,7 @@ func (s *Store) GetOrCreate(sessionID, agentID string) (string, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if err := os.MkdirAll(s.dir, 0755); err != nil {
+	if err := os.MkdirAll(s.dir, 0o700); err != nil {
 		return "", false, err
 	}
 
@@ -397,7 +397,7 @@ func (s *Store) saveIndex(idx *SessionIndex) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(s.dir, "sessions.json"), data, 0644)
+	return os.WriteFile(filepath.Join(s.dir, "sessions.json"), data, 0o600)
 }
 
 // appendEntry marshals v as JSON and appends a newline-terminated line.
@@ -406,7 +406,7 @@ func appendEntry(path string, v any) error {
 	if err != nil {
 		return fmt.Errorf("marshal entry: %w", err)
 	}
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return err
 	}
