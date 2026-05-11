@@ -4,6 +4,39 @@
 
 ---
 
+## [26.5.10v23] — 2026-05-10 · 🧪 aiteam P2-S6 — UI 风险/工资域 (Guard + Payroll 实页)
+
+### aiteam (experimental) UI
+
+* **`AiteamGuardView.vue`** 完整实现：
+  - 3 张总览卡：今日全局支出 / Panic 计数（红/绿）/ 默认 per-agent 上限
+  - 各 agent 表格（已用 / 上限 / 状态 / 冷却到 / 操作）
+  - 表格按 panicked 优先 + USDT 用量 desc 排序，一眼看到需关注的 agent
+  - "手动解封" dialog → POST `/api/aiteam/guard/:id/release`（必填 operator + reason）
+  - "调上限" dialog → PATCH `/api/aiteam/guard/:id/limit`（0 表示不限）
+
+* **`AiteamPayrollView.vue`** 完整实现：
+  - Agent 下拉 + "立即跑工资（全员）"按钮 → POST `/api/aiteam/payroll/run`
+  - **SVG 手画折线图** 显示选中 agent 最近 30 日净额轨迹（不引入 echarts）
+    - 5 条 gridline + 单条 polyline + 每天一个点
+    - 跳过日（net ≤ 0）红色点，正常日绿色点
+  - 工资单明细表格：基本 / 奖金 (× factor) / 成本扣减 / 净额 / 状态 / 备注
+  - 月内总收入计算
+
+### 双视图共享设计
+
+- 货币显示全部走 `useCurrency.formatMoney()`，顶栏切币种 → 两页同步换算
+- 404 fail-safe → 友好提示「需要 ZYHIVE_EXPERIMENTAL_X=1」
+- 操作按钮配 loading 状态防双击
+
+### 兼容性
+
+- 两个 view 仅在对应 flag on 时菜单可见
+- 主线 + Phase 1 110+ aiteam + Phase 2 累计 33 tests + UI build 全绿
+- bundle size 与 P2-S5 同（无新增 npm 依赖）
+
+---
+
 ## [26.5.10v22] — 2026-05-10 · 🧪 aiteam P2-S5 — UI 钱包域 (Wallet + FX 实页)
 
 ### aiteam (experimental) UI
