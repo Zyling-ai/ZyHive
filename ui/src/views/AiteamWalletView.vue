@@ -59,7 +59,10 @@
     <el-card v-if="walletData" shadow="never">
       <template #header>
         <span>账本（最近 20 条）</span>
-        <el-button link size="small" @click="loadLedger" style="float:right">全部账本</el-button>
+        <span style="float:right;display:flex;gap:8px">
+          <el-button link size="small" @click="loadLedger">全部账本</el-button>
+          <el-button link size="small" @click="downloadCSV" type="primary">📥 CSV 导出</el-button>
+        </span>
       </template>
       <el-table :data="walletData.recent_ledger" size="small" max-height="500">
         <el-table-column label="时间" width="170">
@@ -173,7 +176,39 @@ async function onAgentChange(agentId: string) {
 
 async function loadLedger() {
   // Could open a fuller dialog; for now just show a message about scroll
-  ElMessage.info('完整账本将在 P2-S7 加入；当前展示最近 20 条')
+  ElMessage.info('完整账本可点 CSV 导出获取；当前展示最近 20 条')
+}
+
+function downloadCSV() {
+  if (!selectedAgent.value) return
+  // Build URL with auth token in query (CSV download is a navigation,
+  // bearer header won't be sent). We use a query token pattern.
+  // For simplicity, just open a new tab; modern browsers will use the
+  // already-authenticated session via API's auth middleware. If the
+  // bearer token approach is required, generate a one-time download
+  // token endpoint — out of scope for P3-S3.
+  const token = localStorage.getItem('aipanel_token') || ''
+  // axios-style header isn't applicable for browser nav. We embed a
+  // temporary form POST or just rely on Authorization header via
+  // fetch + blob conversion.
+  fetch(`/api/aiteam/wallet/${encodeURIComponent(selectedAgent.value)}/ledger.csv`, {
+    headers: { 'Authorization': `Bearer ${token}` },
+  }).then(r => {
+    if (!r.ok) throw new Error(`HTTP ${r.status}`)
+    return r.blob()
+  }).then(blob => {
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `ledger-${selectedAgent.value}-${new Date().toISOString().slice(0,10)}.csv`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+    ElMessage.success('CSV 导出完成')
+  }).catch((e) => {
+    ElMessage.error(`导出失败: ${e.message}`)
+  })
 }
 
 async function submitCredit() {

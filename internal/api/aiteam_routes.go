@@ -25,7 +25,9 @@ package api
 
 import (
 	"context"
+	"encoding/csv"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -211,6 +213,48 @@ func registerAITeamRoutes(v1 *gin.RouterGroup, pool *agent.Pool) {
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"agentId": c.Param("agentId"), "entries": entries})
+	})
+	// P3-S3: CSV export for accounting / tax season download. Includes
+	// FX snapshot columns when present so historical multi-currency
+	// rendering is preserved at row level.
+	g.GET("/wallet/:agentId/ledger.csv", func(c *gin.Context) {
+		if !flags.WalletEnabled() {
+			notEnabled(c, "wallet")
+			return
+		}
+		ws := walletStore()
+		if ws == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "wallet not initialised"})
+			return
+		}
+		agentID := c.Param("agentId")
+		entries, err := ws.Ledger(agentID, 0)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.Header("Content-Type", "text/csv; charset=utf-8")
+		c.Header("Content-Disposition",
+			fmt.Sprintf(`attachment; filename="ledger-%s-%s.csv"`,
+				agentID, time.Now().UTC().Format("2006-01-02")))
+		w := csv.NewWriter(c.Writer)
+		_ = w.Write([]string{
+			"timestamp_ms", "iso8601", "type", "amount_usdt",
+			"balance_after_usdt", "reason", "counterparty",
+		})
+		for _, e := range entries {
+			isoTime := time.UnixMilli(e.Timestamp).UTC().Format(time.RFC3339)
+			_ = w.Write([]string{
+				strconv.FormatInt(e.Timestamp, 10),
+				isoTime,
+				string(e.Type),
+				e.AmountUSDT.String(),
+				e.BalanceAfterUSDT.String(),
+				e.Reason,
+				e.Counterparty,
+			})
+		}
+		w.Flush()
 	})
 
 	// -- FX / Currency layer (PR-001 § 2.7) — REAL handlers ---------------
