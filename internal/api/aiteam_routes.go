@@ -35,6 +35,7 @@ import (
 	"github.com/shopspring/decimal"
 
 	"github.com/Zyling-ai/zyhive/pkg/agent"
+	aiteamAudit "github.com/Zyling-ai/zyhive/pkg/aiteam/audit"
 	"github.com/Zyling-ai/zyhive/pkg/aiteam/flags"
 	aiteamFX "github.com/Zyling-ai/zyhive/pkg/aiteam/fx"
 	aiteamJudge "github.com/Zyling-ai/zyhive/pkg/aiteam/judge"
@@ -96,6 +97,12 @@ func registerAITeamRoutes(v1 *gin.RouterGroup, pool *agent.Pool) {
 			return nil
 		}
 		return pool.AITeamRevenue()
+	}
+	auditLog := func() *aiteamAudit.Log {
+		if pool == nil {
+			return nil
+		}
+		return pool.AITeamAudit()
 	}
 
 	// -- Flags status (always available, never gated) ---------------------
@@ -605,26 +612,28 @@ func registerAITeamRoutes(v1 *gin.RouterGroup, pool *agent.Pool) {
 			notEnabled(c, "dashboard")
 			return
 		}
-		// v0: serve the on-disk audit.log raw. UI consumes JSONL and
-		// renders the timeline. limit param caps result size for the
-		// dashboard sidebar tail view.
-		// We do NOT pull all rows into memory; the file is bounded by
-		// the rotation policy (50k lines default) so tail-N is fast.
+		log := auditLog()
+		if log == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"error": "audit log not initialised (no aiteam flag enabled)",
+			})
+			return
+		}
 		limit := 200
 		if l := c.Query("limit"); l != "" {
 			if n, err := strconv.Atoi(l); err == nil && n > 0 && n <= 5000 {
 				limit = n
 			}
 		}
-		// Find audit.log relative to the agents dir. We don't have a
-		// direct accessor on Pool; the dashboard endpoint is a simple
-		// passthrough and falls back to "not configured" when audit log
-		// path is unknown. For v0 we just report 503 here and let
-		// operators rely on direct file access. Keeps API surface
-		// minimal until UI lands.
-		c.JSON(http.StatusServiceUnavailable, gin.H{
-			"error": "audit tail endpoint not yet wired; see <dataDir>/aiteam/audit.log directly",
-			"hint":  "limit=" + strconv.Itoa(limit),
+		entries, err := log.Tail(limit)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"entries": entries,
+			"count":   len(entries),
+			"limit":   limit,
 		})
 	})
 }

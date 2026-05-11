@@ -149,6 +149,107 @@ func Test_AITeam_Audit_ConcurrentAppendsAreSafe(t *testing.T) {
 	}
 }
 
+func Test_AITeam_Audit_TailReturnsLastN(t *testing.T) {
+	dir := t.TempDir()
+	log, _ := New(dir)
+	for i := 0; i < 50; i++ {
+		_ = log.Append(Entry{Type: "x", Detail: map[string]any{"i": i}})
+	}
+	tail, err := log.Tail(10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tail) != 10 {
+		t.Fatalf("expected 10 entries, got %d", len(tail))
+	}
+	// Last entry should be i=49.
+	last := tail[len(tail)-1]
+	if v, _ := last.Detail["i"].(float64); int(v) != 49 {
+		t.Fatalf("last entry i=%v want 49", last.Detail["i"])
+	}
+	// First of tail should be i=40.
+	first := tail[0]
+	if v, _ := first.Detail["i"].(float64); int(v) != 40 {
+		t.Fatalf("first of tail i=%v want 40", first.Detail["i"])
+	}
+}
+
+func Test_AITeam_Audit_TailNilSafe(t *testing.T) {
+	var log *Log
+	tail, err := log.Tail(10)
+	if err != nil {
+		t.Fatalf("nil tail should not error, got %v", err)
+	}
+	if len(tail) != 0 {
+		t.Fatal("nil tail should return empty")
+	}
+}
+
+func Test_AITeam_Audit_TailEmptyOrMissingFile(t *testing.T) {
+	// Fresh dir, no file yet.
+	log, _ := New(t.TempDir())
+	tail, err := log.Tail(5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tail) != 0 {
+		t.Fatalf("empty file should yield empty tail, got %d", len(tail))
+	}
+}
+
+func Test_AITeam_Audit_TailMoreThanExisting(t *testing.T) {
+	dir := t.TempDir()
+	log, _ := New(dir)
+	for i := 0; i < 3; i++ {
+		_ = log.Append(Entry{Type: "x", Detail: map[string]any{"i": i}})
+	}
+	tail, _ := log.Tail(100)
+	if len(tail) != 3 {
+		t.Fatalf("want 3 entries when asking for 100 and only 3 exist, got %d", len(tail))
+	}
+}
+
+func Test_AITeam_Audit_TailSkipsCorruptLines(t *testing.T) {
+	dir := t.TempDir()
+	log, _ := New(dir)
+	_ = log.Append(Entry{Type: "good1"})
+	// Manually append a garbage line.
+	f, _ := os.OpenFile(log.Path(), os.O_APPEND|os.O_WRONLY, 0o600)
+	_, _ = f.WriteString("{not-valid-json}\n")
+	_ = f.Close()
+	_ = log.Append(Entry{Type: "good2"})
+	tail, _ := log.Tail(10)
+	if len(tail) != 2 {
+		t.Fatalf("expected 2 valid entries (corrupt skipped), got %d", len(tail))
+	}
+	if tail[0].Type != "good1" || tail[1].Type != "good2" {
+		t.Fatalf("unexpected entries: %+v", tail)
+	}
+}
+
+func Test_AITeam_Audit_TailLargeFileChunking(t *testing.T) {
+	// Verify back-scan chunking handles files > one chunk (>8 KiB).
+	dir := t.TempDir()
+	log, _ := New(dir)
+	// Each entry is ~200 bytes; 200 entries → ~40 KiB → exercises
+	// multi-chunk back-scan.
+	for i := 0; i < 200; i++ {
+		_ = log.Append(Entry{Type: "x", AgentID: "alice",
+			Detail: map[string]any{"i": i, "padding": "abcdefghij abcdefghij abcdefghij abcdefghij"}})
+	}
+	tail, err := log.Tail(5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tail) != 5 {
+		t.Fatalf("want 5, got %d", len(tail))
+	}
+	// Last entry must be i=199.
+	if v, _ := tail[4].Detail["i"].(float64); int(v) != 199 {
+		t.Fatalf("last entry i=%v want 199", tail[4].Detail["i"])
+	}
+}
+
 func Test_AITeam_Audit_StartupLineCountRecovery(t *testing.T) {
 	dir := t.TempDir()
 	log1, _ := New(dir)

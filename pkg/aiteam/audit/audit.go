@@ -139,6 +139,98 @@ func (l *Log) LineCount() int {
 	return l.lineCount
 }
 
+// Tail returns the last `n` entries from the audit log, oldest-of-tail
+// first. Reads the file from the end using a chunked back-scan so it
+// stays fast even for fully-rotated 50k-line files.
+//
+// Lines that fail JSON parse are silently skipped (resilient to
+// partial-write corruption at the tail). When the file does not exist
+// or n <= 0, returns an empty slice.
+func (l *Log) Tail(n int) ([]Entry, error) {
+	if l == nil || n <= 0 {
+		return []Entry{}, nil
+	}
+	f, err := os.Open(l.path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []Entry{}, nil
+		}
+		return nil, err
+	}
+	defer f.Close()
+
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	size := info.Size()
+	if size == 0 {
+		return []Entry{}, nil
+	}
+
+	// Read backwards in 8 KiB chunks until we collect n+1 newline
+	// boundaries (n+1 because the trailing newline counts as the end of
+	// the last entry). The captured `tail` buffer is then forward-split
+	// and the last n lines parsed.
+	const chunk = 8 * 1024
+	var (
+		buf      []byte
+		pos      = size
+		newlines = 0
+	)
+	for pos > 0 && newlines <= n {
+		readSize := int64(chunk)
+		if pos < readSize {
+			readSize = pos
+		}
+		pos -= readSize
+		seg := make([]byte, readSize)
+		if _, err := f.ReadAt(seg, pos); err != nil {
+			return nil, err
+		}
+		buf = append(seg, buf...) // prepend
+		for _, b := range seg {
+			if b == '\n' {
+				newlines++
+			}
+		}
+	}
+
+	// Split into lines; keep only the last n non-empty lines.
+	lines := splitJSONL(buf)
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	out := make([]Entry, 0, len(lines))
+	for _, line := range lines {
+		var e Entry
+		if err := json.Unmarshal(line, &e); err != nil {
+			continue // skip partial / corrupt lines
+		}
+		out = append(out, e)
+	}
+	return out, nil
+}
+
+// splitJSONL splits the buffer on '\n' and drops empty lines. Used by
+// Tail; cheap O(n).
+func splitJSONL(b []byte) [][]byte {
+	var out [][]byte
+	start := 0
+	for i, c := range b {
+		if c == '\n' {
+			if i > start {
+				out = append(out, b[start:i])
+			}
+			start = i + 1
+		}
+	}
+	if start < len(b) {
+		out = append(out, b[start:])
+	}
+	return out
+}
+
 // rotateLocked renames the active log to <path>.<ts> and resets the line
 // count. Caller must hold l.mu.
 func (l *Log) rotateLocked() error {
