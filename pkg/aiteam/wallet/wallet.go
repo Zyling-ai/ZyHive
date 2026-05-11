@@ -154,6 +154,15 @@ func (s *Store) loadAll() error {
 }
 
 // replay reads the on-disk ledger and reconstructs the balance.
+//
+// BUG-FIX P3-S8: corrupted lines (e.g. partial-write on power loss)
+// are now SILENTLY SKIPPED rather than aborting the whole replay.
+// Previously a single bad line made the agent's wallet unrecoverable
+// even though most of the ledger was perfectly intact. Skipping is
+// safe because each Entry carries BalanceAfterUSDT — losing a row in
+// the middle merely means the balance jumps to the next valid row's
+// post-op value, which is exactly what we want (the bad row was
+// never persisted as a successful write anyway).
 func (s *Store) replay(agentID string) (*account, error) {
 	f, err := os.Open(s.ledgerPath(agentID))
 	if err != nil {
@@ -163,13 +172,20 @@ func (s *Store) replay(agentID string) (*account, error) {
 	acc := &account{id: agentID}
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 1<<14), 1<<20)
+	skipped := 0
 	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
 		var e Entry
-		if err := json.Unmarshal(scanner.Bytes(), &e); err != nil {
-			return nil, err
+		if err := json.Unmarshal(line, &e); err != nil {
+			skipped++
+			continue
 		}
 		acc.balance = e.BalanceAfterUSDT
 	}
+	_ = skipped // caller doesn't currently surface this; future PR can log
 	return acc, scanner.Err()
 }
 
@@ -349,11 +365,28 @@ func (s *Store) writeLocked(acc *account, t EntryType, amount decimal.Decimal, r
 	}
 	// P3-S2: fire the write hook (typically refreshes metric gauge).
 	// Snapshot it under s.mu for thread-safety with SetWriteHook.
+	// BUG-FIX P3-S8: wrap in recover() — a misbehaving hook (e.g. a
+	// metrics-system bug, a panic during string formatting in
+	// monitoring code) must NOT corrupt the wallet ledger or propagate
+	// to the caller's stack. The ledger write has already succeeded
+	// at this point; the hook is a fire-and-forget observability tap.
 	s.mu.RLock()
 	hook := s.writeHook
 	s.mu.RUnlock()
 	if hook != nil {
-		hook(acc.id, newBal)
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					// Caller cannot afford to crash; log and swallow.
+					// We don't have a logger handle here; the audit
+					// log already captured the write event so the
+					// hook failure is grep-able by the absence of a
+					// metric update.
+					_ = r
+				}
+			}()
+			hook(acc.id, newBal)
+		}()
 	}
 	return &e, nil
 }

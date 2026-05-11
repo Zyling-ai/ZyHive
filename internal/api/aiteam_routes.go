@@ -30,6 +30,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strconv"
 	"time"
 
@@ -56,6 +57,43 @@ func notEnabled(c *gin.Context, subsystem string) {
 		"error":     "not enabled",
 		"subsystem": subsystem,
 	})
+}
+
+// BUG-FIX P3-S8 (A1, A2): agent IDs come from URL path params and are
+// passed to wallet ledger / guard state / payroll filenames. Without
+// validation we accept arbitrarily long IDs, SQL-injection-looking
+// IDs, IDs with shell metacharacters etc. They don't currently break
+// the system (safefs / no-shell-exec on this path) but they:
+//   * pollute the wallet directory with garbage files
+//   * confuse the audit log
+//   * waste disk space (4 KB ledger × N nonsense IDs)
+//
+// Real agent IDs in ZyHive are alphanumeric + dash/underscore via the
+// pkg/agent.NewID path (see pkg/agent/manager.go). Match that here.
+var validAgentIDRE = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,64}$`)
+
+// validateAgentIDParam returns true and writes a 400 response when the
+// :agentId path param is malformed. Caller should bail out on false.
+func validateAgentIDParam(c *gin.Context) bool {
+	id := c.Param("agentId")
+	if !validAgentIDRE.MatchString(id) {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":     "invalid agent_id",
+			"hint":      "must match ^[a-zA-Z0-9_-]{1,64}$",
+			"rejected":  truncForError(id),
+		})
+		return false
+	}
+	return true
+}
+
+// truncForError caps the echo length so error responses can't be used
+// to reflect arbitrary attacker-supplied data to logs.
+func truncForError(s string) string {
+	if len(s) <= 80 {
+		return s
+	}
+	return s[:80] + "…(truncated)"
 }
 
 // registerAITeamRoutes mounts every /api/aiteam/* handler onto the auth-
@@ -123,6 +161,9 @@ func registerAITeamRoutes(v1 *gin.RouterGroup, pool *agent.Pool) {
 			notEnabled(c, "wallet")
 			return
 		}
+		if !validateAgentIDParam(c) {
+			return
+		}
 		ws := walletStore()
 		if ws == nil {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "wallet not initialised"})
@@ -140,6 +181,9 @@ func registerAITeamRoutes(v1 *gin.RouterGroup, pool *agent.Pool) {
 	g.POST("/wallet/:agentId/credit", func(c *gin.Context) {
 		if !flags.WalletEnabled() {
 			notEnabled(c, "wallet")
+			return
+		}
+		if !validateAgentIDParam(c) {
 			return
 		}
 		ws := walletStore()
@@ -172,6 +216,9 @@ func registerAITeamRoutes(v1 *gin.RouterGroup, pool *agent.Pool) {
 			notEnabled(c, "wallet")
 			return
 		}
+		if !validateAgentIDParam(c) {
+			return
+		}
 		ws := walletStore()
 		if ws == nil {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "wallet not initialised"})
@@ -202,6 +249,9 @@ func registerAITeamRoutes(v1 *gin.RouterGroup, pool *agent.Pool) {
 			notEnabled(c, "wallet")
 			return
 		}
+		if !validateAgentIDParam(c) {
+			return
+		}
 		ws := walletStore()
 		if ws == nil {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "wallet not initialised"})
@@ -220,6 +270,9 @@ func registerAITeamRoutes(v1 *gin.RouterGroup, pool *agent.Pool) {
 	g.GET("/wallet/:agentId/ledger.csv", func(c *gin.Context) {
 		if !flags.WalletEnabled() {
 			notEnabled(c, "wallet")
+			return
+		}
+		if !validateAgentIDParam(c) {
 			return
 		}
 		ws := walletStore()
@@ -290,17 +343,32 @@ func registerAITeamRoutes(v1 *gin.RouterGroup, pool *agent.Pool) {
 			notEnabled(c, "wallet")
 			return
 		}
-		svc := fxSvc()
-		if svc == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "fx not initialised"})
-			return
-		}
 		var body struct {
 			Currency string  `json:"currency"`
 			Rate     float64 `json:"rate"`
 		}
 		if err := c.ShouldBindJSON(&body); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "bad json"})
+			return
+		}
+		// BUG-FIX P3-S8 (A7): clamp rate to sensible range. A
+		// rate of 1e30 corrupts the display layer permanently
+		// until manual delete; force humans to send something
+		// realistic. Real-world FX rates between any two
+		// currencies on Earth stay within [1e-6, 1e6].
+		// Validation runs BEFORE service-nil check so bad input
+		// gets a 400 even on uninitialised setups.
+		if body.Rate != 0 && (body.Rate < 1e-6 || body.Rate > 1e6) {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":      "rate out of acceptable range (1e-6 .. 1e6)",
+				"hint":       "for realistic FX rates between any two world currencies",
+				"rejected":   body.Rate,
+			})
+			return
+		}
+		svc := fxSvc()
+		if svc == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "fx not initialised"})
 			return
 		}
 		svc.SetOverride(body.Currency, body.Rate)
@@ -337,6 +405,9 @@ func registerAITeamRoutes(v1 *gin.RouterGroup, pool *agent.Pool) {
 			notEnabled(c, "budgetguard")
 			return
 		}
+		if !validateAgentIDParam(c) {
+			return
+		}
 		if pool == nil || pool.AITeamGuard() == nil {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "guard not initialised"})
 			return
@@ -359,6 +430,9 @@ func registerAITeamRoutes(v1 *gin.RouterGroup, pool *agent.Pool) {
 	g.PATCH("/guard/:agentId/limit", func(c *gin.Context) {
 		if !flags.BudgetGuardEnabled() {
 			notEnabled(c, "budgetguard")
+			return
+		}
+		if !validateAgentIDParam(c) {
 			return
 		}
 		if pool == nil || pool.AITeamGuard() == nil {
@@ -419,6 +493,9 @@ func registerAITeamRoutes(v1 *gin.RouterGroup, pool *agent.Pool) {
 	g.GET("/judge/scores/:agentId", func(c *gin.Context) {
 		if !flags.JudgeEnabled() {
 			notEnabled(c, "judge")
+			return
+		}
+		if !validateAgentIDParam(c) {
 			return
 		}
 		jm := judgeMgr()
@@ -506,6 +583,9 @@ func registerAITeamRoutes(v1 *gin.RouterGroup, pool *agent.Pool) {
 			notEnabled(c, "payroll")
 			return
 		}
+		if !validateAgentIDParam(c) {
+			return
+		}
 		pm := payrollMgr()
 		if pm == nil {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "payroll not initialised"})
@@ -539,6 +619,13 @@ func registerAITeamRoutes(v1 *gin.RouterGroup, pool *agent.Pool) {
 		}
 		if len(body.AgentIDs) == 0 && pool != nil {
 			for _, a := range pool.Manager().List() {
+				// BUG-FIX P3-S8 (A9): system agents (__config__ etc.)
+				// should NOT receive payroll. They have no human
+				// owner and no real work; paying them just inflates
+				// the wallet count meaninglessly.
+				if a.System {
+					continue
+				}
 				body.AgentIDs = append(body.AgentIDs, a.ID)
 			}
 		}
