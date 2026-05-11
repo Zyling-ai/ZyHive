@@ -366,6 +366,16 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, cfgPath string, mgr *agen
 	hzH := &healthzHandler{manager: mgr, cronEngine: cronEngine, cfg: cfg, workerPool: workerPool}
 	r.GET("/healthz", hzH.Handle)
 
+	// P3-S2: aiteam Prometheus metrics endpoint — public, no auth.
+	// Standard Prometheus convention. Empty body when no aiteam flag is on.
+	if pool != nil && pool.AITeamMetrics() != nil {
+		mh := pool.AITeamMetrics()
+		r.GET("/metrics", func(c *gin.Context) {
+			c.Header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+			c.String(http.StatusOK, mh.Format())
+		})
+	}
+
 	// Public readiness probe — no auth required.
 	// 503 when cron has stopped ticking / session pool is overloaded /
 	// every probed Provider is failing. 200 on cold start (no probes yet).

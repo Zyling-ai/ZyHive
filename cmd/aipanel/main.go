@@ -29,6 +29,7 @@ import (
 	"github.com/Zyling-ai/zyhive/pkg/aiteam/flags"
 	aiteamFXPkg "github.com/Zyling-ai/zyhive/pkg/aiteam/fx"
 	aiteamJudgePkg "github.com/Zyling-ai/zyhive/pkg/aiteam/judge"
+	aiteamMetricsPkg "github.com/Zyling-ai/zyhive/pkg/aiteam/metrics"
 	aiteamPayrollPkg "github.com/Zyling-ai/zyhive/pkg/aiteam/payroll"
 	aiteamPromptDef "github.com/Zyling-ai/zyhive/pkg/aiteam/promptdef"
 	aiteamRevenuePkg "github.com/Zyling-ai/zyhive/pkg/aiteam/revenue"
@@ -293,6 +294,8 @@ func main() {
 	// wrap below can reference it. When all aiteam flags are off this
 	// is nil and audit.Append is a no-op.
 	var aiteamAuditLog *aiteamAudit.Log
+	// P3-S2: shared Prometheus metrics registry, same lifecycle as audit log.
+	var aiteamMetricsReg *aiteamMetricsPkg.Registry
 	if flags.AnyEnabled() {
 		auditDir := filepath.Join(agentsDir, "aiteam")
 		var aerr error
@@ -300,6 +303,8 @@ func main() {
 		if aerr != nil {
 			log.Printf("[aiteam] audit log init failed: %v", aerr)
 		}
+		aiteamMetricsReg = aiteamMetricsPkg.New()
+		log.Printf("[aiteam] P3-S2 metrics registry initialised (/metrics endpoint live)")
 	}
 
 	// runnerFunc: simple blocking runner for Telegram bot & API (runs in shared session).
@@ -550,6 +555,12 @@ func main() {
 					log.Printf("[aiteam] wallet debit failed agent=%s cost=%v err=%v", agentID, costUSD, err)
 				}
 			}
+			// P3-S2: refresh wallet balance gauge after debit.
+			if aiteamMetricsReg != nil {
+				bal, _ := aiteamWalletStore.Balance(agentID).Float64()
+				aiteamMetricsReg.SetGauge(aiteamMetricsPkg.NameWalletBalance,
+					map[string]string{"agent_id": agentID}, bal)
+			}
 		}
 	})
 	pool.SetBudgetStore(budgetStore)
@@ -581,7 +592,13 @@ func main() {
 			// 1. Always log (operators with monitoring grep this).
 			log.Printf("[PANIC] aiteam/budget agent=%s reason=%s\n%s", agentID, reason, message)
 
-			// 2. Try Telegram if owner chat configured.
+			// 2. P3-S2: increment Prometheus panic counter.
+			if aiteamMetricsReg != nil {
+				aiteamMetricsReg.IncCounter(aiteamMetricsPkg.NameGuardPanic,
+					map[string]string{"reason": reason}, 1)
+			}
+
+			// 3. Try Telegram if owner chat configured.
 			if ownerTGChat != 0 {
 				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 				defer cancel()
@@ -758,6 +775,7 @@ func main() {
 	}
 	pool.SetAITeamRevenue(aiteamRevenueIng)
 	pool.SetAITeamAudit(aiteamAuditLog)
+	pool.SetAITeamMetrics(aiteamMetricsReg)
 
 	// P1-03: Install the configured LLM throttle (process-global). When
 	// kind="" or "fixed" with GlobalMaxInflight=0, behaviour is identical

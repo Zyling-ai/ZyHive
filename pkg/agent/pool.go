@@ -18,6 +18,7 @@ import (
 	aiteamBudget "github.com/Zyling-ai/zyhive/pkg/aiteam/budget"
 	aiteamFX "github.com/Zyling-ai/zyhive/pkg/aiteam/fx"
 	aiteamJudge "github.com/Zyling-ai/zyhive/pkg/aiteam/judge"
+	aiteamMetrics "github.com/Zyling-ai/zyhive/pkg/aiteam/metrics"
 	aiteamPayroll "github.com/Zyling-ai/zyhive/pkg/aiteam/payroll"
 	aiteamRevenue "github.com/Zyling-ai/zyhive/pkg/aiteam/revenue"
 	aiteamWallet "github.com/Zyling-ai/zyhive/pkg/aiteam/wallet"
@@ -84,6 +85,9 @@ type Pool struct {
 
 	// aiteamAudit — optional shared audit log (P2-S0 exposed for tail API).
 	aiteamAudit *aiteamAudit.Log
+
+	// aiteamMetrics — optional shared Prometheus registry (P3-S2).
+	aiteamMetrics *aiteamMetrics.Registry
 
 	cronEngine *cron.Engine // optional: enables cron_list/add/remove tools
 
@@ -500,6 +504,12 @@ func (p *Pool) SetAITeamAudit(a *aiteamAudit.Log) { p.aiteamAudit = a }
 
 // AITeamAudit exposes the audit log. May return nil.
 func (p *Pool) AITeamAudit() *aiteamAudit.Log { return p.aiteamAudit }
+
+// SetAITeamMetrics wires the shared Prometheus registry (P3-S2).
+func (p *Pool) SetAITeamMetrics(m *aiteamMetrics.Registry) { p.aiteamMetrics = m }
+
+// AITeamMetrics exposes the Prometheus registry. May return nil.
+func (p *Pool) AITeamMetrics() *aiteamMetrics.Registry { return p.aiteamMetrics }
 
 // Manager returns the underlying agent manager (used by API handlers to
 // list agents for payroll batch run, etc.).
