@@ -105,7 +105,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { getPayroll, runPayroll, getOverview, type PayslipEntry } from '../api/aiteam'
 import { useCurrency } from '../composables/useCurrency'
 
@@ -125,7 +125,7 @@ async function refresh() {
     const o = await getOverview()
     agentIds.value = Object.keys(o.wallet?.agents || {}).sort()
     if (!selectedAgent.value && agentIds.value.length > 0) {
-      selectedAgent.value = agentIds.value[0]
+      selectedAgent.value = agentIds.value[0] || ''
       await loadHistory()
     } else if (selectedAgent.value) {
       await loadHistory()
@@ -155,6 +155,17 @@ async function loadHistory() {
 }
 
 async function runAll() {
+  // B030 fix: mass payroll mutates wallets for every agent — require explicit confirm.
+  try {
+    await ElMessageBox.confirm(
+      `将对当前 ${agentIds.value.length} 个 agent 立即结算今日工资（base + bonus − cost）。\n\n` +
+      `此操作会写入钱包账本，无法撤销。确认继续？`,
+      '确认跑工资（全员）',
+      { confirmButtonText: '立即结算', cancelButtonText: '取消', type: 'warning' },
+    )
+  } catch {
+    return  // user cancelled
+  }
   running.value = true
   try {
     const r = await runPayroll() // no agent_ids → all
