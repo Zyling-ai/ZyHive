@@ -4,6 +4,53 @@
 
 ---
 
+## [26.5.10v21] — 2026-05-10 · 🧪 aiteam P2-S4 — UI 基础（货币切换器 + 路由 + 总览页）
+
+### aiteam (experimental) UI
+
+* **`ui/src/composables/useCurrency.ts`** — 全局 reactive 货币 store
+  - 9 币种支持 + localStorage 持久化用户偏好
+  - 每 5 分钟轮询 `/api/aiteam/fx/rates` 拉最新汇率
+  - 网络失败 / 404 时优雅降级到硬编码 fallback 值
+  - `formatMoney(usdt)` helper 用 9 币种特定格式（¥ 不带小数 / NT$ 等）
+
+* **`ui/src/api/aiteam.ts`** — 集中 aiteam REST 客户端
+  - 17 个端点 typed wrapper: flags / wallet / fx / guard / judge / payroll / overview / audit
+  - 所有响应有 TypeScript interface
+
+* **路由 + 菜单**
+  - 6 个新路由 `/aiteam{,/wallet,/fx,/guard,/judge,/payroll}`
+  - 顶级 "🧪 aiteam" 折叠菜单仅在 `/api/aiteam/flags any:true` 时显示
+  - 子菜单项各自按对应 flag 显隐（wallet flag 关时不显示 wallet/fx 入口等）
+
+* **顶栏 💱 货币切换器**
+  - 仅当 aiteamAny=true 时显示
+  - 下拉 9 币种，点击立即切换 + localStorage 持久化
+  - 当前币种代码在 header 显示
+
+* **`AiteamDashboardView.vue`** 真实总览
+  - 4 cards：钱包总额 / 当日支出 / Judge 平均分 / 工资收入状态
+  - 子系统启用状态徽章（8 flags 一目了然）
+  - 50 行 audit log timeline 表格
+  - 整页 graceful degrade：未启用任何 flag 时显示引导文案
+
+* **5 个 view stubs**（WalletView/FXView/GuardView/JudgeView/PayrollView）
+  - P2-S4 仅占位防 404，完整内容下程逐一填充
+
+### UI 不引入新依赖
+
+完全用 Element Plus + Vue 3 现有依赖；新增图标全部来自
+`@element-plus/icons-vue`（Coin/DataAnalysis/Wallet/Money/Warning/Medal/Tickets）。
+雷达图 / 折线图等留 P2-S6/S7 用 SVG 手画。
+
+### 兼容性
+
+- aiteam flags 未设时 UI **完全看不到** aiteam 菜单和货币切换器
+- 主线 80+ 工具 + Phase 1 110+ aiteam 测试 + Phase 2 累计 33 测试全 -race 绿
+- `npm run build` 通过；ui_dist 47 个 asset 文件
+
+---
+
 ## [26.5.10v20] — 2026-05-10 · 🧪 aiteam P2-S3 — LLM-driven Judge scorer
 
 ### aiteam (experimental)
