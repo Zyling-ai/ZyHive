@@ -499,17 +499,29 @@ func (g *Guard) Release(agentID, operator, reason string) bool {
 
 // SetAgentLimit overrides Limits.PerAgentDailyUSDT for a single agent.
 // Zero clears the override.
+//
+// BUG-FIX P3-S8: previously accepted negative limits, which then made
+// `used >= cap` always true (used ≥ 0 ≥ negative cap), permanently
+// panic-stopping the agent. We now clamp negative input to zero
+// (= no per-agent override; fall back to default). An audit row
+// records the clamp so operators see the correction.
 func (g *Guard) SetAgentLimit(agentID string, limitUSDT decimal.Decimal) {
 	if g == nil {
 		return
+	}
+	clamped := limitUSDT
+	if limitUSDT.IsNegative() {
+		clamped = decimal.Zero
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.rotateIfNeededLocked()
 	a := g.getAgentLocked(agentID)
-	a.LimitUSDT = limitUSDT
+	a.LimitUSDT = clamped
 	g.appendAuditLocked("guard.limit_set", agentID, "", map[string]any{
-		"limit_usdt": limitUSDT.String(),
+		"limit_usdt":         clamped.String(),
+		"original_input":     limitUSDT.String(),
+		"clamped_to_zero":    !limitUSDT.Equal(clamped),
 	})
 	g.saveStateLocked()
 }
