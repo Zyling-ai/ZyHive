@@ -5,6 +5,8 @@ import 'element-plus/dist/index.css'
 import * as ElementPlusIconsVue from '@element-plus/icons-vue'
 import App from './App.vue'
 import router from './router'
+// P3-S4: aiteam mobile responsive overrides (applies only to .aiteam-* views)
+import './assets/aiteam-mobile.css'
 
 const app = createApp(App)
 
