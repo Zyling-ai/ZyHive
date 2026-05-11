@@ -4,6 +4,48 @@
 
 ---
 
+## [26.5.10v18] — 2026-05-10 · 🧪 aiteam P2-S1 — Payroll daily cron 自动触发
+
+### aiteam (experimental)
+
+* **Payroll cron driver** — `pkg/aiteam/payroll/cron.go`
+  - `NewCron(mgr, CronConfig{FireTime,TZ,AgentLister,NowFn})` 构造 + 校验
+  - 默认 `23:30 Asia/Shanghai`；env `ZYHIVE_AITEAM_PAYROLL_TIME` 和
+    `ZYHIVE_AITEAM_PAYROLL_TZ` 覆盖
+  - `Start(ctx)` 起一个 goroutine：sleep until next fire → RunForAll → loop
+  - **anti-double-fire**：进程内通过 `lastPeriod` 字段保证同一 period 不重跑
+  - `NextFireAt()` 给 dashboard 用（"下一次跑：..."）
+  - 每次触发旁路 audit 一条 `payroll.cron_fired` （含 period + agent_count）
+  - `Stop()` 通过 close 一个 channel 让 goroutine 退出，调用者可在
+    `signal.SIGTERM` 时优雅停机
+* **main.go 集成**：当 `flags.PayrollEnabled() && aiteamPayrollMgr != nil` 时
+  自动 `cron.Start(context.Background())`，日志打印 next-fire 时间
+* **测试** 8 case 全 -race 绿:
+  - ParsesHHMM / NextFireAtAdvancesPastNow / FireOnceCallsRunForAll /
+    NoDoubleFireSamePeriod / StartStopRespectsContext /
+    NilAgentListerNoop / RejectsBadConfig
+
+### 兼容性
+
+- 仅当 `ZYHIVE_EXPERIMENTAL_PAYROLL=1` 时启动 cron（已通过 `aiteamPayrollMgr != nil`
+  guard），其他情况完全 no-op
+- 主线 80+ 工具 + Phase 1 110+ + Phase 2 累计 15 test cases 全 -race 绿
+
+### 启用方式
+
+```bash
+export ZYHIVE_EXPERIMENTAL_PAYROLL=1
+export ZYHIVE_EXPERIMENTAL_WALLET=1            # cron 触发后会调 wallet.Credit
+export ZYHIVE_EXPERIMENTAL_JUDGE=1             # 可选：用 judge 评分作 bonus
+export ZYHIVE_AITEAM_PAYROLL_TIME=23:30        # 默认 23:30
+export ZYHIVE_AITEAM_PAYROLL_TZ=Asia/Shanghai  # 默认 Asia/Shanghai
+
+# 启动后 systemd journal 日志：
+# [aiteam] payroll cron started — next fire: 2026-05-10T23:30:00+08:00
+```
+
+---
+
 ## [26.5.10v17] — 2026-05-10 · 🧪 aiteam P2-S0 — Audit tail endpoint + B014 续修
 
 aiteam Phase 2 启动。Phase 1 (S0-S10) 收官后用户要求继续全面开发，新增 8 阶段

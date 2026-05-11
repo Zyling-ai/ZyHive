@@ -606,6 +606,38 @@ func main() {
 	}
 	pool.SetAITeamPayroll(aiteamPayrollMgr)
 
+	// P2-S1: daily payroll cron — when payroll is on, kick off a
+	// background goroutine that fires at the configured local time
+	// every day. Anti-double-fire via Manager-level period dedupe.
+	if aiteamPayrollMgr != nil {
+		fireTime := os.Getenv("ZYHIVE_AITEAM_PAYROLL_TIME")
+		if fireTime == "" {
+			fireTime = "23:30"
+		}
+		tz := os.Getenv("ZYHIVE_AITEAM_PAYROLL_TZ")
+		if tz == "" {
+			tz = "Asia/Shanghai"
+		}
+		cron, cErr := aiteamPayrollPkg.NewCron(aiteamPayrollMgr, aiteamPayrollPkg.CronConfig{
+			FireTime: fireTime,
+			TZ:       tz,
+			AgentLister: func() []string {
+				ids := make([]string, 0)
+				for _, a := range mgr.List() {
+					ids = append(ids, a.ID)
+				}
+				return ids
+			},
+		})
+		if cErr != nil {
+			log.Printf("[aiteam] payroll cron init failed: %v", cErr)
+		} else {
+			cron.Start(context.Background())
+			log.Printf("[aiteam] payroll cron started — next fire: %s",
+				cron.NextFireAt().Format(time.RFC3339))
+		}
+	}
+
 	// S9: aiteam Revenue webhook — accepts signed payouts from upstream
 	// task market (e.g. ZyStudio). Requires shared HMAC secret via env
 	// `ZYHIVE_AITEAM_REVENUE_SECRET`. Without the secret revenue is
