@@ -76,6 +76,42 @@
             </el-dropdown-menu>
           </template>
         </el-dropdown>
+        <!-- F-01: 审批中心铃铛（有 pending 时显示 badge） -->
+        <el-popover
+          v-if="approvalPending.length > 0"
+          placement="bottom-end"
+          width="380"
+          trigger="click"
+        >
+          <template #reference>
+            <span class="header-link approval-bell" style="cursor:pointer;position:relative" title="工具审批待处理">
+              🔔
+              <span class="approval-badge">{{ approvalPending.length }}</span>
+            </span>
+          </template>
+          <div class="approval-pop">
+            <div class="approval-pop-title">
+              <strong>待审批的工具调用</strong>
+              <el-text type="info" size="small" style="margin-left:6px">({{ approvalPending.length }})</el-text>
+            </div>
+            <div
+              v-for="r in approvalPending" :key="r.id"
+              class="approval-pop-item"
+            >
+              <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px">
+                <code>{{ r.toolName }}</code>
+                <span style="color:#94a3b8">{{ shortTime(r.createdAt) }}</span>
+              </div>
+              <pre class="approval-pop-input">{{ formatInputLite(r.input) }}</pre>
+              <div style="display:flex;gap:6px;margin-top:6px">
+                <el-button size="small" type="success" plain @click="onApprove(r.id)">允许</el-button>
+                <el-button size="small" type="danger" plain @click="onDeny(r.id)">拒绝</el-button>
+              </div>
+            </div>
+          </div>
+        </el-popover>
+        <span v-else class="header-link" style="opacity:0.5" title="无待审批">🔔</span>
+
         <el-divider direction="vertical" style="margin:0 4px;border-color:rgba(255,255,255,0.2)" />
         <span class="header-link" style="cursor:pointer" @click="logout" title="退出登录">
           退出
@@ -320,6 +356,33 @@ import api from './api'
 import { useUpdater } from './composables/useUpdater'
 import { useCurrency, SUPPORTED_CURRENCIES, type Currency } from './composables/useCurrency'
 import { getFlags } from './api/aiteam'
+import { useApprovals, approve as apvApprove, deny as apvDeny } from './composables/useApprovals'
+
+// F-01: 全局审批 store（首次访问启动 SSE 连接）
+const { pending: approvalPending } = useApprovals()
+
+function shortTime(s: string) {
+  try {
+    return new Date(s).toLocaleTimeString('zh-CN', { hour12: false })
+  } catch { return s }
+}
+
+function formatInputLite(v: any) {
+  if (v == null) return '(空)'
+  try {
+    const s = typeof v === 'string' ? v : JSON.stringify(v)
+    return s.length > 200 ? s.slice(0, 200) + '…' : s
+  } catch { return String(v) }
+}
+
+async function onApprove(id: string) {
+  await apvApprove(id, '')
+}
+
+async function onDeny(id: string) {
+  const reason = window.prompt('拒绝理由（可留空）：', '') || ''
+  await apvDeny(id, reason)
+}
 
 const route = useRoute()
 const router = useRouter()
@@ -663,6 +726,48 @@ body {
 
 /* ─── Header ─────────────────────────────────────────────────────────────── */
 .header-left { display: flex; align-items: center; gap: 8px; }
+
+/* F-01: approval bell badge */
+.approval-bell {
+  font-size: 16px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 6px;
+}
+.approval-badge {
+  position: absolute;
+  top: -4px; right: -2px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 8px;
+  line-height: 1.2;
+}
+.approval-pop { padding: 0 4px; }
+.approval-pop-title { margin-bottom: 8px; }
+.approval-pop-item {
+  border: 1px solid #ececec;
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  background: #fff7ec;
+}
+.approval-pop-input {
+  background: #fff;
+  border: 1px solid #f5d99a;
+  border-radius: 4px;
+  padding: 4px 6px;
+  font-size: 11px;
+  margin: 0;
+  font-family: ui-monospace, monospace;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 90px;
+  overflow: auto;
+}
+
 .header-title { color: rgba(255,255,255,0.85); font-size: 14px; font-weight: 600; white-space: nowrap; }
 .header-version { font-size: 11px; color: rgba(255,255,255,0.35); font-family: monospace; white-space: nowrap; }
 .header-update-btn {

@@ -13,6 +13,9 @@ type ToolPolicy struct {
 	Profile string   `json:"profile,omitempty"` // "full"|"coding"|"messaging"|"minimal"
 	Allow   []string `json:"allow,omitempty"`   // tool names or group:xxx shorthands
 	Deny    []string `json:"deny,omitempty"`    // tool names or group:xxx shorthands
+	// Ask 在 F-01 (26.5.12v1) 引入：tools whose names appear here go through
+	// the approval Broker before executing. Supports group:xxx shorthands.
+	Ask []string `json:"ask,omitempty"`
 }
 
 // ── Tool groups ──────────────────────────────────────────────────────────────
@@ -167,13 +170,15 @@ func MergePolicy(global, perAgent *ToolPolicy) ToolPolicy {
 		Profile: perAgent.Profile,
 		Allow:   perAgent.Allow,
 		Deny:    perAgent.Deny,
+		Ask:     perAgent.Ask,
 	}
 	if merged.Profile == "" && global != nil {
 		merged.Profile = global.Profile
 	}
-	// Merge deny: both global and per-agent deny lists apply
+	// Merge deny + ask: both global and per-agent lists apply (more conservative wins).
 	if global != nil {
 		merged.Deny = append(merged.Deny, global.Deny...)
+		merged.Ask = append(merged.Ask, global.Ask...)
 	}
 	return merged
 }

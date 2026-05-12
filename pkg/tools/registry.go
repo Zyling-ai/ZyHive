@@ -55,6 +55,13 @@ type Registry struct {
 	cronEngine   CronEngine      // optional: cron_* tools
 	sessionTools *sessionToolSet // optional: sessions_* tools
 	acpLister    ACPAgentLister  // optional: acp_list + acp_spawn tools
+
+	// F-01 (26.5.12v1) — approval mode (`policy=ask`).
+	// When a tool name appears in askNames, Execute blocks on broker.Request
+	// instead of running the handler directly.
+	broker     *Broker
+	askNames   map[string]bool
+	askTimeout time.Duration
 }
 
 // AgentSummary is the minimal agent info exposed through the agent_list tool.
@@ -746,6 +753,10 @@ func (r *Registry) Definitions() []llm.ToolDef {
 }
 
 // Execute runs the named tool with the given input.
+//
+// F-01: When ToolPolicy.Ask covers `name`, Execute blocks on the approval
+// broker first. A deny / timeout returns a polite message to the LLM
+// (no error) so the agent can keep going (e.g. apologise to the user).
 func (r *Registry) Execute(ctx context.Context, name string, input json.RawMessage) (string, error) {
 	h, ok := r.handlers[name]
 	if !ok {
@@ -754,6 +765,22 @@ func (r *Registry) Execute(ctx context.Context, name string, input json.RawMessa
 			available = append(available, d.Name)
 		}
 		return "", fmt.Errorf("unknown tool %q — available tools: [%s]", name, strings.Join(available, ", "))
+	}
+	// Approval gate (F-01).
+	if r.broker != nil && (r.askNames["*"] || r.askNames[strings.ToLower(name)]) {
+		dec, _, err := r.broker.Request(ctx, r.agentID, r.sessionID, name, input, r.askTimeout)
+		if err != nil {
+			// ctx cancelled: surface as error so runner stops cleanly.
+			return "", err
+		}
+		if !dec.Approved {
+			reason := dec.Reason
+			if reason == "" {
+				reason = "未提供理由"
+			}
+			return fmt.Sprintf("⛔ 用户拒绝执行该工具调用（%s）。", reason), nil
+		}
+		// Approved: fall through and execute.
 	}
 	result, err := h(ctx, input)
 	if err != nil {

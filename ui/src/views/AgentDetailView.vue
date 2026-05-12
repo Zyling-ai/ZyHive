@@ -1250,6 +1250,40 @@
                 </div>
               </el-form-item>
 
+              <!-- F-01 (26.5.12v1): Ask (需用户审批) -->
+              <el-form-item label="需审批 (Ask)">
+                <div style="width: 100%">
+                  <el-tag
+                    v-for="(item, idx) in toolPolicyForm.ask"
+                    :key="'ask-'+idx"
+                    closable
+                    type="warning"
+                    size="small"
+                    style="margin: 2px 4px 2px 0;"
+                    @close="toolPolicyForm.ask.splice(idx, 1)"
+                  >🛡 {{ item }}</el-tag>
+                  <el-input
+                    v-model="toolPolicyAskInput"
+                    size="small"
+                    placeholder="输入工具名或 group:xx，回车需人工审批"
+                    style="width: 260px; margin-top: 4px;"
+                    @keyup.enter="addToolPolicyTag('ask')"
+                  >
+                    <template #append>
+                      <el-button @click="addToolPolicyTag('ask')" size="small">添加</el-button>
+                    </template>
+                  </el-input>
+                  <div style="margin-top: 4px;">
+                    <el-button size="small" plain @click="quickAsk('exec')">让 exec 走审批</el-button>
+                    <el-button size="small" plain @click="quickAsk('group:runtime')">所有运行时工具审批</el-button>
+                    <el-button size="small" plain @click="quickAsk('group:messaging')">所有消息推送审批</el-button>
+                  </div>
+                  <div style="font-size:11px; color:#94a3b8; margin-top: 4px;">
+                    匹配的工具被调用时会阻塞等顶栏铃铛允许/拒绝；5 分钟未决策自动拒绝。
+                  </div>
+                </div>
+              </el-form-item>
+
               <!-- 快速 preset 按钮 -->
               <el-form-item label="">
                 <div style="display:flex; gap:6px; flex-wrap:wrap;">
@@ -1786,13 +1820,15 @@ async function saveHeartbeat() {
 }
 
 // ── Tool Policy ──────────────────────────────────────────────────────────────
-const toolPolicyForm = ref<{ profile: string; allow: string[]; deny: string[] }>({
+const toolPolicyForm = ref<{ profile: string; allow: string[]; deny: string[]; ask: string[] }>({
   profile: '',
   allow: [],
   deny: [],
+  ask: [],
 })
 const toolPolicyAllowInput = ref('')
 const toolPolicyDenyInput = ref('')
+const toolPolicyAskInput = ref('')
 const toolPolicySaving = ref(false)
 const toolPolicySaved = ref(false)
 
@@ -1873,11 +1909,16 @@ function loadToolPolicy() {
     profile: p?.profile || '',
     allow: p?.allow ? [...p.allow] : [],
     deny: p?.deny ? [...p.deny] : [],
+    ask: p?.ask ? [...p.ask] : [],
   }
 }
 
-function addToolPolicyTag(type: 'allow' | 'deny') {
-  const input = type === 'allow' ? toolPolicyAllowInput : toolPolicyDenyInput
+function addToolPolicyTag(type: 'allow' | 'deny' | 'ask') {
+  const input = type === 'allow'
+    ? toolPolicyAllowInput
+    : type === 'deny'
+      ? toolPolicyDenyInput
+      : toolPolicyAskInput
   const val = input.value.trim()
   if (!val) return
   if (!toolPolicyForm.value[type].includes(val)) {
@@ -1892,8 +1933,14 @@ function quickDeny(pattern: string) {
   }
 }
 
+function quickAsk(pattern: string) {
+  if (!toolPolicyForm.value.ask.includes(pattern)) {
+    toolPolicyForm.value.ask.push(pattern)
+  }
+}
+
 function clearToolPolicy() {
-  toolPolicyForm.value = { profile: '', allow: [], deny: [] }
+  toolPolicyForm.value = { profile: '', allow: [], deny: [], ask: [] }
 }
 
 async function saveToolPolicy() {
@@ -1903,6 +1950,7 @@ async function saveToolPolicy() {
     if (toolPolicyForm.value.profile) policy.profile = toolPolicyForm.value.profile
     if (toolPolicyForm.value.allow.length) policy.allow = toolPolicyForm.value.allow
     if (toolPolicyForm.value.deny.length) policy.deny = toolPolicyForm.value.deny
+    if (toolPolicyForm.value.ask.length)   policy.ask   = toolPolicyForm.value.ask
     const payload = Object.keys(policy).length ? policy : null
     const res = await agentsApi.update(agentId, { toolPolicy: payload } as any)
     agent.value = res.data

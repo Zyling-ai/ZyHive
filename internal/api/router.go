@@ -186,6 +186,13 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, cfgPath string, mgr *agen
 	taggH := &toolAuditAggregateHandler{manager: mgr}
 	v1.GET("/tool-audit", taggH.ListAll)
 
+	// F-01 (26.5.12v1): tool-call approval broker REST + SSE.
+	apH := &approvalHandler{}
+	v1.GET("/approvals/pending", apH.ListPending)
+	v1.POST("/approvals/:id/approve", apH.Approve)
+	v1.POST("/approvals/:id/deny", apH.Deny)
+	v1.GET("/approvals/stream", apH.Stream)
+
 	// Memory tree API
 	memH := &memoryHandler{manager: mgr, cronEngine: cronEngine, pool: pool}
 	agents.GET("/:id/memory/tree", memH.Tree)
@@ -514,6 +521,17 @@ func authMiddleware(token string) gin.HandlerFunc {
 		// 26.5.10v3 (B002): constant-time comparison defeats timing attacks
 		// that would otherwise leak the token byte-by-byte.
 		if !secretsEqual(auth, expected) {
+			// 26.5.12v1 (F-01): SSE fallback — EventSource can't set custom
+			// headers, so we also accept ?token= for explicitly designated
+			// streaming endpoints. Limit scope to /approvals/stream so we
+			// don't widen the auth surface globally.
+			if c.Request.URL.Path == "/api/approvals/stream" {
+				q := c.Query("token")
+				if q != "" && secretsEqual("Bearer "+q, expected) {
+					c.Next()
+					return
+				}
+			}
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 			return
 		}
