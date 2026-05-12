@@ -104,6 +104,12 @@ const router = createRouter({
       meta: { requiresAuth: true }
     },
     {
+      path: '/tool-audit',
+      name: 'tool-audit',
+      component: () => import('../views/ToolAuditView.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
       path: '/settings',
       name: 'settings',
       component: () => import('../views/SettingsView.vue'),
