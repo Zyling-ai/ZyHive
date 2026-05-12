@@ -795,6 +795,15 @@ const goalChatContext = computed(() => {
     ? `\n### 当前选中目标\nID: ${selectedGoal.value.id}\n标题: ${selectedGoal.value.title}\n状态: ${selectedGoal.value.status}\n进度: ${selectedGoal.value.progress}%\n开始: ${selectedGoal.value.startAt || '未设置'}\n结束: ${selectedGoal.value.endAt || '未设置'}`
     : ''
 
+  // 26.5.12v1 (子项 3): 把侧栏过滤状态 + 可见目标列表也告诉 AI，让它知道用户视野里有什么。
+  const filterCtx = (filterStatus.value || filterAgentId.value)
+    ? `\n### 当前过滤\n${filterStatus.value ? `- 状态: ${filterStatus.value}` : ''}${filterAgentId.value ? `\n- 成员: ${agentNameMap.value[filterAgentId.value] || filterAgentId.value}` : ''}`
+    : ''
+  const visibleGoals = filteredGoals.value.slice(0, 8)
+  const visibleCtx = visibleGoals.length > 0
+    ? `\n### 当前列表前 ${visibleGoals.length} 个目标\n` + visibleGoals.map(g => `- [${g.status}] ${g.title} (进度 ${g.progress}%)`).join('\n')
+    : '\n### 当前列表\n（暂无目标）'
+
   return `## 目标规划助手
 
 你是团队的目标规划助手。
@@ -827,7 +836,7 @@ curl -s -X POST ${base}/api/goals/{id}/checks -H "Authorization: Bearer ${token}
 
 ### 当前团队成员
 ${agentCtx}
-${currentGoalCtx}
+${currentGoalCtx}${filterCtx}${visibleCtx}
 
 **工作流程：**
 1. 用户描述目标 → 你输出 fill_goal JSON → 页面自动填表
