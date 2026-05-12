@@ -281,12 +281,15 @@ export interface ContactSummary {
   msgCount: number
   primary: boolean
   isOwner?: boolean
+  // E-01 (26.5.12v1): true if the backend cached an avatar image for this contact.
+  hasAvatar?: boolean
 }
 export interface Contact extends ContactSummary {
   externalId: string
   body: string
   aliases?: string[]
   createdAt: string
+  avatarPath?: string
 }
 
 // Chat profile (群档案) — sister type to Contact, lives in network/chats/.
@@ -318,6 +321,17 @@ export const networkApi = {
   merge: (agentId: string, primaryId: string, aliasId: string) =>
     api.post(`/agents/${agentId}/network/contacts/${encodeURIComponent(primaryId)}/merge`, { aliasId }),
   refresh: (agentId: string) => api.post(`/agents/${agentId}/network/refresh`),
+
+  // E-01 (26.5.12v1) — avatar URL is built directly (no JSON wrap) so <img src>
+  // can use it; uploadAvatar takes a Blob/File and POSTs raw bytes.
+  avatarURL: (agentId: string, contactId: string) =>
+    `/api/agents/${agentId}/network/contacts/${encodeURIComponent(contactId)}/avatar`,
+  uploadAvatar: (agentId: string, contactId: string, blob: Blob) =>
+    api.post(`/agents/${agentId}/network/contacts/${encodeURIComponent(contactId)}/avatar`, blob, {
+      headers: { 'Content-Type': blob.type || 'application/octet-stream' },
+    }),
+  deleteAvatar: (agentId: string, contactId: string) =>
+    api.delete(`/agents/${agentId}/network/contacts/${encodeURIComponent(contactId)}/avatar`),
 
   // Chat profile (26.4.24v1)
   listChats: (agentId: string) => api.get<{ chats: ChatSummary[] }>(`/agents/${agentId}/network/chats`),

@@ -83,6 +83,8 @@ func assignField(c *Contact, key, val string) {
 		if err == nil {
 			c.LastSeenAt = t
 		}
+	case "avatarPath":
+		c.AvatarPath = stripQuotes(val)
 	}
 }
 
@@ -186,6 +188,9 @@ func renderContactMD(c *Contact) string {
 		sb.WriteString("lastSeenAt: " + c.LastSeenAt.Format(time.RFC3339) + "\n")
 	}
 	sb.WriteString(fmt.Sprintf("msgCount: %d\n", c.MsgCount))
+	if c.AvatarPath != "" {
+		sb.WriteString("avatarPath: " + quoteIfNeeded(c.AvatarPath) + "\n")
+	}
 	sb.WriteString("---\n\n")
 
 	body := strings.TrimSpace(c.Body)

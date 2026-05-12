@@ -38,6 +38,13 @@ type Contact struct {
 	LastSeenAt time.Time `json:"lastSeenAt" yaml:"lastSeenAt"`
 	MsgCount   int       `json:"msgCount" yaml:"msgCount"`
 
+	// AvatarPath is the relative filename inside workspace/network/avatars/ for
+	// this contact's cached avatar (set by channel handlers when the source
+	// platform exposes a fetchable photo URL). Empty means "no avatar cached;
+	// UI should fall back to letter-circle".
+	// Added 26.5.12v1 (E-01 head avatar pull).
+	AvatarPath string `json:"avatarPath,omitempty" yaml:"avatarPath,omitempty"`
+
 	// Body is the human-authored markdown (everything below the frontmatter).
 	// Not serialized as frontmatter; stored as file body.
 	Body string `json:"body" yaml:"-"`
@@ -53,6 +60,9 @@ type ContactSummary struct {
 	MsgCount    int       `json:"msgCount"`
 	Primary     bool      `json:"primary"`
 	IsOwner     bool      `json:"isOwner,omitempty"`
+	// HasAvatar mirrors Contact.AvatarPath != "" so list views can decide
+	// whether to render <img> vs letter-circle without N follow-up requests.
+	HasAvatar bool `json:"hasAvatar,omitempty"`
 }
 
 func (c *Contact) Summary() ContactSummary {
@@ -65,6 +75,7 @@ func (c *Contact) Summary() ContactSummary {
 		MsgCount:    c.MsgCount,
 		Primary:     c.Primary,
 		IsOwner:     c.IsOwner,
+		HasAvatar:   c.AvatarPath != "",
 	}
 }
 

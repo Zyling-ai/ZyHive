@@ -541,10 +541,16 @@ func (b *FeishuBot) handleMessageEvent(ctx context.Context, ev *feishuMessageEve
 			// Bug 2 fix: getSenderName 在刚加好友 / 群聊成员列表未拉取时会返回 "",
 			// 直接落盘会导致 UI 显示空白. 走 FallbackDisplayName 链.
 			displayName := network.FallbackDisplayName(senderOpenID, b.getSenderName(senderOpenID))
-			if _, nerr := store.Resolve(network.SourceFeishu, senderOpenID, displayName); nerr != nil {
+			if c, nerr := store.Resolve(network.SourceFeishu, senderOpenID, displayName); nerr != nil {
 				log.Printf("[feishu] network.Resolve warning: %v", nerr)
-			} else if summary := store.Summary(network.MakeID(network.SourceFeishu, senderOpenID)); summary != "" {
-				extraCtx = extraCtx + "\n\n" + summary
+			} else {
+				if summary := store.Summary(c.ID); summary != "" {
+					extraCtx = extraCtx + "\n\n" + summary
+				}
+				// E-01 (26.5.12v1): async fetch avatar if not yet cached.
+				if c.AvatarPath == "" {
+					b.fetchAndCacheFeishuAvatar(senderOpenID, c.ID)
+				}
 			}
 		}
 	}
