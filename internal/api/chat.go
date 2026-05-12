@@ -277,6 +277,20 @@ func (h *chatHandler) execRunner(
 	}
 	toolRegistry.WithSessionID(sessionID)
 
+	// F-01 (26.5.12v1) + (existing oversight): apply the per-agent tool policy
+	// so per-agent allow/deny/ask actually filter the chat runner's tools.
+	// Previously chat.go bypassed policy filtering entirely.
+	if ag, ok := h.manager.Get(agentID); ok && len(ag.ToolPolicyRaw) > 0 {
+		var ap tools.ToolPolicy
+		if jerr := json.Unmarshal(ag.ToolPolicyRaw, &ap); jerr == nil {
+			toolRegistry.ApplyPolicy(ap)
+			// Wire the approval broker for tools the policy marks as ask.
+			if broker := ApprovalBroker(); broker != nil && len(ap.Ask) > 0 {
+				toolRegistry.WithAgentID(agentID).WithApprovalBroker(broker, ap.Ask, approvalTimeout())
+			}
+		}
+	}
+
 	// Allow the agent to update its own env vars via self_set_env / self_delete_env.
 	if scenario != "skill-studio" {
 		agIDcopy := agentID

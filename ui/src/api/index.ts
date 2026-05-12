@@ -35,6 +35,8 @@ export interface ToolPolicy {
   profile?: 'full' | 'coding' | 'messaging' | 'minimal'
   allow?: string[]
   deny?: string[]
+  // F-01 (26.5.12v1): tools listed here trigger human approval before running.
+  ask?: string[]
 }
 
 export interface HeartbeatConfig {

@@ -822,6 +822,31 @@ func main() {
 	pool.SetAITeamAudit(aiteamAuditLog)
 	pool.SetAITeamMetrics(aiteamMetricsReg)
 
+	// F-01 (26.5.12v1): tool-call approval broker — singleton, shared by every
+	// agent. Decisions land in a dedicated audit log so the trail survives even
+	// if the aiteam flag set is off.
+	approvalAuditDir := filepath.Join(agentsDir, "approvals")
+	approvalAuditLog, _ := aiteamAudit.New(approvalAuditDir)
+	approvalBroker := tools.NewBroker(func(req tools.ApprovalRequest, dec tools.ApprovalDecision, ev string) {
+		if approvalAuditLog == nil {
+			return
+		}
+		_ = approvalAuditLog.Append(aiteamAudit.Entry{
+			Subsystem: "approval",
+			Type:      ev,
+			AgentID:   req.AgentID,
+			SessionID: req.SessionID,
+			Detail: map[string]any{
+				"approvalId": req.ID,
+				"toolName":   req.ToolName,
+				"approved":   dec.Approved,
+				"reason":     dec.Reason,
+				"by":         dec.By,
+			},
+		})
+	})
+	api.SetApprovalBroker(approvalBroker)
+
 	// P1-03: Install the configured LLM throttle (process-global). When
 	// kind="" or "fixed" with GlobalMaxInflight=0, behaviour is identical
 	// to today (no gating). kind="adaptive" enables AIMD per-provider.
