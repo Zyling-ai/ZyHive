@@ -4,6 +4,127 @@
 
 ---
 
+## [26.5.12v1] — 2026-05-12 · 🎉 第 4 程：产品价值收官 (6 子项一次落地)
+
+把 README 顶层 "P1 规划中" 清单一口气全做掉。本 release 包含 6 个独立子项，
+每个都是 readme 上挂了很久的 P1 候选，单 release 全部交付。
+
+### B-05 · Web 访客升级为命名联系人
+
+TeamView 联系人抽屉对 source=web 且 displayName 仍是默认值的 contact 显示橙色
+提示条；点 "⬆️ 升级为命名联系人" → dialog 输入真实姓名 + 6 预设标签 chip + 4 档
+案模板（客户 / 同事 / 朋友 / 保留），保存后橙条消失，新名字进入主人档案。复用现
+有 PATCH `/api/agents/:id/network/contacts/:cid`，0 后端改动。
+
+### E-01 · 头像 API 拉取 + 本地缓存
+
+* `pkg/network/avatar.go`：`SaveAvatar / AvatarPath / DeleteAvatar` + 1 MiB 硬上限，
+  写入 `workspace/network/avatars/{filenameForID}.{ext}`，contact frontmatter 加
+  `avatarPath` 字段（omitempty 老数据兼容）。
+* `pkg/channel/feishu_avatar.go`：通过 `/contact/v3/users/{openID}` 取
+  `avatar_240 / 640 / origin`（优选 240）→ HTTP GET → 本地缓存。
+* `pkg/channel/telegram_avatar.go`：`getUserProfilePhotos` + 复用现有
+  `downloadFileByID`。
+* 两个 channel 在 `store.Resolve` 成功后异步 goroutine 拉取，per-process dedupe
+  避免重复打 API。
+* 新增 REST：`GET/POST/DELETE /api/agents/:id/network/contacts/:cid/avatar`。
+* TeamView 联系人列表 + drawer 渲染真实头像，图片加载失败自动 fallback 首字母圆。
+* drawer 提供「上传 / 更换 / 移除」按钮（jpg/png/webp/gif，≤1 MiB 校验）。
+* 9 个新单测覆盖 size cap / ext fallback / round-trip / delete 幂等 / sniff。
+
+### GoalsView 右侧 AI 对话面板（candidate D）
+
+确认主线已实现 AiChat 内嵌 + AI fill_goal JSON 自动填表能力。本次小增强：把
+sidebar 当前 filterStatus / filterAgentId / 可见前 8 个目标也注入 system context，
+让 AI 助手能感知用户视野，做出更贴的建议。
+
+### B-03 · 跨 agent 联系人/群聊聚合视图
+
+* 新增 `internal/api/network_aggregate.go`：
+  - `GET /api/network/contacts?source=&q=&tag=&limit=`
+  - `GET /api/network/chats?source=&q=&tag=&limit=`
+* 跨所有 agent 并发拉取 + 按 ID `groupBy` 去重 + `perAgent[]` 分解。
+* DisplayName / Title 取 msgCount 最高的 perAgent，Tags union 合并。
+* TeamView 联系人 + 群聊 sub-tab 顶部加「📋 本地 / 🌐 全局」toggle。
+  - 全局视图：同 ID 跨 agent 合并展示 + agent 头像簇（每圈代表一位有此档案的成
+    员）+ 点头像簇可跳到对应成员的本地视图。
+* 10 个新单测覆盖去重 / displayName 选优 / tag union / q 过滤 / 排序。
+
+### F-03 · 工具调用全量审计 + ToolAuditView 全局页
+
+* 新建 `pkg/toolaudit/`：JSONL 按 UTC 日切日志 + 200 KiB inline cap + `blobs/`
+  溢出（防止单条爆文件 / 跨天打散）。
+  - `Entry`: AgentID / SessionID / ToolCallID / Name / Input / Result /
+    DurationMs / Error
+  - `Append` / `GetByID`（14 天回溯 + 自动 rehydrate blob）/ `ListBySession` /
+    `ListAll(filter, limit, offset)`
+* `runner.Config` 加 `ToolAudit *toolaudit.Log` 字段；`executeTools` 每次工具
+  调用完成后持久化全量 input / result（含错误堆栈）。
+* `chat.go` + `public_chat.go` 都注入 ToolAudit。
+* 4 个新 REST 端点：
+  - `GET /api/agents/:id/tool-audit/:toolCallId` — 单条
+  - `GET /api/agents/:id/sessions/:sid/tool-audit` — 按 session
+  - `GET /api/agents/:id/tool-audit/blobs/:name` — 溢出 blob 原始字节
+  - `GET /api/tool-audit?agentId=&sessionId=&tool=&dateFrom=&dateTo=&limit=&offset=`
+* AiChat 工具卡 INPUT / OUTPUT label 旁加「🔍 详情」按钮 → 内嵌 drawer 显示完整
+  数据 + 复制按钮。
+* 新增 `ToolAuditView.vue` 全局审计页（管理员视角）：
+  - filter（agent / session / tool / date range）+ 分页 + 表格 + 点击行 / 详情按
+    钮开同款 drawer
+* 路由 `/tool-audit` + 侧栏「🔍 工具审计」菜单项
+* 11 个新单测覆盖 inline / blob overflow / list / pagination / nil-safe。
+
+### F-01 · 工具审批模式 `policy=ask` 端到端
+
+* `pkg/tools/approval.go`：进程级 Broker
+  - `Request(ctx, agent, session, name, input, timeout)` 阻塞等 `Decide`
+  - 默认 5 min timeout 自动拒绝；`Subscribe` 推 SSE 事件
+  - `AuditHook` 在 approve / deny / expired 都触发
+* `pkg/tools/policy.go`：`ToolPolicy` 加 `Ask []string`，`MergePolicy` 合并全局
+  与 per-agent。
+* `pkg/tools/registry.go`：`Execute` 命中 askNames → 走 broker；deny / timeout
+  返回礼貌的中文拒绝字符串而非错误（让 agent 继续对话）。
+* `internal/api/approvals.go`：4 个端点 + SSE
+  - `GET /api/approvals/pending?agentId=`
+  - `POST /api/approvals/:id/{approve,deny}` body: `{reason?, by?}`
+  - `GET /api/approvals/stream` — EventSource（用 `?token=` 兜底 auth）
+* `internal/api/chat.go`：调用 `ApplyPolicy + WithApprovalBroker`（顺手修了一个
+  之前 chat 路径完全跳过 per-agent policy 的 bug）。
+* `cmd/aipanel/main.go`：创建 approval audit log（写入 `pkg/aiteam/audit`，与
+  aiteam flags 无关）+ Broker 注入。
+* 前端：
+  - `composables/useApprovals.ts`：全局 EventSource + pending store + REST 函数。
+  - App.vue 顶栏 🔔 铃铛 + badge 数字 + popover 列 pending + 允许/拒绝按钮（拒
+    绝时弹 prompt 填理由）。
+  - AgentDetailView 工具权限 tab 加「需审批 (Ask)」输入区 + 3 个快捷预设
+    （让 exec 走审批 / 所有运行时工具审批 / 所有消息推送审批）。
+  - `ToolPolicy` ts 类型加 `ask?: string[]`。
+* 审批日志写入 `pkg/aiteam/audit`（用户指定）：
+  - `Subsystem: "approval"`，`Type: "approval_approved" / "approval_denied" /
+    "approval_expired"`
+  - `Detail.{approvalId, toolName, approved, reason, by}`
+* 12 个新单测覆盖 broker happy / deny / timeout / context cancel / 并发 /
+  registry 集成 / 审计 hook 触发。
+
+### 累计指标
+
+- 6 子项落地，**42 个新单测**全部 `-race -count=1` 绿
+- 6 个独立 commit，每个对应一个 README "P1 规划中"清单项
+- `cd ui && npm run build && make build` 收尾通过
+- 不动 `proposals/aiteam/`（实验线）；`pkg/aiteam/audit/` 作为通用 audit 包被
+  F-01 复用
+
+### 兼容性
+
+- 老 contact frontmatter 缺 `avatarPath` → 视为无头像
+- 老 ToolPolicy JSON 缺 `ask` → 视为空数组
+- 老 Session JSONL 缺 ToolCallRecord 全量 → audit drawer 显示"未在审计日志"
+  (14 天回溯失败的兜底)
+- 新 REST 端点全部走现有 `Bearer Token` 认证；`/approvals/stream` 额外接受
+  `?token=` 兜底 auth 因为 EventSource 不支持自定义 header
+
+---
+
 ## [26.5.10v26] — 2026-05-11 · 🐛 aiteam P3-S8 — 边界硬化 + 5 个 bug 修复
 
 Phase 3 后做了一轮全面 edge case + adversarial smoke 测试，发现 5 个真实 bug 并
