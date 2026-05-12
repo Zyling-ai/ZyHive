@@ -237,6 +237,72 @@ func (h *networkHandler) RefreshIndex(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
+// GetContactAvatar GET /api/agents/:id/network/contacts/:cid/avatar
+// Streams the cached avatar image; 404 if not cached.
+func (h *networkHandler) GetContactAvatar(c *gin.Context) {
+	s, ok := h.storeFor(c)
+	if !ok {
+		return
+	}
+	cid := normalizeContactID(c.Param("cid"))
+	abs := s.AvatarPath(cid)
+	if abs == "" {
+		c.JSON(http.StatusNotFound, gin.H{"error": "no avatar cached"})
+		return
+	}
+	c.Header("Cache-Control", "private, max-age=86400")
+	c.File(abs)
+}
+
+// UploadContactAvatar POST /api/agents/:id/network/contacts/:cid/avatar
+// Body: raw image bytes; Content-Type used to pick extension.
+// Cap: 1 MiB (returns 413 on overflow).
+func (h *networkHandler) UploadContactAvatar(c *gin.Context) {
+	s, ok := h.storeFor(c)
+	if !ok {
+		return
+	}
+	cid := normalizeContactID(c.Param("cid"))
+	// LimitReader at 1 MiB + 1 to detect overflow.
+	raw, err := io.ReadAll(io.LimitReader(c.Request.Body, network.MaxAvatarBytes+1))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "read body: " + err.Error()})
+		return
+	}
+	if len(raw) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "empty body"})
+		return
+	}
+	if len(raw) > network.MaxAvatarBytes {
+		c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "avatar exceeds 1 MiB"})
+		return
+	}
+	ct := c.GetHeader("Content-Type")
+	if err := s.SaveAvatar(cid, raw, ct); err != nil {
+		if err == network.ErrAvatarTooLarge {
+			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// DeleteContactAvatar DELETE /api/agents/:id/network/contacts/:cid/avatar
+func (h *networkHandler) DeleteContactAvatar(c *gin.Context) {
+	s, ok := h.storeFor(c)
+	if !ok {
+		return
+	}
+	cid := normalizeContactID(c.Param("cid"))
+	if err := s.DeleteAvatar(cid); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
 func containsStr(arr []string, v string) bool {
 	for _, x := range arr {
 		if x == v {
