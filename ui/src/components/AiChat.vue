@@ -144,11 +144,21 @@
                 <!-- 详情（可展开）-->
                 <div v-if="tc._expanded" class="tool-step-body" @click.stop>
                   <div v-if="tc.input" class="tool-section">
-                    <div class="tool-label">INPUT</div>
+                    <div class="tool-label">
+                      <span>INPUT</span>
+                      <button v-if="tc.id" class="tool-audit-btn" @click.stop="openToolAuditDrawer(tc)" title="查看完整 input / output（含 200 KiB 以上溢出 blob）">
+                        🔍 详情
+                      </button>
+                    </div>
                     <pre class="tool-pre">{{ fmtJson(tc.input) }}</pre>
                   </div>
                   <div v-if="tc.result" class="tool-section">
-                    <div class="tool-label">OUTPUT</div>
+                    <div class="tool-label">
+                      <span>OUTPUT</span>
+                      <button v-if="tc.id && !tc.input" class="tool-audit-btn" @click.stop="openToolAuditDrawer(tc)">
+                        🔍 详情
+                      </button>
+                    </div>
                     <pre class="tool-pre result">{{ tc.result.slice(0, 3000) }}{{ tc.result.length > 3000 ? '\n… (截断)' : '' }}</pre>
                   </div>
                 </div>
@@ -396,6 +406,36 @@
 
       <div class="input-hint">Enter 发送 · Shift + Enter 换行 · 支持拖拽图片/文件</div>
     </div>
+
+    <!-- F-03: 工具调用全量审计 drawer -->
+    <el-drawer v-model="toolAuditDrawerOpen" :title="toolAuditDrawerTitle" direction="rtl" size="640px" destroy-on-close>
+      <div v-if="toolAuditDrawerLoading" style="padding:20px;color:#94a3b8">加载中…</div>
+      <div v-else-if="toolAuditDrawerError" style="padding:20px;color:#f56c6c">{{ toolAuditDrawerError }}</div>
+      <div v-else-if="toolAuditDrawerData" class="tool-audit-drawer">
+        <div class="ta-meta">
+          <div><strong>工具：</strong> <code>{{ toolAuditDrawerData.name }}</code></div>
+          <div><strong>耗时：</strong> {{ toolAuditDrawerData.durationMs ?? 0 }} ms</div>
+          <div v-if="toolAuditDrawerData.sessionId"><strong>Session：</strong> <code style="font-size:11px">{{ toolAuditDrawerData.sessionId }}</code></div>
+          <div><strong>ID：</strong> <code style="font-size:11px">{{ toolAuditDrawerData.toolCallId }}</code></div>
+          <div v-if="toolAuditDrawerData.error" style="color:#f56c6c"><strong>错误：</strong> {{ toolAuditDrawerData.error }}</div>
+        </div>
+        <div class="ta-section">
+          <div class="ta-label">
+            <span>INPUT（完整）</span>
+            <button class="ta-copy-btn" @click="copyToClipboard(formatAuditValue(toolAuditDrawerData.input))">复制</button>
+          </div>
+          <pre class="ta-pre">{{ formatAuditValue(toolAuditDrawerData.input) }}</pre>
+        </div>
+        <div class="ta-section">
+          <div class="ta-label">
+            <span>OUTPUT（完整）</span>
+            <button class="ta-copy-btn" @click="copyToClipboard(toolAuditDrawerData.result || '')">复制</button>
+            <span class="ta-size">{{ (toolAuditDrawerData.result?.length ?? 0).toLocaleString() }} chars</span>
+          </div>
+          <pre class="ta-pre result">{{ toolAuditDrawerData.result || '(空)' }}</pre>
+        </div>
+      </div>
+    </el-drawer>
 
   </div>
 </template>
@@ -1023,6 +1063,56 @@ function retryMsg(idx: number) {
 }
 
 function previewImg(src: string) { previewSrc.value = src }
+
+// ── F-03: 工具调用全量审计 drawer ─────────────────────────────────────
+const toolAuditDrawerOpen = ref(false)
+const toolAuditDrawerLoading = ref(false)
+const toolAuditDrawerError = ref('')
+const toolAuditDrawerData = ref<any>(null)
+
+const toolAuditDrawerTitle = computed(() => {
+  const tc = toolAuditDrawerData.value
+  if (!tc) return '工具调用详情'
+  return `🔍 ${tc.name}（${tc.durationMs ?? 0} ms）`
+})
+
+async function openToolAuditDrawer(tc: ToolCallEntry) {
+  if (!tc.id) return
+  toolAuditDrawerOpen.value = true
+  toolAuditDrawerLoading.value = true
+  toolAuditDrawerError.value = ''
+  toolAuditDrawerData.value = null
+  try {
+    const token = localStorage.getItem('aipanel_token') || ''
+    const resp = await fetch(`/api/agents/${encodeURIComponent(props.agentId)}/tool-audit/${encodeURIComponent(tc.id)}`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    })
+    if (!resp.ok) {
+      const j = await resp.json().catch(() => ({}))
+      toolAuditDrawerError.value = j.error || `HTTP ${resp.status}`
+    } else {
+      toolAuditDrawerData.value = await resp.json()
+    }
+  } catch (e: any) {
+    toolAuditDrawerError.value = e?.message || '请求失败'
+  } finally {
+    toolAuditDrawerLoading.value = false
+  }
+}
+
+function formatAuditValue(v: any): string {
+  if (v == null) return '(空)'
+  if (typeof v === 'string') return v
+  try { return JSON.stringify(v, null, 2) } catch { return String(v) }
+}
+
+async function copyToClipboard(s: string) {
+  try {
+    await navigator.clipboard.writeText(s)
+  } catch {
+    // ignore — older browsers
+  }
+}
 
 // processToolResult detects special markers in a tool result string and returns
 // extra fields to merge into the ToolCall object (mediaUrl, fileCard).
@@ -2506,7 +2596,68 @@ onMounted(() => {
   cursor: default;
 }
 .tool-section { margin-bottom: 6px; }
-.tool-label  { font-size: 10px; color: #94a3b8; margin-bottom: 3px; text-transform: uppercase; letter-spacing: .5px; font-weight: 600; }
+.tool-label  { font-size: 10px; color: #94a3b8; margin-bottom: 3px; text-transform: uppercase; letter-spacing: .5px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.tool-audit-btn {
+  border: 1px solid #d8dadf;
+  background: #fff;
+  color: #475569;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 10px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.tool-audit-btn:hover { background: #f0f3f7; color: #1e293b; }
+
+/* F-03: tool-audit drawer */
+.tool-audit-drawer { padding: 4px 12px 24px; }
+.ta-meta {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 14px;
+  padding: 8px 12px;
+  background: #f6f8fa;
+  border-radius: 6px;
+  margin-bottom: 14px;
+  font-size: 12px;
+}
+.ta-meta strong { color: #1e293b; font-weight: 600; margin-right: 4px; }
+.ta-meta code { background: #fff; padding: 1px 4px; border-radius: 3px; font-size: 11px; }
+.ta-section { margin-bottom: 16px; }
+.ta-label {
+  font-size: 11px;
+  color: #64748b;
+  font-weight: 600;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ta-label .ta-size { color: #94a3b8; font-weight: normal; margin-left: auto; }
+.ta-copy-btn {
+  border: 1px solid #d8dadf;
+  background: #fff;
+  color: #475569;
+  padding: 2px 10px;
+  border-radius: 10px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.ta-copy-btn:hover { background: #f0f3f7; }
+.ta-pre {
+  background: #1e293b;
+  color: #e2e8f0;
+  padding: 10px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 480px;
+  overflow: auto;
+}
+.ta-pre.result { background: #0f1729; }
 .tool-pre {
   margin: 0;
   font-size: 11px;

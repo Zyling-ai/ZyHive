@@ -25,6 +25,7 @@ import (
 	"github.com/Zyling-ai/zyhive/pkg/network"
 	"github.com/Zyling-ai/zyhive/pkg/runner"
 	"github.com/Zyling-ai/zyhive/pkg/session"
+	"github.com/Zyling-ai/zyhive/pkg/toolaudit"
 	"github.com/Zyling-ai/zyhive/pkg/tools"
 )
 
@@ -305,6 +306,7 @@ func (h *publicChatHandler) runPublic(
 		Session:      store,
 		AgentEnv:     agEnv,
 		ExtraContext: extraCtx,
+		ToolAudit:    toolaudit.New(filepath.Dir(workspaceDir)),
 	})
 
 	var fullResponse strings.Builder
