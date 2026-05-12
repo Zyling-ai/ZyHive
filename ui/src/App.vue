@@ -248,6 +248,11 @@
             <template #title>用量统计</template>
           </el-menu-item>
 
+          <el-menu-item index="/tool-audit">
+            <el-icon><Search /></el-icon>
+            <template #title>工具审计</template>
+          </el-menu-item>
+
           <el-menu-item index="/settings">
             <el-icon><Tools /></el-icon>
             <template #title>系统设置</template>

@@ -21,6 +21,7 @@ import (
 
 	"github.com/Zyling-ai/zyhive/pkg/llm"
 	"github.com/Zyling-ai/zyhive/pkg/session"
+	"github.com/Zyling-ai/zyhive/pkg/toolaudit"
 	"github.com/Zyling-ai/zyhive/pkg/tools"
 )
 
@@ -77,6 +78,12 @@ type Config struct {
 	//   - 消息数: 26
 	//   - 当需要更新标题时调用 session_rename 工具...
 	CurrentSessionContext string
+
+	// Optional: tool-call audit log. When non-nil, every tool call's full
+	// (un-truncated) input + result is appended to a per-agent JSONL log so
+	// users can drill into a tool card and see the real data.
+	// Added 26.5.12v1 (F-03).
+	ToolAudit *toolaudit.Log
 }
 
 // budgetExceededError is the typed error surfaced when BudgetCheck blocks
@@ -777,7 +784,10 @@ func (r *Runner) executeTools(ctx context.Context, calls []llm.ToolCall, out cha
 		wg.Add(1)
 		go func(i int, tc llm.ToolCall) {
 			defer wg.Done()
+			start := time.Now()
 			result, err := r.cfg.Tools.Execute(ctx, tc.Name, tc.Input)
+			dur := time.Since(start)
+			origErr := err
 			if err != nil {
 				// Combine any partial output with the error so the LLM
 				// sees both the failure reason AND any command output.
@@ -798,6 +808,23 @@ func (r *Runner) executeTools(ctx context.Context, calls []llm.ToolCall, out cha
 			slots[i] = slot{
 				result: result,
 				record: session.ToolCallRecord{ID: tc.ID, Name: tc.Name, Input: inputStr, Result: resultStr},
+			}
+			// F-03 (26.5.12v1): persist FULL input/result to audit log.
+			if r.cfg.ToolAudit != nil {
+				errStr := ""
+				if origErr != nil {
+					errStr = origErr.Error()
+				}
+				_ = r.cfg.ToolAudit.Append(toolaudit.Entry{
+					AgentID:    r.cfg.AgentID,
+					SessionID:  r.cfg.SessionID,
+					ToolCallID: tc.ID,
+					Name:       tc.Name,
+					Input:      tc.Input,
+					Result:     result,
+					DurationMs: int(dur.Milliseconds()),
+					Error:      errStr,
+				})
 			}
 		}(i, tc)
 	}

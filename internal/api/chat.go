@@ -36,6 +36,7 @@ import (
 	"github.com/Zyling-ai/zyhive/pkg/runner"
 	"github.com/Zyling-ai/zyhive/pkg/session"
 	"github.com/Zyling-ai/zyhive/pkg/subagent"
+	"github.com/Zyling-ai/zyhive/pkg/toolaudit"
 	"github.com/Zyling-ai/zyhive/pkg/tools"
 	"github.com/Zyling-ai/zyhive/pkg/usage"
 )
@@ -375,6 +376,7 @@ func (h *chatHandler) execRunner(
 		BudgetCheck:           h.budgetCheckAdapter(),
 		CapabilitiesContext:   capCtx,
 		CurrentSessionContext: agent.BuildSessionContext(store, sessionID),
+		ToolAudit:             toolaudit.New(filepath.Dir(workspaceDir)),
 	})
 
 	// Chatlog: write user message entry

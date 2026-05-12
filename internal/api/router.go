@@ -178,6 +178,14 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, cfgPath string, mgr *agen
 	v1.GET("/network/contacts", aggH.ListAllContacts)
 	v1.GET("/network/chats", aggH.ListAllChats)
 
+	// F-03 (26.5.12v1): tool-call audit log.
+	taH := &toolAuditHandler{manager: mgr}
+	agents.GET("/:id/tool-audit/:toolCallId", taH.GetEntry)
+	agents.GET("/:id/tool-audit/blobs/:name", taH.GetBlob)
+	agents.GET("/:id/sessions/:sid/tool-audit", taH.ListBySession)
+	taggH := &toolAuditAggregateHandler{manager: mgr}
+	v1.GET("/tool-audit", taggH.ListAll)
+
 	// Memory tree API
 	memH := &memoryHandler{manager: mgr, cronEngine: cronEngine, pool: pool}
 	agents.GET("/:id/memory/tree", memH.Tree)
