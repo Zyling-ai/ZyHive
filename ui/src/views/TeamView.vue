@@ -398,6 +398,20 @@
     <!-- ── Contact Drawer (edit profile) ── -->
     <el-drawer v-model="contactDrawerOpen" :title="drawerTitle" direction="rtl" size="540px" destroy-on-close>
       <div v-if="drawerContact" class="contact-drawer">
+        <!-- B-05: Web 访客升级提示条 (源是 web 且 displayName 是默认 "Web 访客" / 空) -->
+        <div v-if="isUnnamedWebVisitor(drawerContact)" class="web-promote-banner">
+          <el-icon style="font-size:18px;color:#e6a23c"><Promotion /></el-icon>
+          <div style="flex:1">
+            <div style="font-weight:600;color:#b88230">这是匿名 Web 访客</div>
+            <div style="font-size:12px;color:#a06820;margin-top:2px">
+              建议升级为命名联系人（填入真实姓名、贴标签），AI 后续就能用真实身份称呼。
+            </div>
+          </div>
+          <el-button size="small" type="warning" @click="openPromoteDialog">
+            <el-icon><Top /></el-icon> 升级为命名联系人
+          </el-button>
+        </div>
+
         <div class="cd-head">
           <div class="cd-avatar" :style="{ background: avatarColor(drawerContact.displayName || drawerContact.id) }">
             {{ (drawerContact.displayName || drawerContact.id).slice(0, 1) }}
@@ -479,6 +493,45 @@
         </div>
       </div>
     </el-drawer>
+
+    <!-- B-05: Web 访客升级对话框 -->
+    <el-dialog v-model="promoteDialogOpen" title="升级为命名联系人" width="460px" :close-on-click-modal="false">
+      <div style="margin-bottom:12px;color:#606266;font-size:13px;line-height:1.6">
+        把这位 Web 访客升级成命名联系人后，AI 收到 ta 的消息时会用真实姓名 + 标签身份称呼，<br>
+        档案也会保留下次访问可继续累积。
+      </div>
+      <el-form label-width="80px" label-position="left">
+        <el-form-item label="真实姓名" required>
+          <el-input v-model="promoteForm.displayName" placeholder="例如：张三 / 王老板 / 周一面试" autofocus />
+        </el-form-item>
+        <el-form-item label="标签">
+          <div>
+            <el-tag
+              v-for="(t, i) in promoteForm.tags" :key="t + i" closable size="small"
+              @close="promoteForm.tags.splice(i, 1)"
+              style="margin-right:4px;margin-bottom:4px"
+            >{{ t }}</el-tag>
+            <el-button
+              v-for="preset in presetTags" :key="'p-' + preset" size="small" plain
+              @click="addPromotePreset(preset)"
+              style="margin-right:4px;margin-bottom:4px"
+            >#{{ preset }}</el-button>
+          </div>
+        </el-form-item>
+        <el-form-item label="档案模板">
+          <el-radio-group v-model="promoteForm.bodyTemplate" size="small">
+            <el-radio value="保留">保留当前</el-radio>
+            <el-radio value="客户">客户模板</el-radio>
+            <el-radio value="同事">同事模板</el-radio>
+            <el-radio value="朋友">朋友模板</el-radio>
+          </el-radio-group>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="promoteDialogOpen = false">取消</el-button>
+        <el-button type="primary" :loading="promoteSaving" @click="confirmPromote">确认升级</el-button>
+      </template>
+    </el-dialog>
 
     <!-- ── Chat Drawer (edit group profile, 26.4.24v1) ── -->
     <el-drawer v-model="chatDrawerOpen" :title="chatDrawerTitle" direction="rtl" size="540px" destroy-on-close>
@@ -611,7 +664,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, reactive, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Search } from '@element-plus/icons-vue'
+import { Search, Promotion, Top } from '@element-plus/icons-vue'
 import { relationsApi, agents as agentsApi, networkApi, type TeamGraph, type TeamGraphEdge, type TeamGraphNode, type ContactSummary, type Contact, type ChatSummary, type Chat } from '../api'
 import RelTypeForm from '../components/RelTypeForm.vue'
 
@@ -1139,6 +1192,82 @@ function addPresetTag(t: string) {
   if (!drawerContact.value.tags.includes(t)) drawerContact.value.tags.push(t)
 }
 
+// ── B-05: Web 访客升级 ─────────────────────────────────────────────────
+// 当 contact 是 web 来源且 displayName 仍是默认 "Web 访客" / 空 / 是 token 前缀（FallbackDisplayName 默认）时，认为是 unnamed。
+function isUnnamedWebVisitor(c: { source: string; displayName?: string; id: string } | null): boolean {
+  if (!c || c.source !== 'web') return false
+  const dn = (c.displayName || '').trim()
+  if (!dn) return true
+  if (dn === 'Web 访客' || dn === 'web 访客' || dn === 'Web Visitor') return true
+  // FallbackDisplayName 兜底取 externalID[:8] —— 若 displayName 是 token 的前 8 字符，也算 unnamed
+  const ext = (c.id.includes(':') ? c.id.split(':')[1] : c.id) || ''
+  if (ext.length >= 8 && dn === ext.slice(0, 8)) return true
+  return false
+}
+
+const promoteDialogOpen = ref(false)
+const promoteSaving = ref(false)
+const promoteForm = reactive<{ displayName: string; tags: string[]; bodyTemplate: '保留' | '客户' | '同事' | '朋友' }>({
+  displayName: '', tags: [], bodyTemplate: '保留',
+})
+
+function openPromoteDialog() {
+  if (!drawerContact.value) return
+  promoteForm.displayName = ''
+  promoteForm.tags = []
+  promoteForm.bodyTemplate = '保留'
+  promoteDialogOpen.value = true
+}
+
+function addPromotePreset(t: string) {
+  if (!promoteForm.tags.includes(t)) promoteForm.tags.push(t)
+}
+
+function buildPromoteBody(template: string, displayName: string, originalBody: string): string {
+  if (template === '保留') return originalBody
+  const header = `# ${displayName}\n\n`
+  switch (template) {
+    case '客户':
+      return header + `## 事实\n- 来源：Web 访客升级\n- 公司/角色：\n- 关键诉求：\n\n## 偏好（AI 观察）\n-\n\n## 待跟进\n-\n`
+    case '同事':
+      return header + `## 事实\n- 来源：Web 访客升级\n- 部门/角色：\n- 主要协作项目：\n\n## 偏好（AI 观察）\n-\n\n## 待跟进\n-\n`
+    case '朋友':
+      return header + `## 事实\n- 来源：Web 访客升级\n- 认识场景：\n- 兴趣点：\n\n## 偏好（AI 观察）\n-\n\n## 待跟进\n-\n`
+  }
+  return originalBody
+}
+
+async function confirmPromote() {
+  if (!drawerContact.value) return
+  const name = promoteForm.displayName.trim()
+  if (!name) {
+    ElMessage.warning('请填真实姓名')
+    return
+  }
+  const c = drawerContact.value
+  const newBody = buildPromoteBody(promoteForm.bodyTemplate, name, c.body || '')
+  promoteSaving.value = true
+  try {
+    await networkApi.update(c.agentId, c.id, {
+      displayName: name,
+      tags: Array.from(new Set([...(c.tags || []), ...promoteForm.tags])),
+      body: newBody,
+    })
+    // 同步本地 state（让 banner 立刻消失）
+    c.displayName = name
+    c.tags = Array.from(new Set([...(c.tags || []), ...promoteForm.tags]))
+    c.body = newBody
+    ElMessage.success(`已升级为「${name}」`)
+    promoteDialogOpen.value = false
+    // 异步刷新整张表
+    loadContacts()
+  } catch {
+    ElMessage.error('升级失败')
+  } finally {
+    promoteSaving.value = false
+  }
+}
+
 async function saveContact() {
   if (!drawerContact.value) return
   const c = drawerContact.value
@@ -1585,6 +1714,16 @@ onUnmounted(() => {
 
 /* ── Contact drawer ────────────────────────────────────────────────────── */
 .contact-drawer { padding: 0 8px; }
+.web-promote-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: #fff7ec;
+  border: 1px solid #f5c97a;
+  border-radius: 6px;
+  margin-bottom: 14px;
+}
 .cd-head {
   display: flex; gap: 12px; align-items: center;
   padding-bottom: 16px;
