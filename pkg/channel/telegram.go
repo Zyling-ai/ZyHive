@@ -847,13 +847,19 @@ func (b *TelegramBot) generateAndSend(ctx context.Context, msg *TelegramMessage,
 			senderID := fmt.Sprintf("%d", msg.From.ID)
 			// Bug 2 fix: 完整 fallback 链 — firstName → username → externalID[:8]
 			displayName := network.FallbackDisplayName(senderID, msg.From.FirstName, msg.From.Username)
-			if _, nerr := store.Resolve(network.SourceTelegram, senderID, displayName); nerr != nil {
+			if c, nerr := store.Resolve(network.SourceTelegram, senderID, displayName); nerr != nil {
 				log.Printf("[telegram] network.Resolve warning: %v", nerr)
-			} else if senderSummary := store.Summary(network.MakeID(network.SourceTelegram, senderID)); senderSummary != "" {
-				if contactSummary == "" {
-					contactSummary = senderSummary
-				} else {
-					contactSummary = contactSummary + "\n\n" + senderSummary
+			} else {
+				if senderSummary := store.Summary(c.ID); senderSummary != "" {
+					if contactSummary == "" {
+						contactSummary = senderSummary
+					} else {
+						contactSummary = contactSummary + "\n\n" + senderSummary
+					}
+				}
+				// E-01 (26.5.12v1): async fetch avatar if not yet cached.
+				if c.AvatarPath == "" {
+					b.fetchAndCacheTelegramAvatar(msg.From.ID, c.ID)
 				}
 			}
 		}

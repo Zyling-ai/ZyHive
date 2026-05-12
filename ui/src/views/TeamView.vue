@@ -290,7 +290,15 @@
             @click="openContactDrawer(c)"
           >
             <div class="contact-avatar" :style="{ background: avatarColor(c.displayName || c.id) }">
-              {{ (c.displayName || c.id).slice(0, 1) }}
+              <!-- E-01: 真实头像优先；缓存命中时渲染图片，否则首字母圆 -->
+              <img
+                v-if="c.hasAvatar"
+                :src="networkApi.avatarURL(c.agentId, c.id)"
+                class="avatar-img"
+                @error="handleAvatarLoadError($event, c)"
+                alt=""
+              />
+              <span v-else>{{ (c.displayName || c.id).slice(0, 1) }}</span>
             </div>
             <div class="contact-main">
               <div class="contact-name-row">
@@ -414,7 +422,14 @@
 
         <div class="cd-head">
           <div class="cd-avatar" :style="{ background: avatarColor(drawerContact.displayName || drawerContact.id) }">
-            {{ (drawerContact.displayName || drawerContact.id).slice(0, 1) }}
+            <!-- E-01: 头像（如有缓存） -->
+            <img
+              v-if="drawerContact.avatarPath"
+              :src="networkApi.avatarURL(drawerContact.agentId, drawerContact.id) + '?t=' + avatarBust"
+              class="avatar-img"
+              alt=""
+            />
+            <span v-else>{{ (drawerContact.displayName || drawerContact.id).slice(0, 1) }}</span>
           </div>
           <div class="cd-title">
             <el-input
@@ -428,6 +443,26 @@
                 {{ sourceLabel(drawerContact.source) }}
               </el-tag>
               <span class="cd-id">{{ drawerContact.id }}</span>
+            </div>
+            <!-- E-01: 上传 / 移除头像 -->
+            <div style="margin-top:8px">
+              <el-upload
+                action=""
+                :show-file-list="false"
+                :before-upload="onAvatarFileChosen"
+                accept="image/jpeg,image/png,image/webp,image/gif"
+              >
+                <el-button size="small" plain>
+                  <el-icon><Picture /></el-icon>
+                  {{ drawerContact.avatarPath ? '更换头像' : '上传头像' }}
+                </el-button>
+              </el-upload>
+              <el-button
+                v-if="drawerContact.avatarPath"
+                size="small" plain type="danger"
+                @click="onDeleteAvatar"
+                style="margin-left:6px"
+              >移除头像</el-button>
             </div>
           </div>
         </div>
@@ -664,7 +699,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, reactive, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Search, Promotion, Top } from '@element-plus/icons-vue'
+import { Search, Promotion, Top, Picture } from '@element-plus/icons-vue'
 import { relationsApi, agents as agentsApi, networkApi, type TeamGraph, type TeamGraphEdge, type TeamGraphNode, type ContactSummary, type Contact, type ChatSummary, type Chat } from '../api'
 import RelTypeForm from '../components/RelTypeForm.vue'
 
@@ -1237,6 +1272,53 @@ function buildPromoteBody(template: string, displayName: string, originalBody: s
   return originalBody
 }
 
+// ── E-01: avatar upload / delete / list error recovery ────────────────
+const avatarBust = ref(Date.now())  // cache buster after upload
+
+function handleAvatarLoadError(ev: Event, c: ContactWithOwner) {
+  // 404 from /avatar 端点（缓存丢失或文件被外部清理）→ 隐藏 img 退到首字母圆
+  const img = ev.target as HTMLImageElement
+  if (img) img.style.display = 'none'
+  c.hasAvatar = false
+}
+
+async function onAvatarFileChosen(file: File): Promise<boolean> {
+  if (!drawerContact.value) return false
+  if (file.size > 1024 * 1024) {
+    ElMessage.error('头像不能超过 1 MiB')
+    return false
+  }
+  if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(file.type)) {
+    ElMessage.error('仅支持 jpg/png/webp/gif')
+    return false
+  }
+  try {
+    await networkApi.uploadAvatar(drawerContact.value.agentId, drawerContact.value.id, file)
+    // 写入 .avatarPath 以触发 <img> 渲染，并 bust 缓存
+    drawerContact.value.avatarPath = 'uploaded'
+    avatarBust.value = Date.now()
+    ElMessage.success('已上传')
+    // 异步刷新列表里的 hasAvatar
+    loadContacts()
+  } catch {
+    ElMessage.error('上传失败')
+  }
+  return false  // 阻止 el-upload 自己再发请求
+}
+
+async function onDeleteAvatar() {
+  if (!drawerContact.value) return
+  try {
+    await networkApi.deleteAvatar(drawerContact.value.agentId, drawerContact.value.id)
+    drawerContact.value.avatarPath = ''
+    avatarBust.value = Date.now()
+    ElMessage.success('已移除')
+    loadContacts()
+  } catch {
+    ElMessage.error('移除失败')
+  }
+}
+
 async function confirmPromote() {
   if (!drawerContact.value) return
   const name = promoteForm.displayName.trim()
@@ -1697,6 +1779,7 @@ onUnmounted(() => {
   font-weight: 600;
   font-size: 16px;
   flex-shrink: 0;
+  overflow: hidden;
 }
 .contact-main { flex: 1; min-width: 0; }
 .contact-name-row { display: flex; align-items: center; gap: 4px; margin-bottom: 3px; }
@@ -1738,6 +1821,11 @@ onUnmounted(() => {
   font-weight: 600;
   font-size: 20px;
   flex-shrink: 0;
+  overflow: hidden;
+}
+.cd-avatar .avatar-img,
+.contact-avatar .avatar-img {
+  width: 100%; height: 100%; object-fit: cover; display: block;
 }
 .cd-title { flex: 1; min-width: 0; }
 .cd-sub { display: flex; gap: 8px; align-items: center; margin-top: 6px; }

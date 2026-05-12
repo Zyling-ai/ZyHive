@@ -165,6 +165,12 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, cfgPath string, mgr *agen
 	agents.PATCH("/:id/network/chats/:cid", netH.UpdateChat)
 	agents.DELETE("/:id/network/chats/:cid", netH.DeleteChat)
 
+	// E-01 (26.5.12v1): contact avatar — Feishu/TG channel handlers fetch
+	// asynchronously; user can also upload manually via the drawer.
+	agents.GET("/:id/network/contacts/:cid/avatar", netH.GetContactAvatar)
+	agents.POST("/:id/network/contacts/:cid/avatar", netH.UploadContactAvatar)
+	agents.DELETE("/:id/network/contacts/:cid/avatar", netH.DeleteContactAvatar)
+
 	// Memory tree API
 	memH := &memoryHandler{manager: mgr, cronEngine: cronEngine, pool: pool}
 	agents.GET("/:id/memory/tree", memH.Tree)
