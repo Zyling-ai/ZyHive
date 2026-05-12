@@ -310,6 +310,49 @@ export interface Chat extends ChatSummary {
   createdAt: string
 }
 
+// B-03 (26.5.12v1) — aggregated cross-agent views.
+export interface ContactPerAgent {
+  agentId: string
+  agentName: string
+  avatarColor?: string
+  displayName: string
+  tags?: string[]
+  msgCount: number
+  lastSeenAt: string
+  isOwner?: boolean
+  hasAvatar?: boolean
+}
+export interface AggregatedContact {
+  id: string
+  source: string
+  displayName: string
+  tags?: string[]
+  totalMsgCount: number
+  lastSeenAt: string
+  perAgent: ContactPerAgent[]
+}
+export interface ChatPerAgent {
+  agentId: string
+  agentName: string
+  avatarColor?: string
+  title: string
+  kind: string
+  memberCount?: number
+  tags?: string[]
+  msgCount: number
+  lastSeenAt: string
+}
+export interface AggregatedChat {
+  id: string
+  source: string
+  title: string
+  kind: string
+  tags?: string[]
+  totalMsgCount: number
+  lastSeenAt: string
+  perAgent: ChatPerAgent[]
+}
+
 export const networkApi = {
   list: (agentId: string) => api.get<{ contacts: ContactSummary[] }>(`/agents/${agentId}/network/contacts`),
   get: (agentId: string, contactId: string) =>
@@ -332,6 +375,12 @@ export const networkApi = {
     }),
   deleteAvatar: (agentId: string, contactId: string) =>
     api.delete(`/agents/${agentId}/network/contacts/${encodeURIComponent(contactId)}/avatar`),
+
+  // B-03 (26.5.12v1) — cross-agent aggregated views (admin-facing).
+  listAllContacts: (params?: { source?: string; q?: string; tag?: string; limit?: number }) =>
+    api.get<{ contacts: AggregatedContact[]; total: number }>(`/network/contacts`, { params }),
+  listAllChats: (params?: { source?: string; q?: string; tag?: string; limit?: number }) =>
+    api.get<{ chats: AggregatedChat[]; total: number }>(`/network/chats`, { params }),
 
   // Chat profile (26.4.24v1)
   listChats: (agentId: string) => api.get<{ chats: ChatSummary[] }>(`/agents/${agentId}/network/chats`),

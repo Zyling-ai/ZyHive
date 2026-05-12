@@ -171,6 +171,13 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, cfgPath string, mgr *agen
 	agents.POST("/:id/network/contacts/:cid/avatar", netH.UploadContactAvatar)
 	agents.DELETE("/:id/network/contacts/:cid/avatar", netH.DeleteContactAvatar)
 
+	// B-03 (26.5.12v1): cross-agent aggregated contacts / chats views.
+	// Lives outside /api/agents/:id because it spans every agent. Mounted on
+	// v1 so it gets the same auth middleware as the agents group.
+	aggH := &aggregateHandler{manager: mgr}
+	v1.GET("/network/contacts", aggH.ListAllContacts)
+	v1.GET("/network/chats", aggH.ListAllChats)
+
 	// Memory tree API
 	memH := &memoryHandler{manager: mgr, cronEngine: cronEngine, pool: pool}
 	agents.GET("/:id/memory/tree", memH.Tree)
