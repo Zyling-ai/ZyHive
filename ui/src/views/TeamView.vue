@@ -246,6 +246,17 @@
 
       <!-- ── People (联系人) sub-tab ── -->
       <div v-show="subTab === 'people'">
+        <!-- B-03: 本地 / 全局 视图切换 -->
+        <div class="view-mode-bar">
+          <el-radio-group v-model="contactViewMode" size="small" @change="onContactViewModeChange">
+            <el-radio-button value="local">📋 本地视图（按成员）</el-radio-button>
+            <el-radio-button value="global">🌐 全局视图（跨成员聚合）</el-radio-button>
+          </el-radio-group>
+          <el-text v-if="contactViewMode === 'global'" type="info" size="small" style="margin-left:10px">
+            同 ID 的联系人会被合并展示，头像簇里的每个圆代表一个有此联系人档案的成员
+          </el-text>
+        </div>
+
         <!-- Filter bar -->
         <div class="contact-filter-bar">
           <el-input
@@ -263,7 +274,7 @@
             <el-radio-button value="telegram">Telegram</el-radio-button>
             <el-radio-button value="web">Web</el-radio-button>
           </el-radio-group>
-          <el-radio-group v-model="contactAgentFilter" size="small">
+          <el-radio-group v-if="contactViewMode === 'local'" v-model="contactAgentFilter" size="small">
             <el-radio-button value="">全部成员</el-radio-button>
             <el-radio-button
               v-for="ag in graph.nodes"
@@ -273,57 +284,117 @@
           </el-radio-group>
         </div>
 
-        <!-- Empty -->
-        <el-card v-if="!contactsLoading && !filteredContacts.length" class="contacts-empty">
-          <div style="padding: 40px 20px; text-align: center; color: #94a3b8;">
-            <div style="font-size: 40px; margin-bottom: 10px;">📭</div>
-            <div>{{ contacts.length ? '当前筛选无结果' : '还没有联系人。对话一次就会自动出现。' }}</div>
-          </div>
-        </el-card>
+        <!-- ── Local view (existing) ── -->
+        <template v-if="contactViewMode === 'local'">
+          <el-card v-if="!contactsLoading && !filteredContacts.length" class="contacts-empty">
+            <div style="padding: 40px 20px; text-align: center; color: #94a3b8;">
+              <div style="font-size: 40px; margin-bottom: 10px;">📭</div>
+              <div>{{ contacts.length ? '当前筛选无结果' : '还没有联系人。对话一次就会自动出现。' }}</div>
+            </div>
+          </el-card>
 
-        <!-- Contact rows -->
-        <div v-else class="contact-list" v-loading="contactsLoading">
-          <div
-            v-for="c in filteredContacts"
-            :key="c.agentId + '|' + c.id"
-            class="contact-row"
-            @click="openContactDrawer(c)"
-          >
-            <div class="contact-avatar" :style="{ background: avatarColor(c.displayName || c.id) }">
-              <!-- E-01: 真实头像优先；缓存命中时渲染图片，否则首字母圆 -->
-              <img
-                v-if="c.hasAvatar"
-                :src="networkApi.avatarURL(c.agentId, c.id)"
-                class="avatar-img"
-                @error="handleAvatarLoadError($event, c)"
-                alt=""
-              />
-              <span v-else>{{ (c.displayName || c.id).slice(0, 1) }}</span>
-            </div>
-            <div class="contact-main">
-              <div class="contact-name-row">
-                <span class="contact-name">{{ c.displayName || c.id }}</span>
-                <el-tag size="small" :type="sourceTagType(c.source)" effect="plain" style="margin-left: 6px">
-                  {{ sourceLabel(c.source) }}
-                </el-tag>
-                <el-tag v-if="c.isOwner" size="small" type="warning" style="margin-left: 4px">主人</el-tag>
+          <div v-else class="contact-list" v-loading="contactsLoading">
+            <div
+              v-for="c in filteredContacts"
+              :key="c.agentId + '|' + c.id"
+              class="contact-row"
+              @click="openContactDrawer(c)"
+            >
+              <div class="contact-avatar" :style="{ background: avatarColor(c.displayName || c.id) }">
+                <!-- E-01: 真实头像优先；缓存命中时渲染图片，否则首字母圆 -->
+                <img
+                  v-if="c.hasAvatar"
+                  :src="networkApi.avatarURL(c.agentId, c.id)"
+                  class="avatar-img"
+                  @error="handleAvatarLoadError($event, c)"
+                  alt=""
+                />
+                <span v-else>{{ (c.displayName || c.id).slice(0, 1) }}</span>
               </div>
-              <div class="contact-meta">
-                <span class="contact-id">{{ c.id }}</span>
-                <span v-if="c.tags && c.tags.length" class="contact-tags">
-                  <span v-for="t in c.tags" :key="t" class="contact-tag">#{{ t }}</span>
-                </span>
-                <span class="contact-msgcount">💬 {{ c.msgCount }}</span>
-                <span v-if="c.lastSeenAt" class="contact-lastseen">最后 {{ formatLastSeen(c.lastSeenAt) }}</span>
-              </div>
-              <div class="contact-agent-chip">
-                <el-text type="info" size="small">
-                  📍 {{ agentNameById[c.agentId] || c.agentId }} 的联系人
-                </el-text>
+              <div class="contact-main">
+                <div class="contact-name-row">
+                  <span class="contact-name">{{ c.displayName || c.id }}</span>
+                  <el-tag size="small" :type="sourceTagType(c.source)" effect="plain" style="margin-left: 6px">
+                    {{ sourceLabel(c.source) }}
+                  </el-tag>
+                  <el-tag v-if="c.isOwner" size="small" type="warning" style="margin-left: 4px">主人</el-tag>
+                </div>
+                <div class="contact-meta">
+                  <span class="contact-id">{{ c.id }}</span>
+                  <span v-if="c.tags && c.tags.length" class="contact-tags">
+                    <span v-for="t in c.tags" :key="t" class="contact-tag">#{{ t }}</span>
+                  </span>
+                  <span class="contact-msgcount">💬 {{ c.msgCount }}</span>
+                  <span v-if="c.lastSeenAt" class="contact-lastseen">最后 {{ formatLastSeen(c.lastSeenAt) }}</span>
+                </div>
+                <div class="contact-agent-chip">
+                  <el-text type="info" size="small">
+                    📍 {{ agentNameById[c.agentId] || c.agentId }} 的联系人
+                  </el-text>
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        </template>
+
+        <!-- ── B-03: Global aggregated view ── -->
+        <template v-else>
+          <el-card v-if="!globalContactsLoading && !globalContactsFiltered.length" class="contacts-empty">
+            <div style="padding: 40px 20px; text-align: center; color: #94a3b8;">
+              <div style="font-size: 40px; margin-bottom: 10px;">🌐</div>
+              <div>{{ globalContacts.length ? '当前筛选无结果' : '暂无跨成员的联系人聚合数据。' }}</div>
+            </div>
+          </el-card>
+
+          <div v-else class="contact-list" v-loading="globalContactsLoading">
+            <div
+              v-for="r in globalContactsFiltered"
+              :key="r.id"
+              class="contact-row contact-row-global"
+              @click="openAggregatedContactDrawer(r)"
+            >
+              <div class="contact-avatar" :style="{ background: avatarColor(r.displayName || r.id) }">
+                <img
+                  v-if="r.perAgent[0]?.hasAvatar"
+                  :src="networkApi.avatarURL(r.perAgent[0].agentId, r.id)"
+                  class="avatar-img"
+                  @error="onGlobalAvatarError"
+                  alt=""
+                />
+                <span v-else>{{ (r.displayName || r.id).slice(0, 1) }}</span>
+              </div>
+              <div class="contact-main">
+                <div class="contact-name-row">
+                  <span class="contact-name">{{ r.displayName || r.id }}</span>
+                  <el-tag size="small" :type="sourceTagType(r.source)" effect="plain" style="margin-left:6px">
+                    {{ sourceLabel(r.source) }}
+                  </el-tag>
+                  <el-tag size="small" type="info" effect="plain" style="margin-left:4px">
+                    {{ r.perAgent.length }} 位成员
+                  </el-tag>
+                </div>
+                <div class="contact-meta">
+                  <span class="contact-id">{{ r.id }}</span>
+                  <span v-if="r.tags && r.tags.length" class="contact-tags">
+                    <span v-for="t in r.tags" :key="t" class="contact-tag">#{{ t }}</span>
+                  </span>
+                  <span class="contact-msgcount">💬 共 {{ r.totalMsgCount }}</span>
+                  <span v-if="r.lastSeenAt" class="contact-lastseen">最后 {{ formatLastSeen(r.lastSeenAt) }}</span>
+                </div>
+                <!-- 头像簇 -->
+                <div class="global-agent-cluster">
+                  <span
+                    v-for="pa in r.perAgent" :key="pa.agentId"
+                    class="cluster-avatar"
+                    :style="{ background: pa.avatarColor || '#6366f1' }"
+                    :title="`${pa.agentName}：${pa.displayName || '(无昵称)'} · ${pa.msgCount} 条`"
+                    @click.stop="jumpToLocalContact(pa.agentId, r.id)"
+                  >{{ (pa.agentName || pa.agentId).slice(0, 1) }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
       </div>
 
       <!-- ── Chats (群聊) sub-tab ── -->
@@ -344,7 +415,7 @@
             <el-radio-button value="feishu">飞书</el-radio-button>
             <el-radio-button value="telegram">Telegram</el-radio-button>
           </el-radio-group>
-          <el-radio-group v-model="chatAgentFilter" size="small">
+          <el-radio-group v-if="chatViewMode === 'local'" v-model="chatAgentFilter" size="small">
             <el-radio-button value="">全部成员</el-radio-button>
             <el-radio-button
               v-for="ag in graph.nodes"
@@ -354,52 +425,115 @@
           </el-radio-group>
         </div>
 
-        <!-- Empty -->
-        <el-card v-if="!chatsLoading && !filteredChats.length" class="contacts-empty">
-          <div style="padding: 40px 20px; text-align: center; color: #94a3b8;">
-            <div style="font-size: 40px; margin-bottom: 10px;">💬</div>
-            <div>{{ chats.length ? '当前筛选无结果' : '还没有群档案。AI 在飞书/TG 群聊中收到第一条消息时自动创建。' }}</div>
-          </div>
-        </el-card>
-
-        <!-- Chat rows -->
-        <div v-else class="contact-list" v-loading="chatsLoading">
-          <div
-            v-for="c in filteredChats"
-            :key="c.agentId + '|' + c.id"
-            class="contact-row"
-            @click="openChatDrawer(c)"
-          >
-            <div class="contact-avatar" :style="{ background: avatarColor(c.title || c.id) }">
-              {{ (c.title || c.id).slice(0, 1) }}
-            </div>
-            <div class="contact-main">
-              <div class="contact-name-row">
-                <span class="contact-name">{{ c.title || c.id }}</span>
-                <el-tag size="small" :type="sourceTagType(c.source)" effect="plain" style="margin-left: 6px">
-                  {{ sourceLabel(c.source) }}
-                </el-tag>
-                <el-tag v-if="c.kind" size="small" type="info" effect="plain" style="margin-left: 4px">
-                  {{ chatKindLabel(c.kind) }}
-                </el-tag>
-              </div>
-              <div class="contact-meta">
-                <span class="contact-id">{{ c.id }}</span>
-                <span v-if="c.tags && c.tags.length" class="contact-tags">
-                  <span v-for="t in c.tags" :key="t" class="contact-tag">#{{ t }}</span>
-                </span>
-                <span v-if="c.memberCount && c.memberCount > 0" class="contact-msgcount">👥 {{ c.memberCount }}</span>
-                <span class="contact-msgcount">💬 {{ c.msgCount }}</span>
-                <span v-if="c.lastSeenAt" class="contact-lastseen">最后 {{ formatLastSeen(c.lastSeenAt) }}</span>
-              </div>
-              <div class="contact-agent-chip">
-                <el-text type="info" size="small">
-                  📍 {{ agentNameById[c.agentId] || c.agentId }} 的群档案
-                </el-text>
-              </div>
-            </div>
-          </div>
+        <!-- B-03: 本地 / 全局 视图切换（群聊） -->
+        <div class="view-mode-bar">
+          <el-radio-group v-model="chatViewMode" size="small" @change="onChatViewModeChange">
+            <el-radio-button value="local">📋 本地视图（按成员）</el-radio-button>
+            <el-radio-button value="global">🌐 全局视图（跨成员聚合）</el-radio-button>
+          </el-radio-group>
         </div>
+
+        <!-- ── Local view ── -->
+        <template v-if="chatViewMode === 'local'">
+          <el-card v-if="!chatsLoading && !filteredChats.length" class="contacts-empty">
+            <div style="padding: 40px 20px; text-align: center; color: #94a3b8;">
+              <div style="font-size: 40px; margin-bottom: 10px;">💬</div>
+              <div>{{ chats.length ? '当前筛选无结果' : '还没有群档案。AI 在飞书/TG 群聊中收到第一条消息时自动创建。' }}</div>
+            </div>
+          </el-card>
+
+          <div v-else class="contact-list" v-loading="chatsLoading">
+            <div
+              v-for="c in filteredChats"
+              :key="c.agentId + '|' + c.id"
+              class="contact-row"
+              @click="openChatDrawer(c)"
+            >
+              <div class="contact-avatar" :style="{ background: avatarColor(c.title || c.id) }">
+                {{ (c.title || c.id).slice(0, 1) }}
+              </div>
+              <div class="contact-main">
+                <div class="contact-name-row">
+                  <span class="contact-name">{{ c.title || c.id }}</span>
+                  <el-tag size="small" :type="sourceTagType(c.source)" effect="plain" style="margin-left: 6px">
+                    {{ sourceLabel(c.source) }}
+                  </el-tag>
+                  <el-tag v-if="c.kind" size="small" type="info" effect="plain" style="margin-left: 4px">
+                    {{ chatKindLabel(c.kind) }}
+                  </el-tag>
+                </div>
+                <div class="contact-meta">
+                  <span class="contact-id">{{ c.id }}</span>
+                  <span v-if="c.tags && c.tags.length" class="contact-tags">
+                    <span v-for="t in c.tags" :key="t" class="contact-tag">#{{ t }}</span>
+                  </span>
+                  <span v-if="c.memberCount && c.memberCount > 0" class="contact-msgcount">👥 {{ c.memberCount }}</span>
+                  <span class="contact-msgcount">💬 {{ c.msgCount }}</span>
+                  <span v-if="c.lastSeenAt" class="contact-lastseen">最后 {{ formatLastSeen(c.lastSeenAt) }}</span>
+                </div>
+                <div class="contact-agent-chip">
+                  <el-text type="info" size="small">
+                    📍 {{ agentNameById[c.agentId] || c.agentId }} 的群档案
+                  </el-text>
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <!-- ── B-03: Global aggregated chats view ── -->
+        <template v-else>
+          <el-card v-if="!globalChatsLoading && !globalChatsFiltered.length" class="contacts-empty">
+            <div style="padding: 40px 20px; text-align: center; color: #94a3b8;">
+              <div style="font-size: 40px; margin-bottom: 10px;">🌐</div>
+              <div>{{ globalChats.length ? '当前筛选无结果' : '暂无跨成员的群聊聚合数据。' }}</div>
+            </div>
+          </el-card>
+
+          <div v-else class="contact-list" v-loading="globalChatsLoading">
+            <div
+              v-for="r in globalChatsFiltered"
+              :key="r.id"
+              class="contact-row contact-row-global"
+              @click="openAggregatedChatDrawer(r)"
+            >
+              <div class="contact-avatar" :style="{ background: avatarColor(r.title || r.id) }">
+                {{ (r.title || r.id).slice(0, 1) }}
+              </div>
+              <div class="contact-main">
+                <div class="contact-name-row">
+                  <span class="contact-name">{{ r.title || r.id }}</span>
+                  <el-tag size="small" :type="sourceTagType(r.source)" effect="plain" style="margin-left:6px">
+                    {{ sourceLabel(r.source) }}
+                  </el-tag>
+                  <el-tag v-if="r.kind" size="small" type="info" effect="plain" style="margin-left:4px">
+                    {{ chatKindLabel(r.kind) }}
+                  </el-tag>
+                  <el-tag size="small" type="info" effect="plain" style="margin-left:4px">
+                    {{ r.perAgent.length }} 位成员
+                  </el-tag>
+                </div>
+                <div class="contact-meta">
+                  <span class="contact-id">{{ r.id }}</span>
+                  <span v-if="r.tags && r.tags.length" class="contact-tags">
+                    <span v-for="t in r.tags" :key="t" class="contact-tag">#{{ t }}</span>
+                  </span>
+                  <span class="contact-msgcount">💬 共 {{ r.totalMsgCount }}</span>
+                  <span v-if="r.lastSeenAt" class="contact-lastseen">最后 {{ formatLastSeen(r.lastSeenAt) }}</span>
+                </div>
+                <div class="global-agent-cluster">
+                  <span
+                    v-for="pa in r.perAgent" :key="pa.agentId"
+                    class="cluster-avatar"
+                    :style="{ background: pa.avatarColor || '#6366f1' }"
+                    :title="`${pa.agentName}：${pa.title || '(无群名)'} · ${pa.msgCount} 条`"
+                    @click.stop="jumpToLocalChat(pa.agentId, r.id)"
+                  >{{ (pa.agentName || pa.agentId).slice(0, 1) }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
       </div>
     </div>
 
@@ -700,7 +834,7 @@
 import { ref, computed, onMounted, onUnmounted, reactive, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Promotion, Top, Picture } from '@element-plus/icons-vue'
-import { relationsApi, agents as agentsApi, networkApi, type TeamGraph, type TeamGraphEdge, type TeamGraphNode, type ContactSummary, type Contact, type ChatSummary, type Chat } from '../api'
+import { relationsApi, agents as agentsApi, networkApi, type TeamGraph, type TeamGraphEdge, type TeamGraphNode, type ContactSummary, type Contact, type ChatSummary, type Chat, type AggregatedContact, type AggregatedChat } from '../api'
 import RelTypeForm from '../components/RelTypeForm.vue'
 
 const svgRef = ref<SVGSVGElement>()
@@ -1182,6 +1316,122 @@ watch(tab, (t) => {
     if (subTab.value === 'chats' && chats.value.length === 0) loadChats()
   }
 })
+
+// ── B-03: 跨 agent 聚合视图 ──────────────────────────────────────────────
+const contactViewMode = ref<'local' | 'global'>('local')
+const chatViewMode = ref<'local' | 'global'>('local')
+const globalContacts = ref<AggregatedContact[]>([])
+const globalChats = ref<AggregatedChat[]>([])
+const globalContactsLoading = ref(false)
+const globalChatsLoading = ref(false)
+
+const globalContactsFiltered = computed(() => {
+  const q = contactSearch.value.trim().toLowerCase()
+  return globalContacts.value.filter(r => {
+    if (contactSource.value && r.source !== contactSource.value) return false
+    if (!q) return true
+    const hay = (
+      (r.displayName || '') + ' ' +
+      r.id + ' ' +
+      (r.tags || []).join(' ') + ' ' +
+      r.perAgent.map(p => p.displayName).join(' ')
+    ).toLowerCase()
+    return hay.includes(q)
+  })
+})
+
+const globalChatsFiltered = computed(() => {
+  const q = chatSearch.value.trim().toLowerCase()
+  return globalChats.value.filter(r => {
+    if (chatSource.value && r.source !== chatSource.value) return false
+    if (!q) return true
+    const hay = (
+      (r.title || '') + ' ' +
+      r.id + ' ' +
+      (r.tags || []).join(' ') + ' ' +
+      r.perAgent.map(p => p.title).join(' ')
+    ).toLowerCase()
+    return hay.includes(q)
+  })
+})
+
+async function loadGlobalContacts() {
+  globalContactsLoading.value = true
+  try {
+    const res = await networkApi.listAllContacts({ limit: 500 })
+    globalContacts.value = res.data?.contacts || []
+  } catch { /* ignore */ }
+  finally { globalContactsLoading.value = false }
+}
+
+async function loadGlobalChats() {
+  globalChatsLoading.value = true
+  try {
+    const res = await networkApi.listAllChats({ limit: 500 })
+    globalChats.value = res.data?.chats || []
+  } catch { /* ignore */ }
+  finally { globalChatsLoading.value = false }
+}
+
+function onContactViewModeChange(v: 'local' | 'global') {
+  if (v === 'global' && globalContacts.value.length === 0) loadGlobalContacts()
+}
+function onChatViewModeChange(v: 'local' | 'global') {
+  if (v === 'global' && globalChats.value.length === 0) loadGlobalChats()
+}
+
+function onGlobalAvatarError(ev: Event) {
+  const img = ev.target as HTMLImageElement
+  if (img) img.style.display = 'none'
+}
+
+async function openAggregatedContactDrawer(r: AggregatedContact) {
+  // 选 perAgent 里 msgCount 最高的那位的本地档案作为初始抽屉视图
+  const pa = r.perAgent[0]
+  if (!pa) return
+  try {
+    const res = await networkApi.get(pa.agentId, r.id)
+    drawerContact.value = { ...res.data, agentId: pa.agentId, tags: res.data.tags || [] } as any
+    contactDrawerOpen.value = true
+  } catch {
+    ElMessage.error('读取联系人失败')
+  }
+}
+
+async function openAggregatedChatDrawer(r: AggregatedChat) {
+  const pa = r.perAgent[0]
+  if (!pa) return
+  try {
+    const res = await networkApi.getChat(pa.agentId, r.id)
+    drawerChat.value = { ...res.data, agentId: pa.agentId, tags: res.data.tags || [] } as any
+    chatDrawerOpen.value = true
+  } catch {
+    ElMessage.error('读取群档案失败')
+  }
+}
+
+async function jumpToLocalContact(agentId: string, contactId: string) {
+  contactViewMode.value = 'local'
+  contactAgentFilter.value = agentId
+  await loadContacts()
+  // 打开抽屉显示该 agent 的本地档案
+  try {
+    const res = await networkApi.get(agentId, contactId)
+    drawerContact.value = { ...res.data, agentId, tags: res.data.tags || [] } as any
+    contactDrawerOpen.value = true
+  } catch {}
+}
+
+async function jumpToLocalChat(agentId: string, chatId: string) {
+  chatViewMode.value = 'local'
+  chatAgentFilter.value = agentId
+  await loadChats()
+  try {
+    const res = await networkApi.getChat(agentId, chatId)
+    drawerChat.value = { ...res.data, agentId, tags: res.data.tags || [] } as any
+    chatDrawerOpen.value = true
+  } catch {}
+}
 
 // ── Contact drawer ────────────────────────────────────────────────────────
 const contactDrawerOpen = ref(false)
@@ -1771,6 +2021,37 @@ onUnmounted(() => {
   transition: background 0.1s;
 }
 .contact-row:hover { background: #fafafa; }
+.contact-row-global { background: #f6fafe; }
+.contact-row-global:hover { background: #ecf5fc; }
+
+.view-mode-bar {
+  display: flex;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.global-agent-cluster {
+  display: flex;
+  gap: -4px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+.global-agent-cluster .cluster-avatar {
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center; justify-content: center;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  margin-right: -6px;
+  border: 2px solid #fff;
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+.global-agent-cluster .cluster-avatar:hover {
+  transform: scale(1.15);
+  z-index: 2;
+}
 .contact-avatar {
   width: 40px; height: 40px;
   border-radius: 50%;
