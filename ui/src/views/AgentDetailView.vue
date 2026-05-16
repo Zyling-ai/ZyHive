@@ -1010,26 +1010,59 @@
                 </el-form-item>
               </template>
 
-              <!-- Feishu channel -->
+              <!-- Feishu channel — F1 (26.5.13v1): wizard launcher -->
               <template v-if="channelForm.type === 'feishu'">
-                <el-form-item label="App ID" required>
-                  <el-input v-model="channelForm.appId" placeholder="cli_xxxxxxxxxxxxxxxx" />
-                </el-form-item>
-                <el-form-item label="App Secret" required>
-                  <el-input v-model="channelForm.appSecret" type="password" show-password placeholder="从飞书开放平台获取" />
-                </el-form-item>
-                <el-form-item label="白名单用户">
-                  <el-input v-model="channelForm.allowedFrom" placeholder="填入用户 Open ID，多个用逗号分隔" />
-                  <el-text type="info" size="small" style="display:block;margin-top:4px">
-                    <el-icon style="vertical-align:-2px;margin-right:4px"><InfoFilled /></el-icon>留空时进入配对模式——向用户返回其 Open ID，引导添加白名单
-                  </el-text>
-                </el-form-item>
-                <el-form-item label="配置说明">
-                  <el-text type="info" size="small">
-                    需在飞书开放平台 → 事件订阅 → 开启「使用长连接接收事件」，无需配置 Webhook 地址。<br>
-                    订阅事件：<b>接收消息 (im.message.receive_v1)</b>
-                  </el-text>
-                </el-form-item>
+                <!-- 已有凭据时：紧凑表单（编辑场景） -->
+                <template v-if="channelEditingId">
+                  <el-form-item label="App ID" required>
+                    <el-input v-model="channelForm.appId" placeholder="cli_xxxxxxxxxxxxxxxx" />
+                  </el-form-item>
+                  <el-form-item label="App Secret">
+                    <el-input v-model="channelForm.appSecret" type="password" show-password
+                              placeholder="留空保持现有；要更换则填新的" />
+                  </el-form-item>
+                  <el-form-item label="白名单用户">
+                    <el-input v-model="channelForm.allowedFrom" placeholder="填入用户 Open ID，多个用逗号分隔" />
+                    <el-text type="info" size="small" style="display:block;margin-top:4px">
+                      留空时进入配对模式——向用户返回其 Open ID
+                    </el-text>
+                  </el-form-item>
+                </template>
+                <!-- 新建场景：直接弹向导 -->
+                <template v-else>
+                  <el-form-item label="">
+                    <el-alert type="info" :closable="false">
+                      <template #title>
+                        🪶 使用向导一键绑定（推荐）
+                      </template>
+                      <template #default>
+                        <div style="margin-top:6px">
+                          点下面按钮启动 4 步引导：自动验证凭据、检查权限点、配置事件订阅，全程深链接，最快 30 秒。
+                        </div>
+                      </template>
+                    </el-alert>
+                  </el-form-item>
+                  <el-form-item label="">
+                    <el-button type="primary" @click="feishuWizardOpen = true">
+                      🪶 启动飞书绑定向导
+                    </el-button>
+                    <el-button link @click="useFeishuManualForm = !useFeishuManualForm" style="margin-left:8px">
+                      {{ useFeishuManualForm ? '收起手工填写' : '手工填写（高级）' }}
+                    </el-button>
+                  </el-form-item>
+                  <!-- 高级：手工填写 -->
+                  <template v-if="useFeishuManualForm">
+                    <el-form-item label="App ID" required>
+                      <el-input v-model="channelForm.appId" placeholder="cli_xxxxxxxxxxxxxxxx" />
+                    </el-form-item>
+                    <el-form-item label="App Secret" required>
+                      <el-input v-model="channelForm.appSecret" type="password" show-password />
+                    </el-form-item>
+                    <el-form-item label="白名单用户">
+                      <el-input v-model="channelForm.allowedFrom" placeholder="可选" />
+                    </el-form-item>
+                  </template>
+                </template>
               </template>
 
               <el-form-item label="启用">
@@ -1040,6 +1073,16 @@
               <el-button @click="channelDialogVisible = false">取消</el-button>
               <el-button type="primary" @click="saveChannelDialog" :loading="channelSaving">保存</el-button>
             </template>
+          </el-dialog>
+
+          <!-- F1 (26.5.13v1): Feishu setup wizard -->
+          <el-dialog v-model="feishuWizardOpen" title="🪶 飞书绑定向导" width="720px"
+                     :close-on-click-modal="false" destroy-on-close>
+            <FeishuSetupWizard
+              :default-app-name="`${agent?.name || 'ZyHive'} - 飞书 Bot`"
+              @done="onFeishuWizardDone"
+              @cancel="feishuWizardOpen = false"
+            />
           </el-dialog>
         </el-tab-pane>
 
@@ -1330,6 +1373,8 @@ import { useRoute } from 'vue-router'
 import { ArrowLeft, Plus, EditPen, Refresh, FolderOpened, Document, ArrowDown, Loading } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import SkillStudio from '../components/SkillStudio.vue'
+import FeishuSetupWizard from '../components/FeishuSetupWizard.vue'
+import type { FeishuProbeResult } from '../api'
 import api, { agents as agentsApi, files as filesApi, memoryApi, cron as cronApi, sessions as sessionsApi, relationsApi, memoryConfigApi, agentChannels as agentChannelsApi, agentConversations, models as modelsApi, type AgentInfo, type CronJob, type SessionSummary, type RelationRow, type MemConfig, type MemRunLog, type ChannelEntry, type PendingUser, type ConvEntry, type ChannelSummary, type ModelEntry } from '../api'
 import AiChat, { type ChatMsg } from '../components/AiChat.vue'
 import WorkspaceChatLayout from '../components/WorkspaceChatLayout.vue'
@@ -2152,6 +2197,26 @@ const agentChannelList = ref<ChannelEntry[]>([])
 const channelsLoading = ref(false)
 const channelDialogVisible = ref(false)
 const channelEditingId = ref('')
+
+// F1 (26.5.13v1): Feishu setup wizard state
+const feishuWizardOpen = ref(false)
+const useFeishuManualForm = ref(false)
+
+function onFeishuWizardDone(payload: { appId: string; appSecret: string; probeResult: FeishuProbeResult }) {
+  // Stuff the validated creds into the channelForm; the existing save flow does the rest.
+  channelForm.value.type = 'feishu'
+  channelForm.value.appId = payload.appId
+  channelForm.value.appSecret = payload.appSecret
+  channelForm.value.enabled = true
+  // Auto-derive a friendly name from the bot identity if user didn't set one.
+  if (!channelForm.value.name.trim() && payload.probeResult.bot.name) {
+    channelForm.value.name = payload.probeResult.bot.name
+  }
+  feishuWizardOpen.value = false
+  // Immediately save — wizard already verified everything end-to-end.
+  ElMessage.success('向导验证通过，正在保存...')
+  saveChannelDialog()
+}
 const pendingChannelId = ref('')  // pre-generated id for new web channel
 const channelSaving = ref(false)
 const testingChannelId = ref('')
