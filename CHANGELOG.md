@@ -4,6 +4,89 @@
 
 ---
 
+## [26.5.13v1] — 2026-05-13 · 🪶 飞书集成 UX 全面升级 (F1)
+
+让"给 agent 绑定飞书机器人"从 10 步摸黑配置变成 30 秒可视化向导。**只升级配置体验和检测能力，不动现有 WS 长连接 + 33 工具**（这部分的 SDK 化作为独立后续 PR）。
+
+### F1 后端：一站式 probe + per-channel status
+
+**新增 `pkg/channel/feishu_probe.go`**（370+ 行）— `Probe(ctx, appId, appSecret)` 一次调用并发完成：
+
+1. 验证凭据（自动探测 CN / 国际站，401/403 错误码分类）
+2. 拉 bot 身份（name + avatar_url + open_id + 上线状态）
+3. 对比 5 个必需 OAuth scope（`im:message` / `im:message:send_as_bot` / `im:resource` / `contact:user.base:readonly` / `im:chat:readonly`），算出 missing 集合
+4. 检测事件订阅状态：`im.message.receive_v1` 是否订阅 + 长连接是否启用
+5. 列已加入的群（最多 20，按活跃倒序）
+
+返回固定词汇的 `error` 字段供前端精准映射文案：`auth_failed` / `app_not_published` / `missing_scopes` / `event_not_subscribed` / `long_conn_disabled` / `network` / `unknown`。
+
+**新增 3 个 REST 端点**：
+
+- `POST /api/feishu/probe` body `{appId, appSecret}` — 向导调用
+- `POST /api/feishu/test-connect` — 仅验证凭据 + 返回延迟
+- `GET /api/agents/:id/channels/:chId/feishu-status` — 服务端用已存的 secret 跑 probe，secret 不出服务器
+
+### F1 前端：4 步可视化向导
+
+**新增 `ui/src/components/FeishuSetupWizard.vue`**（380+ 行）：
+
+- **Step 1 创建应用**：大按钮「📤 打开飞书开放平台」 + 一键复制配置清单（应用名 / 5 个权限点 / 事件 / 长连接）
+- **Step 2 一键绑定**：粘贴 App ID + Secret → 一个按钮启动 probe → 几秒后显示 bot 头像 + 名字 + 上线状态卡片
+- **Step 3 自动修复**：缺权限/事件 → 深链接 `https://open.feishu.cn/app/{appId}/{auth,event,version}` 直达该应用对应页 + 复制按钮 + 「我已完成」重新检测
+- **Step 4 启动测试**：调 test-connect 真正验证一次 + 已加群预览 + 完成绑定
+
+错误从「测试失败」变精确文案：「App Secret 错了」/「应用还没上线」/「还缺 X 权限点」。
+
+### F1 渠道详情卡片
+
+`AgentDetailView` 飞书渠道卡片新增「🪶 飞书状态」可展开块：
+- bot 头像 + 名字 + 已上线 tag
+- 已加入的群列表（type emoji + 名字 + id 片段）
+- 问题诊断块（缺权限 / 事件未订阅 / 长连接未启用）
+- 折叠时显示紧凑摘要（bot 名 + 「已加 N 群」badge）
+
+第一次展开自动调 `/feishu-status` 拉取。
+
+### 引入 `larksuite/oapi-sdk-go v3.7.5`
+
+`go.mod` 加入官方 Go SDK 依赖。**本次仅 probe 模块在使用 SDK 风格的代码（实际仍走 raw HTTP 因为飞书部分管理端点未被 SDK 包装）**，但依赖入库为后续 F2（手撸 1800 行 WS/protobuf 替换 SDK）铺路。二进制增量 ~3 MB。
+
+### 测试矩阵
+
+`pkg/channel/feishu_probe_test.go` — **9 个新单测**全部 `-race` 绿：
+
+- `TestProbe_HappyPath`
+- `TestProbe_AuthFailed_BadSecret`
+- `TestProbe_AppNotPublished`
+- `TestProbe_MissingScopes`（4 缺 5）
+- `TestProbe_EventNotSubscribed`
+- `TestProbe_LongConnDisabled`（webhook channel）
+- `TestProbe_MissingRequiredFields`
+- `TestProbeErrorClass`（4 cases）
+- `TestProbeResultMarshalShape`（frontend 契约 guard）
+
+附带 `rewriteTransport` mock helper：用 httptest 模拟飞书 OpenAPI。
+
+端到端 smoke 验证（本地 18181 端口）：
+- 4 个新端点都 200/400/401/404 正确响应
+- bad credentials → 结构化错误 + 立即返回（无 8s 等待）
+
+### 兼容性
+
+- 老飞书渠道配置无任何变化，老用户不受影响
+- 编辑现有渠道还是用紧凑表单（不强制走向导）
+- 新建渠道时也保留「手工填写（高级）」开关
+- 所有新端点走现有 Bearer Token 鉴权
+- SDK 引入 `larksuite/oapi-sdk-go/v3` 二进制 +3 MB；不破坏旧代码路径
+
+### 推迟到独立后续 PR
+
+- **F2 全面 SDK 化**（替换 1800 行手撸 WS/HTTP/protobuf）— 纯重构，需要独立的全面回归测试覆盖所有流式卡片 + WS 重连场景，不在本程范围
+- **F4 群聊看板**（一键发消息 + 一键退群跨 bot 视图）— 当前渠道卡片的群列表已经覆盖只读视图；写操作留到后续
+- **lark-cli / lark-openapi-mcp 集成** — 调研结论：违反零配置定位，不引入
+
+---
+
 ## [26.5.12v1] — 2026-05-12 · 🎉 第 4 程：产品价值收官 (6 子项一次落地)
 
 把 README 顶层 "P1 规划中" 清单一口气全做掉。本 release 包含 6 个独立子项，
