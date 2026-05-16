@@ -1,5 +1,5 @@
 // internal/api/feishu_setup.go — REST endpoints driving the 4-step Feishu
-// binding wizard (F1, 26.5.13v1).
+// binding wizard (F1, 26.5.16v1).
 //
 //	POST /api/feishu/probe         body: {appId, appSecret}
 //	POST /api/feishu/test-connect  body: {appId, appSecret}

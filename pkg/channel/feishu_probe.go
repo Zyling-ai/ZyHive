@@ -1,4 +1,4 @@
-// pkg/channel/feishu_probe.go — F1 (26.5.13v1).
+// pkg/channel/feishu_probe.go — F1 (26.5.16v1).
 //
 // Comprehensive pre-flight probe for a Feishu app's App ID + Secret. One
 // network call from the operator's perspective does all of:
