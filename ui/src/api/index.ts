@@ -312,6 +312,34 @@ export interface Chat extends ChatSummary {
   createdAt: string
 }
 
+// F1 (26.5.13v1) — Feishu setup probe result shape.
+export interface FeishuProbeResult {
+  ok: boolean
+  error?: 'auth_failed' | 'app_not_published' | 'missing_scopes' |
+          'event_not_subscribed' | 'long_conn_disabled' | 'network' | 'unknown' | ''
+  bot: {
+    openId?: string
+    name?: string
+    avatarUrl?: string
+  }
+  published: boolean
+  permissions: {
+    granted: string[]
+    missing: string[]
+  }
+  events: {
+    subscribed: boolean
+    longConnEnabled: boolean
+  }
+  joinedChats?: Array<{
+    chatId: string
+    name: string
+    kind: string
+    memberCount?: number
+    ownerId?: string
+  }>
+}
+
 // B-03 (26.5.12v1) — aggregated cross-agent views.
 export interface ContactPerAgent {
   agentId: string
@@ -366,6 +394,17 @@ export const networkApi = {
   merge: (agentId: string, primaryId: string, aliasId: string) =>
     api.post(`/agents/${agentId}/network/contacts/${encodeURIComponent(primaryId)}/merge`, { aliasId }),
   refresh: (agentId: string) => api.post(`/agents/${agentId}/network/refresh`),
+
+  // F1 (26.5.13v1) — Feishu setup wizard endpoints (not strictly under
+  // networkApi, but kept here for proximity to channel-binding flows).
+  // probe runs validation + bot info + scope check + event check + chat list
+  // in a single call (8-12s budget).
+  feishuProbe: (appId: string, appSecret: string) =>
+    api.post<FeishuProbeResult>(`/feishu/probe`, { appId, appSecret }),
+  feishuTestConnect: (appId: string, appSecret: string) =>
+    api.post<{ ok: boolean; botName?: string; error?: string; latencyMs: number }>(
+      `/feishu/test-connect`, { appId, appSecret }
+    ),
 
   // E-01 (26.5.12v1) — avatar URL is built directly (no JSON wrap) so <img src>
   // can use it; uploadAvatar takes a Blob/File and POSTs raw bytes.
