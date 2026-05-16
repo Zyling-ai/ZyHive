@@ -312,7 +312,7 @@ export interface Chat extends ChatSummary {
   createdAt: string
 }
 
-// F1 (26.5.13v1) — Feishu setup probe result shape.
+// F1 (26.5.16v1) — Feishu setup probe result shape.
 export interface FeishuProbeResult {
   ok: boolean
   error?: 'auth_failed' | 'app_not_published' | 'missing_scopes' |
@@ -395,7 +395,7 @@ export const networkApi = {
     api.post(`/agents/${agentId}/network/contacts/${encodeURIComponent(primaryId)}/merge`, { aliasId }),
   refresh: (agentId: string) => api.post(`/agents/${agentId}/network/refresh`),
 
-  // F1 (26.5.13v1) — Feishu setup wizard endpoints (not strictly under
+  // F1 (26.5.16v1) — Feishu setup wizard endpoints (not strictly under
   // networkApi, but kept here for proximity to channel-binding flows).
   // probe runs validation + bot info + scope check + event check + chat list
   // in a single call (8-12s budget).

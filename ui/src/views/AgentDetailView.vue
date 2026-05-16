@@ -825,7 +825,7 @@
               </div>
             </div>
 
-            <!-- F1 (26.5.13v1): Feishu live status (bot identity + joined chats) -->
+            <!-- F1 (26.5.16v1): Feishu live status (bot identity + joined chats) -->
             <div v-if="ch.type === 'feishu'" class="channel-card-body">
               <div class="pending-section">
                 <div class="pending-section-header" @click="toggleFeishuStatus(ch.id)">
@@ -1077,7 +1077,7 @@
                 </el-form-item>
               </template>
 
-              <!-- Feishu channel — F1 (26.5.13v1): wizard launcher -->
+              <!-- Feishu channel — F1 (26.5.16v1): wizard launcher -->
               <template v-if="channelForm.type === 'feishu'">
                 <!-- 已有凭据时：紧凑表单（编辑场景） -->
                 <template v-if="channelEditingId">
@@ -1142,7 +1142,7 @@
             </template>
           </el-dialog>
 
-          <!-- F1 (26.5.13v1): Feishu setup wizard -->
+          <!-- F1 (26.5.16v1): Feishu setup wizard -->
           <el-dialog v-model="feishuWizardOpen" title="🪶 飞书绑定向导" width="720px"
                      :close-on-click-modal="false" destroy-on-close>
             <FeishuSetupWizard
@@ -2265,11 +2265,11 @@ const channelsLoading = ref(false)
 const channelDialogVisible = ref(false)
 const channelEditingId = ref('')
 
-// F1 (26.5.13v1): Feishu setup wizard state
+// F1 (26.5.16v1): Feishu setup wizard state
 const feishuWizardOpen = ref(false)
 const useFeishuManualForm = ref(false)
 
-// F1 (26.5.13v1): Feishu channel live status (probe result cached per channel id)
+// F1 (26.5.16v1): Feishu channel live status (probe result cached per channel id)
 const feishuStatus = ref<Record<string, FeishuProbeResult>>({})
 const feishuStatusLoading = ref<Record<string, boolean>>({})
 const expandedFeishuStatus = ref<string>('')
@@ -3297,7 +3297,7 @@ async function openCronLogs(job: any) {
 }
 
 /* Channel cards */
-/* F1 (26.5.13v1): Feishu live status panel */
+/* F1 (26.5.16v1): Feishu live status panel */
 .feishu-bot-row {
   display: flex;
   gap: 12px;
