@@ -825,6 +825,73 @@
               </div>
             </div>
 
+            <!-- F1 (26.5.13v1): Feishu live status (bot identity + joined chats) -->
+            <div v-if="ch.type === 'feishu'" class="channel-card-body">
+              <div class="pending-section">
+                <div class="pending-section-header" @click="toggleFeishuStatus(ch.id)">
+                  <span>🪶 飞书状态</span>
+                  <el-tag v-if="feishuStatus[ch.id]?.bot?.name" size="small" type="success" effect="plain" style="margin-left:8px">
+                    {{ feishuStatus[ch.id]?.bot?.name }}
+                  </el-tag>
+                  <el-tag v-if="(feishuStatus[ch.id]?.joinedChats?.length ?? 0) > 0" size="small" type="info" effect="plain" style="margin-left:4px">
+                    已加 {{ feishuStatus[ch.id]?.joinedChats?.length }} 群
+                  </el-tag>
+                  <el-button size="small" link @click.stop="refreshFeishuStatus(ch)" style="margin-left:8px">
+                    {{ feishuStatus[ch.id] ? '刷新' : '查看状态' }}
+                  </el-button>
+                  <el-icon style="margin-left:4px;transition:transform 0.2s" :style="{ transform: expandedFeishuStatus === ch.id ? 'rotate(180deg)' : '' }">
+                    <ArrowDown />
+                  </el-icon>
+                </div>
+
+                <div v-if="expandedFeishuStatus === ch.id" class="pending-list">
+                  <div v-if="feishuStatusLoading[ch.id]" style="text-align:center;padding:12px">
+                    <el-text type="info" size="small">检测中（约 5 秒）...</el-text>
+                  </div>
+                  <template v-else-if="feishuStatus[ch.id]">
+                    <!-- Bot identity -->
+                    <div class="feishu-bot-row" v-if="feishuStatus[ch.id]?.bot?.name">
+                      <div class="feishu-bot-avatar">
+                        <img v-if="feishuStatus[ch.id]?.bot?.avatarUrl" :src="feishuStatus[ch.id]!.bot.avatarUrl" alt="" />
+                        <span v-else>{{ (feishuStatus[ch.id]?.bot?.name || '?').charAt(0) }}</span>
+                      </div>
+                      <div class="feishu-bot-info">
+                        <div class="feishu-bot-name">{{ feishuStatus[ch.id]?.bot?.name }}</div>
+                        <div class="feishu-bot-id">{{ feishuStatus[ch.id]?.bot?.openId || ch.config?.appId }}</div>
+                        <div>
+                          <el-tag v-if="feishuStatus[ch.id]?.published" size="small" type="success">✅ 已上线</el-tag>
+                          <el-tag v-else size="small" type="warning">⚠️ 未上线</el-tag>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Joined chats -->
+                    <div v-if="(feishuStatus[ch.id]?.joinedChats?.length ?? 0) > 0" class="feishu-chat-list">
+                      <div class="feishu-chat-label">已加入的群（{{ feishuStatus[ch.id]?.joinedChats?.length }}）</div>
+                      <div v-for="c in (feishuStatus[ch.id]?.joinedChats ?? [])" :key="c.chatId" class="feishu-chat-item">
+                        <span style="font-size:14px">{{ c.kind === 'group' ? '👥' : c.kind === 'p2p' ? '👤' : '💬' }}</span>
+                        <span class="feishu-chat-name">{{ c.name || c.chatId }}</span>
+                        <code style="font-size:10px;color:#94a3b8">{{ c.chatId.slice(0, 12) }}…</code>
+                      </div>
+                    </div>
+
+                    <!-- Issues -->
+                    <div v-if="feishuStatus[ch.id] && !feishuStatus[ch.id]!.ok" class="feishu-issues">
+                      <div v-if="(feishuStatus[ch.id]?.permissions?.missing?.length ?? 0) > 0" class="feishu-issue">
+                        ⚠️ 缺权限点：
+                        <code v-for="s in (feishuStatus[ch.id]?.permissions?.missing ?? [])" :key="s" style="background:#fff7ec;padding:1px 6px;margin-right:4px;border-radius:3px;font-size:11px">{{ s }}</code>
+                      </div>
+                      <div v-if="!feishuStatus[ch.id]?.events?.subscribed" class="feishu-issue">⚠️ 事件 im.message.receive_v1 未订阅</div>
+                      <div v-if="!feishuStatus[ch.id]?.events?.longConnEnabled" class="feishu-issue">⚠️ 长连接未启用</div>
+                    </div>
+                  </template>
+                  <div v-else class="pending-empty">
+                    点「查看状态」拉取 Bot 信息 + 已加入群列表
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <!-- Whitelist info (Telegram & Feishu) -->
             <div v-if="ch.type === 'telegram' || ch.type === 'feishu'" class="channel-card-body">
               <div class="channel-info-row">
@@ -2202,6 +2269,38 @@ const channelEditingId = ref('')
 const feishuWizardOpen = ref(false)
 const useFeishuManualForm = ref(false)
 
+// F1 (26.5.13v1): Feishu channel live status (probe result cached per channel id)
+const feishuStatus = ref<Record<string, FeishuProbeResult>>({})
+const feishuStatusLoading = ref<Record<string, boolean>>({})
+const expandedFeishuStatus = ref<string>('')
+
+function toggleFeishuStatus(chId: string) {
+  if (expandedFeishuStatus.value === chId) {
+    expandedFeishuStatus.value = ''
+  } else {
+    expandedFeishuStatus.value = chId
+    // auto-fetch on first open if not cached
+    const ch = agentChannelList.value.find(c => c.id === chId)
+    if (ch && !feishuStatus.value[chId]) {
+      refreshFeishuStatus(ch)
+    }
+  }
+}
+
+async function refreshFeishuStatus(ch: any) {
+  if (!ch?.id) return
+  feishuStatusLoading.value[ch.id] = true
+  expandedFeishuStatus.value = ch.id
+  try {
+    const res = await api.get<FeishuProbeResult>(`/agents/${agentId}/channels/${ch.id}/feishu-status`)
+    feishuStatus.value[ch.id] = res.data
+  } catch (e: any) {
+    ElMessage.error('查询失败：' + (e?.message || ''))
+  } finally {
+    feishuStatusLoading.value[ch.id] = false
+  }
+}
+
 function onFeishuWizardDone(payload: { appId: string; appSecret: string; probeResult: FeishuProbeResult }) {
   // Stuff the validated creds into the channelForm; the existing save flow does the rest.
   channelForm.value.type = 'feishu'
@@ -3198,6 +3297,40 @@ async function openCronLogs(job: any) {
 }
 
 /* Channel cards */
+/* F1 (26.5.13v1): Feishu live status panel */
+.feishu-bot-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 4px 12px;
+}
+.feishu-bot-avatar {
+  width: 44px; height: 44px;
+  border-radius: 50%;
+  background: #6366f1; color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px; font-weight: 600;
+  overflow: hidden; flex-shrink: 0;
+}
+.feishu-bot-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.feishu-bot-info { flex: 1; }
+.feishu-bot-name { font-size: 14px; font-weight: 600; }
+.feishu-bot-id { font-size: 11px; color: #94a3b8; font-family: ui-monospace, monospace; margin: 2px 0 4px; }
+.feishu-chat-list { padding: 6px 4px; }
+.feishu-chat-label { font-size: 11px; font-weight: 600; color: #64748b; margin-bottom: 4px; }
+.feishu-chat-item {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 0; font-size: 13px;
+  border-bottom: 1px solid #f1f5f9;
+}
+.feishu-chat-name { flex: 1; }
+.feishu-issues { padding: 6px 4px; }
+.feishu-issue {
+  background: #fff7ec; border: 1px solid #fde68a;
+  border-radius: 4px; padding: 4px 8px;
+  margin: 4px 0; font-size: 12px; color: #92400e;
+}
+
 .channel-card {
   border: 1px solid #ececec;
   border-radius: 8px;

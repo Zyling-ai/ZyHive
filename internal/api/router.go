@@ -193,10 +193,11 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, cfgPath string, mgr *agen
 	v1.POST("/approvals/:id/deny", apH.Deny)
 	v1.GET("/approvals/stream", apH.Stream)
 
-	// F1 (26.5.13v1): Feishu setup wizard — probe + connect test.
-	fsH := &feishuSetupHandler{}
+	// F1 (26.5.13v1): Feishu setup wizard — probe + connect test + per-channel status.
+	fsH := &feishuSetupHandler{mgr: mgr}
 	v1.POST("/feishu/probe", fsH.Probe)
 	v1.POST("/feishu/test-connect", fsH.TestConnect)
+	agents.GET("/:id/channels/:chId/feishu-status", fsH.ChannelStatus)
 
 	// Memory tree API
 	memH := &memoryHandler{manager: mgr, cronEngine: cronEngine, pool: pool}
