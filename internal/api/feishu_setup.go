@@ -18,11 +18,14 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/Zyling-ai/zyhive/pkg/agent"
 	"github.com/Zyling-ai/zyhive/pkg/channel"
 	"github.com/gin-gonic/gin"
 )
 
-type feishuSetupHandler struct{}
+type feishuSetupHandler struct {
+	mgr *agent.Manager
+}
 
 type probeRequest struct {
 	AppID     string `json:"appId"`
@@ -53,6 +56,56 @@ func (h *feishuSetupHandler) Probe(c *gin.Context) {
 
 	result, _ := channel.Probe(ctx, req.AppID, req.AppSecret)
 	// Always return 200 with structured result; the wizard reads result.error.
+	c.JSON(http.StatusOK, result)
+}
+
+// ChannelStatus GET /api/agents/:id/channels/:cid/feishu-status
+//
+// Server-side probe: reads the channel's stored appId+secret and returns the
+// same ProbeResult shape. The secret stays on the server. Used by the live
+// status panel on the channel card.
+func (h *feishuSetupHandler) ChannelStatus(c *gin.Context) {
+	if h.mgr == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "manager not wired"})
+		return
+	}
+	agentID := c.Param("id")
+	cid := c.Param("chId")
+	ag, ok := h.mgr.Get(agentID)
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{"error": "agent not found"})
+		return
+	}
+	var found *struct {
+		AppID, AppSecret string
+	}
+	for i := range ag.Channels {
+		if ag.Channels[i].ID == cid && ag.Channels[i].Type == "feishu" {
+			found = &struct{ AppID, AppSecret string }{
+				AppID:     ag.Channels[i].Config["appId"],
+				AppSecret: ag.Channels[i].Config["appSecret"],
+			}
+			break
+		}
+	}
+	if found == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "feishu channel not found"})
+		return
+	}
+	if found.AppID == "" || found.AppSecret == "" {
+		c.JSON(http.StatusOK, gin.H{
+			"ok":          false,
+			"error":       "auth_failed",
+			"bot":         gin.H{},
+			"published":   false,
+			"permissions": gin.H{"granted": []string{}, "missing": channel.RequiredScopes},
+			"events":      gin.H{"subscribed": false, "longConnEnabled": false},
+		})
+		return
+	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 12*time.Second)
+	defer cancel()
+	result, _ := channel.Probe(ctx, found.AppID, found.AppSecret)
 	c.JSON(http.StatusOK, result)
 }
 
