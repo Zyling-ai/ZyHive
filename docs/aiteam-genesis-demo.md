@@ -2,6 +2,7 @@
 
 > 这是 aiteam 全套 8 个子系统的端到端演示。所有数据 + 截图来自
 > `26.5.10v25-rc2` 实际部署在 AWS staging (`18.162.161.138`) 上的真实运行。
+> （注：v25-rc2 为本演示抓取时的预发布构建；主线 Phase 1+2 收尾于 26.5.10v24，见 aiteam-architecture.md §8。）
 
 ---
 
@@ -244,7 +245,7 @@ aiteam_wallet_balance_usdt{agent_id="alice"} 5.900000
 aiteam_wallet_balance_usdt{agent_id="bob"} 10.100000
 ```
 
-Grafana / VictoriaMetrics 直接 scrape，5 个 KPI 实时图。
+Grafana / VictoriaMetrics 直接 scrape KPI 实时图。（注：当前 `main.go` 仅接线 wallet / guard / payroll / revenue 四类 gauge/counter；judge 评分 KPI 尚未接线。）
 
 ---
 

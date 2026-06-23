@@ -52,10 +52,10 @@ Every line in `<agentID>.jsonl` is a JSON object:
 | Field | Type | Notes |
 |-------|------|-------|
 | `ts` | int64 | unix millis |
-| `type` | enum string | `credit` / `debit` / `transfer_in` / `transfer_out` / `genesis` |
+| `type` | enum string | `credit` / `debit` / `transfer_in` / `transfer_out` / `genesis`（注：`genesis` 为保留枚举，当前创世入账实际写 `type=credit` + `reason=genesis`） |
 | `amount_usdt` | decimal string | positive; 6-digit fixed point |
 | `balance_after_usdt` | decimal string | post-op balance |
-| `reason` | string | free-form (e.g. `"llm_call sess=abc"`, `"payroll 2026-05-10"`, `"revenue task=studio-x"`) |
+| `reason` | string | free-form (e.g. `"llm_call"`, `"payroll 2026-05-10"`, `"revenue task=studio-x"`) |
 | `counterparty` | string | for transfers; the other agent ID; empty otherwise |
 | `fx_snapshot` | map | currency → rate at write time; enables historical multi-currency rendering |
 
@@ -126,6 +126,9 @@ attacks: even a fully compromised LLM cannot move money — only humans
 | POST /api/aiteam/wallet/:agentId/credit | `{amount_usdt, reason}` | Bearer (owner) |
 | POST /api/aiteam/wallet/:agentId/transfer | `{to, amount_usdt, reason}` | Bearer (owner) |
 | GET /api/aiteam/wallet/:agentId/ledger | — | Bearer |
+| GET /api/aiteam/wallet/:agentId/ledger.csv | — | Bearer（CSV 下载） |
+
+> 注：AI 工具 `wallet_balance` 的 `recent_ledger` 返回最近 **10** 条，而 REST `GET /wallet/:agentId`（§6 之外）返回最近 **20** 条。
 
 When `ZYHIVE_EXPERIMENTAL_WALLET` is unset → every path returns
 404 `{"error":"not enabled","subsystem":"wallet"}`.
