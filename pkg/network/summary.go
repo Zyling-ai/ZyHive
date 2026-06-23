@@ -7,7 +7,7 @@ import (
 
 // Summary returns the "Layer 2" runtime summary injected into the system prompt
 // when a specific contact is the current-conversation counterpart.
-// Target size: ~300 chars (hard cap at 500).
+// Target size: ~300 chars (hard cap at 1200; see buildSummary).
 //
 // Format:
 //

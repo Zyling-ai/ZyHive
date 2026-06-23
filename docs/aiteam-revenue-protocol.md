@@ -97,7 +97,7 @@
 ## 6. 测试样例
 
 ```bash
-SECRET="$(cat /etc/zyhive/revenue-secret)"
+SECRET="$ZYHIVE_AITEAM_REVENUE_SECRET"   # 部署时经环境变量注入（见 aiteam-deploy-aws.md §7）
 BODY='{"task_id":"t1","amount_usdt":"50","split":[{"agent_id":"alice","ratio":"1.0"}],"ts":'$(date +%s)',"nonce":"'$(uuidgen)'"}'
 SIG=$(echo -n "$BODY" | openssl dgst -sha256 -hmac "$SECRET" | awk '{print $2}')
 
@@ -121,7 +121,7 @@ curl -X POST http://18.162.161.138:8080/api/aiteam/revenue/incoming \
 | 401 | bad signature | HMAC 不匹配 |
 | 401 | missing X-Revenue-Signature | 头部缺失 |
 | 410 | stale timestamp | ts 超出 ±5min |
-| 409 | replayed nonce | nonce 已见过 |
+| 409 | nonce already seen | nonce 已见过 |
 | 400 | invalid amount_usdt | amount 解析失败 / ≤ 0 |
 | 400 | invalid ratio | 任一 ratio 解析失败 / 负数 |
 | 400 | split ratios do not sum to 1.0 | sum 偏离超过 0.0001 |

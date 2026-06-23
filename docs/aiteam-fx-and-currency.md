@@ -129,21 +129,18 @@ defeats two problem classes:
    model touch FX numbers in the first place, the attack surface is
    eliminated.
 
-## 9. UI integration plan (not yet shipped)
+## 9. UI integration (shipped 26.5.10v21–v24)
 
-Backend is ready; frontend work scope:
+前端已落地（P2-S4 ~ P2-S7）：
 
-- `ui/src/composables/useCurrency.ts` — global Pinia/composable store
-  for `currency`, `rate`, and a `formatMoney(usdt)` helper that wraps
-  `fx.FormatMoney`.
-- Top-bar 💱 dropdown switching 9 currencies + a "settings" link to
-  override management.
-- `AiteamFXView.vue` — admin page for source health + override editor.
-- All other aiteam views (`AiteamWalletView`, payroll, judge, dashboard)
-  consume `useCurrency` so a single dropdown change re-renders the
-  entire app.
+- `ui/src/composables/useCurrency.ts` — 全局 `currency` / `rate` 状态 +
+  `formatMoney(usdt)` 帮助函数（包裹 `fx.FormatMoney`）。
+- 顶栏 💱 下拉切换 9 币种 + 跳转 override 管理。
+- `AiteamFXView.vue` — 汇率源健康 + override 编辑页。
+- 其余 aiteam 视图（`AiteamWalletView` / payroll / judge / dashboard）
+  统一消费 `useCurrency`，切换一次下拉即整页重渲染。
 
-This is a separate PR — backend is done in 26.5.10v11.
+后端在 26.5.10v11 (S5) 落地，UI 在 26.5.10v21–v24 落地。
 
 ## 10. Display formatting
 

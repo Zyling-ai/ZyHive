@@ -96,7 +96,7 @@
   USD → 转 USDT 1:1 入账
 ```
 
-- **精度**：`github.com/shopspring/decimal`（待 S5 引入），避免 float64 累计误差
+- **精度**：`github.com/shopspring/decimal`（S5 起已全链路引入），避免 float64 累计误差
 - **AI 工具永远只看 USDT 数值** — 不让 LLM 自己换汇
 - **每条 ledger 持久化 `fx_snapshot`**：历史账目可用任意币种重算
 - **汇率源**：CoinGecko (主) → exchangerate.host (备) → 硬编码兜底 → 用户手动 override
@@ -113,37 +113,40 @@ runner.Run(agent, sessionID)
   │
   ├── promptdef.Wrap(channel_messages)   ← (PR-008, 入站内容包裹)
   │
-  ├── guard.Check(agentID, sessionID, walletStore)
-  │     ├── if used_today_usdt >= limit → panic
-  │     ├── if wallet.Balance(agentID) <= 0 → panic
-  │     └── if 全局当日累计 >= globalCap → panic
+  ├── guard.Check(agentID, sessionID)        ← wallet 经 SetWallet() 注入 (S6)
+  │     ├── if wallet 已注入 且 Balance(agentID) <= 0 → panic   ← 默认主熔断路径
+  │     ├── if PerAgentDailyUSDT != 0 且 used_today >= 它 → panic
+  │     ├── if GlobalDailyUSDT  != 0 且 全局当日累计 >= 它 → panic
+  │     └── if PerSessionUSDT   != 0 且 本会话累计 >= 它 → panic
+  │     ⚠️ 三档限额默认均为 0 = 不限额；默认仅「零余额」会触发熔断
   │
   ├── LLM stream (Anthropic/OpenAI/...)
-  │     └── tool_call: read / exec / wallet_balance / payroll_history / ...
+  │     └── tool_call: read / exec / wallet_balance / ...   （注：payroll_history 工具未实现，AI 侧仅 wallet_balance）
   │           ├── exec → sandbox.Run(cmd, limits)  (PR-007)
   │           ├── read external → promptdef.Wrap   (PR-008)
   │           └── wallet_balance → wallet.Balance(agentID)  read-only USDT
   │
   ├── usage.Append(records) → usd_used
-  │     └── hook → wallet.Debit(agentID, usd→usdt, "llm_call sess=..")
+  │     └── hook → wallet.Debit(agentID, usd→usdt, "llm_call")
   │           └── audit.log append + fx_snapshot
   │
   └── stream done
 ```
 
-每天 23:00 cron：
+评分（Judge）⚠️ 当前由 API 手动触发，无 23:00 cron、不加载 session transcript：
 ```
-judge.RunDaily()
+POST /api/aiteam/judge/run             ← 手动触发（无定时 cron）
   └── for each agent:
-        ├── load today's sessions transcript (truncated 32K tok)
-        ├── transcript = promptdef.Wrap(transcript)
-        ├── LLM 多维评分 → {completion,quality,communication,creativity,cost,rationale}
+        ├── 输入 = Signals.Notes（不读取 session transcript）
+        ├── LLMScorer（配置 cfg.aiteam.judge.model 时）→ {completion,quality,
+        │      communication,creativity,cost,rationale}；否则 HeuristicScorer
         └── persist → aiteam/judge/{agentID}/{period}.jsonl + audit.log
 ```
+> 原设计的「每天 23:00 cron + transcript(32K) 评分」尚未实现。
 
-每天 23:30 cron：
+每天 23:30 本地时间 cron（P2-S1；可经 ZYHIVE_AITEAM_PAYROLL_TIME 调整）：
 ```
-payroll.RunDaily()
+payroll.RunForAll(agentIDs, period)    ← 函数名为 RunForAll / RunFor（无 RunDaily）
   └── for each agent:
         ├── base + bonus(judge_avg) - cost_offset(usage)  (USDT decimal)
         ├── wallet.Credit(agentID, net, "payroll YYYY-MM-DD")
@@ -153,11 +156,11 @@ payroll.RunDaily()
 ZyStudio 完成任务付款（异步）：
 ```
 POST /api/aiteam/revenue/incoming
-  Authorization: hmac signed by REVENUE_WEBHOOK_SECRET
+  Authorization: Bearer <auth.token> + X-Revenue-Signature: HMAC-SHA256(ZYHIVE_AITEAM_REVENUE_SECRET, rawBody)
   body: {task_id, amount_usdt, fx_at_settlement, split: [{agent_id, ratio}, ...]}
 
   └── for each split:
-        ├── wallet.Credit(agent_id, amount × ratio, "revenue task_id=..")
+        ├── wallet.Credit(agent_id, amount × ratio, "revenue task=<task_id>")
         └── persist → aiteam/revenue/{period}.jsonl + audit.log
 ```
 
@@ -176,7 +179,7 @@ POST /api/aiteam/revenue/incoming
 | Service | systemd unit `zyhive.service` |
 | Binary | `/usr/local/bin/zyhive` |
 | Config | `/etc/zyhive/zyhive.json` |
-| 现状 | 已部署 26.4.23v7（待 S0 升级到 26.5.10v6） |
+| 现状 | Phase 1+2 已全部部署至 26.5.10v24（见 §8 演进路径） |
 
 ### 部署流程
 ```bash
@@ -259,7 +262,7 @@ smoke 通过 → 合 main → 进下一阶段 ✅ ×19
 aiteam **Phase 1 + Phase 2** 共 19 阶段单日全部落地
 （26.5.10v6 → 26.5.10v24）：
 
-- **10 个新 Go 包**: `pkg/aiteam/{flags, audit, sandbox, promptdef, budget, fx, wallet, judge, payroll, revenue}` + `genesis_test`
+- **11 个新 Go 包**: `pkg/aiteam/{flags, audit, sandbox, promptdef, budget, fx, wallet, judge, payroll, revenue, metrics}` + `genesis_test`
 - **6 个新 UI view**: `AiteamDashboardView` / `AiteamWalletView` / `AiteamFXView` / `AiteamGuardView` / `AiteamPayrollView` / `AiteamJudgeView`
 - **2 个 UI 基础**: `useCurrency` composable + 顶栏 💱 货币切换器
 - **145+ 测试** 全部 `-race -count=1` 绿

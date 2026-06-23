@@ -5,10 +5,10 @@
 // listed in `split`, and credit each share to their wallet ledger.
 //
 // Threat model:
-//   * Public webhook (auth bearer middleware would race with the
-//     market's own auth). We instead require HMAC-SHA256 over the
-//     raw body using a shared secret. Replay defence is timestamp +
-//     nonce, with a configurable window (default 5 minutes).
+//   * Endpoint lives inside the /api bearer-auth group, so the market
+//     must supply BOTH the bearer token AND an HMAC-SHA256 over the raw
+//     body using a shared secret (defence in depth). Replay defence is
+//     timestamp + nonce, with a configurable window (default 5 minutes).
 //   * Idempotency: nonce is cached in-memory (last 10k) so duplicate
 //     deliveries are no-ops rather than double-credits.
 //
@@ -19,8 +19,9 @@
 // Activation: ZYHIVE_EXPERIMENTAL_REVENUE=1.
 //
 // The webhook endpoint is registered in internal/api/aiteam_routes.go
-// at POST /api/aiteam/revenue/incoming and intentionally lives
-// OUTSIDE the bearer-auth middleware group: it has its own HMAC.
+// at POST /api/aiteam/revenue/incoming, inside the /api bearer-auth
+// group; the HMAC is a secondary defence-in-depth layer on top of the
+// bearer token.
 package revenue
 
 import (

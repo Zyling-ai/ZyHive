@@ -158,4 +158,4 @@ without touching agents / sessions / network / memory data.
 
 ---
 
-*deploy path · last verified 26.5.10v16 (S10) · 11 successful deploys logged*
+*deploy path · Phase 1+2 已部署至 26.5.10v24 · 19 successful deploys logged（详见 aiteam-architecture.md §8）*

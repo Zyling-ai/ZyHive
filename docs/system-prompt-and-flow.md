@@ -1,6 +1,6 @@
 # 系统提示词构建与对话流程
 
-> 适用版本：26.4.22v1+ · 26.4.24v1 加群档案（chats/）
+> 适用版本：26.4.22v1+ · 26.4.24v1 加群档案（chats/）· 本次按 26.5.16v1 代码校正注入顺序 / 接口命名 / 工具清单
 
 ---
 
@@ -44,14 +44,16 @@
     ↓   WISHLIST 头部（AI 自己记的诉求）
 
 层 10 · 共享项目工作区（如有）
-    ↓   BuildProjectContext(ag.ID)
+    ↓   BuildProjectContext(mgr, ag.ID)
 ```
+
+> ⚠️ **注入顺序校正（26.5.16v1）**：上面层 1–8 由 `BuildSystemPrompt()` 组装；层 9（Capabilities）、层 10（Project）以及 `ExtraContext`（通讯录 / 群聊运行时摘要）、预算警告、`AgentEnv` 列表、`Runtime:` 行、子 agent 任务汇报指令等，由 `runner.run()` 在 `BuildSystemPrompt` 输出**之后**追加。其中 **`ExtraContext` 的实际位置在 Capabilities / CurrentSession / Project 之后**，并非层 5。本图按"逻辑分层"理解即可，物理顺序以 `runner.go` 为准。
 
 ### 渐进式披露的含义
 
 > **"不预喂信息，按需索取"**
 
-- 层 4/5/6/7 都是 **`INDEX.md` 首层轻量注入**（每个 ~500 chars）
+- 层 4/5/6/7 都是 **`INDEX.md` 首层轻量注入**（目标轻量；无 ~500 字符硬限制，统一受 `truncateForPrompt` 的 20,000 字符上限保护）
 - AI 看到索引知道"谁存在 / 哪里有什么"
 - 真正需要深度信息时用 **通用 `read` 工具**按需读取完整文件
 - **优点**：不预占未来对话 token · 老数据不膨胀 prompt · 文件式存储 AI 可 `edit` 也可 `read`
@@ -97,7 +99,7 @@
 │   ├── INDEX.md             ← 技能索引
 │   └── {skillId}/
 │       ├── skill.json       ← 技能元数据
-│       └── SKILL.md         ← 技能内容（注入系统提示词）
+│       └── SKILL.md         ← 技能内容（**不注入**；仅 skills/INDEX.md 注入，完整内容 AI 按需 read）
 └── conversations/
     ├── INDEX.md             ← 历史对话索引
     └── {sessionId}__{channelId}.jsonl  ← 完整对话记录
@@ -187,12 +189,12 @@ network_note(entityId, section, text)
 - 首次写入时清除占位符 `- (AI 通过 network_note 工具追加此处)`
 - 旁路 `network/changes.log` 审计
 
-### 运行时摘要注入（层 2）
+### 运行时摘要注入（network 渐进式披露 Layer 2 · 经 ExtraContext）
 
 每次 channel 消息进来，除了 Resolve 外还会调用：
 
 ```go
-summary := store.Summary(contactID)  // ~300 chars
+summary := store.Summary(contactID)  // 目标 ~300 字符，硬上限 1200
 // 通过 runner.Config.ExtraContext 传入
 ```
 
@@ -270,16 +272,18 @@ if ps := store.Summary(contactID); ps != "" {
     ↓
 构建 System Prompt（分层，见第一节）
     ↓
-调用 LLM（StreamChat）→ StreamEvent 流
+调用 LLM（Stream）→ StreamEvent 流
     ↓ text_delta → 实时推送文本给前端
     ↓ tool_call  → 并行执行工具（含 tool_call_id 精准匹配）
     ↓ usage      → 累计 Token 用量（UsageRecorder 写库）
     ↓ stop
     ↓
 有工具调用？
-  是 → 将工具结果注入对话历史 → 重新调用 LLM（最多 N 轮）
+  是 → 将工具结果注入对话历史 → 重新调用 LLM（最多 30 轮，maxIter）
   否 → 对话完成，推送 done 事件（含总 Token 用量）
 ```
+
+> 补充（26.5.16v1）：turn 开始前若 tokenEstimate ≥ 50,000 会**同步**执行一次 Compaction（`maybeCompactSync`，发 `compaction_start` / `compaction_end`）；LLM 返回因 `max_tokens` 截断或 planning 续推时 runner 会自动续写；每轮经 `UsageRecorder` 记账。
 
 ### RunEvent 类型
 
@@ -289,9 +293,10 @@ if ps := store.Summary(contactID); ps != "" {
 | `tool_call` | 工具调用（ID/名称/参数） | 展示折叠卡（呼吸灯） |
 | `tool_result` | 工具结果（带 ToolCallID 精准匹配） | 关闭对应卡片显示耗时 |
 | `usage` | InputTokens / OutputTokens | 更新 Token 计数 |
-| `thinking` | 推理过程文本 | 折叠显示 |
+| `thinking_delta` | 推理过程增量 | 折叠显示 |
 | `done` | 对话完成（含总 Token） | 标记完成状态 |
 | `error` | 错误信息 | 显示错误气泡 |
+| `compaction_start` / `compaction_end` | 上下文压缩开始 / 结束 | 显示「🗜️ 压缩中…→已压缩」 |
 
 ---
 
@@ -320,12 +325,19 @@ HTTP SSE 连接  → 订阅 Broadcaster ← RunFn 执行 → RunEvent → Broadc
 
 ```
 --- 你当前可用的工具 (实时体检) ---
-✅ 可用 N 个（按分组）:
+✅ 可用 N 个（按分组，以下为示例，非全量）:
   • 文件/命令: read, write, edit, exec, grep, glob, process
   • 浏览器: browser_navigate, browser_screenshot, ...
-  • 通讯录: network_note
+  • 记忆检索: memory_search
+  • 通讯录/群档案: network_note, chat_note
   • 愿望清单: wish_add, wish_list
-  • 派遣协作: agent_list, agent_spawn, agent_tasks, agent_result
+  • 会话: sessions_list, sessions_history, sessions_send, session_rename
+  • 定时: cron_list, cron_add, cron_remove, self_schedule
+  • 派遣协作: agent_list, agent_spawn, agent_tasks, agent_result, agent_kill, report_to_parent
+  • 自我管理: self_(list/install/uninstall)_skill, self_rename, self_update_soul, self_(set/delete)_env
+  • 项目: project_(list/read/write/glob)
+  • 消息: send_message, send_file, show_image
+  • 飞书: feishu_*（20+）  • ACP: acp_list, acp_spawn
   • ...
 
 ⚠️ 当前不可用的工具 M 个:
@@ -335,7 +347,7 @@ HTTP SSE 连接  → 订阅 Broadcaster ← RunFn 执行 → RunEvent → Broadc
     → 需用户切换到支持 vision 的模型
 
 📋 关键约束:
-  • agent_spawn 必须派 RELATIONS.md 中有记录的成员
+  • agent_spawn 必须派 RELATIONS.md 中 toKind=agent 的成员（含 ":" 的 contact ID 跳过；内置 agent 类型豁免）
 
 --- 你之前记录的愿望 (WISHLIST.md 头部) ---
 1. [P0] 联网搜索 - 信息是一切的基础...
@@ -345,6 +357,8 @@ HTTP SSE 连接  → 订阅 Broadcaster ← RunFn 执行 → RunEvent → Broadc
 
 **效果**：AI 不再猜"我应该有什么工具"，而是**从 runtime 状态读取真实能力清单**。
 
+> ⚠️ 工具清单校正（26.5.16v1）：实际注册集由 `pool.configureToolRegistry` 动态决定（30+ 工具，随 flag / 配置变化），上面分组仅为示例。**完整清单以运行时 Capabilities 体检为准**，请勿据本文逐条对照代码。
+
 ---
 
 ## 六、Provider 适配层（LLM）
@@ -353,7 +367,7 @@ HTTP SSE 连接  → 订阅 Broadcaster ← RunFn 执行 → RunEvent → Broadc
 
 ```go
 type Client interface {
-    StreamChat(ctx context.Context, req ChatRequest) (<-chan StreamEvent, error)
+    Stream(ctx context.Context, req *ChatRequest) (<-chan StreamEvent, error)
 }
 ```
 
@@ -362,13 +376,14 @@ type Client interface {
 | Provider | 文件 | 特殊处理 |
 |----------|------|---------|
 | Anthropic | `anthropic.go` | `message_delta` 的 output_tokens 从顶层 `event.Usage` 读（不是 `event.Delta`） |
-| OpenAI 兼容 | `base_openai.go` | 通用实现，支持自定义 baseUrl |
+| OpenAI | `openai.go`（包装共享底层 `base_openai.go` 的 `openAIBase`） | 通用实现，支持自定义 baseUrl |
 | MiniMax | `minimax.go` | POST /chat 探测（不支持 GET /models） |
 | DeepSeek | `deepseek.go` | OpenAI 兼容适配 |
 | 智谱 AI | `zhipu.go` | 自定义鉴权头 |
 | Moonshot | `moonshot.go` | Kimi 系列适配 |
 | Qwen | `qwen.go` | 通义千问适配 |
 | OpenRouter | `openrouter.go` | 聚合代理 |
+| Custom | `custom.go` | OpenAI 兼容自定义端点（默认 fallback） |
 
 ---
 
@@ -378,7 +393,7 @@ type Client interface {
 
 - 每次 cron 触发 **新建独立 session**（不污染主对话历史）
 - Payload `message` 是发给 agent 的 prompt
-- 若 agent 回复以 **`NO_ALERT`** 开头或等于该 token → 结果**记录但不推送**给 delivery（announce/Telegram 等）
+- 若 agent 回复以 **`NO_ALERT`** 开头（`strings.HasPrefix`）→ 结果**记录但不推送**（且仅 `Delivery.Mode == "announce"` 时才会推送 announce/Telegram 等）
 - CronView 提供「🌅 晨间例行」一键模板，预置如下 prompt：
   ```
   晨间例行：
