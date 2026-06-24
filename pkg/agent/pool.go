@@ -864,6 +864,47 @@ func (p *Pool) ConsolidateMemory(ctx context.Context, agentID string) (string, e
 	return "✅ 记忆整理完成", nil
 }
 
+// CallLLMOnce runs a single system+user completion using an agent's default
+// model — no tools, no history. Used by SkillOpt's critic/evolver (mirrors the
+// inline caller in ConsolidateMemory).
+func (p *Pool) CallLLMOnce(ctx context.Context, agentID, system, user string) (string, error) {
+	ag, ok := p.manager.Get(agentID)
+	if !ok {
+		return "", fmt.Errorf("agent %q not found", agentID)
+	}
+	modelEntry, err := p.resolveModel(ag)
+	if err != nil {
+		return "", err
+	}
+	apiKey, resolvedBaseURL := config.ResolveCredentials(modelEntry, p.cfg.Providers)
+	if apiKey == "" {
+		return "", fmt.Errorf("no API key for model: %s", modelEntry.ProviderModel())
+	}
+	llmClient := llm.NewClient(modelEntry.Provider, resolvedBaseURL)
+	userJSON, _ := json.Marshal(user)
+	req := &llm.ChatRequest{
+		Model:     modelEntry.ProviderModel(),
+		APIKey:    apiKey,
+		System:    system,
+		Messages:  []llm.ChatMessage{{Role: "user", Content: userJSON}},
+		MaxTokens: 2048,
+	}
+	ch, err := llmClient.Stream(ctx, req)
+	if err != nil {
+		return "", err
+	}
+	var resp strings.Builder
+	for ev := range ch {
+		if ev.Type == llm.EventTextDelta {
+			resp.WriteString(ev.Text)
+		}
+		if ev.Type == llm.EventError && ev.Err != nil {
+			return resp.String(), ev.Err
+		}
+	}
+	return resp.String(), nil
+}
+
 // Run executes a message against the specified agent and returns the full
 // response text (collects all text_delta events).
 func (p *Pool) Run(ctx context.Context, agentID, message string) (string, error) {

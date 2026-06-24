@@ -8,7 +8,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"strings"
 	"io/fs"
 	"log"
 	"net"
@@ -16,12 +15,14 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/shopspring/decimal"
 
+	"github.com/Zyling-ai/zyhive/internal/agentcli"
 	"github.com/Zyling-ai/zyhive/internal/api"
 	"github.com/Zyling-ai/zyhive/pkg/agent"
 	aiteamAudit "github.com/Zyling-ai/zyhive/pkg/aiteam/audit"
@@ -42,6 +43,7 @@ import (
 	"github.com/Zyling-ai/zyhive/pkg/logging"
 	"github.com/Zyling-ai/zyhive/pkg/project"
 	"github.com/Zyling-ai/zyhive/pkg/session"
+	"github.com/Zyling-ai/zyhive/pkg/skillopt"
 	"github.com/Zyling-ai/zyhive/pkg/subagent"
 	"github.com/Zyling-ai/zyhive/pkg/tools"
 	"github.com/Zyling-ai/zyhive/pkg/usage"
@@ -55,6 +57,14 @@ var Version = "dev"
 var embeddedUI embed.FS
 
 func main() {
+	// ── 面向 Agent 的业务 CLI 路由 ─────────────────────────────────────────
+	// zyhive agent/cron/goal/api/... 由 agentcli 自行解析参数（含 --help），
+	// 必须放在下面的 help 预扫描与 flag.Parse() 之前，否则 `zyhive agent --help`
+	// 之类会被运维 help 拦截。运维子命令 / 服务模式不是业务命令，会继续往下走。
+	if agentcli.LooksLikeCommand(os.Args[1:]) {
+		os.Exit(agentcli.Dispatch(os.Args[1:]))
+	}
+
 	// ── help/--help/-h 提前拦截 ────────────────────────────────────────────
 	// Go flag.Parse() 会把 --help/-h 当作 "帮助请求" 并打印它自己的 Usage，
 	// 导致永远走不到后面的 case "help"。这里在 Parse 前先检查，统一用
@@ -76,6 +86,7 @@ func main() {
 	configPath := flag.String("config", defaultCfg, "path to aipanel.json config file")
 	serveMode := flag.Bool("serve", false, "直接启动服务（跳过 CLI 菜单）")
 	showVersion := flag.Bool("version", false, "打印版本号并退出")
+
 	flag.Parse()
 
 	// P0-01: structured logging facade. Honours LOG_FORMAT (text|json) and
@@ -252,11 +263,28 @@ func main() {
 		log.Printf("[subagent] notify: task %s (%s) → session %s", taskID, status, spawnedBySession)
 	})
 
+	// SkillOpt manager — self-evolving skills. Uses the agent's default model
+	// for the critic/evolver LLM calls (no tools, no history).
+	skilloptMgr := skillopt.NewManager(pool.CallLLMOnce)
+
 	// ── Cron: isolated session runner ────────────────────────────────────────
 	// Each cron job invocation gets its own fresh session ("cron-{jobID}-{runID}"),
 	// completely isolated from the main conversation history.
 	// Isolated session pattern: subagent runs in its own context without inheriting parent history.
 	cronRunFunc := func(ctx context.Context, agentID, model, jobID, runID, message string) (string, error) {
+		// SkillOpt maintenance trigger — runs the evolution loop directly
+		// (oracle/epoch/shadow), not an LLM agent turn. This is intercepted
+		// here because cron does NOT route through pool.Run's sentinel handling.
+		if skillID, ok := skillopt.ParseCronSentinel(message); ok {
+			ag, found := mgr.Get(agentID)
+			if !found {
+				return "", fmt.Errorf("skillopt maintenance: agent %q not found", agentID)
+			}
+			if skillID == "" {
+				return skilloptMgr.RunMaintenanceAll(ctx, agentID, ag.WorkspaceDir)
+			}
+			return skilloptMgr.RunMaintenance(ctx, agentID, ag.WorkspaceDir, skillID)
+		}
 		sessionID := "cron-" + jobID + "-" + runID
 		subRun := pool.SubagentRunFunc()
 		ch := subRun(ctx, agentID, model, sessionID, "" /*no parent*/, message)
@@ -719,8 +747,8 @@ func main() {
 		aiteamPayrollMgr, pErr = aiteamPayrollPkg.New(
 			payrollDir,
 			aiteamPayrollPkg.DefaultConfig(),
-			aiteamJudgeMgr,    // may be nil
-			walletCredit,      // may be nil
+			aiteamJudgeMgr, // may be nil
+			walletCredit,   // may be nil
 			usageReader,
 			aiteamAuditLog,
 		)
@@ -854,7 +882,7 @@ func main() {
 		llm.SetGlobalThrottle(t)
 	}
 
-	api.RegisterRoutes(r, cfg, *configPath, mgr, pool, cronEngine, uiFS, runnerFunc, botCtrl, projectMgr, subagentMgr, workerPool, usageStore, budgetStore)
+	api.RegisterRoutes(r, cfg, *configPath, mgr, pool, cronEngine, uiFS, runnerFunc, botCtrl, projectMgr, subagentMgr, workerPool, usageStore, budgetStore, skilloptMgr)
 
 	// Print access URLs
 	port := cfg.Gateway.Port

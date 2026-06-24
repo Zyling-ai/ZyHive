@@ -103,6 +103,9 @@ func New(workspaceDir, agentDir, agentID string) *Registry {
 	// Network tools — 通讯录 / 群档案维护 (AI 主动追加事实/偏好/规则/议题/待跟进)
 	r.register(networkNoteDef, r.handleNetworkNote)
 	r.register(chatNoteDef, r.handleChatNote)
+	// SkillOpt tools — AI 自记预测 / 回填结果，驱动技能自进化闭环
+	r.register(skilloptPredictDef, r.handleSkilloptPredict)
+	r.register(skilloptOracleDef, r.handleSkilloptOracle)
 	// aiteam wallet_balance (PR-001 S5) — read-only USDT; only registered
 	// when ZYHIVE_EXPERIMENTAL_WALLET=1. AI sees no wallet ability at all
 	// when the flag is off.

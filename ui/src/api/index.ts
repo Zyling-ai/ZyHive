@@ -265,6 +265,95 @@ export const agentSkills = {
   remove: (agentId: string, skillId: string) => api.delete(`/agents/${agentId}/skills/${skillId}`),
 }
 
+// ── SkillOpt — self-evolving skills (predict → oracle → critic → evolve → shadow A/B) ──
+export interface SkillOptOverview {
+  skillId: string
+  initialized: boolean
+  epoch: number
+  baselineVersion: number
+  shadowVersion: number
+  shadowActive: boolean
+  autoAccept: boolean
+  maintenanceEnabled: boolean
+  sampleThreshold: number
+  promoteMargin: number
+  shadowMinSample: number
+  hitRateBaseline: number
+  hitRateShadow: number
+  totalSamples: number
+  backfilledSamples: number
+  pendingOracle: number
+  sinceEvolveSamples: number
+  pendingProposals: number
+}
+
+export interface SkillOptLedgerEntry {
+  id: string
+  ts: number
+  prediction: string
+  oracle?: string
+  hit?: boolean | null
+  attributionTags?: string[]
+  lesson?: string
+  version: number
+  shadow?: boolean
+  contextDigest?: string
+}
+
+export interface SkillOptProposal {
+  id: string
+  createdAt: number
+  status: string
+  fromVersion: number
+  rationale: string
+  lessons: string[]
+  diffSummary: string
+  newContent: string
+  fingerprint: string
+  hitRateBefore: number
+  hitRateAfter?: number
+}
+
+export interface SkillOptConfig {
+  enabled?: boolean
+  autoAccept?: boolean
+  sampleThreshold?: number
+  promoteMargin?: number
+  shadowMinSample?: number
+  schedule?: string
+}
+
+const soBase = (agentId: string, skillId: string) =>
+  `/agents/${agentId}/skills/${skillId}/skillopt`
+
+export const skillopt = {
+  overview: (agentId: string, skillId: string) =>
+    api.get<SkillOptOverview>(soBase(agentId, skillId)),
+  setConfig: (agentId: string, skillId: string, cfg: SkillOptConfig) =>
+    api.put<SkillOptOverview>(`${soBase(agentId, skillId)}/config`, cfg),
+  predict: (agentId: string, skillId: string, data: { prediction: string; contextDigest?: string; sessionRef?: string }) =>
+    api.post<SkillOptLedgerEntry>(`${soBase(agentId, skillId)}/predict`, data),
+  oracle: (agentId: string, skillId: string, data: { entryId: string; result: string; hit: boolean }) =>
+    api.post(`${soBase(agentId, skillId)}/oracle`, data),
+  ledger: (agentId: string, skillId: string, limit = 100) =>
+    api.get<{ entries: SkillOptLedgerEntry[]; hitRateBaseline: number; baselineSamples: number; hitRateShadow: number; shadowSamples: number }>(
+      `${soBase(agentId, skillId)}/ledger?limit=${limit}`),
+  evolve: (agentId: string, skillId: string) =>
+    api.post<{ ok: boolean; proposal: SkillOptProposal | null; message?: string }>(`${soBase(agentId, skillId)}/evolve`),
+  proposals: (agentId: string, skillId: string) =>
+    api.get<SkillOptProposal[]>(`${soBase(agentId, skillId)}/proposals`),
+  acceptProposal: (agentId: string, skillId: string, pid: string) =>
+    api.post(`${soBase(agentId, skillId)}/proposals/${pid}/accept`),
+  rejectProposal: (agentId: string, skillId: string, pid: string) =>
+    api.post(`${soBase(agentId, skillId)}/proposals/${pid}/reject`),
+  versions: (agentId: string, skillId: string) =>
+    api.get<{ versions: number[] }>(`${soBase(agentId, skillId)}/versions`),
+  rollback: (agentId: string, skillId: string, ver: number) =>
+    api.post(`${soBase(agentId, skillId)}/versions/${ver}/rollback`),
+  promoteShadow: (agentId: string, skillId: string) =>
+    api.post<{ ok: boolean; message: string }>(`${soBase(agentId, skillId)}/shadow/promote`),
+}
+
 export const files = {
   read: (agentId: string, path: string) => api.get(`/agents/${agentId}/files/${path}`),
   readTree: (agentId: string) => api.get(`/agents/${agentId}/files/?tree=true`),

@@ -116,6 +116,13 @@
               <span class="tree-name">skill.json</span>
             </div>
 
+            <!-- 🧬 进化（SkillOpt）固定入口 -->
+            <div :class="['tree-item', { 'tree-active': activeFile === 'skillopt' }]" @click="activeFile = 'skillopt'">
+              <span class="tree-indent" />
+              <span style="font-size:13px;line-height:1">🧬</span>
+              <span class="tree-name">进化</span>
+            </div>
+
             <!-- 动态文件 / 目录列表 -->
             <template v-for="f in visibleFiles" :key="f.path">
               <div
@@ -303,6 +310,11 @@
             </div>
           </div>
 
+          <!-- 🧬 进化（SkillOpt）面板 -->
+          <div v-else-if="activeFile === 'skillopt'" class="file-editor">
+            <SkillOptPanel :agent-id="agentId" :skill-id="selected.id" />
+          </div>
+
           <!-- 通用文件编辑器（AI 生成的工具文件等） -->
           <div v-else class="file-editor">
             <div class="file-editor-head">
@@ -377,6 +389,7 @@ import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import { agentSkills as skillsApi, files as filesApi, type AgentSkillMeta } from '../api'
 import AiChat from './AiChat.vue'
+import SkillOptPanel from './SkillOptPanel.vue'
 
 const props = defineProps<{ agentId: string }>()
 const agentId = props.agentId
