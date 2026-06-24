@@ -21,6 +21,11 @@ type Meta struct {
 	Enabled     bool   `json:"enabled"`
 	InstalledAt string `json:"installedAt"`
 	Source      string `json:"source"` // "local" | "clawhub" | "url"
+
+	// ── SkillOpt (self-evolution) — display-only, all omitempty for back-compat ──
+	Evolving bool    `json:"evolving,omitempty"` // SkillOpt loop enabled for this skill
+	Epoch    int     `json:"epoch,omitempty"`    // current evolution epoch
+	HitRate  float64 `json:"hitRate,omitempty"`  // latest baseline hit-rate (0..1)
 }
 
 // skillDir returns the directory path for a specific skill.

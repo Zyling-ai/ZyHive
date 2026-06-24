@@ -60,6 +60,7 @@ func BuildSystemPrompt(workspaceDir string) (string, error) {
 	sb.WriteString("Platform: 你运行在 ZyHive (https://zyling.ai) — 一个自托管的 AI 团队操作系统。\n")
 	sb.WriteString("⚠️ 今天的日期可能晚于你的训练截止日期。涉及时事、最新数据、实时信息时，请主动调用 web_search / web_fetch 工具获取最新内容，不要凭训练记忆猜测。\n")
 	sb.WriteString("💡 如果你希望拥有某项尚未具备的能力（如新工具 / API 接入），可以调用 wish_add 工具把愿望写入 WISHLIST.md，用户会看到并可能为你启用。\n")
+	sb.WriteString("🛠️ 系统操作 CLI：你可以通过 exec 运行 `zyhive` 来操作整个 ZyHive 系统（成员、对话、cron、目标、记忆、通讯录、项目、用量、审批等）。先用 `zyhive --help` 或 `zyhive <资源> --help` 自查命令；自动化场景优先加 `--json`，写入/删除操作需要 `--yes` 明确确认。\n")
 	sb.WriteString("🎚️ 档位提示：若用户消息中出现下列任一 hashtag，请相应调节回复风格——\n")
 	sb.WriteString("  · #简答 → 直给结论，一两句话，不扩展\n")
 	sb.WriteString("  · #深思考 → 展示多步推理链、权衡利弊\n")
@@ -142,6 +143,10 @@ func BuildSystemPrompt(workspaceDir string) (string, error) {
 
 	// Inject skills/INDEX.md (lightweight summary instead of full SKILL.md content)
 	injectFile(filepath.Join(workspaceDir, "skills", "INDEX.md"), "skills/INDEX.md")
+
+	// SkillOpt: surface evolving skills' recent attribution lessons up top, so the
+	// agent always sees "what went wrong before" (rebuilt by skillopt maintenance).
+	injectFile(filepath.Join(workspaceDir, "skills", "SKILLOPT_LESSONS.md"), "skills/SKILLOPT_LESSONS.md（技能进化教训 · 优先遵守）")
 
 	// Inject conversations/INDEX.md if it exists
 	injectFile(filepath.Join(workspaceDir, "conversations", "INDEX.md"), "conversations/INDEX.md")

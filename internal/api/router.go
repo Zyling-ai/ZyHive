@@ -25,6 +25,7 @@ import (
 	"github.com/Zyling-ai/zyhive/pkg/logging"
 	"github.com/Zyling-ai/zyhive/pkg/project"
 	"github.com/Zyling-ai/zyhive/pkg/session"
+	"github.com/Zyling-ai/zyhive/pkg/skillopt"
 	"github.com/Zyling-ai/zyhive/pkg/subagent"
 	"github.com/Zyling-ai/zyhive/pkg/usage"
 )
@@ -48,7 +49,7 @@ type BotControl struct {
 
 // RegisterRoutes mounts all API handlers onto the Gin engine.
 // cfgPath is the active config file path (--config flag value); all writes go there.
-func RegisterRoutes(r *gin.Engine, cfg *config.Config, cfgPath string, mgr *agent.Manager, pool *agent.Pool, cronEngine *cron.Engine, uiFS fs.FS, runnerFunc channel.RunnerFunc, botCtrl BotControl, projectMgr *project.Manager, subagentMgr *subagent.Manager, workerPool *session.WorkerPool, usageStore *usage.Store, budgetStore *budget.Store) {
+func RegisterRoutes(r *gin.Engine, cfg *config.Config, cfgPath string, mgr *agent.Manager, pool *agent.Pool, cronEngine *cron.Engine, uiFS fs.FS, runnerFunc channel.RunnerFunc, botCtrl BotControl, projectMgr *project.Manager, subagentMgr *subagent.Manager, workerPool *session.WorkerPool, usageStore *usage.Store, budgetStore *budget.Store, skilloptMgr *skillopt.Manager) {
 	configFilePath = cfgPath // wire the active config path for all API handlers
 	rf := runnerFunc
 	r.Use(corsMiddleware())
@@ -264,6 +265,26 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, cfgPath string, mgr *agen
 	agents.POST("/:id/skills", agentSkillH.Create)
 	agents.PATCH("/:id/skills/:skillId", agentSkillH.Update)
 	agents.DELETE("/:id/skills/:skillId", agentSkillH.Delete)
+
+	// SkillOpt — self-evolving skills (predict → oracle → critic → evolve → shadow A/B)
+	if skilloptMgr != nil {
+		soH := newSkillOptHandler(mgr, skilloptMgr, cronEngine)
+		so := agents.Group("/:id/skills/:skillId/skillopt")
+		{
+			so.GET("", soH.Overview)
+			so.PUT("/config", soH.SetConfig)
+			so.POST("/predict", soH.Predict)
+			so.POST("/oracle", soH.Oracle)
+			so.GET("/ledger", soH.Ledger)
+			so.POST("/evolve", soH.Evolve)
+			so.GET("/proposals", soH.Proposals)
+			so.POST("/proposals/:pid/accept", soH.AcceptProposal)
+			so.POST("/proposals/:pid/reject", soH.RejectProposal)
+			so.GET("/versions", soH.Versions)
+			so.POST("/versions/:ver/rollback", soH.Rollback)
+			so.POST("/shadow/promote", soH.PromoteShadow)
+		}
+	}
 
 	// Conversation logs (permanent audit log — admin-only, agent-blind)
 	convH := newConvHandler(mgr, mgr.AgentsDir())

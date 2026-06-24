@@ -174,6 +174,7 @@ curl -sSL https://install.zyling.ai/install | bash
 - **技能工作室（SkillStudio）**：安装、启用、编辑成员技能（SKILL.md）
 - **设置（SettingsView）**：全局配置、Provider 管理、模型选择、系统提示词调试
 - **交互式 CLI 面板**：`zyhive` 直接进入终端管理面板（配置 / 成员 / 更新 / 备份 / 日志 / 状态），支持中文 help；`zyhive token / start / stop / restart / status / enable / disable` 子命令
+- **Agent 系统操作 CLI**：`zyhive <资源> <动作> --json` 作为 REST API 瘦客户端，供内部 AI 成员、外部 agent、脚本/CI 操作成员、对话、Cron、目标、记忆、通讯录、项目、用量、审批等；详见 `docs/agent-cli.md`
 
 ### 系统提示词工程（渐进式披露）
 每次对话 system prompt **严格分层**构建：

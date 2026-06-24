@@ -4,6 +4,43 @@
 
 ---
 
+## [26.6.24v2] — 2026-06-24 · SkillOpt 技能自进化
+
+让静态 skill 升级为可自我进化的 skill：用真实世界结果作为 Oracle，自动复盘、有界进化自己的 `SKILL.md`。
+
+### 新增 SkillOpt 闭环
+
+- 新增 `pkg/skillopt/`：`预测台账(ledger) → 结果回填(oracle) → LLM 归因复盘(critic) → 有界进化(evolver) → 影子灰度 A/B(shadow) → 晋升/回滚(rejection 去重)`，由 Epoch 慢更新驱动。
+- 四重安全护栏：有界编辑（只改 `SKILL.md` 标记区 + 行数上限）、版本快照（一键回滚）、拒绝缓冲（指纹去重）、影子灰度（命中率超基线才上线）。
+- 新增 API `internal/api/skillopt.go`：挂在 `/api/agents/:id/skills/:skillId/skillopt`，含总览/预测/回填/台账/进化/提案审批/版本回滚/影子晋升/配置。
+- 集成：cron 定时维护（`cronRunFunc` 拦截 `__SKILLOPT_MAINTAIN__` 哨兵）、`pool.CallLLMOnce` 复用 agent 模型、system prompt 注入近期进化教训、`skill.Meta` 扩展 `evolving/epoch/hitRate`。
+- 新增工具 `skillopt_predict` / `skillopt_oracle`，让 AI 自记预测与回填。
+- 前端 `SkillStudio.vue` 新增「🧬 进化」tab（`SkillOptPanel.vue`）：命中率、台账、提案审批、版本回滚、影子 A/B。
+
+---
+
+## [26.6.24v1] — 2026-06-24 · Agent 系统操作 CLI
+
+把 `zyhive` 从单纯的人类运维 CLI 扩展为面向 AI agent 的系统操作面。
+
+### 新增 Agent CLI
+
+- 新增 `internal/agentcli/`：REST API 瘦客户端，支持 `--json`、`--host`、`--token`、`--config`、`--yes`、稳定退出码。
+- 新增 `zyhive api <METHOD> <path> [body|-]` 逃生舱，未封装端点也可直接调用。
+- 新增业务命令树：`agent`、`chat`、`cron`、`memory`、`task`、`goal`、`network`、`relation`、`project`、`file`、`session`、`model`、`provider`、`channel`、`tool`、`acp`、`skill`、`usage`、`system`、`conversations`、`approval`。
+- 现有运维命令 `start/stop/restart/status/token/version` 保持兼容。
+
+### Agent 可发现性
+
+- 系统提示词注入 `zyhive` CLI 使用提示，内部成员可通过 `exec` 自助调用系统级能力。
+- 新增 `docs/agent-cli.md`，说明连接鉴权、退出码、命令树和内部成员使用建议。
+
+### 测试
+
+- 新增 `internal/agentcli` 单测覆盖鉴权头、API 错误码映射、SSE 解析、`api` 逃生舱 dispatch。
+
+---
+
 ## [26.5.16v1] — 2026-05-16 · 🪶 飞书集成 UX 全面升级 (F1)
 
 让"给 agent 绑定飞书机器人"从 10 步摸黑配置变成 30 秒可视化向导。**只升级配置体验和检测能力，不动现有 WS 长连接 + 33 工具**（这部分的 SDK 化作为独立后续 PR）。
