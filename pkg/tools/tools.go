@@ -17,6 +17,7 @@ import (
 
 	"github.com/Zyling-ai/zyhive/pkg/aiteam/promptdef"
 	lllm "github.com/Zyling-ai/zyhive/pkg/llm"
+	"github.com/Zyling-ai/zyhive/pkg/netguard"
 )
 
 // ── Read ────────────────────────────────────────────────────────────────────
@@ -329,7 +330,12 @@ var webFetchToolDef = lllm.ToolDef{
 	}`),
 }
 
-func handleWebFetch(_ context.Context, input json.RawMessage) (string, error) {
+var newWebFetchClient = func() *http.Client {
+	return netguard.NewSafeClient(30 * time.Second)
+}
+var validateWebFetchURL = netguard.ValidateURL
+
+func handleWebFetch(ctx context.Context, input json.RawMessage) (string, error) {
 	var p struct {
 		URL      string `json:"url"`
 		MaxChars int    `json:"max_chars"`
@@ -340,8 +346,14 @@ func handleWebFetch(_ context.Context, input json.RawMessage) (string, error) {
 	if p.URL == "" {
 		return "", fmt.Errorf("url is required")
 	}
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Get(p.URL)
+	if err := validateWebFetchURL(ctx, p.URL); err != nil {
+		return "", fmt.Errorf("request blocked: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.URL, nil)
+	if err != nil {
+		return "", fmt.Errorf("invalid URL: %v", err)
+	}
+	resp, err := newWebFetchClient().Do(req)
 	if err != nil {
 		return "", fmt.Errorf("request failed: %v", err)
 	}
@@ -349,6 +361,9 @@ func handleWebFetch(_ context.Context, input json.RawMessage) (string, error) {
 	maxChars := p.MaxChars
 	if maxChars <= 0 {
 		maxChars = 50000
+	}
+	if maxChars > 200000 {
+		maxChars = 200000
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, int64(maxChars)))
 	if err != nil {

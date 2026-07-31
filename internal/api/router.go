@@ -369,8 +369,12 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, cfgPath string, mgr *agen
 	v1.POST("/config/test-key", cfgH.TestKey)
 
 	// ── Public routes (no auth — web channel) ─────────────────────────────
-	pubH := &publicChatHandler{manager: mgr, pool: pool, workerPool: workerPool, cfg: cfg}
-	pub := r.Group("/pub")
+	publicLimiter := newPublicAccessLimiterFromEnv()
+	pubH := &publicChatHandler{
+		manager: mgr, pool: pool, workerPool: workerPool, cfg: cfg,
+		limiter: publicLimiter,
+	}
+	pub := r.Group("/pub", publicLimiter.limitRequest)
 	{
 		// Per-channel routes (primary)
 		pub.GET("/chat/:agentId/:channelId/info", pubH.Info)

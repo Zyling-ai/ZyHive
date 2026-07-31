@@ -37,6 +37,7 @@ type publicChatHandler struct {
 	pool       *agent.Pool
 	workerPool *session.WorkerPool
 	cfg        *config.Config
+	limiter    *publicAccessLimiter
 }
 
 func findWebChannelByID(ag *agent.Agent, channelID string) *config.ChannelEntry {
@@ -167,10 +168,27 @@ func (h *publicChatHandler) Stream(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "message required"})
 		return
 	}
+	if len(req.Message) > h.limiter.maxMessageBytes {
+		c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "message too large"})
+		return
+	}
 
 	sid := buildWebSessionID(ch.ID, req.SessionToken)
 	if sid == "" {
 		sid = fmt.Sprintf("web-%s-%d", ch.ID, pubSSECounter.Add(1))
+	}
+	release, status, err := h.limiter.admit(h.limiter.sourceKey(c), sid, time.Now())
+	if err != nil {
+		c.Header("Retry-After", "60")
+		c.JSON(status, gin.H{"error": err.Error()})
+		return
+	}
+	releaseSSE, err := h.limiter.acquireSSE()
+	if err != nil {
+		release()
+		c.Header("Retry-After", "5")
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
+		return
 	}
 
 	// Conversation log (admin-visible)
@@ -188,7 +206,14 @@ func (h *publicChatHandler) Stream(c *gin.Context) {
 	visitorToken := req.SessionToken
 
 	runFn := func(ctx context.Context, sessionID, _ string, bc *session.Broadcaster) error {
-		return h.runPublic(ctx, agID, wsDir, sessDir, sessionID, msgCopy, bc, cl, clChID, visitorToken)
+		defer release()
+		runCtx, cancel := context.WithTimeout(ctx, h.limiter.runTimeout)
+		defer cancel()
+		err := h.runPublic(runCtx, agID, wsDir, sessDir, sessionID, msgCopy, bc, cl, clChID, visitorToken)
+		if err == nil && runCtx.Err() != nil {
+			return runCtx.Err()
+		}
+		return err
 	}
 
 	worker := h.workerPool.GetOrCreate(sid)
@@ -196,10 +221,12 @@ func (h *publicChatHandler) Stream(c *gin.Context) {
 	if err := worker.Enqueue(session.RunRequest{
 		AgentID: ag.ID, SessionID: sid, Message: req.Message, RunFn: runFn,
 	}); err != nil {
+		release()
+		releaseSSE()
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 		return
 	}
-	h.pipeSSE(c, worker, sidCopy)
+	h.pipeSSE(c, worker, sidCopy, releaseSSE)
 }
 
 // ─── Reconnect ───────────────────────────────────────────────────────────────
@@ -218,6 +245,10 @@ func (h *publicChatHandler) Reconnect(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "sessionId required"})
 		return
 	}
+	if !strings.HasPrefix(sid, "web-"+ch.ID+"-") {
+		c.JSON(http.StatusForbidden, gin.H{"error": "session does not belong to this channel"})
+		return
+	}
 	worker := h.workerPool.Get(sid)
 	if worker == nil {
 		c.Header("Content-Type", "text/event-stream")
@@ -228,7 +259,13 @@ func (h *publicChatHandler) Reconnect(c *gin.Context) {
 		c.Writer.Flush()
 		return
 	}
-	h.pipeSSE(c, worker, sid)
+	releaseSSE, err := h.limiter.acquireSSE()
+	if err != nil {
+		c.Header("Retry-After", "5")
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
+		return
+	}
+	h.pipeSSE(c, worker, sid, releaseSSE)
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -344,7 +381,13 @@ func (h *publicChatHandler) runPublic(
 }
 
 // pipeSSE streams broadcaster events to the client, injecting sessionId into done.
-func (h *publicChatHandler) pipeSSE(c *gin.Context, worker *session.SessionWorker, sessionID string) {
+func (h *publicChatHandler) pipeSSE(
+	c *gin.Context,
+	worker *session.SessionWorker,
+	sessionID string,
+	release func(),
+) {
+	defer release()
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")

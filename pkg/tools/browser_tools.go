@@ -10,6 +10,7 @@ import (
 
 	"github.com/Zyling-ai/zyhive/pkg/browser"
 	"github.com/Zyling-ai/zyhive/pkg/llm"
+	"github.com/Zyling-ai/zyhive/pkg/netguard"
 )
 
 // WithBrowser registers all browser automation tools on the Registry.
@@ -38,6 +39,9 @@ func (r *Registry) WithBrowser(mgr *browser.Manager, workspaceDir string) {
 		}
 		if p.URL == "" {
 			return "", fmt.Errorf("url 不能为空")
+		}
+		if err := netguard.ValidateURL(ctx, p.URL); err != nil {
+			return "", fmt.Errorf("导航被阻止: %w", err)
 		}
 		result, err := mgr.Navigate(agentID, p.URL, workspaceDir)
 		if err != nil {
@@ -369,6 +373,11 @@ func (r *Registry) WithBrowser(mgr *browser.Manager, workspaceDir string) {
 			URL string `json:"url"`
 		}
 		_ = json.Unmarshal(input, &p)
+		if p.URL != "" {
+			if err := netguard.ValidateURL(ctx, p.URL); err != nil {
+				return "", fmt.Errorf("导航被阻止: %w", err)
+			}
+		}
 		idx, err := mgr.NewTab(agentID, p.URL)
 		if err != nil {
 			return "", err

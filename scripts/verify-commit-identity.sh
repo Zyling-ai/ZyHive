@@ -15,7 +15,7 @@ while IFS=$'\t' read -r sha author_name author_email committer_name committer_em
   fi
 done < <(git log --format=$'%H\t%an\t%ae\t%cn\t%ce' HEAD)
 
-if git log --format='%B' HEAD | grep -Eiq '^[[:space:]]*co-authored-by:'; then
+if grep -Eiq '^[[:space:]]*co-authored-by:' <<<"$(git log --format='%B' HEAD)"; then
   echo "❌ 提交历史包含 Co-authored-by，共同作者会污染 GitHub Contributors" >&2
   failed=true
 fi

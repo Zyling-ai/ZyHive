@@ -493,15 +493,21 @@ func TestWebFetch(t *testing.T) {
 		assertErr(t, "web_fetch/bad-json", "invalid input", err)
 	})
 
-	t.Run("connection_refused_explicit_error", func(t *testing.T) {
+	t.Run("localhost_is_blocked", func(t *testing.T) {
 		_, err := call(r, "web_fetch", map[string]any{
-			"url": "http://localhost:19998/test", // nothing listening here
+			"url": "http://localhost:19998/test",
 		})
-		if err == nil {
-			t.Skip("port 19998 unexpectedly open")
+		if err == nil || !strings.Contains(err.Error(), "request blocked") {
+			t.Fatalf("expected SSRF block, got: %v", err)
 		}
-		if !strings.Contains(err.Error(), "request failed") {
-			t.Errorf("expected 'request failed' in error, got: %q", err.Error())
+	})
+
+	t.Run("cloud_metadata_is_blocked", func(t *testing.T) {
+		_, err := call(r, "web_fetch", map[string]any{
+			"url": "http://169.254.169.254/latest/meta-data",
+		})
+		if err == nil || !strings.Contains(err.Error(), "request blocked") {
+			t.Fatalf("expected metadata SSRF block, got: %v", err)
 		}
 	})
 
