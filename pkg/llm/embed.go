@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // embedProviderSpec maps known provider names to their default embedding endpoint + model.
@@ -36,14 +37,15 @@ var noKeyProviders = map[string]bool{
 
 // RequiresAPIKey returns false for providers that work without an API key.
 func RequiresAPIKey(provider string) bool {
-	return !noKeyProviders[provider]
+	return !noKeyProviders[strings.ToLower(provider)]
 }
 
 // Embedder calls an OpenAI-compatible /v1/embeddings endpoint.
 type Embedder struct {
-	baseURL string
-	model   string
-	client  *http.Client
+	baseURL   string
+	model     string
+	client    *http.Client
+	clientErr error
 }
 
 // NewEmbedder creates an Embedder for the given provider.
@@ -52,6 +54,7 @@ type Embedder struct {
 // embedModel: override default embedding model (empty = use provider default)
 // Returns nil if the provider is not known and no baseURL is provided.
 func NewEmbedder(provider, baseURL, embedModel string) *Embedder {
+	provider = strings.ToLower(provider)
 	spec, known := knownEmbedProviders[provider]
 	if !known && baseURL == "" {
 		return nil
@@ -78,10 +81,12 @@ func NewEmbedder(provider, baseURL, embedModel string) *Embedder {
 		}
 	}
 
+	client, clientErr := NewProviderHTTPClient(provider, effectiveURL, 60*time.Second)
 	return &Embedder{
-		baseURL: effectiveURL,
-		model:   model,
-		client:  &http.Client{},
+		baseURL:   effectiveURL,
+		model:     model,
+		client:    client,
+		clientErr: clientErr,
 	}
 }
 
@@ -93,6 +98,12 @@ func (e *Embedder) Model() string { return e.model }
 func (e *Embedder) Embed(ctx context.Context, apiKey string, texts []string) ([][]float32, error) {
 	if len(texts) == 0 {
 		return nil, nil
+	}
+	if e.clientErr != nil {
+		return nil, fmt.Errorf("invalid embedding endpoint: %w", e.clientErr)
+	}
+	if e.client == nil {
+		return nil, fmt.Errorf("embedding HTTP client is unavailable")
 	}
 
 	payload := map[string]interface{}{

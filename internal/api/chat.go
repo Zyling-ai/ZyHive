@@ -519,7 +519,7 @@ func (h *chatHandler) resolveModel(ag *agent.Agent) (*config.ModelEntry, string,
 		return nil, "", "", fmt.Errorf("no model configured")
 	}
 	key := resolveKeyWithProviders(me, h.cfg.Providers)
-	if key == "" {
+	if key == "" && llm.RequiresAPIKey(me.Provider) {
 		return nil, "", "", fmt.Errorf("no API key configured (set %s env var or add key in model settings)", envVarForProvider[me.Provider])
 	}
 	// 检查 provider 健康状态: 用了一个已测试为 error 的 provider, 提前给出明确提示

@@ -9,8 +9,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/gin-gonic/gin"
 	"github.com/Zyling-ai/zyhive/pkg/config"
+	"github.com/Zyling-ai/zyhive/pkg/llm"
+	"github.com/gin-gonic/gin"
 )
 
 type providerHandler struct {
@@ -26,13 +27,13 @@ func (h *providerHandler) List(c *gin.Context) {
 	}
 	// 返回时脱敏 apiKey
 	type ProviderResp struct {
-		ID       string `json:"id"`
-		Name     string `json:"name"`
-		Provider string `json:"provider"`
-		APIKey   string `json:"apiKey"`   // 脱敏
-		BaseURL  string `json:"baseUrl"`
-		Status   string `json:"status"`
-		ModelCount int  `json:"modelCount"` // 引用此 provider 的模型数量
+		ID         string `json:"id"`
+		Name       string `json:"name"`
+		Provider   string `json:"provider"`
+		APIKey     string `json:"apiKey"` // 脱敏
+		BaseURL    string `json:"baseUrl"`
+		Status     string `json:"status"`
+		ModelCount int    `json:"modelCount"` // 引用此 provider 的模型数量
 	}
 	resp := make([]ProviderResp, 0, len(providers))
 	for _, p := range providers {
@@ -65,18 +66,23 @@ func (h *providerHandler) Create(c *gin.Context) {
 		return
 	}
 	body.Provider = strings.TrimSpace(body.Provider)
-	body.APIKey   = strings.TrimSpace(body.APIKey)
-	body.Name     = strings.TrimSpace(body.Name)
+	body.APIKey = strings.TrimSpace(body.APIKey)
+	body.Name = strings.TrimSpace(body.Name)
 	if body.Provider == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "provider is required"})
 		return
 	}
-	if body.APIKey == "" {
+	if body.APIKey == "" && llm.RequiresAPIKey(body.Provider) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "apiKey is required"})
 		return
 	}
 	if body.Name == "" {
 		body.Name = providerDisplayName(body.Provider)
+	}
+	baseURL := strings.TrimRight(strings.TrimSpace(body.BaseURL), "/")
+	if err := llm.ValidateProviderBaseURL(c.Request.Context(), body.Provider, baseURL); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "baseUrl is blocked: " + err.Error()})
+		return
 	}
 
 	entry := config.ProviderEntry{
@@ -84,7 +90,7 @@ func (h *providerHandler) Create(c *gin.Context) {
 		Name:     body.Name,
 		Provider: body.Provider,
 		APIKey:   body.APIKey,
-		BaseURL:  strings.TrimRight(body.BaseURL, "/"),
+		BaseURL:  baseURL,
 		Status:   "untested",
 	}
 	h.cfg.Providers = append(h.cfg.Providers, entry)
@@ -118,6 +124,15 @@ func (h *providerHandler) Update(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid body"})
 		return
 	}
+	var validatedBaseURL *string
+	if body.BaseURL != nil {
+		baseURL := strings.TrimRight(strings.TrimSpace(*body.BaseURL), "/")
+		if err := llm.ValidateProviderBaseURL(c.Request.Context(), p.Provider, baseURL); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "baseUrl is blocked: " + err.Error()})
+			return
+		}
+		validatedBaseURL = &baseURL
+	}
 	if body.Name != nil && strings.TrimSpace(*body.Name) != "" {
 		p.Name = strings.TrimSpace(*body.Name)
 	}
@@ -125,8 +140,8 @@ func (h *providerHandler) Update(c *gin.Context) {
 		p.APIKey = strings.TrimSpace(*body.APIKey)
 		p.Status = "untested" // key 变了，需要重新测试
 	}
-	if body.BaseURL != nil {
-		p.BaseURL = strings.TrimRight(strings.TrimSpace(*body.BaseURL), "/")
+	if validatedBaseURL != nil {
+		p.BaseURL = *validatedBaseURL
 	}
 	if err := config.Save(h.configPath, h.cfg); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -187,12 +202,12 @@ func (h *providerHandler) Test(c *gin.Context) {
 		return
 	}
 	apiKey := p.APIKey
-	if apiKey == "" {
+	if apiKey == "" && llm.RequiresAPIKey(p.Provider) {
 		if envVar, ok := envVarForProvider[p.Provider]; ok {
 			apiKey = os.Getenv(envVar)
 		}
 	}
-	if apiKey == "" {
+	if apiKey == "" && llm.RequiresAPIKey(p.Provider) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "no API key configured"})
 		return
 	}
@@ -216,7 +231,7 @@ func (h *providerHandler) Test(c *gin.Context) {
 		// MiniMax 不支持 GET /v1/models，改用 chat completion 轻量探测
 		ok, msg2 = testMiniMaxKey(apiKey, baseURL)
 	default:
-		ok, msg2 = testOpenAICompatKey(apiKey, baseURL)
+		ok, msg2 = testOpenAICompatKey(p.Provider, apiKey, baseURL)
 	}
 	if !ok {
 		status = "error"
@@ -252,6 +267,7 @@ func providerDisplayName(provider string) string {
 		"kimi":       "月之暗面 (Kimi)",
 		"minimax":    "MiniMax",
 		"qwen":       "阿里通义千问",
+		"ollama":     "Ollama（本机）",
 		"custom":     "自定义",
 	}
 	if n, ok := names[provider]; ok {
@@ -259,5 +275,3 @@ func providerDisplayName(provider string) string {
 	}
 	return provider
 }
-
-

@@ -316,12 +316,13 @@ func (h *publicChatHandler) runPublic(
 	if me == nil {
 		return fmt.Errorf("no model configured")
 	}
-	apiKey := resolveKey(me)
-	if apiKey == "" {
+	apiKey := resolveKeyWithProviders(me, h.cfg.Providers)
+	_, resolvedBaseURL := config.ResolveCredentials(me, h.cfg.Providers)
+	if apiKey == "" && llm.RequiresAPIKey(me.Provider) {
 		return fmt.Errorf("no API key for model %s", me.ProviderModel())
 	}
 
-	llmClient := llm.NewClient(me.Provider, me.BaseURL)
+	llmClient := llm.NewClient(me.Provider, resolvedBaseURL)
 	store := session.NewStore(sessionDir)
 	toolRegistry := newPublicToolRegistry(workspaceDir, agentID, sessionID)
 

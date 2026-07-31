@@ -1,11 +1,11 @@
 // pkg/llm/httpclient.go — 带超时、重试、错误分类的 HTTP client 工厂。
 //
 // 设计要点：
-//  - 非流式请求：通过标准 http.Client.Timeout 限制整体耗时
-//  - 流式请求：不设 Client.Timeout（会截断长响应），改用 context 传入超时
-//  - 指数退避重试：最多 3 次，基础间隔 1s，上限 32s，加 jitter
-//  - 错误分类：网络错误可重试；429 解析 Retry-After；401/403 不重试；5xx 有限重试
-//  - keepalive 心跳：流式 SSE 读取超过 30s 无数据则认为连接断开
+//   - 非流式请求：通过标准 http.Client.Timeout 限制整体耗时
+//   - 流式请求：不设 Client.Timeout（会截断长响应），改用 context 传入超时
+//   - 指数退避重试：最多 3 次，基础间隔 1s，上限 32s，加 jitter
+//   - 错误分类：网络错误可重试；429 解析 Retry-After；401/403 不重试；5xx 有限重试
+//   - keepalive 心跳：流式 SSE 读取超过 30s 无数据则认为连接断开
 package llm
 
 import (
@@ -17,14 +17,13 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
+
+	"github.com/Zyling-ai/zyhive/pkg/netguard"
 )
 
 const (
-	// dialTimeout 是 TCP 连接建立超时。
-	dialTimeout = 10 * time.Second
-	// responseHeaderTimeout 是等待响应头的最长时间。
-	responseHeaderTimeout = 30 * time.Second
 	// streamKeepaliveTimeout 是流式请求读取中超过此时间无数据则认为断开。
 	streamKeepaliveTimeout = 30 * time.Second
 
@@ -36,35 +35,49 @@ const (
 // newHTTPClientWithTimeout 返回用于非流式请求的 HTTP client。
 // 设置了 Timeout 以防止请求卡死，但不适合流式响应。
 func newHTTPClientWithTimeout() *http.Client {
-	return &http.Client{
-		Transport: newTransport(),
-		Timeout:   60 * time.Second,
-	}
+	return netguard.NewSafeClient(60 * time.Second)
 }
 
 // newStreamingHTTPClient 返回用于流式 SSE 请求的 HTTP client。
 // 不设置 Client.Timeout（否则会在流读取中途截断响应）。
 // 流的生命周期通过传入的 context 控制。
 func newStreamingHTTPClient() *http.Client {
-	return &http.Client{
-		Transport: newTransport(),
-		// 故意不设 Timeout，让 context 负责控制流的生命周期
-	}
+	return netguard.NewSafeClient(0)
 }
 
-// newTransport 返回配置了 dialTimeout 和 responseHeaderTimeout 的 Transport。
-func newTransport() *http.Transport {
-	return &http.Transport{
-		DialContext: (&net.Dialer{
-			Timeout:   dialTimeout,
-			KeepAlive: 30 * time.Second,
-		}).DialContext,
-		ResponseHeaderTimeout: responseHeaderTimeout,
-		MaxIdleConns:          100,
-		IdleConnTimeout:       90 * time.Second,
-		TLSHandshakeTimeout:   10 * time.Second,
-		ExpectContinueTimeout: 1 * time.Second,
+// NewProviderHTTPClient returns a fail-closed client for provider traffic.
+// All providers are public-only except Ollama, which may use one exact loopback origin.
+func NewProviderHTTPClient(provider, baseURL string, timeout time.Duration) (*http.Client, error) {
+	if strings.EqualFold(provider, "ollama") {
+		if strings.TrimSpace(baseURL) == "" {
+			baseURL = "http://localhost:11434/v1"
+		}
+		baseURL = NormalizeProviderBaseURL(provider, baseURL)
+		return netguard.NewExactLoopbackClient(timeout, baseURL)
 	}
+	return netguard.NewSafeClient(timeout), nil
+}
+
+func NormalizeProviderBaseURL(provider, baseURL string) string {
+	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if strings.EqualFold(provider, "ollama") && baseURL != "" && !strings.HasSuffix(baseURL, "/v1") {
+		baseURL += "/v1"
+	}
+	return baseURL
+}
+
+func ValidateProviderBaseURL(ctx context.Context, provider, baseURL string) error {
+	if strings.TrimSpace(baseURL) == "" {
+		return nil
+	}
+	if strings.EqualFold(provider, "ollama") {
+		policy, err := netguard.ExactLoopbackPolicy(baseURL)
+		if err != nil {
+			return err
+		}
+		return netguard.ValidateURLWithPolicy(ctx, baseURL, policy)
+	}
+	return netguard.ValidateURL(ctx, baseURL)
 }
 
 // retryableError 分类请求错误，返回是否可重试及建议等待时长。

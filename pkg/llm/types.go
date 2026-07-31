@@ -12,12 +12,12 @@ import (
 
 // ChatRequest is the provider-agnostic request format.
 type ChatRequest struct {
-	Model     string         `json:"model"`
-	System    string         `json:"system,omitempty"`
-	Messages  []ChatMessage  `json:"messages"`
-	Tools     []ToolDef      `json:"tools,omitempty"`
-	MaxTokens int            `json:"max_tokens,omitempty"`
-	APIKey    string         `json:"-"`
+	Model     string        `json:"model"`
+	System    string        `json:"system,omitempty"`
+	Messages  []ChatMessage `json:"messages"`
+	Tools     []ToolDef     `json:"tools,omitempty"`
+	MaxTokens int           `json:"max_tokens,omitempty"`
+	APIKey    string        `json:"-"`
 	// Anthropic-specific options
 	CacheRetention string `json:"-"` // "none" | "short" | "long"
 	// Extra beta headers
@@ -121,6 +121,8 @@ func NewClient(provider, baseURL string) Client {
 		return NewQwenClient(baseURL)
 	case "openrouter":
 		return NewOpenRouterClient(baseURL)
+	case "ollama":
+		return NewOllamaClient(baseURL)
 	default:
 		// 自定义或未知 provider → 通用 OpenAI-compatible 客户端
 		return NewCustomClient(baseURL)

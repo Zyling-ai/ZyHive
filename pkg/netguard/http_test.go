@@ -83,6 +83,62 @@ func TestSafeClientRejectsPrivateRedirect(t *testing.T) {
 	}
 }
 
+func TestExactLoopbackPolicyAllowsOnlyConfiguredOrigin(t *testing.T) {
+	policy, err := ExactLoopbackPolicy("http://localhost:11434/v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver := staticResolver{
+		"localhost": {netip.MustParseAddr("127.0.0.1"), netip.MustParseAddr("::1")},
+	}
+	if err := validateURLWithPolicy(
+		context.Background(),
+		"http://localhost:11434/v1/models",
+		resolver,
+		policy,
+	); err != nil {
+		t.Fatalf("configured loopback endpoint rejected: %v", err)
+	}
+	for _, target := range []string{
+		"http://localhost:11435/v1/models",
+		"https://localhost:11434/v1/models",
+		"http://127.0.0.1:11434/v1/models",
+		"http://192.168.1.20:11434/v1/models",
+		"https://example.com/v1/models",
+	} {
+		if err := validateURLWithPolicy(context.Background(), target, resolver, policy); !errors.Is(err, ErrBlocked) {
+			t.Errorf("%s: expected ErrBlocked, got %v", target, err)
+		}
+	}
+}
+
+func TestExactLoopbackPolicyRejectsLANConfiguration(t *testing.T) {
+	for _, target := range []string{
+		"http://192.168.1.20:11434/v1",
+		"http://ollama.local:11434/v1",
+		"http://user:pass@localhost:11434/v1",
+	} {
+		if _, err := ExactLoopbackPolicy(target); !errors.Is(err, ErrBlocked) {
+			t.Errorf("%s: expected ErrBlocked, got %v", target, err)
+		}
+	}
+}
+
+func TestExactLoopbackClientRejectsCrossOriginRedirect(t *testing.T) {
+	policy, err := ExactLoopbackPolicy("http://localhost:11434/v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver := staticResolver{
+		"localhost": {netip.MustParseAddr("127.0.0.1")},
+	}
+	client := newPolicyClient(time.Second, resolver, policy)
+	req, _ := http.NewRequest(http.MethodGet, "http://localhost:11435/private", nil)
+	if err := client.CheckRedirect(req, nil); !errors.Is(err, ErrBlocked) {
+		t.Fatalf("expected cross-origin redirect rejection, got %v", err)
+	}
+}
+
 func TestSafeTransportDisablesProxyAndBlocksPrivateDial(t *testing.T) {
 	resolver := staticResolver{"private.example": {netip.MustParseAddr("10.0.0.5")}}
 	transport := newSafeTransport(resolver)
@@ -92,6 +148,24 @@ func TestSafeTransportDisablesProxyAndBlocksPrivateDial(t *testing.T) {
 	_, err := transport.DialContext(context.Background(), "tcp", "private.example:80")
 	if !errors.Is(err, ErrBlocked) {
 		t.Fatalf("expected private dial rejection, got %v", err)
+	}
+}
+
+func TestExactLoopbackTransportDisablesProxyAndRejectsWrongPort(t *testing.T) {
+	policy, err := ExactLoopbackPolicy("http://localhost:11434/v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver := staticResolver{
+		"localhost": {netip.MustParseAddr("127.0.0.1")},
+	}
+	transport := newPolicyTransport(resolver, policy)
+	if transport.Proxy != nil {
+		t.Fatal("loopback transport must ignore environment proxies")
+	}
+	_, err = transport.DialContext(context.Background(), "tcp", "localhost:11435")
+	if !errors.Is(err, ErrBlocked) {
+		t.Fatalf("expected wrong-port rejection, got %v", err)
 	}
 }
 

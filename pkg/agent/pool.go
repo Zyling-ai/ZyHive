@@ -802,7 +802,7 @@ func (p *Pool) ConsolidateMemory(ctx context.Context, agentID string) (string, e
 		return "", err
 	}
 	apiKey, resolvedBaseURL := config.ResolveCredentials(modelEntry, p.cfg.Providers)
-	if apiKey == "" {
+	if apiKey == "" && llm.RequiresAPIKey(modelEntry.Provider) {
 		return "", fmt.Errorf("no API key for model: %s", modelEntry.ProviderModel())
 	}
 
@@ -888,7 +888,7 @@ func (p *Pool) CallLLMOnce(ctx context.Context, agentID, system, user string) (s
 		return "", err
 	}
 	apiKey, resolvedBaseURL := config.ResolveCredentials(modelEntry, p.cfg.Providers)
-	if apiKey == "" {
+	if apiKey == "" && llm.RequiresAPIKey(modelEntry.Provider) {
 		return "", fmt.Errorf("no API key for model: %s", modelEntry.ProviderModel())
 	}
 	llmClient := llm.NewClient(modelEntry.Provider, resolvedBaseURL)
@@ -935,7 +935,7 @@ func (p *Pool) Run(ctx context.Context, agentID, message string) (string, error)
 
 	model := modelEntry.ProviderModel()
 	apiKey, resolvedBaseURL := config.ResolveCredentials(modelEntry, p.cfg.Providers)
-	if apiKey == "" {
+	if apiKey == "" && llm.RequiresAPIKey(modelEntry.Provider) {
 		return "", fmt.Errorf("no API key configured for model: %s", model)
 	}
 
@@ -998,7 +998,7 @@ func (p *Pool) RunStreamEvents(ctx context.Context, agentID, message, sessionID 
 	}
 	model := modelEntry.ProviderModel()
 	apiKey, resolvedBaseURL := config.ResolveCredentials(modelEntry, p.cfg.Providers)
-	if apiKey == "" {
+	if apiKey == "" && llm.RequiresAPIKey(modelEntry.Provider) {
 		return nil, fmt.Errorf("no API key configured for model: %s", model)
 	}
 
@@ -1089,7 +1089,7 @@ func (p *Pool) RunStream(ctx context.Context, agentID, message, sessionID string
 	}
 	model := modelEntry.ProviderModel()
 	apiKey, resolvedBaseURL := config.ResolveCredentials(modelEntry, p.cfg.Providers)
-	if apiKey == "" {
+	if apiKey == "" && llm.RequiresAPIKey(modelEntry.Provider) {
 		return nil, fmt.Errorf("no API key configured for model: %s", model)
 	}
 
@@ -1196,7 +1196,7 @@ func (p *Pool) subagentRunFuncExt() subagent.RunFuncExt {
 				resolvedModel = task.Model
 			}
 			apiKey, resolvedBaseURL := config.ResolveCredentials(modelEntry, p.cfg.Providers)
-			if apiKey == "" {
+			if apiKey == "" && llm.RequiresAPIKey(modelEntry.Provider) {
 				out <- subagent.RunEvent{Type: "error", Error: fmt.Errorf("no API key for model: %s", resolvedModel)}
 				return
 			}
@@ -1314,7 +1314,7 @@ func (p *Pool) SubagentRunFunc() subagent.RunFunc {
 				resolvedModel = model
 			}
 			apiKey, resolvedBaseURL := config.ResolveCredentials(modelEntry, p.cfg.Providers)
-			if apiKey == "" {
+			if apiKey == "" && llm.RequiresAPIKey(modelEntry.Provider) {
 				out <- subagent.RunEvent{Type: "error", Error: fmt.Errorf("no API key for model: %s", resolvedModel)}
 				return
 			}

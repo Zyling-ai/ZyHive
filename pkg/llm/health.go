@@ -107,9 +107,9 @@ func pingProvider(ctx context.Context, provider, apiKey, baseURL string) (bool, 
 	switch strings.ToLower(provider) {
 	case "anthropic":
 		return pingAnthropic(ctx, apiKey, baseURL)
-	case "openai", "deepseek", "moonshot", "kimi", "zhipu", "qwen", "openrouter", "minimax", "custom":
+	case "openai", "deepseek", "moonshot", "kimi", "zhipu", "qwen", "openrouter", "minimax", "custom", "ollama":
 		// OpenAI-compatible: /v1/chat/completions with max_tokens=1
-		return pingOpenAICompat(ctx, apiKey, baseURL, defaultModelForProvider(provider))
+		return pingOpenAICompat(ctx, provider, apiKey, baseURL, defaultModelForProvider(provider))
 	}
 	return false, 0, "unsupported provider: " + provider
 }
@@ -130,6 +130,8 @@ func defaultModelForProvider(provider string) string {
 		return "openai/gpt-4o-mini"
 	case "minimax":
 		return "abab6.5s-chat"
+	case "ollama":
+		return "llama3.2"
 	}
 	return ""
 }
@@ -151,7 +153,11 @@ func pingAnthropic(ctx context.Context, apiKey, baseURL string) (bool, int, stri
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("x-api-key", apiKey)
 	req.Header.Set("anthropic-version", "2023-06-01")
-	resp, err := http.DefaultClient.Do(req)
+	client, clientErr := NewProviderHTTPClient("anthropic", baseURL, 8*time.Second)
+	if clientErr != nil {
+		return false, 0, clientErr.Error()
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return false, 0, err.Error()
 	}
@@ -167,11 +173,15 @@ func pingAnthropic(ctx context.Context, apiKey, baseURL string) (bool, int, stri
 	return false, resp.StatusCode, fmt.Sprintf("HTTP %d", resp.StatusCode)
 }
 
-func pingOpenAICompat(ctx context.Context, apiKey, baseURL, model string) (bool, int, string) {
+func pingOpenAICompat(ctx context.Context, provider, apiKey, baseURL, model string) (bool, int, string) {
 	if baseURL == "" {
-		return false, 0, "baseURL required for OpenAI-compatible providers"
+		if strings.EqualFold(provider, "ollama") {
+			baseURL = ollamaDefaultBase
+		} else {
+			return false, 0, "baseURL required for OpenAI-compatible providers"
+		}
 	}
-	baseURL = strings.TrimRight(baseURL, "/")
+	baseURL = NormalizeProviderBaseURL(provider, baseURL)
 	if !strings.Contains(baseURL, "/v1") {
 		baseURL += "/v1"
 	}
@@ -183,7 +193,11 @@ func pingOpenAICompat(ctx context.Context, apiKey, baseURL, model string) (bool,
 	req, _ := http.NewRequestWithContext(ctx, "POST", baseURL+"/chat/completions", bytes.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
-	resp, err := http.DefaultClient.Do(req)
+	client, clientErr := NewProviderHTTPClient(provider, baseURL, 8*time.Second)
+	if clientErr != nil {
+		return false, 0, clientErr.Error()
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return false, 0, err.Error()
 	}
@@ -219,12 +233,12 @@ func ClearPingCache() {
 // elided (it embeds an API-key fragment); callers identify providers by their
 // own ProviderID list and call Ping() lazily.
 type SnapshotEntry struct {
-	OK           bool      `json:"ok"`
-	StatusCode   int       `json:"statusCode,omitempty"`
-	Error        string    `json:"error,omitempty"`
-	LatencyMs    int64     `json:"latencyMs"`
-	CheckedAt    time.Time `json:"checkedAt"`
-	AgeSeconds   int64     `json:"ageSeconds"`
+	OK         bool      `json:"ok"`
+	StatusCode int       `json:"statusCode,omitempty"`
+	Error      string    `json:"error,omitempty"`
+	LatencyMs  int64     `json:"latencyMs"`
+	CheckedAt  time.Time `json:"checkedAt"`
+	AgeSeconds int64     `json:"ageSeconds"`
 }
 
 // PingSnapshot returns a copy of all currently cached ping results, regardless

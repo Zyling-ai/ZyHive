@@ -9,8 +9,18 @@ type CustomClient struct {
 	openAIBase
 }
 
+const ollamaDefaultBase = "http://localhost:11434/v1"
+
 func NewCustomClient(baseURL string) *CustomClient {
 	return &CustomClient{openAIBase: newOpenAIBase(baseURL, nil)}
+}
+
+func NewOllamaClient(baseURL string) *CustomClient {
+	if baseURL == "" {
+		baseURL = ollamaDefaultBase
+	}
+	baseURL = NormalizeProviderBaseURL("ollama", baseURL)
+	return &CustomClient{openAIBase: newOpenAIBaseForProvider("ollama", baseURL, nil)}
 }
 
 func (c *CustomClient) Stream(ctx context.Context, req *ChatRequest) (<-chan StreamEvent, error) {

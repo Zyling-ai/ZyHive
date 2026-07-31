@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Zyling-ai/zyhive/pkg/config"
+	"github.com/Zyling-ai/zyhive/pkg/llm"
 	"github.com/Zyling-ai/zyhive/pkg/tools"
 	"github.com/gin-gonic/gin"
 )
@@ -99,6 +100,19 @@ func (h *configHandler) Patch(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid config: " + err.Error()})
 		return
 	}
+	for _, provider := range updated.Providers {
+		if err := llm.ValidateProviderBaseURL(c.Request.Context(), provider.Provider, provider.BaseURL); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid provider baseUrl: " + err.Error()})
+			return
+		}
+	}
+	for i := range updated.Models {
+		_, baseURL := config.ResolveCredentials(&updated.Models[i], updated.Providers)
+		if err := llm.ValidateProviderBaseURL(c.Request.Context(), updated.Models[i].Provider, baseURL); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid model baseUrl: " + err.Error()})
+			return
+		}
+	}
 
 	path := h.configPath
 	if path == "" {
@@ -166,7 +180,11 @@ func testAnthropicKey(key, baseURL string) (bool, string) {
 	req.Header.Set("x-api-key", key)
 	req.Header.Set("anthropic-version", "2023-06-01")
 
-	resp, err := http.DefaultClient.Do(req)
+	client, clientErr := llm.NewProviderHTTPClient("anthropic", baseURL, 15*time.Second)
+	if clientErr != nil {
+		return false, fmt.Sprintf("request blocked: %v", clientErr)
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return false, fmt.Sprintf("request failed: %v", err)
 	}
@@ -188,7 +206,8 @@ func testOpenAIKey(key string) (bool, string) {
 	req, _ := http.NewRequestWithContext(ctx, "GET", "https://api.openai.com/v1/models", nil)
 	req.Header.Set("Authorization", "Bearer "+key)
 
-	resp, err := http.DefaultClient.Do(req)
+	client, _ := llm.NewProviderHTTPClient("openai", "", 15*time.Second)
+	resp, err := client.Do(req)
 	if err != nil {
 		return false, fmt.Sprintf("request failed: %v", err)
 	}
@@ -206,7 +225,8 @@ func testDeepSeekKey(key string) (bool, string) {
 	req, _ := http.NewRequestWithContext(ctx, "GET", "https://api.deepseek.com/v1/models", nil)
 	req.Header.Set("Authorization", "Bearer "+key)
 
-	resp, err := http.DefaultClient.Do(req)
+	client, _ := llm.NewProviderHTTPClient("deepseek", "", 15*time.Second)
+	resp, err := client.Do(req)
 	if err != nil {
 		return false, fmt.Sprintf("request failed: %v", err)
 	}
@@ -219,17 +239,21 @@ func testDeepSeekKey(key string) (bool, string) {
 }
 
 // testOpenAICompatKey tests any OpenAI-compatible provider by calling /models.
-func testOpenAICompatKey(key, baseURL string) (bool, string) {
+func testOpenAICompatKey(provider, key, baseURL string) (bool, string) {
 	if baseURL == "" {
 		return false, "未配置调用地址"
 	}
-	baseURL = strings.TrimRight(baseURL, "/")
+	baseURL = llm.NormalizeProviderBaseURL(provider, baseURL)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	req, _ := http.NewRequestWithContext(ctx, "GET", baseURL+"/models", nil)
 	req.Header.Set("Authorization", "Bearer "+key)
 
-	resp, err := http.DefaultClient.Do(req)
+	client, clientErr := llm.NewProviderHTTPClient(provider, baseURL, 15*time.Second)
+	if clientErr != nil {
+		return false, fmt.Sprintf("request blocked: %v", clientErr)
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return false, fmt.Sprintf("request failed: %v", err)
 	}
@@ -256,7 +280,11 @@ func testMiniMaxKey(key, baseURL string) (bool, string) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+key)
 
-	resp, err := http.DefaultClient.Do(req)
+	client, clientErr := llm.NewProviderHTTPClient("minimax", baseURL, 15*time.Second)
+	if clientErr != nil {
+		return false, fmt.Sprintf("连接被阻止: %v", clientErr)
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return false, fmt.Sprintf("连接失败: %v", err)
 	}
@@ -291,6 +319,8 @@ func defaultBaseURLForProvider(provider string) string {
 		return "https://dashscope.aliyuncs.com/compatible-mode/v1"
 	case "openrouter":
 		return "https://openrouter.ai/api/v1"
+	case "ollama":
+		return "http://localhost:11434/v1"
 	default:
 		return ""
 	}

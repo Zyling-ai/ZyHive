@@ -715,7 +715,7 @@ func main() {
 				// url from Provider registry / model.apiKey / env var
 				// fallback in a consistent way.
 				apiKey, baseURL := config.ResolveCredentials(modelEntry, cfg.Providers)
-				if apiKey == "" {
+				if apiKey == "" && llm.RequiresAPIKey(modelEntry.Provider) {
 					log.Printf("[aiteam] judge model %q has no api key wired — heuristic fallback", cfg.Aiteam.Judge.Model)
 				} else {
 					llmClient := llm.NewClient(modelEntry.Provider, baseURL)
@@ -1055,11 +1055,11 @@ func checkDefaultModelOnStartup(cfg *config.Config, cfgPath string) {
 		return // 无模型 或 已测过，跳过
 	}
 
-	key := def.APIKey
+	key, resolvedBaseURL := config.ResolveCredentials(def, cfg.Providers)
 	if key == "" {
 		key = os.Getenv(envVarName(def.Provider))
 	}
-	if key == "" {
+	if key == "" && llm.RequiresAPIKey(def.Provider) {
 		return // 无 key，无法测试
 	}
 
@@ -1070,14 +1070,14 @@ func checkDefaultModelOnStartup(cfg *config.Config, cfgPath string) {
 
 	switch def.Provider {
 	case "anthropic":
-		ok, errMsg = startupTestAnthropic(key, def.BaseURL)
+		ok, errMsg = startupTestAnthropic(key, resolvedBaseURL)
 	default:
 		// OpenAI-compatible providers
-		baseURL := def.BaseURL
+		baseURL := resolvedBaseURL
 		if baseURL == "" {
 			baseURL = startupDefaultBaseURL(def.Provider)
 		}
-		ok, errMsg = startupTestOpenAICompat(key, baseURL)
+		ok, errMsg = startupTestOpenAICompat(def.Provider, key, baseURL)
 	}
 
 	for i := range cfg.Models {
@@ -1125,7 +1125,11 @@ func startupTestAnthropic(key, baseURL string) (bool, string) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("x-api-key", key)
 	req.Header.Set("anthropic-version", "2023-06-01")
-	resp, err := http.DefaultClient.Do(req)
+	client, clientErr := llm.NewProviderHTTPClient("anthropic", baseURL, 12*time.Second)
+	if clientErr != nil {
+		return false, clientErr.Error()
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return false, err.Error()
 	}
@@ -1137,16 +1141,21 @@ func startupTestAnthropic(key, baseURL string) (bool, string) {
 	return false, fmt.Sprintf("status %d: %s", resp.StatusCode, body)
 }
 
-func startupTestOpenAICompat(key, baseURL string) (bool, string) {
+func startupTestOpenAICompat(provider, key, baseURL string) (bool, string) {
 	if baseURL == "" {
 		return false, "no baseURL"
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
 	defer cancel()
+	baseURL = llm.NormalizeProviderBaseURL(provider, baseURL)
 	req, _ := http.NewRequestWithContext(ctx, "GET",
 		strings.TrimSuffix(baseURL, "/")+"/models", nil)
 	req.Header.Set("Authorization", "Bearer "+key)
-	resp, err := http.DefaultClient.Do(req)
+	client, clientErr := llm.NewProviderHTTPClient(provider, baseURL, 12*time.Second)
+	if clientErr != nil {
+		return false, clientErr.Error()
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return false, err.Error()
 	}
@@ -1174,6 +1183,8 @@ func startupDefaultBaseURL(provider string) string {
 		return "https://dashscope.aliyuncs.com/compatible-mode/v1"
 	case "openrouter":
 		return "https://openrouter.ai/api/v1"
+	case "ollama":
+		return "http://localhost:11434/v1"
 	default:
 		return ""
 	}

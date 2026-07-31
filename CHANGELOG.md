@@ -4,6 +4,17 @@
 
 ---
 
+## [26.8.1v2] — 2026-08-01 · 🛡️ 模型动态出站安全
+
+- OpenAI、Anthropic 及兼容 Provider 的流式对话统一使用 `netguard` 安全客户端，关闭环境代理并在请求、重定向和实际拨号三层校验目标；
+- 模型列表探测、Provider/Model Key 测试、启动检查、在线健康检查和 Embedding 全部接入相同的出站策略；
+- 公网 Provider 与 Custom 默认拒绝 localhost、私网、链路本地、云元数据、危险 IPv6、混合 DNS 和 DNS 重绑定；
+- Ollama 仅允许显式配置的 `localhost` 或回环 IP 及其精确端口，同源路径可访问，换主机、换协议、换端口和跨源重定向全部拒绝；
+- Ollama 无需 API Key，自动规范到 `/v1` 兼容端点；局域网 Ollama 不再隐式放行；
+- Provider、Model 和全局配置保存时提前拒绝危险 BaseURL，运行期仍保留失败关闭校验；
+- Public Chat 修复未解析 Provider BaseURL 的入口分叉，现与面板、渠道、Cron、Heartbeat 和 Subagent 使用同一凭据与地址；
+- 新增模型流式、Embedding、模型探测、保存校验、跨源重定向和 Ollama 精确回环回归测试。
+
 ## [26.8.1v1] — 2026-08-01 · ⚙️ 后台进程所有权与完整回收
 
 - Bash 后台命令与 ACP 编程代理统一进入受管进程存储，身份绑定成员、会话和随机 Process ID；

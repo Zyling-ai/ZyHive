@@ -20,22 +20,35 @@ type openAIBase struct {
 	baseURL      string
 	extraHeaders map[string]string
 	httpClient   *http.Client
+	clientErr    error
 	// parseSSE 是 SSE 流解析钩子，各 provider 可自定义（如 DeepSeek reasoning）。
 	// nil = 使用默认实现。
 	parseSSE func(ctx context.Context, body io.Reader, out chan<- StreamEvent)
 }
 
-func newOpenAIBase(baseURL string, extra map[string]string) openAIBase {
+func newOpenAIBaseForProvider(provider, baseURL string, extra map[string]string) openAIBase {
+	client, err := NewProviderHTTPClient(provider, baseURL, 0)
 	return openAIBase{
 		baseURL:      strings.TrimRight(baseURL, "/"),
 		extraHeaders: extra,
-		httpClient:   newStreamingHTTPClient(),
+		httpClient:   client,
+		clientErr:    err,
 	}
+}
+
+func newOpenAIBase(baseURL string, extra map[string]string) openAIBase {
+	return newOpenAIBaseForProvider("", baseURL, extra)
 }
 
 // stream 是实际发起请求并返回事件 channel 的方法。
 // 使用带超时/重试的 HTTP client；流式读取增加 keepalive 心跳检测。
 func (b *openAIBase) stream(ctx context.Context, req *ChatRequest) (<-chan StreamEvent, error) {
+	if b.clientErr != nil {
+		return nil, fmt.Errorf("invalid provider endpoint: %w", b.clientErr)
+	}
+	if b.httpClient == nil {
+		return nil, fmt.Errorf("provider HTTP client is unavailable")
+	}
 	body, err := buildOpenAIRequestBody(req)
 	if err != nil {
 		return nil, fmt.Errorf("build request: %w", err)

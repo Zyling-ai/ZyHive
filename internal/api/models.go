@@ -10,8 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/Zyling-ai/zyhive/pkg/config"
+	"github.com/Zyling-ai/zyhive/pkg/llm"
+	"github.com/gin-gonic/gin"
 )
 
 type modelHandler struct {
@@ -65,6 +66,11 @@ func (h *modelHandler) Create(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "id is required"})
 		return
 	}
+	entry.BaseURL = strings.TrimRight(strings.TrimSpace(entry.BaseURL), "/")
+	if err := llm.ValidateProviderBaseURL(c.Request.Context(), entry.Provider, entry.BaseURL); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "baseUrl is blocked: " + err.Error()})
+		return
+	}
 	// Check duplicate
 	for _, m := range h.cfg.Models {
 		if m.ID == entry.ID {
@@ -92,6 +98,20 @@ func (h *modelHandler) Update(c *gin.Context) {
 	for i := range h.cfg.Models {
 		if h.cfg.Models[i].ID == id {
 			m := &h.cfg.Models[i]
+			effectiveProvider := m.Provider
+			if patch.Provider != "" {
+				effectiveProvider = patch.Provider
+			}
+			validatedBaseURL := m.BaseURL
+			if patch.BaseURL != "" {
+				validatedBaseURL = strings.TrimRight(strings.TrimSpace(patch.BaseURL), "/")
+			}
+			if patch.Provider != "" || patch.BaseURL != "" {
+				if err := llm.ValidateProviderBaseURL(c.Request.Context(), effectiveProvider, validatedBaseURL); err != nil {
+					c.JSON(http.StatusBadRequest, gin.H{"error": "baseUrl is blocked: " + err.Error()})
+					return
+				}
+			}
 			if patch.Name != "" {
 				m.Name = patch.Name
 			}
@@ -105,7 +125,7 @@ func (h *modelHandler) Update(c *gin.Context) {
 				m.APIKey = patch.APIKey
 			}
 			if patch.BaseURL != "" {
-				m.BaseURL = patch.BaseURL
+				m.BaseURL = validatedBaseURL
 			}
 			m.IsDefault = patch.IsDefault
 			if patch.Status != "" {
@@ -169,7 +189,7 @@ func (h *modelHandler) Test(c *gin.Context) {
 		return
 	}
 	key := resolveKeyWithProviders(m, h.cfg.Providers)
-	if key == "" {
+	if key == "" && llm.RequiresAPIKey(m.Provider) {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"valid": false,
 			"error": fmt.Sprintf("未配置 API Key（也未找到 %s 环境变量）", envVarForProvider[m.Provider]),
@@ -183,16 +203,20 @@ func (h *modelHandler) Test(c *gin.Context) {
 	case "anthropic":
 		valid, errMsg = testAnthropicKey(key, resolvedBase)
 	case "openai":
-		valid, errMsg = testOpenAIKey(key)
-	case "deepseek", "moonshot", "kimi", "zhipu", "glm", "minimax", "qwen", "dashscope", "openrouter", "custom":
+		if resolvedBase == "" {
+			valid, errMsg = testOpenAIKey(key)
+		} else {
+			valid, errMsg = testOpenAICompatKey(m.Provider, key, resolvedBase)
+		}
+	case "deepseek", "moonshot", "kimi", "zhipu", "glm", "minimax", "qwen", "dashscope", "openrouter", "custom", "ollama":
 		baseURL := resolvedBase
 		if baseURL == "" {
 			baseURL = defaultBaseURLForProvider(m.Provider)
 		}
-		valid, errMsg = testOpenAICompatKey(key, baseURL)
+		valid, errMsg = testOpenAICompatKey(m.Provider, key, baseURL)
 	default:
 		// 通用 OpenAI-compatible 尝试
-		valid, errMsg = testOpenAICompatKey(key, resolvedBase)
+		valid, errMsg = testOpenAICompatKey(m.Provider, key, resolvedBase)
 	}
 	if valid {
 		m.Status = "ok"
@@ -350,14 +374,18 @@ func (h *modelHandler) FetchModels(c *gin.Context) {
 	req.Header.Set("User-Agent", "ai-panel/0.4.0")
 
 	// If still no key and not OpenRouter (which has a public endpoint), warn early
-	if apiKey == "" && provider != "openrouter" && provider != "" {
+	if apiKey == "" && provider != "openrouter" && provider != "" && llm.RequiresAPIKey(provider) {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": fmt.Sprintf("未配置 API Key（也未找到 %s 环境变量），请填写后再获取", envVarForProvider[provider]),
 		})
 		return
 	}
 
-	client := &http.Client{Timeout: 20 * time.Second}
+	client, clientErr := llm.NewProviderHTTPClient(provider, baseURL, 20*time.Second)
+	if clientErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "request blocked: " + clientErr.Error()})
+		return
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": "request failed: " + err.Error()})
@@ -365,7 +393,7 @@ func (h *modelHandler) FetchModels(c *gin.Context) {
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if resp.StatusCode != 200 {
 		// 尝试硬编码兜底（适合 MiniMax/Kimi 等不支持 /v1/models 的 provider）
 		if hardcoded, ok := providerHardcodedModels[provider]; ok {
@@ -499,7 +527,7 @@ func isChatCompatible(provider, modelID string) bool {
 		"text-babbage-",
 		"text-curie-",
 		"text-davinci-edit-",
-		"davinci:",         // fine-tune base
+		"davinci:", // fine-tune base
 		"curie:",
 		"babbage:",
 		"ada:",
