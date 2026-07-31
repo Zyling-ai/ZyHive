@@ -13,6 +13,17 @@ permissions:
   contents: read
 
 jobs:
+  identity:
+    name: Commit identity
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify sole Zyling-ai identity
+        run: scripts/verify-commit-identity.sh
+
   go:
     name: Go (test / vet / build)
     runs-on: ubuntu-latest
@@ -119,7 +130,7 @@ jobs:
   release-build:
     name: Release build (${{ matrix.goos }}/${{ matrix.goarch }})
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [go, go-race, ui, scripts]
+    needs: [identity, go, go-race, ui, scripts]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:

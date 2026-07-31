@@ -43,6 +43,8 @@ node -e '
   }
 '
 
+scripts/verify-commit-identity.sh
+
 if [[ "$DRY_RUN" == false ]]; then
   require_command gh
   gh auth status >/dev/null

@@ -1,0 +1,16 @@
+---
+description: Enforce the sole ZyHive GitHub commit identity
+alwaysApply: true
+---
+
+# 唯一提交身份
+
+- 本仓库所有 Git 提交的 Author 和 Committer 必须是 `Zyling-ai <github@zyling.ai>`。
+- 禁止在提交消息中加入任何 `Co-authored-by`，包括 Cursor Agent。
+- 不得依赖本机全局 Git 身份。提交命令必须显式设置：
+  - `GIT_AUTHOR_NAME=Zyling-ai`
+  - `GIT_AUTHOR_EMAIL=github@zyling.ai`
+  - `GIT_COMMITTER_NAME=Zyling-ai`
+  - `GIT_COMMITTER_EMAIL=github@zyling.ai`
+- 提交后必须运行 `scripts/verify-commit-identity.sh`。
+- 身份校验失败时禁止推送和发布 Release。
