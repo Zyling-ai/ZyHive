@@ -433,31 +433,41 @@ var showImageDef = lllm.ToolDef{
 	InputSchema: json.RawMessage(`{
 		"type":"object",
 		"properties":{
-			"path":{"type":"string","description":"图片文件的绝对路径，例如 /tmp/screenshot.png"}
+			"path":{"type":"string","description":"Agent 工作区内的图片路径"}
 		},
 		"required":["path"]
 	}`),
 }
 
-func handleShowImage(_ context.Context, input json.RawMessage) (string, error) {
+func (r *Registry) handleShowImage(_ context.Context, input json.RawMessage) (string, error) {
 	var p struct {
 		Path string `json:"path"`
 	}
 	if err := json.Unmarshal(input, &p); err != nil || p.Path == "" {
 		return "", fmt.Errorf("path required")
 	}
+	resolvedPath, err := r.resolvePath(p.Path)
+	if err != nil {
+		return "", fmt.Errorf("image is outside workspace: %w", err)
+	}
 	// Verify file exists and is a supported image type
-	ext := strings.ToLower(filepath.Ext(p.Path))
+	ext := strings.ToLower(filepath.Ext(resolvedPath))
 	allowed := map[string]bool{".png": true, ".jpg": true, ".jpeg": true, ".gif": true, ".webp": true}
 	if !allowed[ext] {
 		return "", fmt.Errorf("unsupported file type %q; use png/jpg/gif/webp", ext)
 	}
-	info, err := os.Stat(p.Path)
+	info, err := os.Stat(resolvedPath)
 	if err != nil {
 		return "", fmt.Errorf("file not found: %v", err)
 	}
-	// Return a media marker that AiChat.vue will render as an <img>
-	return fmt.Sprintf("[media:%s] (%.1f KB)", p.Path, float64(info.Size())/1024), nil
+	if r.serverBaseURL == "" || r.downloadTickets == nil {
+		return "", fmt.Errorf("media preview is unavailable for this channel")
+	}
+	mediaURL, err := r.downloadTickets.IssueURLFor(r.serverBaseURL, "/api/media", resolvedPath, 0)
+	if err != nil {
+		return "", fmt.Errorf("create media credential: %w", err)
+	}
+	return fmt.Sprintf("[media_url:%s] (%.1f KB)", mediaURL, float64(info.Size())/1024), nil
 }
 
 // ── Send File ────────────────────────────────────────────────────────────────

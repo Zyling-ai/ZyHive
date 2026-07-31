@@ -300,7 +300,7 @@ func (h *chatHandler) execRunner(
 	}
 
 	// Web UI file sender: render files inline in the chat window.
-	//   Images      → [media:path]   → AiChat.vue renders as <img>
+	//   Images      → [media_url:URL] → AiChat.vue renders as <img>
 	//   Other files → [file_card:URL|NAME|SIZE] → AiChat.vue renders as download card
 	if scenario != "skill-studio" {
 		baseURL := h.cfg.Gateway.BaseURL()
@@ -312,11 +312,15 @@ func (h *chatHandler) execRunner(
 			name := filepath.Base(filePath)
 			ext := strings.ToLower(filepath.Ext(name))
 
-			// Images: reuse the existing [media:path] rendering path in AiChat.vue
+			// Images use the same one-time Artifact credential as downloads.
 			imageExts := map[string]bool{".png": true, ".jpg": true, ".jpeg": true, ".gif": true, ".webp": true}
 			if imageExts[ext] {
+				mediaURL, err := artifact.DefaultTickets.IssueURLFor(baseURL, "/api/media", filePath, 0)
+				if err != nil {
+					return "", fmt.Errorf("create media credential: %w", err)
+				}
 				sizeKB := float64(info.Size()) / 1024
-				return fmt.Sprintf("[media:%s] (%.1f KB)", filePath, sizeKB), nil
+				return fmt.Sprintf("[media_url:%s] (%.1f KB)", mediaURL, sizeKB), nil
 			}
 
 			// Other files: file card marker rendered by AiChat.vue

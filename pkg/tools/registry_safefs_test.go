@@ -237,3 +237,48 @@ func TestSendFileLargeFileUsesOneTimeArtifactURL(t *testing.T) {
 		t.Fatalf("resolved path=%q want=%q", resolved, expected)
 	}
 }
+
+func TestShowImageUsesWorkspaceScopedMediaTicket(t *testing.T) {
+	r, workspace := newRegistryAt(t)
+	imagePath := filepath.Join(workspace, "preview.png")
+	if err := os.WriteFile(imagePath, []byte("image"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	tickets := artifact.NewTicketStore()
+	r.serverBaseURL = "https://example.test"
+	r.downloadTickets = tickets
+
+	result, err := r.handleShowImage(context.Background(), mustJSON(map[string]any{"path": "preview.png"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const marker = "[media_url:"
+	start := strings.Index(result, marker)
+	end := strings.Index(result, "]")
+	if start < 0 || end <= start {
+		t.Fatalf("missing media URL marker: %s", result)
+	}
+	mediaURL := result[start+len(marker) : end]
+	parsed, err := url.Parse(mediaURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Path != "/api/media" || parsed.Query().Get("path") != "" {
+		t.Fatalf("unexpected media URL: %s", mediaURL)
+	}
+	if _, err := tickets.Consume(parsed.Query().Get("id"), parsed.Query().Get("token")); err != nil {
+		t.Fatalf("generated media ticket was invalid: %v", err)
+	}
+}
+
+func TestShowImageRejectsPathOutsideWorkspace(t *testing.T) {
+	r, _ := newRegistryAt(t)
+	outsidePath := filepath.Join(t.TempDir(), "secret.png")
+	if err := os.WriteFile(outsidePath, []byte("secret"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := r.handleShowImage(context.Background(), mustJSON(map[string]any{"path": outsidePath}))
+	if err == nil || !strings.Contains(err.Error(), "outside workspace") {
+		t.Fatalf("outside image path should be rejected, got %v", err)
+	}
+}

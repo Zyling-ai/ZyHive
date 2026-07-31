@@ -222,14 +222,53 @@ func TestMediaHandler_RejectsFileOutsideAgentWorkspaces(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h := &mediaHandler{token: "secret", manager: mgr}
+	tickets := artifact.NewTicketStore()
+	artifactID, token, _, err := tickets.Issue(outsidePath, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := &mediaHandler{manager: mgr, tickets: tickets}
 	r := gin.New()
 	r.GET("/api/media", h.ServeMedia)
 	req := httptest.NewRequest(http.MethodGet,
-		"/api/media?path="+url.QueryEscape(outsidePath)+"&token=secret", nil)
+		"/api/media?id="+url.QueryEscape(artifactID)+"&token="+url.QueryEscape(token), nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("outside media should be forbidden: got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestMediaHandler_AllowsWorkspaceMediaOnce(t *testing.T) {
+	mgr, aliceWS := setupSecurityTestEnv(t)
+	mediaPath := filepath.Join(aliceWS, "preview.png")
+	if err := os.WriteFile(mediaPath, []byte("image"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	tickets := artifact.NewTicketStore()
+	artifactID, token, _, err := tickets.Issue(mediaPath, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := &mediaHandler{manager: mgr, tickets: tickets}
+	r := gin.New()
+	r.GET("/api/media", h.ServeMedia)
+	requestURL := "/api/media?id=" + url.QueryEscape(artifactID) + "&token=" + url.QueryEscape(token)
+
+	first := httptest.NewRequest(http.MethodGet, requestURL, nil)
+	firstResult := httptest.NewRecorder()
+	r.ServeHTTP(firstResult, first)
+	if firstResult.Code != http.StatusOK {
+		t.Fatalf("workspace media failed: %d body=%s", firstResult.Code, firstResult.Body.String())
+	}
+	if firstResult.Header().Get("Content-Type") != "image/png" {
+		t.Fatalf("unexpected content type: %s", firstResult.Header().Get("Content-Type"))
+	}
+
+	replay := httptest.NewRequest(http.MethodGet, requestURL, nil)
+	replayResult := httptest.NewRecorder()
+	r.ServeHTTP(replayResult, replay)
+	if replayResult.Code != http.StatusUnauthorized {
+		t.Fatalf("replayed media credential should fail: %d", replayResult.Code)
 	}
 }

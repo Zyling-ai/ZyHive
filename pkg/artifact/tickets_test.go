@@ -86,6 +86,20 @@ func TestIssueURLDoesNotExposePath(t *testing.T) {
 	}
 }
 
+func TestIssueURLForUsesRequestedServingRoute(t *testing.T) {
+	store := NewTicketStore()
+	mediaURL, err := store.IssueURLFor("https://example.test", "/api/media", testArtifactFile(t), time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(mediaURL, "https://example.test/api/media?id=") {
+		t.Fatalf("unexpected media URL: %s", mediaURL)
+	}
+	if _, err := store.IssueURLFor("https://example.test", "https://evil.test", testArtifactFile(t), time.Minute); err == nil {
+		t.Fatal("absolute serving route should be rejected")
+	}
+}
+
 func TestIssueRejectsDirectories(t *testing.T) {
 	store := NewTicketStore()
 	if _, _, _, err := store.Issue(t.TempDir(), time.Minute); err == nil {

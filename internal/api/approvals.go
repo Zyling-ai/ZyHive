@@ -5,6 +5,7 @@
 //	GET  /api/approvals/pending           — list all pending (optional ?agentId=)
 //	POST /api/approvals/:id/approve       — body: {reason?, by?}
 //	POST /api/approvals/:id/deny          — body: {reason?, by?}
+//	POST /api/approvals/stream-ticket     — issue one short-lived SSE credential
 //	GET  /api/approvals/stream            — SSE feed of approval events (admin)
 //
 // Process-global broker is injected by main.go via SetApprovalBroker. When
@@ -29,6 +30,7 @@ import (
 // globalApprovalBroker is the process-wide approval broker injected from main.go.
 // Nil before SetApprovalBroker is called or when feature is disabled.
 var globalApprovalBroker *tools.Broker
+var approvalStreamTickets = newEphemeralTicketStore()
 
 // SetApprovalBroker wires the broker so handlers + chat.go can reach it.
 // Should be called once at startup before RegisterRoutes.
@@ -54,6 +56,19 @@ func (h *approvalHandler) need(c *gin.Context) (*tools.Broker, bool) {
 		return nil, false
 	}
 	return globalApprovalBroker, true
+}
+
+func (h *approvalHandler) IssueStreamTicket(c *gin.Context) {
+	if _, ok := h.need(c); !ok {
+		return
+	}
+	ticket, ok := approvalStreamTickets.issue(time.Minute)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create stream credential"})
+		return
+	}
+	c.Header("Cache-Control", "no-store")
+	c.JSON(http.StatusOK, gin.H{"ticket": ticket, "expiresIn": 60})
 }
 
 // GET /api/approvals/pending?agentId=...

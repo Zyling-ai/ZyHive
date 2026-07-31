@@ -98,6 +98,45 @@ func TestAuthMiddleware_NoTokenFailsClosed(t *testing.T) {
 	}
 }
 
+func TestApprovalStreamUsesOneTimeTicket(t *testing.T) {
+	previous := approvalStreamTickets
+	approvalStreamTickets = newEphemeralTicketStore()
+	t.Cleanup(func() { approvalStreamTickets = previous })
+
+	ticket, ok := approvalStreamTickets.issue(time.Minute)
+	if !ok {
+		t.Fatal("failed to issue approval stream ticket")
+	}
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(authMiddleware("admin-secret"))
+	r.GET("/api/approvals/stream", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	first := httptest.NewRequest(http.MethodGet,
+		"/api/approvals/stream?ticket="+url.QueryEscape(ticket), nil)
+	firstResult := httptest.NewRecorder()
+	r.ServeHTTP(firstResult, first)
+	if firstResult.Code != http.StatusOK {
+		t.Fatalf("valid stream ticket rejected: %d", firstResult.Code)
+	}
+
+	replay := httptest.NewRequest(http.MethodGet,
+		"/api/approvals/stream?ticket="+url.QueryEscape(ticket), nil)
+	replayResult := httptest.NewRecorder()
+	r.ServeHTTP(replayResult, replay)
+	if replayResult.Code != http.StatusUnauthorized {
+		t.Fatalf("replayed stream ticket accepted: %d", replayResult.Code)
+	}
+
+	legacy := httptest.NewRequest(http.MethodGet,
+		"/api/approvals/stream?token=admin-secret", nil)
+	legacyResult := httptest.NewRecorder()
+	r.ServeHTTP(legacyResult, legacy)
+	if legacyResult.Code != http.StatusUnauthorized {
+		t.Fatalf("long-lived query token still accepted: %d", legacyResult.Code)
+	}
+}
+
 // Download credentials are short-lived and compared in constant time.
 func TestDownloadHandler_WrongTokenRejected(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -137,47 +176,34 @@ func TestDownloadHandler_MissingCredentialFailsClosed(t *testing.T) {
 	}
 }
 
-// media token: query-param OR header auth, both constant-time
-func TestMediaHandler_WrongTokenRejected(t *testing.T) {
+func TestMediaHandler_RejectsWrongAndLegacyCredentials(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	path := filepath.Join(t.TempDir(), "preview.png")
+	if err := os.WriteFile(path, []byte("image"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	tickets := artifact.NewTicketStore()
+	artifactID, _, _, err := tickets.Issue(path, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
 	r := gin.New()
-	h := &mediaHandler{token: "super-secret-token"}
+	h := &mediaHandler{tickets: tickets}
 	r.GET("/api/media", h.ServeMedia)
 
-	cases := []struct {
-		name string
-		url  string
-		hdr  string
-	}{
-		{"wrong query", "/api/media?path=/tmp/x.png&token=wrong", ""},
-		{"wrong header", "/api/media?path=/tmp/x.png", "Bearer wrong"},
-		{"no auth", "/api/media?path=/tmp/x.png", ""},
+	cases := []struct{ name, url string }{
+		{"wrong ticket", "/api/media?id=" + url.QueryEscape(artifactID) + "&token=wrong"},
+		{"legacy admin token", "/api/media?path=" + url.QueryEscape(path) + "&token=admin-secret"},
+		{"missing credential", "/api/media"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, tc.url, nil)
-			if tc.hdr != "" {
-				req.Header.Set("Authorization", tc.hdr)
-			}
 			w := httptest.NewRecorder()
 			r.ServeHTTP(w, req)
 			if w.Code != http.StatusUnauthorized {
 				t.Fatalf("got %d want 401", w.Code)
 			}
 		})
-	}
-}
-
-func TestMediaHandler_EmptyConfiguredTokenFailsClosed(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-	h := &mediaHandler{}
-	r.GET("/api/media", h.ServeMedia)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/media?path=/tmp/x.png", nil)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-	if w.Code != http.StatusServiceUnavailable {
-		t.Fatalf("empty configured token should fail closed, got %d", w.Code)
 	}
 }

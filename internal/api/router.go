@@ -192,6 +192,7 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, cfgPath string, mgr *agen
 	v1.GET("/approvals/pending", apH.ListPending)
 	v1.POST("/approvals/:id/approve", apH.Approve)
 	v1.POST("/approvals/:id/deny", apH.Deny)
+	v1.POST("/approvals/stream-ticket", apH.IssueStreamTicket)
 	v1.GET("/approvals/stream", apH.Stream)
 
 	// F1 (26.5.16v1): Feishu setup wizard — probe + connect test + per-channel status.
@@ -468,8 +469,8 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, cfgPath string, mgr *agen
 	// Logs
 	v1.GET("/logs", logsHandler)
 
-	// Media file serving (auth via header or ?token= query param)
-	r.GET("/api/media", (&mediaHandler{token: cfg.Auth.Token, manager: mgr}).ServeMedia)
+	// Media serving uses one-time Artifact credentials.
+	r.GET("/api/media", (&mediaHandler{manager: mgr}).ServeMedia)
 
 	// WebSocket
 	r.GET("/ws", wsHandler)
@@ -551,13 +552,10 @@ func authMiddleware(token string) gin.HandlerFunc {
 		// 26.5.10v3 (B002): constant-time comparison defeats timing attacks
 		// that would otherwise leak the token byte-by-byte.
 		if !secretsEqual(auth, expected) {
-			// 26.5.12v1 (F-01): SSE fallback — EventSource can't set custom
-			// headers, so we also accept ?token= for explicitly designated
-			// streaming endpoints. Limit scope to /approvals/stream so we
-			// don't widen the auth surface globally.
+			// EventSource cannot set headers. The frontend first requests a
+			// short-lived, one-time stream ticket through authenticated REST.
 			if c.Request.URL.Path == "/api/approvals/stream" {
-				q := c.Query("token")
-				if q != "" && secretsEqual("Bearer "+q, expected) {
+				if approvalStreamTickets.consume(c.Query("ticket")) {
 					c.Next()
 					return
 				}

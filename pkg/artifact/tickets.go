@@ -93,12 +93,20 @@ func (s *TicketStore) Issue(path string, ttl time.Duration) (string, string, tim
 // IssueURL creates a same-origin download URL without exposing the file path
 // or the long-lived administrator token.
 func (s *TicketStore) IssueURL(baseURL, path string, ttl time.Duration) (string, error) {
+	return s.IssueURLFor(baseURL, "/api/download", path, ttl)
+}
+
+// IssueURLFor creates a ticket URL for a specific same-origin serving route.
+func (s *TicketStore) IssueURLFor(baseURL, route, path string, ttl time.Duration) (string, error) {
+	if !strings.HasPrefix(route, "/") || strings.ContainsAny(route, "?#") {
+		return "", errors.New("artifact: invalid serving route")
+	}
 	artifactID, token, _, err := s.Issue(path, ttl)
 	if err != nil {
 		return "", err
 	}
 	baseURL = strings.TrimRight(baseURL, "/")
-	return baseURL + "/api/download?id=" + url.QueryEscape(artifactID) +
+	return baseURL + route + "?id=" + url.QueryEscape(artifactID) +
 		"&token=" + url.QueryEscape(token), nil
 }
 

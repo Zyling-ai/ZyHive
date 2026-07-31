@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Zyling-ai/zyhive/pkg/artifact"
 	"github.com/Zyling-ai/zyhive/pkg/llm"
 )
 
@@ -699,14 +700,17 @@ func TestAgentSpawn(t *testing.T) {
 
 func TestShowImage(t *testing.T) {
 	r, ws := newTestRegistry(t)
+	r.serverBaseURL = "https://example.test"
+	r.downloadTickets = artifact.NewTicketStore()
 
 	t.Run("valid_png", func(t *testing.T) {
 		fp := filepath.Join(ws, "img.png")
 		os.WriteFile(fp, []byte("fakepng"), 0644)
 		res, err := call(r, "show_image", map[string]any{"path": fp})
 		assertOK(t, "show_image/png", res, err)
-		if !strings.Contains(res, "img.png") {
-			t.Errorf("result should mention filename, got %q", res)
+		if !strings.Contains(res, "[media_url:https://example.test/api/media?") ||
+			strings.Contains(res, fp) {
+			t.Errorf("result should contain only an opaque media URL, got %q", res)
 		}
 	})
 
@@ -718,7 +722,7 @@ func TestShowImage(t *testing.T) {
 	})
 
 	t.Run("file_not_found", func(t *testing.T) {
-		_, err := call(r, "show_image", map[string]any{"path": "/tmp/notexist_xyz.png"})
+		_, err := call(r, "show_image", map[string]any{"path": "notexist_xyz.png"})
 		assertErr(t, "show_image/not-found", "not found", err)
 	})
 

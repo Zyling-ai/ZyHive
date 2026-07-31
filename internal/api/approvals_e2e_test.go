@@ -46,9 +46,34 @@ func buildApprovalTestRouter() (*gin.Engine, *tools.Broker, *[]string, *sync.Mut
 	r.GET("/api/approvals/pending", apH.ListPending)
 	r.POST("/api/approvals/:id/approve", apH.Approve)
 	r.POST("/api/approvals/:id/deny", apH.Deny)
+	r.POST("/api/approvals/stream-ticket", apH.IssueStreamTicket)
 	r.GET("/api/approvals/stream", apH.Stream)
 
 	return r, broker, &auditEvents, &mu
+}
+
+func TestApprovalStreamTicketEndpoint(t *testing.T) {
+	approvalStreamTickets = newEphemeralTicketStore()
+	r, _, _, _ := buildApprovalTestRouter()
+	req := httptest.NewRequest(http.MethodPost, "/api/approvals/stream-ticket", nil)
+	result := httptest.NewRecorder()
+	r.ServeHTTP(result, req)
+	if result.Code != http.StatusOK {
+		t.Fatalf("ticket endpoint failed: %d body=%s", result.Code, result.Body.String())
+	}
+	var payload struct {
+		Ticket    string `json:"ticket"`
+		ExpiresIn int    `json:"expiresIn"`
+	}
+	if err := json.Unmarshal(result.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Ticket == "" || payload.ExpiresIn != 60 {
+		t.Fatalf("unexpected ticket payload: %+v", payload)
+	}
+	if !approvalStreamTickets.consume(payload.Ticket) {
+		t.Fatal("issued ticket was not usable")
+	}
 }
 
 // readSSELine reads a single SSE "data: <json>" payload from the reader,
@@ -88,13 +113,13 @@ func readSSELine(t *testing.T, r *bufio.Reader, deadline time.Duration) ([]byte,
 
 // TestApprovalE2E_ApproveFlow runs the full happy path:
 //
-//   1. SSE client subscribes
-//   2. (concurrently) broker.Request fires → SSE delivers "approval_request"
-//   3. (parallel) REST POST /api/approvals/:id/approve → 200
-//   4. broker.Request returns Approved=true
-//   5. SSE delivers "approval_resolved"
-//   6. audit hook saw "approval_approved"
-//   7. /api/approvals/pending is empty
+//  1. SSE client subscribes
+//  2. (concurrently) broker.Request fires → SSE delivers "approval_request"
+//  3. (parallel) REST POST /api/approvals/:id/approve → 200
+//  4. broker.Request returns Approved=true
+//  5. SSE delivers "approval_resolved"
+//  6. audit hook saw "approval_approved"
+//  7. /api/approvals/pending is empty
 func TestApprovalE2E_ApproveFlow(t *testing.T) {
 	r, broker, audit, mu := buildApprovalTestRouter()
 	ts := httptest.NewServer(r)

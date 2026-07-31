@@ -1120,10 +1120,9 @@ async function copyToClipboard(s: string) {
 function processToolResult(result: string): { mediaUrl?: string; fileCard?: { url: string; name: string; size: string } } {
   const extra: { mediaUrl?: string; fileCard?: { url: string; name: string; size: string } } = {}
   if (!result) return extra
-  const mediaMatch = result.match(/\[media:([^\]]+)\]/)
+  const mediaMatch = result.match(/\[media_url:([^\]]+)\]/)
   if (mediaMatch && mediaMatch[1]) {
-    const token = localStorage.getItem('aipanel_token') ?? ''
-    extra.mediaUrl = `/api/media?path=${encodeURIComponent(mediaMatch[1])}&token=${encodeURIComponent(token)}`
+    extra.mediaUrl = mediaMatch[1]
   }
   const fileCardMatch = result.match(/\[file_card:([^|]+)\|([^|]+)\|([^\]]+)\]/)
   if (fileCardMatch && fileCardMatch[1] && fileCardMatch[2] && fileCardMatch[3]) {
@@ -1789,7 +1788,7 @@ function runChat(text: string, imgs: string[], silent = false) {
             const ms = Date.now() - tc._startedAt
             tc.duration = ms < 1000 ? `${ms}ms` : `${(ms/1000).toFixed(1)}s`
           }
-          // Detect special markers ([media:path], [file_card:URL|NAME|SIZE]) in tool result
+          // Detect special markers ([media_url:URL], [file_card:URL|NAME|SIZE]) in tool result
           if (ev.text) {
             Object.assign(tc, processToolResult(ev.text))
           }
