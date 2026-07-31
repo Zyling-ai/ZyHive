@@ -83,6 +83,18 @@ func TestSafeClientRejectsPrivateRedirect(t *testing.T) {
 	}
 }
 
+func TestSafeTransportDisablesProxyAndBlocksPrivateDial(t *testing.T) {
+	resolver := staticResolver{"private.example": {netip.MustParseAddr("10.0.0.5")}}
+	transport := newSafeTransport(resolver)
+	if transport.Proxy != nil {
+		t.Fatal("safe transport must ignore environment proxies")
+	}
+	_, err := transport.DialContext(context.Background(), "tcp", "private.example:80")
+	if !errors.Is(err, ErrBlocked) {
+		t.Fatalf("expected private dial rejection, got %v", err)
+	}
+}
+
 func TestSafeClientBlocksDNSRebindingBetweenValidationAndDial(t *testing.T) {
 	resolver := &sequenceResolver{results: [][]netip.Addr{
 		{netip.MustParseAddr("93.184.216.34")},

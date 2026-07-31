@@ -104,10 +104,40 @@ func NewSafeClient(timeout time.Duration) *http.Client {
 }
 
 func newSafeClient(timeout time.Duration, resolver ipResolver) *http.Client {
-	dialer := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}
+	transport := newSafeTransport(resolver)
+	return &http.Client{
+		Timeout:   timeout,
+		Transport: transport,
+		CheckRedirect: func(req *http.Request, _ []*http.Request) error {
+			if err := validateURL(req.Context(), req.URL.String(), resolver); err != nil {
+				return err
+			}
+			return nil
+		},
+	}
+}
+
+// NewSafeTransport returns an HTTP transport that resolves and directly dials
+// only public addresses. Environment proxies are deliberately disabled.
+func NewSafeTransport() *http.Transport {
+	return newSafeTransport(defaultResolver{resolver: net.DefaultResolver})
+}
+
+func newSafeTransport(resolver ipResolver) *http.Transport {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
-	transport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+	transport.DialContext = newSafeDialContext(resolver)
+	return transport
+}
+
+// DialContext resolves address and dials the validated public IP directly.
+func DialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	return newSafeDialContext(defaultResolver{resolver: net.DefaultResolver})(ctx, network, address)
+}
+
+func newSafeDialContext(resolver ipResolver) func(context.Context, string, string) (net.Conn, error) {
+	dialer := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}
+	return func(ctx context.Context, network, address string) (net.Conn, error) {
 		host, port, err := net.SplitHostPort(address)
 		if err != nil {
 			return nil, fmt.Errorf("invalid outbound address: %w", err)
@@ -125,16 +155,5 @@ func newSafeClient(timeout time.Duration, resolver ipResolver) *http.Client {
 			dialErr = err
 		}
 		return nil, fmt.Errorf("dial outbound host: %w", dialErr)
-	}
-
-	return &http.Client{
-		Timeout:   timeout,
-		Transport: transport,
-		CheckRedirect: func(req *http.Request, _ []*http.Request) error {
-			if err := validateURL(req.Context(), req.URL.String(), resolver); err != nil {
-				return err
-			}
-			return nil
-		},
 	}
 }

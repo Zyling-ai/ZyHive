@@ -4,6 +4,15 @@
 
 ---
 
+## [26.7.31v10] — 2026-07-31 · 🌐 Chromium 全流量 SSRF 隔离
+
+- 新增仅监听 `127.0.0.1` 随机端口的浏览器安全代理，统一处理 HTTP、HTTPS CONNECT 和 WebSocket；
+- Chromium 的重定向、图片、脚本、iframe、XHR、WebSocket、点击及 `browser_eval` 网络请求全部强制经过 `netguard`；
+- 代理在真正拨号时解析域名并固定连接到已校验公网 IP，阻断 localhost、内网、云元数据和 DNS 重绑定；
+- 启动参数移除 Chromium 默认 localhost 代理绕过，并禁用 QUIC、DNS 预取及非代理 WebRTC UDP；
+- 浏览器启动失败或关闭时同步关闭代理与空闲连接，代理异常时所有浏览器出站请求默认失败；
+- 增加 HTTP 转发、HTTPS 隧道、WebSocket、私网阻断、启动参数和代理生命周期测试，并用真实 Chromium 验证页面子资源无法访问本机。
+
 ## [26.7.31v9] — 2026-07-31 · 🧵 会话 Worker 隔离与终止语义
 
 - WorkerPool 改用所有者与 Session ID 复合键，不同成员不再因相同 Session ID 共享后台任务或串流；

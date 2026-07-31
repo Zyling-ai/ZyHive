@@ -24,6 +24,7 @@ import (
 type Manager struct {
 	mu       sync.Mutex
 	browser  *rod.Browser
+	proxy    *safeProxy
 	sessions map[string]*AgentSession // agentID → session
 	dataDir  string                   // directory for storing downloaded Chromium
 }
@@ -71,7 +72,38 @@ func (m *Manager) ensureBrowser() (*rod.Browser, error) {
 	if err != nil {
 		return nil, err
 	}
-	l := launcher.New().Bin(binPath).Headless(true)
+	safetyProxy, err := newSafeProxy()
+	if err != nil {
+		return nil, err
+	}
+	m.proxy = safetyProxy
+	l := newBrowserLauncher(binPath, safetyProxy.URL())
+	u, err := l.Launch()
+	if err != nil {
+		safetyProxy.Close()
+		m.proxy = nil
+		return nil, fmt.Errorf("启动浏览器失败: %w", err)
+	}
+	browser := rod.New().ControlURL(u)
+	if err := browser.Connect(); err != nil {
+		l.Kill()
+		safetyProxy.Close()
+		m.proxy = nil
+		return nil, fmt.Errorf("连接浏览器失败: %w", err)
+	}
+	m.browser = browser
+	return m.browser, nil
+}
+
+func newBrowserLauncher(binPath, proxyURL string) *launcher.Launcher {
+	l := launcher.New().
+		Bin(binPath).
+		Headless(true).
+		Proxy(proxyURL).
+		Set("proxy-bypass-list", "<-loopback>").
+		Set("disable-quic", "").
+		Set("dns-prefetch-disable", "").
+		Set("force-webrtc-ip-handling-policy", "disable_non_proxied_udp")
 	if runtime.GOOS == "linux" {
 		l = l.
 			Set("no-sandbox", "").
@@ -80,12 +112,7 @@ func (m *Manager) ensureBrowser() (*rod.Browser, error) {
 			Set("disable-gpu", "").
 			Set("disable-software-rasterizer", "")
 	}
-	u, err := l.Launch()
-	if err != nil {
-		return nil, fmt.Errorf("启动浏览器失败: %w", err)
-	}
-	m.browser = rod.New().ControlURL(u).MustConnect()
-	return m.browser, nil
+	return l
 }
 
 // resolveBin returns the path to a Chrome/Chromium binary.
@@ -157,6 +184,10 @@ func (m *Manager) Close() {
 	if m.browser != nil {
 		_ = m.browser.Close()
 		m.browser = nil
+	}
+	if m.proxy != nil {
+		m.proxy.Close()
+		m.proxy = nil
 	}
 }
 
