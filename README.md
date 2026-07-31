@@ -7,7 +7,7 @@
 [![GitHub Forks](https://img.shields.io/github/forks/Zyling-ai/zyhive?style=flat&logo=github&color=orange)](https://github.com/Zyling-ai/zyhive/network/members)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 [![Go 1.25+](https://img.shields.io/badge/Go-1.25+-00ADD8.svg)](https://golang.org)
-[![Version](https://img.shields.io/badge/version-26.7.31v11-brightgreen.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-26.8.1v1-brightgreen.svg)](CHANGELOG.md)
 [![Release E2E](https://github.com/Zyling-ai/ZyHive/actions/workflows/release-e2e.yml/badge.svg)](https://github.com/Zyling-ai/ZyHive/actions/workflows/release-e2e.yml)
 [![官网](https://img.shields.io/badge/官网-zyling.ai-6366f1?logo=globe)](https://zyling.ai)
 
@@ -16,7 +16,7 @@
 一行命令安装，打开浏览器即可管理整个 AI 团队：配置每个成员的身份、灵魂、记忆、技能，设计组织架构，让成员之间互相协作讨论。
 
 > **发布状态**
-> 当前公开稳定版为 `26.7.31v11`，正式 Release 必须通过全新安装、服务启动、鉴权、基础 API、成员与文件持久化和旧版更新全流程测试。
+> 当前公开稳定版为 `26.8.1v1`，正式 Release 必须通过全新安装、服务启动、鉴权、基础 API、成员与文件持久化和旧版更新全流程测试。
 > 仓库已强制仅允许 `Zyling-ai` 提交身份；Release E2E 失败会自动转为草稿并停止公开分发。
 > 当前产品定位为单机、自托管 Beta，适合个人、小团队和可控环境部署；尚不承诺多租户、多实例、企业级高可用或关键业务连续性。
 > `pkg/aiteam/` 下的钱包、预算、评分、工资和收益模块属于实验能力，不作为稳定版默认商业承诺。
@@ -117,14 +117,14 @@ curl -sSL https://install.zyling.ai/install | bash
 ### 工具生态（80+ 工具）
 - **执行工具**：`exec`（bash 命令）、`read` / `write` / `edit`（文件操作）、`glob`（文件匹配）、`grep`
 - **浏览器自动化（go-rod）**：`browser_navigate` / `snapshot` / `screenshot` / `click` / `type` / `fill` / `press` / `hover` / `scroll` / `select` / `eval` / `wait`，支持 ARIA 快照
-- **进程管理**：`process`（管理后台命令会话，list / poll / log / write / kill）
+- **进程管理**：`process`（管理 Bash 与 ACP 后台任务；成员/会话所有权隔离，支持 list / poll / log / write / kill，并限制并发、输出和运行时间）
 - **记忆检索**：`memory_search`（向量 + BM25 语义检索）
 - **网络工具**：`web_search`（Brave Search API）、`web_fetch`（抓取页面内容）
 - **图像分析**：`image`（Vision 模型分析图片）
 - **消息推送**：`messaging`（向 Telegram 等渠道发消息）
 - **定时任务**：`cron_list` / `cron_add` / `cron_update` / `cron_remove` / `cron_run`
 - **多会话管理**：`sessions_list` / `sessions_history` / `sessions_send` / `sessions_spawn`（派遣子成员）
-- **ACP 编程代理**：`acp_*`（spawn ACP 代理 session，用于长任务编程委派）
+- **ACP 编程代理**：`acp_*`（在成员工作区内启动受管 ACP 进程，用于长任务编程委派）
 - **项目工作区**：`project_list` / `project_read` / `project_write` / `project_glob`
 - **飞书能力**：`feishu_send_message` / `feishu_create_chat` / `feishu_calendar_*` / `feishu_sheets_*` / `feishu_upload_image` / `feishu_reply_with_card`（7 大飞书工具）
 - **自我管理**：`self_list_skills` / `self_install_skill` / `self_uninstall_skill` / `self_rename` / `self_update_soul`

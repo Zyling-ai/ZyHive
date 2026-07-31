@@ -221,19 +221,25 @@ func (p *Pool) startAgentHeartbeat(agentID string, cfg *config.HeartbeatConfig) 
 	go func() {
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
+		active := make(chan struct{}, 1)
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				// Fire and forget — don't block the heartbeat goroutine.
-				go func() {
-					runCtx, runCancel := context.WithTimeout(context.Background(), 5*time.Minute)
-					defer runCancel()
-					if _, err := p.Run(runCtx, agentID, prompt); err != nil {
-						log.Printf("[heartbeat] agent %s: %v", agentID, err)
-					}
-				}()
+				select {
+				case active <- struct{}{}:
+					go func() {
+						defer func() { <-active }()
+						runCtx, runCancel := context.WithTimeout(ctx, 5*time.Minute)
+						defer runCancel()
+						if _, err := p.Run(runCtx, agentID, prompt); err != nil && ctx.Err() == nil {
+							log.Printf("[heartbeat] agent %s: %v", agentID, err)
+						}
+					}()
+				default:
+					log.Printf("[heartbeat] agent %s skipped overlapping run", agentID)
+				}
 			}
 		}
 	}()
@@ -937,7 +943,8 @@ func (p *Pool) Run(ctx context.Context, agentID, message string) (string, error)
 	llmClient := llm.NewClient(modelEntry.Provider, resolvedBaseURL)
 	toolRegistry := tools.New(ag.WorkspaceDir, filepath.Dir(ag.WorkspaceDir), ag.ID)
 	p.configureToolRegistry(toolRegistry, ag, nil)
-	p.finalizeToolRegistry(toolRegistry, ag, "")
+	toolOwnerSessionID := fmt.Sprintf("run-%d", time.Now().UnixNano())
+	p.finalizeToolRegistry(toolRegistry, ag, toolOwnerSessionID)
 	store := session.NewStore(ag.SessionDir)
 
 	r := runner.New(runner.Config{

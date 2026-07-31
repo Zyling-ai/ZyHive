@@ -40,6 +40,10 @@ func TestPolicyGroupsCoverDynamicToolNames(t *testing.T) {
 	if !agent["report_result"] || !agent["report_to_parent"] {
 		t.Fatal("group:agent missing subagent reporting tools")
 	}
+	runtime := expandNames([]string{"group:runtime"})
+	if !runtime["process"] || !runtime["acp_list"] || !runtime["acp_spawn"] {
+		t.Fatal("group:runtime missing managed process tools")
+	}
 }
 
 func TestInvalidPolicyFailsClosed(t *testing.T) {

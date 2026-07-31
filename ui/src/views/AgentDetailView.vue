@@ -1963,7 +1963,7 @@ const toolPolicySaved = ref(false)
 // All built-in tool names for preview
 const ALL_TOOL_NAMES = [
   'read','write','edit','grep','glob',
-  'exec','process',
+  'exec','process','acp_list','acp_spawn',
   'web_fetch','web_search',
   'memory_search',
   'browser_navigate','browser_snapshot','browser_screenshot','browser_click',
@@ -1981,7 +1981,7 @@ const ALL_TOOL_NAMES = [
 
 const TOOL_GROUPS: Record<string, string[]> = {
   'group:fs': ['read','write','edit','grep','glob'],
-  'group:runtime': ['exec','process'],
+  'group:runtime': ['exec','process','acp_list','acp_spawn'],
   'group:web': ['web_fetch','web_search'],
   'group:memory': ['memory_search'],
   'group:ui': [
@@ -2001,8 +2001,8 @@ const TOOL_GROUPS: Record<string, string[]> = {
 
 const PROFILE_ALLOWLISTS: Record<string, string[] | null> = {
   'full': null,
-  'coding': ['read','write','edit','grep','glob','exec','process','agent_list','agent_spawn','agent_tasks','agent_kill','agent_result','memory_search','image','web_fetch','web_search'],
-  'messaging': ['send_message','send_file','sessions_list','sessions_history','sessions_send','memory_search'],
+  'coding': ['read','write','edit','grep','glob','exec','process','acp_list','acp_spawn','agent_list','agent_spawn','agent_tasks','agent_kill','agent_result','report_result','report_to_parent','memory_search','image','web_fetch','web_search'],
+  'messaging': ['send_message','send_file','sessions_list','sessions_history','sessions_send','session_rename','memory_search'],
   'minimal': ['send_message','memory_search'],
 }
 

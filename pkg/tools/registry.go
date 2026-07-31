@@ -88,7 +88,7 @@ func New(workspaceDir, agentDir, agentID string) *Registry {
 	r.register(writeToolDef, r.handleWriteWS)
 	r.register(editToolDef, r.handleEditWS)
 	r.register(bashToolDef, r.handleBashWS)
-	r.register(processToolDef, handleProcess)
+	r.register(processToolDef, r.handleProcess)
 	r.register(grepToolDef, r.handleGrepWS)
 	r.register(globToolDef, r.handleGlobWS)
 	r.register(webFetchToolDef, handleWebFetch)
@@ -916,7 +916,7 @@ func (r *Registry) handleGlobWS(ctx context.Context, input json.RawMessage) (str
 
 // handleBashWS runs bash commands in the agent's workspace directory,
 // injecting any per-agent env vars (agentEnv) on top of the sanitized system env.
-func (r *Registry) handleBashWS(_ context.Context, input json.RawMessage) (string, error) {
+func (r *Registry) handleBashWS(parent context.Context, input json.RawMessage) (string, error) {
 	var p struct {
 		Command    string `json:"command"`
 		Timeout    int    `json:"timeout"`
@@ -926,13 +926,21 @@ func (r *Registry) handleBashWS(_ context.Context, input json.RawMessage) (strin
 		return "", err
 	}
 
+	env := sanitizeEnv(os.Environ())
+	for k, v := range r.agentEnv {
+		env = append(env, k+"="+v)
+	}
+
 	// Handle background execution
 	if p.Background {
-		command := p.Command
-		if r.workspaceDir != "" && command != "" {
-			command = fmt.Sprintf("cd %q && %s", r.workspaceDir, command)
-		}
-		id, err := startBackground(command)
+		id, err := backgroundProcesses.start(r.processOwner(), processSpec{
+			Name:    "bash",
+			Args:    []string{"-c", p.Command},
+			Dir:     r.workspaceDir,
+			Env:     env,
+			Timeout: time.Duration(p.Timeout) * time.Second,
+			Kind:    "bash",
+		})
 		if err != nil {
 			return "", err
 		}
@@ -950,19 +958,13 @@ func (r *Registry) handleBashWS(_ context.Context, input json.RawMessage) (strin
 		timeout = 120 * time.Second
 	}
 
-	// Build env once — used by both sandbox and legacy paths.
-	env := sanitizeEnv(os.Environ())
-	for k, v := range r.agentEnv {
-		env = append(env, k+"="+v)
-	}
-
 	// PR-007 (S2, 26.5.10v8): when ZYHIVE_EXPERIMENTAL_SANDBOX=1, route
 	// the exec call through pkg/aiteam/sandbox which adds Setpgid +
 	// per-run tmp HOME + output truncation + process-group kill on
 	// timeout. When the flag is off (default) we fall through to the
 	// legacy path below — behaviour is byte-identical to 26.5.10v7.
 	if flags.SandboxEnabled() {
-		res, sbErr := sandbox.Run(context.Background(), sandbox.Options{
+		res, sbErr := sandbox.Run(parent, sandbox.Options{
 			Command: command,
 			WorkDir: r.workspaceDir,
 			Env:     env,
@@ -974,24 +976,40 @@ func (r *Registry) handleBashWS(_ context.Context, input json.RawMessage) (strin
 		return sandbox.FormatToolOutput(res, timeout), nil
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "bash", "-c", command)
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	cmd := exec.Command("bash", "-c", command)
 	cmd.Env = env
+	prepareOwnedProcess(cmd)
+	outputBuffer := &cappedBuffer{}
+	cmd.Stdout = outputBuffer
+	cmd.Stderr = outputBuffer
 
-	out, err := cmd.CombinedOutput()
-	output := strings.TrimRight(string(out), "\n")
+	if err := cmd.Start(); err != nil {
+		return "", err
+	}
+	stopGroupWatcher := watchOwnedProcessGroup(ctx, cmd)
+	err := cmd.Wait()
+	stopGroupWatcher()
+	output := strings.TrimRight(outputBuffer.String(), "\n")
 	if err != nil {
+		if ctx.Err() != nil {
+			reason := fmt.Sprintf("timed out after %v", timeout)
+			if ctx.Err() == context.Canceled {
+				reason = "was cancelled"
+			}
+			if output != "" {
+				return fmt.Sprintf("❌ Command %s.\n\nPartial output:\n%s", reason, output), nil
+			}
+			return fmt.Sprintf("❌ Command %s (no output).", reason), nil
+		}
 		exitCode := -1
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			exitCode = exitErr.ExitCode()
-		} else if ctx.Err() != nil {
-			// Timeout
-			if output != "" {
-				return fmt.Sprintf("❌ Command timed out after %v.\n\nPartial output:\n%s", timeout, output), nil
-			}
-			return fmt.Sprintf("❌ Command timed out after %v (no output).", timeout), nil
 		}
 		if output != "" {
 			return fmt.Sprintf("❌ Command exited with code %d.\n\n%s", exitCode, output), nil

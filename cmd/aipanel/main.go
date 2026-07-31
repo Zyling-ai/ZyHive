@@ -161,6 +161,7 @@ func main() {
 			log.Fatalf("Failed to load config %s: %v", *configPath, err)
 		}
 	}
+	defer tools.CloseBackgroundProcesses()
 
 	// Initialize agent manager
 	agentsDir := cfg.Agents.Dir

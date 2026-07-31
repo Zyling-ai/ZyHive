@@ -28,7 +28,7 @@ type ToolPolicy struct {
 // toolGroups maps "group:xxx" shorthands to their member tool names.
 var toolGroups = map[string][]string{
 	"group:fs":      {"read", "write", "edit", "grep", "glob"},
-	"group:runtime": {"exec", "process"},
+	"group:runtime": {"exec", "process", "acp_list", "acp_spawn"},
 	"group:web":     {"web_fetch", "web_search"},
 	"group:memory":  {"memory_search"},
 	"group:ui": {

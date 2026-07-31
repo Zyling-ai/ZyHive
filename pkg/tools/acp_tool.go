@@ -8,13 +8,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
+	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/Zyling-ai/zyhive/pkg/config"
 	"github.com/Zyling-ai/zyhive/pkg/llm"
+	"github.com/Zyling-ai/zyhive/pkg/safefs"
 )
 
 // ACPAgentLister returns the current list of configured ACP agents.
@@ -43,29 +43,6 @@ func (r *Registry) WithACPAgents(lister ACPAgentLister) {
 			"required":["acpId","task"]
 		}`),
 	}, r.handleACPSpawn)
-}
-
-// ── acpSession tracks a running ACP subprocess ───────────────────────────────
-
-var (
-	acpSessionMu sync.Mutex
-	acpSessions  = make(map[string]*acpSession)
-)
-
-type acpSession struct {
-	ID        string
-	ACPID     string
-	Task      string
-	Status    string // "running" | "done" | "error"
-	Output    strings.Builder
-	Err       string
-	StartedAt int64
-	EndedAt   int64
-	cancel    context.CancelFunc
-}
-
-func genACPSessionID() string {
-	return fmt.Sprintf("acp-%d", time.Now().UnixNano()%1_000_000_000)
 }
 
 // ── Handlers ─────────────────────────────────────────────────────────────────
@@ -148,73 +125,43 @@ func (r *Registry) handleACPSpawn(_ context.Context, input json.RawMessage) (str
 	if workDir == "" {
 		workDir = r.workspaceDir
 	}
+	if filepath.IsAbs(workDir) {
+		relative, err := filepath.Rel(r.workspaceDir, workDir)
+		if err != nil {
+			return "", fmt.Errorf("resolve ACP workDir: %w", err)
+		}
+		workDir = relative
+	}
+	confinedWorkDir, err := safefs.ConfineToBase(r.workspaceDir, workDir)
+	if err != nil {
+		return "", fmt.Errorf("ACP workDir must stay inside the agent workspace: %w", err)
+	}
 
 	// Set up timeout.
 	timeout := time.Duration(p.Timeout) * time.Second
 	if timeout <= 0 {
-		timeout = 600 * time.Second
+		timeout = 10 * time.Minute
 	}
-
-	// Create session entry.
-	sid := genACPSessionID()
-	sess := &acpSession{
-		ID:        sid,
-		ACPID:     found.ID,
-		Task:      p.Task,
-		Status:    "running",
-		StartedAt: time.Now().UnixMilli(),
+	timeout = normalizeProcessTimeout(timeout)
+	env := sanitizeEnv(os.Environ())
+	env = append(env, found.Env...)
+	spec := processSpec{
+		Name:            found.Binary,
+		Args:            args,
+		Dir:             confinedWorkDir,
+		Env:             env,
+		Timeout:         timeout,
+		Kind:            "acp:" + found.ID,
+		CloseStdinAfter: true,
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	sess.cancel = cancel
-
-	acpSessionMu.Lock()
-	acpSessions[sid] = sess
-	acpSessionMu.Unlock()
-
-	// Launch subprocess asynchronously.
-	go func() {
-		defer cancel()
-		defer func() {
-			acpSessionMu.Lock()
-			sess.EndedAt = time.Now().UnixMilli()
-			acpSessionMu.Unlock()
-		}()
-
-		cmd := exec.CommandContext(ctx, found.Binary, args...)
-		cmd.Dir = workDir
-
-		// Inject custom env vars.
-		cmd.Env = append(os.Environ(), found.Env...)
-
-		if useStdin {
-			cmd.Stdin = strings.NewReader(p.Task)
-		}
-
-		out, err := cmd.CombinedOutput()
-
-		acpSessionMu.Lock()
-		defer acpSessionMu.Unlock()
-		sess.Output.Write(out)
-		if err != nil {
-			sess.Status = "error"
-			sess.Err = err.Error()
-		} else {
-			sess.Status = "done"
-		}
-	}()
+	if useStdin {
+		spec.InitialStdin = p.Task
+	}
+	sid, err := backgroundProcesses.start(r.processOwner(), spec)
+	if err != nil {
+		return "", err
+	}
 
 	return fmt.Sprintf("✅ ACP Agent 已启动\n- 进程 ID: %s\n- Agent: %s (%s)\n- 超时: %s\n使用 process 工具查看输出：action=log / poll，sessionId=%s",
 		sid, found.Name, found.ID, timeout, sid), nil
-}
-
-// acpSessionLookup is called by the process tool to fetch ACP session output.
-// Returns (output, status, ok). Used by handleProcess for log/poll actions.
-func acpSessionLookup(sid string) (output, status string, ok bool) {
-	acpSessionMu.Lock()
-	defer acpSessionMu.Unlock()
-	sess, exists := acpSessions[sid]
-	if !exists {
-		return "", "", false
-	}
-	return sess.Output.String(), sess.Status, true
 }
