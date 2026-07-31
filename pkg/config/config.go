@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"strings"
 )
@@ -18,16 +19,16 @@ const CurrentConfigVersion = 3
 // Config is the top-level configuration.
 // Models/Channels/Tools/Skills are global registries; agents reference them by ID.
 type Config struct {
-	ConfigVersion int              `json:"configVersion,omitempty"` // schema version; 0 = pre-versioning
-	Gateway   GatewayConfig    `json:"gateway"`
-	Agents    AgentsConfig     `json:"agents"`
-	Providers []ProviderEntry  `json:"providers,omitempty"` // API Key 注册表（每个厂商一条）
-	Models    []ModelEntry     `json:"models"`              // global model registry
-	Channels  []ChannelEntry   `json:"channels"`            // global channel registry
-	Tools     []ToolEntry      `json:"tools"`               // global capability registry (API keys etc.)
-	Skills    []SkillEntry     `json:"skills"`              // installed skills
-	ACPAgents []ACPAgentEntry  `json:"acpAgents,omitempty"` // external coding-agent CLIs
-	Auth      AuthConfig       `json:"auth"`
+	ConfigVersion int             `json:"configVersion,omitempty"` // schema version; 0 = pre-versioning
+	Gateway       GatewayConfig   `json:"gateway"`
+	Agents        AgentsConfig    `json:"agents"`
+	Providers     []ProviderEntry `json:"providers,omitempty"` // API Key 注册表（每个厂商一条）
+	Models        []ModelEntry    `json:"models"`              // global model registry
+	Channels      []ChannelEntry  `json:"channels"`            // global channel registry
+	Tools         []ToolEntry     `json:"tools"`               // global capability registry (API keys etc.)
+	Skills        []SkillEntry    `json:"skills"`              // installed skills
+	ACPAgents     []ACPAgentEntry `json:"acpAgents,omitempty"` // external coding-agent CLIs
+	Auth          AuthConfig      `json:"auth"`
 	// ToolPolicyRaw is stored as raw JSON and interpreted by the tools package to avoid import cycles.
 	ToolPolicyRaw json.RawMessage `json:"toolPolicy,omitempty"` // global tool allow/deny/profile
 
@@ -116,8 +117,8 @@ type ThrottleProviderConfig struct {
 // 一个厂商只需配置一次 APIKey，旗下所有模型共享使用。
 type ProviderEntry struct {
 	ID         string `json:"id"`
-	Name       string `json:"name"`                 // 用户自定义名称，如"我的 DeepSeek"
-	Provider   string `json:"provider"`             // "anthropic" | "openai" | "ollama" | ...
+	Name       string `json:"name"`     // 用户自定义名称，如"我的 DeepSeek"
+	Provider   string `json:"provider"` // "anthropic" | "openai" | "ollama" | ...
 	APIKey     string `json:"apiKey"`
 	BaseURL    string `json:"baseUrl,omitempty"`    // 留空 = 使用 provider 默认地址
 	EmbedModel string `json:"embedModel,omitempty"` // 覆盖 embedding 默认模型（如 nomic-embed-text）
@@ -128,6 +129,21 @@ type GatewayConfig struct {
 	Port      int    `json:"port"`
 	Bind      string `json:"bind"`
 	PublicURL string `json:"publicUrl,omitempty"` // e.g. "https://zyhive.example.com"
+}
+
+func (g GatewayConfig) Validate() error {
+	if g.Port < 0 || g.Port > 65535 {
+		return fmt.Errorf("gateway.port out of range: %d", g.Port)
+	}
+	switch g.Bind {
+	case "", "localhost", "lan", "all":
+		return nil
+	default:
+		if net.ParseIP(g.Bind) == nil {
+			return fmt.Errorf("gateway.bind must be localhost, lan, all, or an IP address")
+		}
+		return nil
+	}
 }
 
 // BaseURL returns the canonical server base URL (no trailing slash).
@@ -149,16 +165,16 @@ type AgentsConfig struct {
 
 // ModelEntry — one configured LLM provider/model
 type ModelEntry struct {
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	Provider     string `json:"provider"`              // "anthropic" | "openai" | "deepseek" | "openrouter" | "custom"
-	Model        string `json:"model"`                 // "claude-sonnet-4-6"
-	ProviderID   string `json:"providerId,omitempty"`  // 引用 ProviderEntry.ID（优先使用 provider 的 apiKey）
-	APIKey       string `json:"apiKey,omitempty"`      // 兼容旧配置；新建模型用 ProviderID
-	BaseURL      string `json:"baseUrl,omitempty"`     // API base URL；空 = 用 provider/default
-	IsDefault    bool   `json:"isDefault"`
-	Status       string `json:"status"`                  // "ok" | "error" | "untested"
-	SupportsTools *bool `json:"supportsTools,omitempty"` // nil=自动判断; true/false=手动指定
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	Provider      string `json:"provider"`             // "anthropic" | "openai" | "deepseek" | "openrouter" | "custom"
+	Model         string `json:"model"`                // "claude-sonnet-4-6"
+	ProviderID    string `json:"providerId,omitempty"` // 引用 ProviderEntry.ID（优先使用 provider 的 apiKey）
+	APIKey        string `json:"apiKey,omitempty"`     // 兼容旧配置；新建模型用 ProviderID
+	BaseURL       string `json:"baseUrl,omitempty"`    // API base URL；空 = 用 provider/default
+	IsDefault     bool   `json:"isDefault"`
+	Status        string `json:"status"`                  // "ok" | "error" | "untested"
+	SupportsTools *bool  `json:"supportsTools,omitempty"` // nil=自动判断; true/false=手动指定
 }
 
 // ResolveCredentials 从模型或关联 provider 中取出 (apiKey, baseURL)。
@@ -183,10 +199,10 @@ func firstNonEmpty(a, b string) string {
 
 // noToolPatterns 是已知不支持工具调用的模型名称关键词（子串匹配，忽略大小写）。
 var noToolPatterns = []string{
-	"reasoner",    // deepseek-reasoner
-	"o1-mini",     // openai o1-mini
-	"o1-preview",  // openai o1-preview
-	"o1-2024",     // openai o1 系列
+	"reasoner",   // deepseek-reasoner
+	"o1-mini",    // openai o1-mini
+	"o1-preview", // openai o1-preview
+	"o1-2024",    // openai o1 系列
 }
 
 // ModelSupportsTools 判断某个 ModelEntry 是否支持工具调用。
@@ -255,14 +271,14 @@ type ACPAgentEntry struct {
 
 // AgentConfig is the on-disk config.json per agent. References global entries by ID.
 type AgentConfig struct {
-	ID          string         `json:"id"`
-	Name        string         `json:"name"`
-	Description string         `json:"description,omitempty"`
-	ModelID     string         `json:"modelId"`
-	Channels    []ChannelEntry `json:"channels,omitempty"` // per-agent channel config (own bot tokens)
-	ToolIDs     []string       `json:"toolIds,omitempty"`
-	SkillIDs    []string       `json:"skillIds,omitempty"`
-	AvatarColor string         `json:"avatarColor,omitempty"`
+	ID          string           `json:"id"`
+	Name        string           `json:"name"`
+	Description string           `json:"description,omitempty"`
+	ModelID     string           `json:"modelId"`
+	Channels    []ChannelEntry   `json:"channels,omitempty"` // per-agent channel config (own bot tokens)
+	ToolIDs     []string         `json:"toolIds,omitempty"`
+	SkillIDs    []string         `json:"skillIds,omitempty"`
+	AvatarColor string           `json:"avatarColor,omitempty"`
 	Heartbeat   *HeartbeatConfig `json:"heartbeat,omitempty"` // nil = heartbeat disabled
 	// ToolPolicy is stored as raw JSON and interpreted by the tools package to avoid import cycles.
 	ToolPolicyRaw json.RawMessage `json:"toolPolicy,omitempty"`
@@ -276,11 +292,11 @@ type AuthConfig struct {
 // --- Legacy compat types (for migration) ---
 
 type legacyConfig struct {
-	Gateway  GatewayConfig       `json:"gateway"`
-	Agents   AgentsConfig        `json:"agents"`
-	Models   json.RawMessage     `json:"models"`
-	Channels json.RawMessage     `json:"channels"`
-	Auth     AuthConfig          `json:"auth"`
+	Gateway  GatewayConfig   `json:"gateway"`
+	Agents   AgentsConfig    `json:"agents"`
+	Models   json.RawMessage `json:"models"`
+	Channels json.RawMessage `json:"channels"`
+	Auth     AuthConfig      `json:"auth"`
 }
 
 type legacyModelsConfig struct {
@@ -442,18 +458,18 @@ func applyMigrations(cfg *Config, path string) {
 				pid = randID()
 				providerName := providerDisplayName(m.Provider)
 				cfg.Providers = append(cfg.Providers, ProviderEntry{
-					ID:      pid,
-					Name:    providerName,
+					ID:       pid,
+					Name:     providerName,
 					Provider: m.Provider,
-					APIKey:  m.APIKey,
-					BaseURL: m.BaseURL,
-					Status:  "untested",
+					APIKey:   m.APIKey,
+					BaseURL:  m.BaseURL,
+					Status:   "untested",
 				})
 				providerMap[k] = pid
 				log.Printf("[config]   created provider: %s (%s)", providerName, m.Provider)
 			}
 			m.ProviderID = pid
-			m.APIKey = ""  // key 已迁移到 ProviderEntry
+			m.APIKey = "" // key 已迁移到 ProviderEntry
 			log.Printf("[config]   model %q linked to provider %s", m.Name, pid)
 		}
 
@@ -478,7 +494,17 @@ func randID() string { return RandID() }
 // RandID generates a random hex ID (exported for use by other packages).
 func RandID() string {
 	b := make([]byte, 6)
-	_, _ = rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		panic(fmt.Sprintf("secure random ID generation failed: %v", err))
+	}
+	return hex.EncodeToString(b)
+}
+
+func RandToken() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		panic(fmt.Sprintf("secure random token generation failed: %v", err))
+	}
 	return hex.EncodeToString(b)
 }
 
@@ -502,6 +528,9 @@ func Load(path string) (*Config, error) {
 		if json.Unmarshal(raw.Models, &lm) == nil && lm.Primary != "" {
 			// Migrate legacy → new format and persist
 			cfg := migrateFromLegacy(raw, lm)
+			if err := cfg.Gateway.Validate(); err != nil {
+				return nil, fmt.Errorf("invalid gateway config: %w", err)
+			}
 			_ = Save(path, &cfg)
 			return &cfg, nil
 		}
@@ -520,19 +549,22 @@ func Load(path string) (*Config, error) {
 	if err := ResolveSecretRefs(&cfg); err != nil {
 		return nil, fmt.Errorf("config secret resolution: %w", err)
 	}
+	if err := cfg.Gateway.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid gateway config: %w", err)
+	}
 
 	return &cfg, nil
 }
 
 func migrateFromLegacy(raw legacyConfig, lm legacyModelsConfig) Config {
 	cfg := Config{
-		Gateway: raw.Gateway,
-		Agents:  raw.Agents,
-		Auth:    raw.Auth,
-		Models:  []ModelEntry{},
+		Gateway:  raw.Gateway,
+		Agents:   raw.Agents,
+		Auth:     raw.Auth,
+		Models:   []ModelEntry{},
 		Channels: []ChannelEntry{},
-		Tools:   []ToolEntry{},
-		Skills:  []SkillEntry{},
+		Tools:    []ToolEntry{},
+		Skills:   []SkillEntry{},
 	}
 
 	// Migrate models
@@ -559,13 +591,13 @@ func migrateFromLegacy(raw legacyConfig, lm legacyModelsConfig) Config {
 			model = provider
 		}
 		entry := ModelEntry{
-			ID:       id,
-			Name:     name,
-			Provider: provider,
-			Model:    model,
-			APIKey:   key,
+			ID:        id,
+			Name:      name,
+			Provider:  provider,
+			Model:     model,
+			APIKey:    key,
 			IsDefault: lm.Primary != "" && (provider+"/"+model == lm.Primary || (provider == "anthropic" && lm.Primary == "anthropic/claude-sonnet-4-6")),
-			Status:   "untested",
+			Status:    "untested",
 		}
 		cfg.Models = append(cfg.Models, entry)
 	}
@@ -603,6 +635,12 @@ func migrateFromLegacy(raw legacyConfig, lm legacyModelsConfig) Config {
 // 0600; we do NOT chmod existing files on upgrade (avoid modifying
 // user-managed file metadata; see B014 spec for rationale).
 func Save(path string, cfg *Config) error {
+	if cfg == nil {
+		return fmt.Errorf("config is nil")
+	}
+	if err := cfg.Gateway.Validate(); err != nil {
+		return err
+	}
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return err
@@ -619,7 +657,7 @@ func Default() *Config {
 		Channels: []ChannelEntry{},
 		Tools:    []ToolEntry{},
 		Skills:   []SkillEntry{},
-		Auth:     AuthConfig{Mode: "token", Token: "changeme"},
+		Auth:     AuthConfig{Mode: "token", Token: RandToken()},
 	}
 }
 

@@ -147,10 +147,19 @@ func main() {
 	}
 
 	// Load config
+	generatedDefaultConfig := false
 	cfg, err := config.Load(*configPath)
 	if err != nil {
-		log.Printf("Warning: config not found at %s, using defaults: %v", *configPath, err)
-		cfg = config.Default()
+		if os.IsNotExist(err) {
+			log.Printf("Config not found at %s; generating a secure default config", *configPath)
+			cfg = config.Default()
+			if saveErr := config.Save(*configPath, cfg); saveErr != nil {
+				log.Fatalf("Failed to create default config %s: %v", *configPath, saveErr)
+			}
+			generatedDefaultConfig = true
+		} else {
+			log.Fatalf("Failed to load config %s: %v", *configPath, err)
+		}
 	}
 
 	// Initialize agent manager
@@ -889,7 +898,15 @@ func main() {
 	if port == 0 {
 		port = 8080
 	}
-	addr := fmt.Sprintf(":%d", port)
+	bindMode := cfg.Gateway.Bind
+	if bindMode == "" {
+		bindMode = "lan"
+	}
+	lanIP := getLocalIP()
+	addr, err := resolveListenAddress(bindMode, port, lanIP)
+	if err != nil {
+		log.Fatalf("invalid gateway.bind: %v", err)
+	}
 
 	// 启动后台模型连通性检测（首次启动 / 升级后状态为 untested 时自动测试）
 	go checkDefaultModelOnStartup(cfg, *configPath)
@@ -897,12 +914,32 @@ func main() {
 	fmt.Println("")
 	fmt.Println("✅ 引巢 · ZyHive 启动成功！")
 	fmt.Println("")
-	fmt.Printf("  本地访问：  http://localhost:%d\n", port)
-	if ip := getLocalIP(); ip != "" {
-		fmt.Printf("  内网访问：  http://%s:%d\n", ip, port)
+	switch bindMode {
+	case "localhost":
+		fmt.Printf("  本地访问：  http://localhost:%d\n", port)
+	case "lan":
+		if lanIP == "" {
+			fmt.Printf("  本地访问：  http://localhost:%d\n", port)
+			fmt.Println("  提示：未发现局域网地址，已安全回退为仅本机监听")
+		} else {
+			fmt.Printf("  内网访问：  http://%s:%d\n", lanIP, port)
+		}
+	case "all":
+		fmt.Printf("  本地访问：  http://localhost:%d\n", port)
+		if lanIP != "" {
+			fmt.Printf("  内网访问：  http://%s:%d\n", lanIP, port)
+		}
+		if pub := getPublicIP(); pub != "" {
+			fmt.Printf("  公网地址：  http://%s:%d（请确认防火墙与反向代理）\n", pub, port)
+		}
+	default:
+		fmt.Printf("  监听地址：  http://%s\n", addr)
 	}
-	if pub := getPublicIP(); pub != "" {
-		fmt.Printf("  公网访问：  http://%s:%d\n", pub, port)
+	if cfg.Gateway.PublicURL != "" {
+		fmt.Printf("  对外地址：  %s\n", strings.TrimRight(cfg.Gateway.PublicURL, "/"))
+	}
+	if generatedDefaultConfig {
+		fmt.Printf("  管理令牌：  %s（已写入 %s）\n", cfg.Auth.Token, *configPath)
 	}
 	fmt.Println("")
 
@@ -948,6 +985,28 @@ func main() {
 	}
 }
 
+func resolveListenAddress(bind string, port int, lanIP string) (string, error) {
+	if port < 1 || port > 65535 {
+		return "", fmt.Errorf("port out of range: %d", port)
+	}
+	switch bind {
+	case "localhost":
+		return fmt.Sprintf("127.0.0.1:%d", port), nil
+	case "lan":
+		if lanIP == "" {
+			return fmt.Sprintf("127.0.0.1:%d", port), nil
+		}
+		return net.JoinHostPort(lanIP, fmt.Sprintf("%d", port)), nil
+	case "all":
+		return fmt.Sprintf(":%d", port), nil
+	default:
+		if net.ParseIP(bind) == nil {
+			return "", fmt.Errorf("unsupported mode %q", bind)
+		}
+		return net.JoinHostPort(bind, fmt.Sprintf("%d", port)), nil
+	}
+}
+
 func getLocalIP() string {
 	addrs, err := net.InterfaceAddrs()
 	if err != nil {
@@ -955,8 +1014,8 @@ func getLocalIP() string {
 	}
 	for _, addr := range addrs {
 		if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
-			if ipnet.IP.To4() != nil {
-				return ipnet.IP.String()
+			if ip := ipnet.IP.To4(); ip != nil && ip.IsPrivate() {
+				return ip.String()
 			}
 		}
 	}

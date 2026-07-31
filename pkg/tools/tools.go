@@ -390,7 +390,6 @@ var walletBalanceDef = lllm.ToolDef{
 	InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
 }
 
-
 // ── Self-Management Tools ────────────────────────────────────────────────────
 // These tools let an agent manage its own skills, name, and soul.
 
@@ -473,7 +472,7 @@ var sendFileDef = lllm.ToolDef{
 	InputSchema: json.RawMessage(`{
 		"type":"object",
 		"properties":{
-			"path":{"type":"string","description":"要发送的文件的绝对路径，例如 /tmp/report.pdf"}
+			"path":{"type":"string","description":"Agent 工作区内的相对路径；也兼容工作区内的绝对路径"}
 		},
 		"required":["path"]
 	}`),
@@ -488,6 +487,12 @@ func (r *Registry) handleSendFile(_ context.Context, input json.RawMessage) (str
 	if err := json.Unmarshal(input, &p); err != nil || p.Path == "" {
 		return "", fmt.Errorf("path required")
 	}
+
+	resolvedPath, err := r.resolvePath(p.Path)
+	if err != nil {
+		return "", fmt.Errorf("file is outside workspace: %w", err)
+	}
+	p.Path = resolvedPath
 
 	info, err := os.Stat(p.Path)
 	if err != nil {

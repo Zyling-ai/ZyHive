@@ -1088,6 +1088,14 @@
                     <el-input v-model="channelForm.appSecret" type="password" show-password
                               placeholder="留空保持现有；要更换则填新的" />
                   </el-form-item>
+                  <el-form-item label="Encrypt Key">
+                    <el-input v-model="channelForm.encryptKey" type="password" show-password
+                              placeholder="留空保持现有；卡片回调验签使用" />
+                  </el-form-item>
+                  <el-form-item label="校验令牌">
+                    <el-input v-model="channelForm.verificationToken" type="password" show-password
+                              placeholder="留空保持现有；URL 校验使用" />
+                  </el-form-item>
                   <el-form-item label="白名单用户">
                     <el-input v-model="channelForm.allowedFrom" placeholder="填入用户 Open ID，多个用逗号分隔" />
                     <el-text type="info" size="small" style="display:block;margin-top:4px">
@@ -1124,6 +1132,14 @@
                     </el-form-item>
                     <el-form-item label="App Secret" required>
                       <el-input v-model="channelForm.appSecret" type="password" show-password />
+                    </el-form-item>
+                    <el-form-item label="Encrypt Key">
+                      <el-input v-model="channelForm.encryptKey" type="password" show-password
+                                placeholder="使用交互式卡片时必填" />
+                    </el-form-item>
+                    <el-form-item label="校验令牌">
+                      <el-input v-model="channelForm.verificationToken" type="password" show-password
+                                placeholder="使用回调 URL 校验时必填" />
                     </el-form-item>
                     <el-form-item label="白名单用户">
                       <el-input v-model="channelForm.allowedFrom" placeholder="可选" />
@@ -2301,11 +2317,19 @@ async function refreshFeishuStatus(ch: any) {
   }
 }
 
-function onFeishuWizardDone(payload: { appId: string; appSecret: string; probeResult: FeishuProbeResult }) {
+function onFeishuWizardDone(payload: {
+  appId: string
+  appSecret: string
+  encryptKey: string
+  verificationToken: string
+  probeResult: FeishuProbeResult
+}) {
   // Stuff the validated creds into the channelForm; the existing save flow does the rest.
   channelForm.value.type = 'feishu'
   channelForm.value.appId = payload.appId
   channelForm.value.appSecret = payload.appSecret
+  channelForm.value.encryptKey = payload.encryptKey
+  channelForm.value.verificationToken = payload.verificationToken
   channelForm.value.enabled = true
   // Auto-derive a friendly name from the bot identity if user didn't set one.
   if (!channelForm.value.name.trim() && payload.probeResult.bot.name) {
@@ -2330,6 +2354,8 @@ const channelForm = ref({
   webTitle: '',
   appId: '',
   appSecret: '',
+  encryptKey: '',
+  verificationToken: '',
 })
 
 // ── Token inline validation ────────────────────────────────────────────────
@@ -2415,7 +2441,20 @@ function openAddChannel() {
   channelEditingId.value = ''
   const defaultName = agent.value?.name || ''
   pendingChannelId.value = genChannelId('telegram') // default, updated on type change
-  channelForm.value = { type: 'telegram', name: defaultName, enabled: true, botToken: '', allowedFrom: '', webPassword: '', webWelcome: '', webTitle: '', appId: '', appSecret: '' }
+  channelForm.value = {
+    type: 'telegram',
+    name: defaultName,
+    enabled: true,
+    botToken: '',
+    allowedFrom: '',
+    webPassword: '',
+    webWelcome: '',
+    webTitle: '',
+    appId: '',
+    appSecret: '',
+    encryptKey: '',
+    verificationToken: '',
+  }
   tokenCheckState.value = { loading: false, status: '' }
   channelDialogVisible.value = true
 }
@@ -2433,6 +2472,8 @@ function openEditChannel(row: ChannelEntry) {
     webTitle: row.config?.title || '',
     appId: row.config?.appId || '',
     appSecret: '',    // secret always cleared on edit for security
+    encryptKey: '',
+    verificationToken: '',
   }
   tokenCheckState.value = { loading: false, status: '' }
   channelDialogVisible.value = true
@@ -2460,6 +2501,8 @@ async function saveChannelDialog() {
     } else if (channelForm.value.type === 'feishu') {
       if (channelForm.value.appId) newConfig.appId = channelForm.value.appId
       if (channelForm.value.appSecret) newConfig.appSecret = channelForm.value.appSecret
+      if (channelForm.value.encryptKey) newConfig.encryptKey = channelForm.value.encryptKey
+      if (channelForm.value.verificationToken) newConfig.verificationToken = channelForm.value.verificationToken
       if (channelForm.value.allowedFrom) newConfig.allowedFrom = channelForm.value.allowedFrom
     }
 

@@ -144,3 +144,45 @@ func TestB001Tools_NullByteRejected(t *testing.T) {
 		t.Fatal("NUL byte in path accepted (defense in depth)")
 	}
 }
+
+func TestSendFileRejectsPathOutsideWorkspace(t *testing.T) {
+	r, _ := newRegistryAt(t)
+	outsidePath := filepath.Join(t.TempDir(), "secret.txt")
+	if err := os.WriteFile(outsidePath, []byte("secret"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	r.fileSender = func(string) (string, error) {
+		t.Fatal("file sender must not run for an outside path")
+		return "", nil
+	}
+
+	_, err := r.handleSendFile(context.Background(), mustJSON(map[string]any{"path": outsidePath}))
+	if err == nil || !strings.Contains(err.Error(), "outside workspace") {
+		t.Fatalf("outside send_file path should be rejected, got %v", err)
+	}
+}
+
+func TestSendFileAllowsPathInsideWorkspace(t *testing.T) {
+	r, workspace := newRegistryAt(t)
+	filePath := filepath.Join(workspace, "report.txt")
+	if err := os.WriteFile(filePath, []byte("report"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var sentPath string
+	r.fileSender = func(path string) (string, error) {
+		sentPath = path
+		return "sent", nil
+	}
+
+	result, err := r.handleSendFile(context.Background(), mustJSON(map[string]any{"path": "report.txt"}))
+	if err != nil {
+		t.Fatalf("workspace send_file failed: %v", err)
+	}
+	expectedPath, err := filepath.EvalSymlinks(filePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "sent" || sentPath != expectedPath {
+		t.Fatalf("unexpected send result=%q path=%q", result, sentPath)
+	}
+}

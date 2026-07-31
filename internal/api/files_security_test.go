@@ -7,12 +7,13 @@ package api
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
 
-	"github.com/gin-gonic/gin"
 	"github.com/Zyling-ai/zyhive/pkg/agent"
+	"github.com/gin-gonic/gin"
 )
 
 // setupSecurityTestEnv creates two sibling agent workspaces ("alice" and
@@ -157,4 +158,59 @@ func TestB001_DeleteRejectsSiblingPrefixBypass(t *testing.T) {
 		t.Fatalf("delete sibling file not blocked: got %d", w.Code)
 	}
 	_ = mgr // confirm secret survived would require touching internal layout; the 403 is enough
+}
+
+func TestDownloadHandler_AllowsAgentWorkspaceFile(t *testing.T) {
+	mgr, aliceWS := setupSecurityTestEnv(t)
+	h := &downloadHandler{authToken: "secret", manager: mgr}
+	r := gin.New()
+	r.GET("/api/download", h.ServeFile)
+
+	filePath := filepath.Join(aliceWS, "ok.md")
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/download?path="+url.QueryEscape(filePath)+"&token=secret", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("workspace download failed: got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestDownloadHandler_RejectsFileOutsideAgentWorkspaces(t *testing.T) {
+	mgr, _ := setupSecurityTestEnv(t)
+	outsideDir := t.TempDir()
+	outsidePath := filepath.Join(outsideDir, "secret.txt")
+	if err := os.WriteFile(outsidePath, []byte("outside"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	h := &downloadHandler{authToken: "secret", manager: mgr}
+	r := gin.New()
+	r.GET("/api/download", h.ServeFile)
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/download?path="+url.QueryEscape(outsidePath)+"&token=secret", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("outside download should be forbidden: got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestMediaHandler_RejectsFileOutsideAgentWorkspaces(t *testing.T) {
+	mgr, _ := setupSecurityTestEnv(t)
+	outsidePath := filepath.Join(t.TempDir(), "secret.png")
+	if err := os.WriteFile(outsidePath, []byte("not-a-real-image"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	h := &mediaHandler{token: "secret", manager: mgr}
+	r := gin.New()
+	r.GET("/api/media", h.ServeMedia)
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/media?path="+url.QueryEscape(outsidePath)+"&token=secret", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("outside media should be forbidden: got %d body=%s", w.Code, w.Body.String())
+	}
 }

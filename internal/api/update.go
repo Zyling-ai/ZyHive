@@ -4,6 +4,7 @@
 package api
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,6 +12,8 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -37,7 +40,7 @@ const (
 type updateStatus struct {
 	mu        sync.RWMutex
 	Stage     UpdateStage `json:"stage"`
-	Progress  int         `json:"progress"`  // 0-100
+	Progress  int         `json:"progress"` // 0-100
 	Message   string      `json:"message"`
 	OldVer    string      `json:"oldVersion"`
 	NewVer    string      `json:"newVersion"`
@@ -68,6 +71,8 @@ func (s *updateStatus) snapshot() map[string]any {
 
 // 全局单例——同一时刻只允许一个升级任务
 var globalUpdateStatus = &updateStatus{Stage: StageIdle}
+
+var releaseVersionPattern = regexp.MustCompile(`^[0-9]{2}\.[0-9]{1,2}\.[0-9]{1,2}v[0-9]+$`)
 
 // ── handler ───────────────────────────────────────────────────────────────────
 
@@ -138,19 +143,23 @@ func runUpdate(targetVersion string) {
 	}
 	s.NewVer = targetVersion
 
+	if !releaseVersionPattern.MatchString(targetVersion) {
+		s.set(StageFailed, 0, "目标版本格式无效："+targetVersion)
+		return
+	}
 	if targetVersion == AppVersion {
 		s.set(StageDone, 100, "当前已是最新版本（"+AppVersion+"），无需升级")
 		return
 	}
 
 	// 2. 构建下载 URL（支持国内镜像）
-	osName := runtime.GOOS   // linux / darwin / windows
-	arch := runtime.GOARCH   // amd64 / arm64
-	suffix := ""
-	if osName == "windows" {
-		suffix = ".exe"
+	osName := runtime.GOOS // linux / darwin
+	arch := runtime.GOARCH // amd64 / arm64
+	if !isSupportedReleaseTarget(osName, arch) {
+		s.set(StageFailed, 0, fmt.Sprintf("暂不支持在线升级平台：%s/%s", osName, arch))
+		return
 	}
-	filename := fmt.Sprintf("zyhive-%s-%s%s", osName, arch, suffix)
+	filename := fmt.Sprintf("zyhive-%s-%s", osName, arch)
 	directURL := fmt.Sprintf(
 		"https://github.com/Zyling-ai/zyhive/releases/download/%s/%s",
 		targetVersion, filename,
@@ -171,10 +180,15 @@ func runUpdate(targetVersion string) {
 	}
 
 	// 3. 下载到临时文件
-	tmpPath := fmt.Sprintf("/tmp/zyhive-new-%s%s", targetVersion, suffix)
-	if osName == "windows" {
-		tmpPath = os.TempDir() + "\\zyhive-new-" + targetVersion + suffix
+	tmpFile, err := os.CreateTemp("", "zyhive-new-*")
+	if err != nil {
+		s.set(StageFailed, 0, "无法创建临时文件："+err.Error())
+		return
 	}
+	tmpPath := tmpFile.Name()
+	tmpFile.Close()
+	defer os.Remove(tmpPath)
+
 	source := "GitHub"
 	if url == mirrorURL {
 		source = "国内镜像"
@@ -182,26 +196,57 @@ func runUpdate(targetVersion string) {
 	s.set(StageDownloading, 10, fmt.Sprintf("正在从 %s 下载…", source))
 	log.Printf("[update] downloading %s → %s", url, tmpPath)
 
-	if err := downloadFile(url, tmpPath, func(pct int) {
+	downloadErr := downloadFile(url, tmpPath, func(pct int) {
 		s.set(StageDownloading, 10+pct*60/100, fmt.Sprintf("下载中… %d%%", pct))
-	}); err != nil {
-		s.set(StageFailed, 0, "下载失败："+err.Error())
-		os.Remove(tmpPath)
+	})
+	if downloadErr != nil && url == mirrorURL {
+		log.Printf("[update] mirror download failed, retrying direct GitHub: %v", downloadErr)
+		source = "GitHub"
+		url = directURL
+		s.set(StageDownloading, 10, "国内镜像下载失败，切换 GitHub…")
+		downloadErr = downloadFile(url, tmpPath, func(pct int) {
+			s.set(StageDownloading, 10+pct*60/100, fmt.Sprintf("下载中… %d%%", pct))
+		})
+	}
+	if downloadErr != nil {
+		s.set(StageFailed, 0, "下载失败："+downloadErr.Error())
 		return
 	}
 
-	// 4. 验证：运行 --version 检查可执行性
-	s.set(StageVerifying, 72, "验证新版本…")
-	if osName != "windows" {
-		os.Chmod(tmpPath, 0755)
+	// 4. 验证 SHA-256 和内嵌版本号
+	s.set(StageVerifying, 72, "验证文件完整性和版本…")
+	expectedSHA, err := fetchExpectedChecksum(targetVersion, filename)
+	if err != nil {
+		s.set(StageFailed, 0, "无法验证发布校验和："+err.Error())
+		return
+	}
+	actualSHA, err := fileSHA256(tmpPath)
+	if err != nil {
+		s.set(StageFailed, 0, "计算文件校验和失败："+err.Error())
+		return
+	}
+	if !strings.EqualFold(actualSHA, expectedSHA) {
+		s.set(StageFailed, 0, "SHA-256 校验失败，已拒绝升级")
+		return
+	}
+	if err := os.Chmod(tmpPath, 0755); err != nil {
+		s.set(StageFailed, 0, "设置新版本执行权限失败："+err.Error())
+		return
 	}
 	out, err := exec.Command(tmpPath, "--version").Output()
 	if err != nil {
 		s.set(StageFailed, 0, "新版本验证失败："+err.Error())
-		os.Remove(tmpPath)
 		return
 	}
-	detectedVer := strings.TrimSpace(string(out))
+	fields := strings.Fields(string(out))
+	detectedVer := ""
+	if len(fields) > 0 {
+		detectedVer = fields[len(fields)-1]
+	}
+	if detectedVer != targetVersion {
+		s.set(StageFailed, 0, fmt.Sprintf("版本验证失败：期望 %s，实际 %s", targetVersion, detectedVer))
+		return
+	}
 	log.Printf("[update] verified new binary: %s", detectedVer)
 
 	// 5. 备份旧二进制
@@ -209,36 +254,38 @@ func runUpdate(targetVersion string) {
 	binaryPath, err := os.Executable()
 	if err != nil {
 		s.set(StageFailed, 0, "无法获取当前二进制路径："+err.Error())
-		os.Remove(tmpPath)
 		return
+	}
+	if resolved, resolveErr := filepath.EvalSymlinks(binaryPath); resolveErr == nil {
+		binaryPath = resolved
 	}
 	backupPath := binaryPath + ".bak"
 	if err := copyFile(binaryPath, backupPath); err != nil {
-		log.Printf("[update] backup warning: %v", err)
-		// 备份失败不阻断升级，只警告
+		s.set(StageFailed, 0, "备份旧版本失败，已取消升级："+err.Error())
+		return
+	}
+	if err := os.Chmod(backupPath, 0755); err != nil {
+		s.set(StageFailed, 0, "设置备份文件权限失败："+err.Error())
+		return
 	}
 
-	// 6. rm -f 旧二进制，cp 新二进制（避免 Text file busy）
-	s.set(StageApplying, 88, "替换二进制文件…")
+	// 6. 在目标目录写入临时文件后原子替换，失败时原文件保持不变。
+	s.set(StageApplying, 88, "原子替换二进制文件…")
 	log.Printf("[update] replacing binary: %s → %s", tmpPath, binaryPath)
-	if err := os.Remove(binaryPath); err != nil {
-		s.set(StageFailed, 0, "删除旧二进制失败："+err.Error())
-		os.Remove(tmpPath)
+	stagedPath := filepath.Join(filepath.Dir(binaryPath), "."+filepath.Base(binaryPath)+".new")
+	if err := copyFile(tmpPath, stagedPath); err != nil {
+		s.set(StageFailed, 0, "准备新版本失败："+err.Error())
 		return
 	}
-	if err := copyFile(tmpPath, binaryPath); err != nil {
-		// 替换失败 → 回滚
-		log.Printf("[update] copy failed, rolling back: %v", err)
-		if rb := copyFile(backupPath, binaryPath); rb == nil {
-			s.set(StageRolledBack, 0, "替换失败，已回滚到旧版本："+err.Error())
-		} else {
-			s.set(StageFailed, 0, "替换失败且回滚也失败，请手动恢复："+backupPath)
-		}
-		os.Remove(tmpPath)
+	defer os.Remove(stagedPath)
+	if err := os.Chmod(stagedPath, 0755); err != nil {
+		s.set(StageFailed, 0, "设置新版本权限失败："+err.Error())
 		return
 	}
-	os.Chmod(binaryPath, 0755)
-	os.Remove(tmpPath)
+	if err := os.Rename(stagedPath, binaryPath); err != nil {
+		s.set(StageFailed, 0, "原子替换失败，旧版本未变更："+err.Error())
+		return
+	}
 
 	// 7. 标记完成，发 SIGTERM 让 systemd/launchd 重启服务
 	// 用户数据（agents dir / config）完全不涉及，进程重启后新版本自动加载
@@ -292,6 +339,86 @@ func fetchLatestRelease() (string, string, error) {
 	return data.TagName, data.HtmlURL, nil
 }
 
+func isSupportedReleaseTarget(osName, arch string) bool {
+	if osName != "linux" && osName != "darwin" {
+		return false
+	}
+	return arch == "amd64" || arch == "arm64"
+}
+
+func fetchExpectedChecksum(version, filename string) (string, error) {
+	urls := []string{
+		fmt.Sprintf("https://github.com/Zyling-ai/zyhive/releases/download/%s/SHA256SUMS", version),
+		fmt.Sprintf("https://install.zyling.ai/dl/%s/SHA256SUMS", version),
+	}
+	client := &http.Client{Timeout: 15 * time.Second}
+	var failures []string
+
+	for _, url := range urls {
+		resp, err := client.Get(url)
+		if err != nil {
+			failures = append(failures, err.Error())
+			continue
+		}
+		if resp.StatusCode != http.StatusOK {
+			failures = append(failures, fmt.Sprintf("%s: HTTP %d", url, resp.StatusCode))
+			resp.Body.Close()
+			continue
+		}
+		data, readErr := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
+		resp.Body.Close()
+		if readErr != nil {
+			failures = append(failures, readErr.Error())
+			continue
+		}
+		checksum, parseErr := parseChecksumList(data, filename)
+		if parseErr != nil {
+			failures = append(failures, parseErr.Error())
+			continue
+		}
+		return checksum, nil
+	}
+
+	return "", fmt.Errorf("所有校验和来源均失败：%s", strings.Join(failures, "; "))
+}
+
+func parseChecksumList(data []byte, filename string) (string, error) {
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) != 2 {
+			continue
+		}
+		name := strings.TrimPrefix(fields[1], "*")
+		if name == filename {
+			sum := strings.ToLower(fields[0])
+			if len(sum) != sha256.Size*2 {
+				return "", fmt.Errorf("%s 的 SHA-256 长度无效", filename)
+			}
+			for _, ch := range sum {
+				if !strings.ContainsRune("0123456789abcdef", ch) {
+					return "", fmt.Errorf("%s 的 SHA-256 格式无效", filename)
+				}
+			}
+			return sum, nil
+		}
+	}
+	return "", fmt.Errorf("SHA256SUMS 中缺少 %s", filename)
+}
+
+func fileSHA256(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	hash := sha256.New()
+	if _, err := io.Copy(hash, f); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%x", hash.Sum(nil)), nil
+}
+
 // downloadFile 下载 url 到 dest，progress 回调 0-100
 func downloadFile(url, dest string, progress func(int)) error {
 	client := &http.Client{Timeout: 120 * time.Second}
@@ -304,7 +431,12 @@ func downloadFile(url, dest string, progress func(int)) error {
 		return fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 
-	f, err := os.Create(dest)
+	const maxDownloadSize = int64(256 * 1024 * 1024)
+	if resp.ContentLength > maxDownloadSize {
+		return fmt.Errorf("文件过大：%d bytes", resp.ContentLength)
+	}
+
+	f, err := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
 		return err
 	}
@@ -324,6 +456,9 @@ func downloadFile(url, dest string, progress func(int)) error {
 	for {
 		n, err := resp.Body.Read(buf)
 		if n > 0 {
+			if downloaded+int64(n) > maxDownloadSize {
+				return fmt.Errorf("下载超过大小上限：%d bytes", maxDownloadSize)
+			}
 			if _, werr := f.Write(buf[:n]); werr != nil {
 				return werr
 			}
@@ -418,11 +553,28 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	defer in.Close()
-	out, err := os.Create(dst)
+	info, err := in.Stat()
 	if err != nil {
 		return err
 	}
-	defer out.Close()
-	_, err = io.Copy(out, in)
-	return err
+	mode := info.Mode().Perm()
+	if mode == 0 {
+		mode = 0755
+	}
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode)
+	if err != nil {
+		return err
+	}
+	if _, err = io.Copy(out, in); err != nil {
+		out.Close()
+		return err
+	}
+	if err = out.Sync(); err != nil {
+		out.Close()
+		return err
+	}
+	if err = out.Close(); err != nil {
+		return err
+	}
+	return os.Chmod(dst, mode)
 }

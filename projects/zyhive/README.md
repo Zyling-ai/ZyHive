@@ -1,3 +1,7 @@
+> **历史快照，不是当前产品文档。**
+> 本目录保留早期内嵌项目结构，仅用于追溯；版本、安装命令、配置格式和能力说明均可能过期。
+> 当前信息统一读取仓库根目录 [`README.md`](../../README.md)、[`CHANGELOG.md`](../../CHANGELOG.md) 和 GitHub Releases。
+
 <div align="center">
 
 # 引巢 · ZyHive

@@ -1,4 +1,4 @@
-.PHONY: build ui sync-ui clean run release
+.PHONY: build ui test check sync-ui clean run release release-dry-run
 
 # 版本号：优先用 git tag，否则用 commit hash
 VERSION := $(shell git describe --tags --abbrev=0 2>/dev/null || git rev-parse --short HEAD 2>/dev/null || echo "dev")
@@ -11,6 +11,20 @@ build: ui sync-ui
 # Build Vue frontend
 ui:
 	cd ui && npm run build
+
+# Run backend and frontend tests
+test:
+	go test ./... -count=1 -timeout=5m
+	cd ui && npm test
+
+# Local equivalent of the required CI quality gate
+check:
+	go vet ./...
+	go test ./... -count=1 -timeout=5m
+	go build ./...
+	cd ui && npm ci && npm test && npm run build
+	$(MAKE) sync-ui
+	git diff --no-index --exit-code -- ui/dist cmd/aipanel/ui_dist
 
 # Sync ui/dist → cmd/aipanel/ui_dist (required for go:embed)
 sync-ui:
@@ -25,18 +39,16 @@ go-only:
 run:
 	AIPANEL_CONFIG=aipanel.json ./bin/aipanel
 
-# 交叉编译所有平台（需先 make ui sync-ui）
-# 使用 CGO_ENABLED=0 产出 **纯静态二进制**，这样不依赖目标机 glibc 版本
-# （否则在 CentOS 7 / glibc 2.17 上会报 `GLIBC_2.34 not found`）。
-release: sync-ui
-	mkdir -p bin/release
-	CGO_ENABLED=0 GOOS=linux   GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o bin/release/zyhive-linux-amd64      ./cmd/aipanel/
-	CGO_ENABLED=0 GOOS=linux   GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o bin/release/zyhive-linux-arm64      ./cmd/aipanel/
-	CGO_ENABLED=0 GOOS=darwin  GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o bin/release/zyhive-darwin-arm64     ./cmd/aipanel/
-	CGO_ENABLED=0 GOOS=darwin  GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o bin/release/zyhive-darwin-amd64     ./cmd/aipanel/
-	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o bin/release/zyhive-windows-amd64.exe ./cmd/aipanel/
-	CGO_ENABLED=0 GOOS=windows GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o bin/release/zyhive-windows-arm64.exe ./cmd/aipanel/
-	ls -lh bin/release/
+# Validate, build four official platforms, and publish a GitHub Release.
+# Usage: make release RELEASE_VERSION=26.8.1v1
+release:
+	@test -n "$(RELEASE_VERSION)" || (echo "请提供 RELEASE_VERSION=YY.M.DvN" >&2; exit 2)
+	./scripts/release.sh "$(RELEASE_VERSION)"
+
+# Same quality and build flow without creating a GitHub Release.
+release-dry-run:
+	@test -n "$(RELEASE_VERSION)" || (echo "请提供 RELEASE_VERSION=YY.M.DvN" >&2; exit 2)
+	./scripts/release.sh "$(RELEASE_VERSION)" --dry-run
 
 clean:
 	rm -rf cmd/aipanel/ui_dist ui/dist bin/aipanel bin/release

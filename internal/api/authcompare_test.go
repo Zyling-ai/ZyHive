@@ -79,8 +79,7 @@ func TestAuthMiddleware_WrongTokenRejected(t *testing.T) {
 	}
 }
 
-func TestAuthMiddleware_NoTokenAllowsAll(t *testing.T) {
-	// Dev-mode: empty token configured → no auth applied.
+func TestAuthMiddleware_NoTokenFailsClosed(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(authMiddleware(""))
@@ -89,8 +88,8 @@ func TestAuthMiddleware_NoTokenAllowsAll(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/ping", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("dev-mode (no token) should allow, got %d", w.Code)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("missing auth configuration should fail closed, got %d", w.Code)
 	}
 }
 
@@ -106,6 +105,20 @@ func TestDownloadHandler_WrongTokenRejected(t *testing.T) {
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("wrong download token should 401, got %d", w.Code)
+	}
+}
+
+func TestDownloadHandler_EmptyConfiguredTokenFailsClosed(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	h := &downloadHandler{}
+	r.GET("/api/download", h.ServeFile)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/download?path=/tmp/x", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("empty configured token should fail closed, got %d", w.Code)
 	}
 }
 
@@ -137,5 +150,19 @@ func TestMediaHandler_WrongTokenRejected(t *testing.T) {
 				t.Fatalf("got %d want 401", w.Code)
 			}
 		})
+	}
+}
+
+func TestMediaHandler_EmptyConfiguredTokenFailsClosed(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	h := &mediaHandler{}
+	r.GET("/api/media", h.ServeMedia)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/media?path=/tmp/x.png", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("empty configured token should fail closed, got %d", w.Code)
 	}
 }

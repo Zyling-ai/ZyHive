@@ -141,6 +141,30 @@ func TestConfineToBase_NonExistentBaseStillResolves(t *testing.T) {
 	}
 }
 
+func TestConfineToBase_NonExistentBaseUnderSymlinkedParent(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks require admin on Windows")
+	}
+	root := t.TempDir()
+	realParent := filepath.Join(root, "real")
+	if err := os.MkdirAll(realParent, 0755); err != nil {
+		t.Fatal(err)
+	}
+	symlinkParent := filepath.Join(root, "link")
+	if err := os.Symlink(realParent, symlinkParent); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := ConfineToBase(filepath.Join(symlinkParent, "missing", "base"), "leaf")
+	if err != nil {
+		t.Fatalf("non-existent base below symlinked parent should resolve: %v", err)
+	}
+	want := filepath.Join(mustEvalBase(t, realParent), "missing", "base", "leaf")
+	if got != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+}
+
 // Composite test: symlink INSIDE base → another file inside base is fine.
 func TestConfineToBase_AllowsSymlinkStayingInside(t *testing.T) {
 	if runtime.GOOS == "windows" {

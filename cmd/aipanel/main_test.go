@@ -14,6 +14,42 @@ import (
 	"github.com/Zyling-ai/zyhive/pkg/session"
 )
 
+func TestResolveListenAddress(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		bind  string
+		port  int
+		lanIP string
+		want  string
+	}{
+		{"localhost", "localhost", 8080, "192.168.1.2", "127.0.0.1:8080"},
+		{"lan", "lan", 8080, "192.168.1.2", "192.168.1.2:8080"},
+		{"lan fallback", "lan", 8080, "", "127.0.0.1:8080"},
+		{"all", "all", 8080, "192.168.1.2", ":8080"},
+		{"explicit IPv4", "10.0.0.5", 9000, "", "10.0.0.5:9000"},
+		{"explicit IPv6", "::1", 9000, "", "[::1]:9000"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := resolveListenAddress(tc.bind, tc.port, tc.lanIP)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != tc.want {
+				t.Fatalf("got %q want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestResolveListenAddressRejectsInvalidConfig(t *testing.T) {
+	if _, err := resolveListenAddress("internet", 8080, "192.168.1.2"); err == nil {
+		t.Fatal("expected invalid bind mode error")
+	}
+	if _, err := resolveListenAddress("localhost", 70000, ""); err == nil {
+		t.Fatal("expected invalid port error")
+	}
+}
+
 // TestConfigLoad verifies that config loading and defaults work correctly.
 func TestConfigLoad(t *testing.T) {
 	// Test default config

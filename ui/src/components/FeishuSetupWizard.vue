@@ -215,7 +215,20 @@
               <div>✅ Bot 已上线：{{ testResult.botName }}</div>
               <div>✅ 可以在飞书里给「{{ testResult.botName }}」发消息了</div>
             </div>
-            <el-button type="primary" size="default" @click="probe && emit('done', { appId, appSecret, probeResult: probe })" style="margin-top:16px">
+            <el-divider>卡片回调安全（按需配置）</el-divider>
+            <el-alert type="info" :closable="false" style="margin-bottom:12px"
+              title="如需使用交互式卡片，请从飞书事件与回调配置复制以下两项；留空时系统会拒绝所有卡片回调。" />
+            <el-form label-width="120px" label-position="left">
+              <el-form-item label="Encrypt Key">
+                <el-input v-model="encryptKey" type="password" show-password placeholder="飞书回调加密密钥" />
+              </el-form-item>
+              <el-form-item label="Verification Token">
+                <el-input v-model="verificationToken" type="password" show-password placeholder="飞书回调校验令牌" />
+              </el-form-item>
+            </el-form>
+            <el-button type="primary" size="default"
+              @click="probe && emit('done', { appId, appSecret, encryptKey, verificationToken, probeResult: probe })"
+              style="margin-top:16px">
               完成绑定 ✓
             </el-button>
           </div>
@@ -260,13 +273,21 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  (e: 'done', payload: { appId: string; appSecret: string; probeResult: FeishuProbeResult }): void
+  (e: 'done', payload: {
+    appId: string
+    appSecret: string
+    encryptKey: string
+    verificationToken: string
+    probeResult: FeishuProbeResult
+  }): void
   (e: 'cancel'): void
 }>()
 
 const step = ref(0)
 const appId = ref(props.initialAppId || '')
 const appSecret = ref('')
+const encryptKey = ref('')
+const verificationToken = ref('')
 const probing = ref(false)
 const probeStage = ref('验证凭据中...')
 const probe = ref<FeishuProbeResult | null>(null)

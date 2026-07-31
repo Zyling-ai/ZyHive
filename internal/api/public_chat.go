@@ -1,9 +1,10 @@
 // Public chat handler — no admin auth required.
 // Routes (no auth middleware):
-//   GET  /pub/chat/:agentId/:channelId/info      — channel info
-//   GET  /pub/chat/:agentId/:channelId/history   — load session history
-//   POST /pub/chat/:agentId/:channelId/stream    — send message (WorkerPool + SSE)
-//   GET  /pub/chat/:agentId/:channelId/reconnect — SSE reconnect to existing session
+//
+//	GET  /pub/chat/:agentId/:channelId/info      — channel info
+//	GET  /pub/chat/:agentId/:channelId/history   — load session history
+//	POST /pub/chat/:agentId/:channelId/stream    — send message (WorkerPool + SSE)
+//	GET  /pub/chat/:agentId/:channelId/reconnect — SSE reconnect to existing session
 package api
 
 import (
@@ -17,7 +18,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/Zyling-ai/zyhive/pkg/agent"
 	"github.com/Zyling-ai/zyhive/pkg/config"
 	"github.com/Zyling-ai/zyhive/pkg/convlog"
@@ -27,6 +27,7 @@ import (
 	"github.com/Zyling-ai/zyhive/pkg/session"
 	"github.com/Zyling-ai/zyhive/pkg/toolaudit"
 	"github.com/Zyling-ai/zyhive/pkg/tools"
+	"github.com/gin-gonic/gin"
 )
 
 var pubSSECounter atomic.Uint64
@@ -70,6 +71,16 @@ func infoResponse(ag *agent.Agent, ch *config.ChannelEntry) gin.H {
 
 func checkPassword(ch *config.ChannelEntry, provided string) bool {
 	return ch.Config["password"] == "" || provided == ch.Config["password"]
+}
+
+// newPublicToolRegistry returns a deliberately empty registry. Public web
+// visitors can chat with the model but cannot execute host, file, project,
+// skill, messaging, or self-management tools.
+func newPublicToolRegistry(workspaceDir, agentID, sessionID string) *tools.Registry {
+	reg := tools.New(workspaceDir, filepath.Dir(workspaceDir), agentID)
+	reg.WithSessionID(sessionID)
+	reg.ApplyPolicy(tools.ToolPolicy{Deny: []string{"*"}})
+	return reg
 }
 
 func buildWebSessionID(channelID, sessionToken string) string {
@@ -172,12 +183,12 @@ func (h *publicChatHandler) Stream(c *gin.Context) {
 	})
 
 	// Snapshot fields needed in the closure (avoid data races)
-	agID, wsDir, sessDir, agEnv := ag.ID, ag.WorkspaceDir, ag.SessionDir, ag.Env
+	agID, wsDir, sessDir := ag.ID, ag.WorkspaceDir, ag.SessionDir
 	msgCopy, sidCopy := req.Message, sid
 	visitorToken := req.SessionToken
 
 	runFn := func(ctx context.Context, sessionID, _ string, bc *session.Broadcaster) error {
-		return h.runPublic(ctx, agID, wsDir, sessDir, agEnv, sessionID, msgCopy, bc, cl, clChID, visitorToken)
+		return h.runPublic(ctx, agID, wsDir, sessDir, sessionID, msgCopy, bc, cl, clChID, visitorToken)
 	}
 
 	worker := h.workerPool.GetOrCreate(sid)
@@ -244,7 +255,6 @@ func (h *publicChatHandler) resolveChannel(c *gin.Context, agentID, channelID st
 func (h *publicChatHandler) runPublic(
 	ctx context.Context,
 	agentID, workspaceDir, sessionDir string,
-	agEnv map[string]string,
 	sessionID, message string,
 	bc *session.Broadcaster,
 	cl *convlog.ConvLog, clChannelID string,
@@ -272,16 +282,7 @@ func (h *publicChatHandler) runPublic(
 
 	llmClient := llm.NewClient(me.Provider, me.BaseURL)
 	store := session.NewStore(sessionDir)
-	toolRegistry := tools.New(workspaceDir, filepath.Dir(workspaceDir), agentID)
-	if h.pool != nil {
-		if pm := h.pool.GetProjectMgr(); pm != nil {
-			toolRegistry.WithProjectAccess(pm)
-		}
-	}
-	if len(agEnv) > 0 {
-		toolRegistry.WithEnv(agEnv)
-	}
-	toolRegistry.WithSessionID(sessionID)
+	toolRegistry := newPublicToolRegistry(workspaceDir, agentID, sessionID)
 
 	// ── Network: auto-upsert web visitor as contact + inject Layer-2 summary.
 	var extraCtx string
@@ -296,17 +297,17 @@ func (h *publicChatHandler) runPublic(
 	}
 
 	r := runner.New(runner.Config{
-		AgentID:      agentID,
-		WorkspaceDir: workspaceDir,
-		Model:        me.ProviderModel(),
-		APIKey:       apiKey,
-		SessionID:    sessionID,
-		LLM:          llmClient,
-		Tools:        toolRegistry,
-		Session:      store,
-		AgentEnv:     agEnv,
-		ExtraContext: extraCtx,
-		ToolAudit:    toolaudit.New(filepath.Dir(workspaceDir)),
+		AgentID:       agentID,
+		WorkspaceDir:  workspaceDir,
+		Model:         me.ProviderModel(),
+		APIKey:        apiKey,
+		SessionID:     sessionID,
+		LLM:           llmClient,
+		Tools:         toolRegistry,
+		SupportsTools: false,
+		Session:       store,
+		ExtraContext:  extraCtx,
+		ToolAudit:     toolaudit.New(filepath.Dir(workspaceDir)),
 	})
 
 	var fullResponse strings.Builder

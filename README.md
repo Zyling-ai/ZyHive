@@ -7,12 +7,21 @@
 [![GitHub Forks](https://img.shields.io/github/forks/Zyling-ai/zyhive?style=flat&logo=github&color=orange)](https://github.com/Zyling-ai/zyhive/network/members)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 [![Go 1.25+](https://img.shields.io/badge/Go-1.25+-00ADD8.svg)](https://golang.org)
-[![Version](https://img.shields.io/badge/version-26.5.16v1-brightgreen.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-26.7.31v1-brightgreen.svg)](CHANGELOG.md)
 [![官网](https://img.shields.io/badge/官网-zyling.ai-6366f1?logo=globe)](https://zyling.ai)
 
 **以团队为核心，每个 AI Agent 是团队成员。**
 
 一行命令安装，打开浏览器即可管理整个 AI 团队：配置每个成员的身份、灵魂、记忆、技能，设计组织架构，让成员之间互相协作讨论。
+
+> **发布状态**
+> 当前公开稳定版为 `26.7.31v1`，包含质量恢复、发布链加固及第一批安全边界修复。
+> 当前产品定位为单机、自托管 Beta，适合个人、小团队和可控环境部署；尚不承诺多租户、多实例、企业级高可用或关键业务连续性。
+> `pkg/aiteam/` 下的钱包、预算、评分、工资和收益模块属于实验能力，不作为稳定版默认商业承诺。
+
+**下一阶段路线：** [ZyHive 全面优化路线图（2026—2027）](docs/optimization-roadmap-2026-2027.md)
+
+路线重点不是继续增加功能数量，而是完成可信发布、可靠任务运行时、MCP 互操作、Trace/Eval、安全隔离和首次体验收敛。
 
 ---
 
@@ -29,12 +38,10 @@ curl -sSL https://install.zyling.ai/install | bash
 
 ```
 ╔══════════════════════════════════════════════╗
-║  ✅  ZyHive 安装成功！版本: 26.4.24v1         ║
+║  ✅  ZyHive 安装成功！版本: <当前正式版本>     ║
 ╚══════════════════════════════════════════════╝
 
-  📍 本地访问：  http://localhost:8080
-  🏠 内网访问：  http://192.168.1.100:8080
-  🌐 公网访问：  http://123.45.67.89:8080
+  🏠 访问地址：  http://192.168.1.100:8080
   🔑 管理员 Token：xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
@@ -49,7 +56,7 @@ curl -sSL https://install.zyling.ai/install | bash
 | `https://install.zyling.ai/latest` | 最新版本号 JSON |
 | `https://install.zyling.ai/dl/{ver}/{file}` | 二进制下载代理（国内加速） |
 
-> 国内用户通过 Cloudflare 全球节点加速下载，无需访问 GitHub。
+> 国内用户可通过 Cloudflare 全球节点加速下载。新发布版本同时提供 `SHA256SUMS`，安装和在线升级会先校验完整性，再替换本地二进制。
 
 ---
 
@@ -440,10 +447,10 @@ export ZYHIVE_AITEAM_REVENUE_SECRET="$(openssl rand -hex 32)"
 
 引巢 · ZyHive 采用 **GNU Affero General Public License v3.0（AGPL-3.0）** 开源协议。
 
-- ✅ 个人使用、学习、研究 — 完全免费
-- ✅ 自托管私用 — 完全免费
-- ✅ 修改和二次开发 — 必须以相同协议开源
-- ⚠️ 基于本项目构建网络服务对外提供 — 必须开源全部改动
-- 🚫 商业闭源集成或托管销售 — 需要商业授权
+- 允许个人、组织和商业主体使用、复制、修改及收费分发，但必须遵守 AGPL-3.0；
+- 修改后向网络用户提供交互时，应向这些用户提供获取对应源代码的明确方式；
+- 客户数据、配置、提示词和通过独立接口连接的外部系统不因使用 ZyHive 自动变成开源代码；
+- 当前没有发布专有商业许可证或闭源企业版。
 
-**zyling（智引领科技）** — 商业授权联系方式见 [zyling.ai](https://zyling.ai)
+部署、配置、培训、运维和定制服务可以收费。具体边界见
+[开源、服务与客户定制边界](docs/commercial-boundaries.md)。

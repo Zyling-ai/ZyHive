@@ -7,39 +7,44 @@ package api
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/Zyling-ai/zyhive/pkg/agent"
 	"github.com/Zyling-ai/zyhive/pkg/session"
+	"github.com/gin-gonic/gin"
 )
 
 // feishuCardCallbackHandler handles POST /feishu/card-callback
 type feishuCardCallbackHandler struct {
-	manager *agent.Manager
-	pool    *agent.Pool
+	manager    *agent.Manager
+	pool       *agent.Pool
+	replayMu   sync.Mutex
+	seenNonces map[string]time.Time
 }
 
 // FeishuCardCallbackRequest is the payload Feishu sends when a card button is clicked.
 type FeishuCardCallbackRequest struct {
-	Challenge   string `json:"challenge"`    // URL verification challenge
-	Type        string `json:"type"`         // "url_verification" or "card.action.trigger"
-	Action      struct {
-		Value     map[string]string `json:"value"`      // button value map
-		Tag       string            `json:"tag"`        // "button"
-		OpenID    string            `json:"open_id"`    // who clicked
+	Challenge string `json:"challenge"` // URL verification challenge
+	Type      string `json:"type"`      // "url_verification" or "card.action.trigger"
+	Action    struct {
+		Value  map[string]string `json:"value"`   // button value map
+		Tag    string            `json:"tag"`     // "button"
+		OpenID string            `json:"open_id"` // who clicked
 	} `json:"action"`
-	OpenID      string `json:"open_id"`
-	OperatorID  struct {
+	OpenID     string `json:"open_id"`
+	OperatorID struct {
 		OpenID string `json:"open_id"`
 	} `json:"operator"`
-	Token       string `json:"token"`
+	Token string `json:"token"`
 }
 
 // ServeHTTP handles the Feishu card callback.
@@ -49,6 +54,10 @@ func (h *feishuCardCallbackHandler) Handle(c *gin.Context) {
 	var req FeishuCardCallbackRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid json"})
+		return
+	}
+	if !h.authorizeCallback(c, body, &req) {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid callback signature"})
 		return
 	}
 
@@ -170,12 +179,126 @@ func (h *feishuCardCallbackHandler) injectCallback(agentID, sessionID, operatorO
 	log.Printf("[feishu-callback] AI response (%d chars) for session %s", sb.Len(), sessionID)
 }
 
-// verifyFeishuSign verifies the Feishu callback signature (optional but recommended).
+type feishuCallbackCredential struct {
+	encryptKey        string
+	verificationToken string
+}
+
+func (h *feishuCardCallbackHandler) authorizeCallback(c *gin.Context, body []byte, req *FeishuCardCallbackRequest) bool {
+	agentID := ""
+	if req.Action.Value != nil {
+		agentID = req.Action.Value["agent_id"]
+	}
+	credentials := h.callbackCredentials(agentID)
+	if len(credentials) == 0 {
+		return false
+	}
+
+	isChallenge := req.Type == "url_verification" || req.Challenge != ""
+	if isChallenge && req.Token != "" {
+		for _, credential := range credentials {
+			if credential.verificationToken != "" && secretsEqual(req.Token, credential.verificationToken) {
+				return true
+			}
+		}
+	}
+
+	timestamp := c.GetHeader("X-Lark-Request-Timestamp")
+	nonce := c.GetHeader("X-Lark-Request-Nonce")
+	signature := c.GetHeader("X-Lark-Signature")
+	if !freshFeishuTimestamp(timestamp, time.Now()) || nonce == "" || signature == "" {
+		return false
+	}
+	for _, credential := range credentials {
+		if verifyFeishuSign(timestamp, nonce, string(body), credential.encryptKey, signature) {
+			if isChallenge {
+				return true
+			}
+			return h.acceptNonce(timestamp + "|" + nonce + "|" + signature)
+		}
+	}
+	return false
+}
+
+func (h *feishuCardCallbackHandler) callbackCredentials(agentID string) []feishuCallbackCredential {
+	if h.manager == nil {
+		return nil
+	}
+	var agents []*agent.Agent
+	if agentID != "" {
+		if ag, ok := h.manager.Get(agentID); ok {
+			agents = []*agent.Agent{ag}
+		}
+	} else {
+		agents = h.manager.List()
+	}
+
+	var credentials []feishuCallbackCredential
+	for _, ag := range agents {
+		for _, channel := range ag.Channels {
+			if !channel.Enabled || channel.Type != "feishu" {
+				continue
+			}
+			credential := feishuCallbackCredential{
+				encryptKey:        configValue(channel.Config, "encryptKey", "encrypt_key"),
+				verificationToken: configValue(channel.Config, "verificationToken", "verification_token"),
+			}
+			if credential.encryptKey != "" || credential.verificationToken != "" {
+				credentials = append(credentials, credential)
+			}
+		}
+	}
+	return credentials
+}
+
+func configValue(values map[string]string, keys ...string) string {
+	for _, key := range keys {
+		if value := values[key]; value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func freshFeishuTimestamp(raw string, now time.Time) bool {
+	seconds, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		return false
+	}
+	delta := now.Unix() - seconds
+	if delta < 0 {
+		delta = -delta
+	}
+	return delta <= int64((5 * time.Minute).Seconds())
+}
+
+func (h *feishuCardCallbackHandler) acceptNonce(key string) bool {
+	h.replayMu.Lock()
+	defer h.replayMu.Unlock()
+	if h.seenNonces == nil {
+		h.seenNonces = make(map[string]time.Time)
+	}
+	now := time.Now()
+	cutoff := now.Add(-5 * time.Minute)
+	for nonce, seenAt := range h.seenNonces {
+		if seenAt.Before(cutoff) {
+			delete(h.seenNonces, nonce)
+		}
+	}
+	if _, exists := h.seenNonces[key]; exists {
+		return false
+	}
+	h.seenNonces[key] = now
+	return true
+}
+
+// verifyFeishuSign verifies the Feishu callback signature.
 func verifyFeishuSign(timestamp, nonce, body, secret, signature string) bool {
-	if secret == "" {
-		return true // skip verification if not configured
+	if secret == "" || signature == "" {
+		return false
 	}
 	s := timestamp + nonce + secret + body
 	h := sha256.Sum256([]byte(s))
-	return fmt.Sprintf("%x", h) == signature
+	expected := fmt.Sprintf("%x", h)
+	return subtle.ConstantTimeCompare([]byte(expected), []byte(signature)) == 1
 }

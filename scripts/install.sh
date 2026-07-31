@@ -4,13 +4,8 @@
 # Linux / macOS:
 #   curl -sSL https://install.zyling.ai/install | bash
 #
-# Windows (PowerShell):
-#   irm https://install.zyling.ai/install | iex
-#
-# Windows (Git Bash / MSYS2 / Cygwin): 与 Linux/macOS 命令相同，脚本会
-#   自动检测并调用系统 PowerShell 完成安装。
 # ─────────────────────────────────────────────────────────────────────────
-set -e
+set -euo pipefail
 
 INSTALL_BASE="https://install.zyling.ai"
 
@@ -126,6 +121,7 @@ esac
 # ── 自动获取 root 权限 ─────────────────────────────────────────────────────
 # 优先级：已是 root > sudo > 用户目录（--no-root 跳过前两步）
 SUDO=""
+SUDO_KEEPALIVE_PID=""
 USE_SYSTEM_PATH=false
 
 if $NO_ROOT; then
@@ -184,11 +180,69 @@ info "最新版本：$LATEST"
 
 BINARY_FILENAME="zyhive-${OS}-${ARCH}"
 BINARY_URL="$INSTALL_BASE/dl/$LATEST/$BINARY_FILENAME"
-BINARY_URL_FALLBACK="https://install.zyling.ai/dl/$LATEST/$BINARY_FILENAME"
+BINARY_URL_FALLBACK="https://github.com/Zyling-ai/ZyHive/releases/download/$LATEST/$BINARY_FILENAME"
+CHECKSUM_URL="$INSTALL_BASE/dl/$LATEST/SHA256SUMS"
+CHECKSUM_URL_FALLBACK="https://github.com/Zyling-ai/ZyHive/releases/download/$LATEST/SHA256SUMS"
+
+_verify_download() {
+  local binary_path="$1"
+  local sums_path expected actual detected
+  sums_path=$(mktemp)
+
+  if ! _dl "$CHECKSUM_URL" "$sums_path" 20 2>/dev/null \
+    && ! _dl "$CHECKSUM_URL_FALLBACK" "$sums_path" 20 2>/dev/null; then
+    rm -f "$sums_path"
+    warning "版本 $LATEST 未提供 SHA256SUMS，将执行版本号验证；下一稳定版起必须发布校验和"
+  else
+    expected=$(awk -v name="$BINARY_FILENAME" '$2 == name || $2 == "*" name {print $1; exit}' "$sums_path")
+    rm -f "$sums_path"
+    [ -n "$expected" ] || error "SHA256SUMS 中缺少 $BINARY_FILENAME"
+
+    if command -v sha256sum &>/dev/null; then
+      actual=$(sha256sum "$binary_path" | awk '{print $1}')
+    else
+      actual=$(shasum -a 256 "$binary_path" | awk '{print $1}')
+    fi
+    [ "$actual" = "$expected" ] || error "二进制 SHA-256 校验失败，已停止安装"
+    success "SHA-256 校验通过"
+  fi
+
+  chmod 755 "$binary_path"
+  detected=$("$binary_path" --version 2>/dev/null | awk '{print $NF}')
+  [ "$detected" = "$LATEST" ] || error "二进制版本不匹配：期望 $LATEST，实际 ${detected:-未知}"
+  success "版本验证通过：$detected"
+}
+
+_stop_existing_service() {
+  if [ "$OS" = "linux" ] && command -v systemctl &>/dev/null; then
+    $SUDO systemctl stop "$SERVICE_NAME" 2>/dev/null || true
+  elif [ "$OS" = "darwin" ]; then
+    local label="com.zyhive.$SERVICE_NAME"
+    if $USE_SYSTEM_PATH; then
+      $SUDO launchctl stop "$label" 2>/dev/null || true
+    else
+      launchctl stop "$label" 2>/dev/null || true
+    fi
+  fi
+}
+
+_start_existing_service() {
+  if [ "$OS" = "linux" ] && command -v systemctl &>/dev/null; then
+    $SUDO systemctl start "$SERVICE_NAME"
+    info "查看日志：sudo journalctl -u $SERVICE_NAME -f"
+  elif [ "$OS" = "darwin" ]; then
+    local label="com.zyhive.$SERVICE_NAME"
+    if $USE_SYSTEM_PATH; then
+      $SUDO launchctl start "$label" 2>/dev/null || true
+    else
+      launchctl start "$label" 2>/dev/null || true
+    fi
+  fi
+}
 
 # ── 检测是否已安装（更新流程）─────────────────────────────────────────────
 if [ -f "$INSTALL_BIN" ]; then
-  CURRENT=$("$INSTALL_BIN" --version 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+  CURRENT=$("$INSTALL_BIN" --version 2>/dev/null | awk '{print $NF}')
   [ -z "$CURRENT" ] && CURRENT="（未知版本）"
 
   echo ""
@@ -214,21 +268,7 @@ if [ -f "$INSTALL_BIN" ]; then
   echo ""
   info "开始更新 $CURRENT → $LATEST…"
 
-  # 停止服务
-  if [ "$OS" = "linux" ] && command -v systemctl &>/dev/null; then
-    $SUDO systemctl stop "$SERVICE_NAME" 2>/dev/null || true
-    info "服务已停止"
-  elif [ "$OS" = "darwin" ]; then
-    _LABEL="com.zyhive.$SERVICE_NAME"
-    if $USE_SYSTEM_PATH; then
-      $SUDO launchctl stop "$_LABEL" 2>/dev/null || true
-    else
-      launchctl stop "$_LABEL" 2>/dev/null || true
-    fi
-    info "服务已停止"
-  fi
-
-  # 下载新版本
+  # 先下载并验证，避免服务在网络失败时无意义停机。
   info "下载 $BINARY_NAME $LATEST ($OS/$ARCH)…"
   TMP_BIN=$(mktemp)
   if ! _dl "$BINARY_URL" "$TMP_BIN" 120 2>/dev/null; then
@@ -236,27 +276,32 @@ if [ -f "$INSTALL_BIN" ]; then
     _dl "$BINARY_URL_FALLBACK" "$TMP_BIN" 120 \
       || { rm -f "$TMP_BIN"; error "下载失败。\n  CF: $BINARY_URL\n  GitHub: $BINARY_URL_FALLBACK"; }
   fi
+  _verify_download "$TMP_BIN"
 
-  # 替换二进制（先 rm 避免 Text file busy）
-  $SUDO rm -f "$INSTALL_BIN"
-  $SUDO install -m 755 "$TMP_BIN" "$INSTALL_BIN"
+  BACKUP_BIN="${INSTALL_BIN}.bak"
+  NEW_BIN="${INSTALL_BIN}.new"
+  $SUDO cp -p "$INSTALL_BIN" "$BACKUP_BIN" \
+    || { rm -f "$TMP_BIN"; error "无法备份当前版本，已取消更新"; }
+
+  _stop_existing_service
+  info "服务已停止，正在原子替换二进制…"
+
+  if ! $SUDO install -m 755 "$TMP_BIN" "$NEW_BIN" \
+    || ! $SUDO mv -f "$NEW_BIN" "$INSTALL_BIN"; then
+    $SUDO rm -f "$NEW_BIN"
+    if $SUDO cp -p "$BACKUP_BIN" "$INSTALL_BIN"; then
+      _start_existing_service || true
+      rm -f "$TMP_BIN"
+      error "更新失败，已恢复旧版本"
+    fi
+    rm -f "$TMP_BIN"
+    error "更新失败且自动回滚失败，请从 $BACKUP_BIN 手动恢复"
+  fi
   rm -f "$TMP_BIN"
   success "二进制已更新至 $INSTALL_BIN"
 
-  # 重启服务
-  if [ "$OS" = "linux" ] && command -v systemctl &>/dev/null; then
-    $SUDO systemctl start "$SERVICE_NAME"
-    success "服务已重启"
-    info "查看日志：sudo journalctl -u $SERVICE_NAME -f"
-  elif [ "$OS" = "darwin" ]; then
-    _LABEL="com.zyhive.$SERVICE_NAME"
-    if $USE_SYSTEM_PATH; then
-      $SUDO launchctl start "$_LABEL" 2>/dev/null || true
-    else
-      launchctl start "$_LABEL" 2>/dev/null || true
-    fi
-    success "服务已重启"
-  fi
+  _start_existing_service
+  success "服务已重启；旧版本保留在 $BACKUP_BIN"
 
   # 停止 sudo 保活进程
   [ -n "$SUDO_KEEPALIVE_PID" ] && kill "$SUDO_KEEPALIVE_PID" 2>/dev/null || true
@@ -292,6 +337,7 @@ if ! _dl "$BINARY_URL" "$TMP_BIN" 120 2>/dev/null; then
   _dl "$BINARY_URL_FALLBACK" "$TMP_BIN" 120 \
     || { rm -f "$TMP_BIN"; error "下载失败。\n  CF: $BINARY_URL\n  GitHub: $BINARY_URL_FALLBACK"; }
 fi
+_verify_download "$TMP_BIN"
 
 # 创建目录并安装二进制
 $SUDO mkdir -p "$(dirname "$INSTALL_BIN")" "$CONFIG_DIR" "$AGENTS_DIR"
@@ -733,7 +779,6 @@ if [ "$OS" = "linux" ]; then
 else
   LOCAL_IP=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || true)
 fi
-PUBLIC_IP=$(_dl "https://api.ipify.org" "" 5 2>/dev/null || true)
 
 # 停止 sudo 保活进程
 [ -n "$SUDO_KEEPALIVE_PID" ] && kill "$SUDO_KEEPALIVE_PID" 2>/dev/null || true
@@ -746,10 +791,10 @@ echo -e "${GREEN}╚════════════════════
 echo ""
 if [ -n "$DOMAIN" ]; then
   echo -e "  🌐 访问地址：  ${BLUE}https://$DOMAIN${NC}"
+elif [ -n "$LOCAL_IP" ]; then
+  echo -e "  🏠 内网访问：  ${BLUE}http://$LOCAL_IP:$PORT${NC}"
 else
   echo -e "  📍 本地访问：  ${BLUE}http://localhost:$PORT${NC}"
-  [ -n "$LOCAL_IP"  ] && echo -e "  🏠 内网访问：  ${BLUE}http://$LOCAL_IP:$PORT${NC}"
-  [ -n "$PUBLIC_IP" ] && echo -e "  🌐 公网访问：  ${BLUE}http://$PUBLIC_IP:$PORT${NC}"
 fi
 [ -n "$SHOW_TOKEN"    ] && echo -e "\n  🔑 管理员 Token：  ${GREEN}${BOLD}$SHOW_TOKEN${NC}"
 [ -n "$SHOW_PROVIDER" ] && echo -e "  🤖 AI 提供商：     ${GREEN}$SHOW_PROVIDER${NC}${SHOW_MODEL:+ / $SHOW_MODEL}"

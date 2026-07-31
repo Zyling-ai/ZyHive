@@ -1,81 +1,147 @@
 #!/usr/bin/env bash
 # ZyHive 标准发布脚本
-# 用法: ./scripts/release.sh 26.4.11v2
-# 流程：构建UI → 同步嵌入 → 编译三平台 → 上传GitHub → 更新CF镜像latest
-set -e
+# 用法:
+#   ./scripts/release.sh 26.8.1v1 --dry-run  # 只验证和构建，不发布
+#   ./scripts/release.sh 26.8.1v1            # 创建 GitHub Release
+set -euo pipefail
 
-VERSION="$1"
-if [ -z "$VERSION" ]; then
-  echo "用法: $0 <版本号>  例如: $0 26.4.11v2"
-  exit 1
-fi
-
-REPO="Zyling-ai/ZyHive"
-
-# Token: prefer explicit env, then `gh auth token`. The hardcoded PAT
-# that previously lived here (commit history before 26.5.10v25) has been
-# REVOKED — never paste secrets into version control. Use:
-#   export GITHUB_TOKEN=$(gh auth token)
-#   ./scripts/release.sh 26.5.10v25
-if [ -z "${GITHUB_TOKEN}" ]; then
-  if command -v gh >/dev/null 2>&1; then
-    GITHUB_TOKEN=$(gh auth token 2>/dev/null || true)
-  fi
-fi
-if [ -z "${GITHUB_TOKEN}" ]; then
-  echo "❌ GITHUB_TOKEN unset. Run 'gh auth login' or 'export GITHUB_TOKEN=ghp_...'" >&2
-  exit 1
-fi
-
-DIST_DIR="/tmp/zyhive-release-${VERSION}"
+VERSION="${1:-}"
+MODE="${2:-}"
+REPO="${ZYHIVE_REPO:-Zyling-ai/ZyHive}"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+DIST_DIR="${ZYHIVE_DIST_DIR:-/tmp/zyhive-release-${VERSION}}"
+DRY_RUN=false
+
+if [[ -z "$VERSION" || ! "$VERSION" =~ ^[0-9]{2}\.[0-9]{1,2}\.[0-9]{1,2}v[0-9]+$ ]]; then
+  echo "用法: $0 <YY.M.DvN> [--dry-run]  例如: $0 26.8.1v1 --dry-run" >&2
+  exit 2
+fi
+if [[ -n "$MODE" && "$MODE" != "--dry-run" ]]; then
+  echo "未知参数: $MODE" >&2
+  exit 2
+fi
+[[ "$MODE" == "--dry-run" ]] && DRY_RUN=true
+
 cd "$REPO_ROOT"
 
+require_command() {
+  command -v "$1" >/dev/null 2>&1 || {
+    echo "❌ 缺少命令: $1" >&2
+    exit 1
+  }
+}
+
+for cmd in git go node npm; do
+  require_command "$cmd"
+done
+
+node -e '
+  const [major, minor] = process.versions.node.split(".").map(Number)
+  if (major < 20 || (major === 20 && minor < 19)) {
+    console.error(`需要 Node >= 20.19.0，当前为 ${process.versions.node}`)
+    process.exit(1)
+  }
+'
+
+if [[ "$DRY_RUN" == false ]]; then
+  require_command gh
+  gh auth status >/dev/null
+  if [[ -n "$(git status --porcelain)" ]]; then
+    echo "❌ 正式发布要求工作区无未提交改动" >&2
+    exit 1
+  fi
+  if [[ "$(git branch --show-current)" != "main" ]]; then
+    echo "❌ 正式发布必须从 main 分支执行" >&2
+    exit 1
+  fi
+  if gh release view "$VERSION" --repo "$REPO" >/dev/null 2>&1; then
+    echo "❌ Release $VERSION 已存在" >&2
+    exit 1
+  fi
+fi
+
 echo "▶ 版本: $VERSION"
+echo "▶ 模式: $([[ "$DRY_RUN" == true ]] && echo "干运行" || echo "正式发布")"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-# Step 1: 构建 Vue UI
-echo "📦 [1/4] 构建 Vue UI..."
-cd ui && npm install --silent && npx vite build 2>&1 | tail -3 && cd ..
-echo "   ✅ UI 构建完成"
+echo "🧪 [1/6] 后端质量门槛..."
+go vet ./...
+go test ./... -count=1 -timeout=5m
+go build ./...
 
-# Step 2: ⚠️ 关键：同步 ui/dist → cmd/aipanel/ui_dist
-echo "🔄 [2/4] 同步 UI 到嵌入目录..."
+echo "🖥  [2/6] 前端测试、类型检查与构建..."
+(
+  cd ui
+  npm ci
+  npm test
+  npm run build
+)
+
+echo "🔄 [3/6] 同步并验证嵌入 UI..."
 rm -rf cmd/aipanel/ui_dist
-cp -r ui/dist cmd/aipanel/ui_dist
-echo "   ✅ 同步完成 ($(ls cmd/aipanel/ui_dist/assets/ | wc -l | tr -d ' ') 个文件)"
+cp -R ui/dist cmd/aipanel/ui_dist
+if ! git diff --no-index --quiet -- ui/dist cmd/aipanel/ui_dist; then
+  echo "❌ 嵌入 UI 与源码构建结果不一致" >&2
+  exit 1
+fi
 
-# Step 3: 交叉编译三平台
-echo "🔨 [3/4] 交叉编译..."
+echo "🔨 [4/6] 构建官方支持平台..."
+rm -rf "$DIST_DIR"
 mkdir -p "$DIST_DIR"
-GOOS=linux  GOARCH=amd64 go build -ldflags="-X main.Version=${VERSION}" -o "${DIST_DIR}/zyhive-linux-amd64"  ./cmd/aipanel/ &
-GOOS=darwin GOARCH=arm64 go build -ldflags="-X main.Version=${VERSION}" -o "${DIST_DIR}/zyhive-darwin-arm64" ./cmd/aipanel/ &
-GOOS=darwin GOARCH=amd64 go build -ldflags="-X main.Version=${VERSION}" -o "${DIST_DIR}/zyhive-darwin-amd64" ./cmd/aipanel/ &
-wait
-echo "   ✅ linux-amd64 darwin-arm64 darwin-amd64"
-
-# Step 4: 发布 GitHub Release + CF Worker 自动代理
-echo "🚀 [4/4] 发布 GitHub Release..."
-RELEASE_ID=$(curl -s -X POST "https://api.github.com/repos/${REPO}/releases" \
-  -H "Authorization: token ${GITHUB_TOKEN}" \
-  -H "Content-Type: application/json" \
-  -d "{\"tag_name\":\"${VERSION}\",\"name\":\"${VERSION}\",\"body\":\"## ${VERSION}\\n\\n发布日期：$(date '+%Y-%m-%d')\",\"draft\":false,\"prerelease\":false}" \
-  | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
-
-for NAME in zyhive-linux-amd64 zyhive-darwin-arm64 zyhive-darwin-amd64; do
-  curl -s -X POST \
-    "https://uploads.github.com/repos/${REPO}/releases/${RELEASE_ID}/assets?name=${NAME}" \
-    -H "Authorization: token ${GITHUB_TOKEN}" \
-    -H "Content-Type: application/octet-stream" \
-    --data-binary "@${DIST_DIR}/${NAME}" > /dev/null
-  echo "   ✅ 上传 ${NAME}"
+cp scripts/install.sh "$DIST_DIR/install.sh"
+platforms=(
+  "linux amd64"
+  "linux arm64"
+  "darwin amd64"
+  "darwin arm64"
+)
+for platform in "${platforms[@]}"; do
+  read -r goos goarch <<<"$platform"
+  name="zyhive-${goos}-${goarch}"
+  CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
+    go build -trimpath -ldflags="-s -w -X main.Version=${VERSION}" \
+    -o "${DIST_DIR}/${name}" ./cmd/aipanel/
+  echo "   ✅ $name"
 done
+
+echo "🔐 [5/6] 生成 SHA-256 校验和..."
+(
+  cd "$DIST_DIR"
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum zyhive-* > SHA256SUMS
+  else
+    shasum -a 256 zyhive-* > SHA256SUMS
+  fi
+)
+
+if [[ "$DRY_RUN" == true ]]; then
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "✅ 干运行完成，未创建 Release"
+  echo "   产物目录: $DIST_DIR"
+  exit 0
+fi
+
+echo "🚀 [6/6] 创建 GitHub Release..."
+release_notes=$(cat <<EOF
+## ${VERSION}
+
+发布日期：$(date '+%Y-%m-%d')
+
+安装和升级前会使用随 Release 发布的 \`SHA256SUMS\` 校验二进制完整性。
+具体变更见仓库 \`CHANGELOG.md\`。
+EOF
+)
+
+gh release create "$VERSION" \
+  "$DIST_DIR"/zyhive-* \
+  "$DIST_DIR/install.sh" \
+  "$DIST_DIR/SHA256SUMS" \
+  --repo "$REPO" \
+  --target "$(git rev-parse HEAD)" \
+  --title "$VERSION" \
+  --notes "$release_notes"
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "✅ 发布完成: ${VERSION}"
 echo "   GitHub: https://github.com/${REPO}/releases/tag/${VERSION}"
-echo "   CF镜像: https://install.zyling.ai/dl/${VERSION}/zyhive-linux-amd64"
-echo ""
-echo "⚠️  部署生产服务器请运行:"
-echo "   HIVE_ROOT_PASS=... ./scripts/deploy-hive.sh ${VERSION}"
-echo "   (或用 SSH key 部署，推荐)"
+echo "   国内镜像: https://install.zyling.ai/dl/${VERSION}/zyhive-linux-amd64"

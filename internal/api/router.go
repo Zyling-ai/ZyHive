@@ -15,7 +15,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/Zyling-ai/zyhive/pkg/agent"
 	"github.com/Zyling-ai/zyhive/pkg/budget"
 	"github.com/Zyling-ai/zyhive/pkg/channel"
@@ -28,6 +27,7 @@ import (
 	"github.com/Zyling-ai/zyhive/pkg/skillopt"
 	"github.com/Zyling-ai/zyhive/pkg/subagent"
 	"github.com/Zyling-ai/zyhive/pkg/usage"
+	"github.com/gin-gonic/gin"
 )
 
 // configFilePath is the active config file path; set at startup from --config flag.
@@ -40,8 +40,8 @@ var AppVersion = "dev"
 
 // BotControl groups the functions needed by the channel handler to manage running bots.
 type BotControl struct {
-	Start  func(agentID, channelID, token string) // start or restart a bot
-	Stop   func(agentID, channelID string)         // stop a bot
+	Start func(agentID, channelID, token string) // start or restart a bot
+	Stop  func(agentID, channelID string)        // stop a bot
 	// Notify runs the agent in the named channel's per-chat session and sends
 	// the response to the specified chat. Pass channelID="" to use the first active bot.
 	Notify func(ctx context.Context, agentID, channelID string, chatID, threadID int64, prompt string) error
@@ -66,7 +66,7 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, cfgPath string, mgr *agen
 
 	// File download endpoint — auth via ?token= query param (for shareable links).
 	// This endpoint is intentionally outside the auth middleware group.
-	dlH := &downloadHandler{authToken: cfg.Auth.Token}
+	dlH := &downloadHandler{authToken: cfg.Auth.Token, manager: mgr}
 	r.GET("/api/download", dlH.ServeFile)
 
 	// Public: version info (no auth required — needed for login page)
@@ -123,9 +123,9 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, cfgPath string, mgr *agen
 
 	// Chat (streaming SSE) — background worker architecture
 	chatH := &chatHandler{cfg: cfg, manager: mgr, projectMgr: projectMgr, subagentMgr: subagentMgr, workerPool: workerPool, usageStore: usageStore, budgetStore: budgetStore}
-	agents.POST("/:id/chat", chatH.Chat)                          // enqueue + stream
-	agents.GET("/:id/chat/stream", chatH.StreamSession)           // reconnect: subscribe to broadcaster
-	agents.GET("/:id/chat/status", chatH.SessionStatus)           // poll status
+	agents.POST("/:id/chat", chatH.Chat)                // enqueue + stream
+	agents.GET("/:id/chat/stream", chatH.StreamSession) // reconnect: subscribe to broadcaster
+	agents.GET("/:id/chat/status", chatH.SessionStatus) // poll status
 	agents.GET("/:id/sessions", chatH.ListSessions)
 	agents.GET("/:id/sessions/:sid", chatH.GetSession)
 
@@ -222,8 +222,8 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, cfgPath string, mgr *agen
 		models.PATCH("/:id", modelH.Update)
 		models.DELETE("/:id", modelH.Delete)
 		models.POST("/:id/test", modelH.Test)
-		models.GET("/probe", modelH.FetchModels)   // GET /api/models/probe?baseUrl=...&apiKey=...
-		models.GET("/env-keys", modelH.EnvKeys)    // GET /api/models/env-keys — detect system env API keys
+		models.GET("/probe", modelH.FetchModels) // GET /api/models/probe?baseUrl=...&apiKey=...
+		models.GET("/env-keys", modelH.EnvKeys)  // GET /api/models/env-keys — detect system env API keys
 	}
 
 	// Provider API key registry
@@ -469,7 +469,7 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, cfgPath string, mgr *agen
 	v1.GET("/logs", logsHandler)
 
 	// Media file serving (auth via header or ?token= query param)
-	r.GET("/api/media", (&mediaHandler{token: cfg.Auth.Token}).ServeMedia)
+	r.GET("/api/media", (&mediaHandler{token: cfg.Auth.Token, manager: mgr}).ServeMedia)
 
 	// WebSocket
 	r.GET("/ws", wsHandler)
@@ -535,8 +535,11 @@ func requestLogger() gin.HandlerFunc {
 
 func authMiddleware(token string) gin.HandlerFunc {
 	if token == "" {
-		// Dev mode: no token configured — allow all (prints warning at startup).
-		return func(c *gin.Context) { c.Next() }
+		// Authentication is a mandatory safety boundary. A missing token is a
+		// configuration error, never a signal to expose the admin API.
+		return func(c *gin.Context) {
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "authentication is not configured"})
+		}
 	}
 	if token == "changeme" {
 		log.Println("[WARN] Auth token is set to the default value 'changeme'. " +
@@ -645,10 +648,10 @@ func (h *statsHandler) Handle(c *gin.Context) {
 // GET /api/logs?limit=200
 //
 // 来源优先级：
-//   1. 文件 /tmp/aipanel.log（历史兼容，legacy 直跑模式）
-//   2. journalctl -u zyhive（Linux systemd 运行时的标准日志源）
-//   3. log show --predicate 'subsystem == "zyhive"' (macOS launchd)
-//   4. 文件都没有时返回空数组
+//  1. 文件 /tmp/aipanel.log（历史兼容，legacy 直跑模式）
+//  2. journalctl -u zyhive（Linux systemd 运行时的标准日志源）
+//  3. log show --predicate 'subsystem == "zyhive"' (macOS launchd)
+//  4. 文件都没有时返回空数组
 func logsHandler(c *gin.Context) {
 	limitStr := c.DefaultQuery("limit", "200")
 	limit, _ := strconv.Atoi(limitStr)

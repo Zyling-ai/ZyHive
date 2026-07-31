@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/Zyling-ai/zyhive/pkg/config"
+	"github.com/gin-gonic/gin"
 )
 
 type configHandler struct {
@@ -89,6 +89,10 @@ func (h *configHandler) Patch(c *gin.Context) {
 
 	if _, hasAuth := patch["auth"]; !hasAuth {
 		updated.Auth = h.cfg.Auth
+	}
+	if err := updated.Gateway.Validate(); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid config: " + err.Error()})
+		return
 	}
 
 	path := h.configPath

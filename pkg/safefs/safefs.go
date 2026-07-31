@@ -48,7 +48,8 @@ var ErrNullByte = errors.New("safefs: path contains NUL byte")
 // is NOT guaranteed to exist; callers may stat / read / create it.
 //
 // Symlink semantics:
-//   - base is fully EvalSymlinks'd (must exist).
+//   - For base, the deepest existing parent is EvalSymlinks'd and any
+//     not-yet-existing leaf segments are appended back.
 //   - For the resolved candidate, the deepest existing parent directory is
 //     EvalSymlinks'd; the still-not-existing leaf segments are appended back.
 //     This catches "base contains symlink → /etc" without requiring leaf to exist.
@@ -66,15 +67,19 @@ func ConfineToBase(base, rel string) (string, error) {
 		return "", ErrAbsoluteRel
 	}
 
-	// Normalize base. EvalSymlinks requires base to exist.
+	// Normalize base through its deepest existing ancestor. This also handles
+	// non-existent bases below symlinked parents, such as /tmp -> /private/tmp
+	// on macOS.
 	absBase, err := filepath.Abs(base)
 	if err != nil {
 		return "", fmt.Errorf("safefs: abs base: %w", err)
 	}
 	absBase = filepath.Clean(absBase)
-	if resolved, err := filepath.EvalSymlinks(absBase); err == nil {
-		absBase = filepath.Clean(resolved)
+	absBase, err = evalSymlinksOfDeepestExisting(absBase)
+	if err != nil {
+		return "", fmt.Errorf("safefs: eval base symlinks: %w", err)
 	}
+	absBase = filepath.Clean(absBase)
 	// Strip trailing slash for consistent comparison.
 	absBase = strings.TrimRight(absBase, string(os.PathSeparator))
 	if absBase == "" {

@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/Zyling-ai/zyhive/pkg/agent"
 	"github.com/Zyling-ai/zyhive/pkg/safefs"
+	"github.com/gin-gonic/gin"
 )
 
 type fileHandler struct {
@@ -201,7 +201,8 @@ func (h *fileHandler) Read(c *gin.Context) {
 // Accepts raw text (Content-Type: text/plain), JSON {content: string}, or
 // JSON {content: "base64:<b64>"} for binary files.
 // Optional query params for chunked upload:
-//   ?chunk=N&total=T  — N=0 creates/truncates, N>0 appends; last chunk returns {ok,size}
+//
+//	?chunk=N&total=T  — N=0 creates/truncates, N>0 appends; last chunk returns {ok,size}
 func (h *fileHandler) Write(c *gin.Context) {
 	_, absPath, ok := h.resolveWorkspacePath(c)
 	if !ok {
@@ -298,17 +299,25 @@ func (h *fileHandler) Delete(c *gin.Context) {
 
 // ── Download Handler ──────────────────────────────────────────────────────
 // GET /api/download?path=ABSOLUTE_PATH&token=AUTH_TOKEN
-// Serves any local file for download. Auth is via the `token` query parameter
-// so the URL can be shared as a clickable link (e.g. in Telegram messages).
+// Serves files inside loaded agent workspaces. Auth is via the `token` query
+// parameter for current clickable-link compatibility, or a Bearer header.
 
 type downloadHandler struct {
 	authToken string
+	manager   *agent.Manager
 }
 
 func (h *downloadHandler) ServeFile(c *gin.Context) {
 	// Verify token (B002 26.5.10v3: constant-time compare).
+	if h.authToken == "" {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "authentication is not configured"})
+		return
+	}
 	token := c.Query("token")
-	if h.authToken != "" && !secretsEqual(token, h.authToken) {
+	if auth := c.GetHeader("Authorization"); strings.HasPrefix(auth, "Bearer ") {
+		token = strings.TrimPrefix(auth, "Bearer ")
+	}
+	if !secretsEqual(token, h.authToken) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
 		return
 	}
@@ -319,19 +328,38 @@ func (h *downloadHandler) ServeFile(c *gin.Context) {
 		return
 	}
 
-	// Must be an absolute path to prevent directory traversal ambiguity
-	if !filepath.IsAbs(filePath) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "path must be absolute"})
+	confinedPath, ok := confineToAgentWorkspace(h.manager, filePath)
+	if !ok {
+		c.JSON(http.StatusForbidden, gin.H{"error": "file is outside an agent workspace"})
 		return
 	}
 
-	info, err := os.Stat(filePath)
+	info, err := os.Stat(confinedPath)
 	if err != nil || info.IsDir() {
 		c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
 		return
 	}
 
-	baseName := filepath.Base(filePath)
+	baseName := filepath.Base(confinedPath)
 	c.Header("Content-Disposition", `attachment; filename="`+baseName+`"`)
-	c.FileAttachment(filePath, baseName)
+	c.FileAttachment(confinedPath, baseName)
+}
+
+// confineToAgentWorkspace resolves an absolute file path against the known
+// agent workspaces. It rejects sibling-prefix tricks and symlink escapes.
+func confineToAgentWorkspace(manager *agent.Manager, filePath string) (string, bool) {
+	if manager == nil || !filepath.IsAbs(filePath) {
+		return "", false
+	}
+	for _, ag := range manager.List() {
+		rel, err := filepath.Rel(ag.WorkspaceDir, filePath)
+		if err != nil {
+			continue
+		}
+		resolved, err := safefs.ConfineToBase(ag.WorkspaceDir, rel)
+		if err == nil {
+			return resolved, true
+		}
+	}
+	return "", false
 }

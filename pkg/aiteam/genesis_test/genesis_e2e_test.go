@@ -83,7 +83,11 @@ func Test_AITeam_Genesis_E2E_FullScenario(t *testing.T) {
 
 	// ---- Payroll (S8) — wired to judge + wallet + a fake usage source ----
 	usage := &fakeUsage{m: map[string]float64{"alice": 0.30, "bob": 0.05}}
-	payroll, err := aiteamPayroll.New(root+"/payroll", aiteamPayroll.DefaultConfig(),
+	payrollCfg := aiteamPayroll.DefaultConfig()
+	// Keep this integration scenario's net pay positive even when no judge
+	// bonus is available: 0.20 base - (0.30 usage * 50%) = 0.05.
+	payrollCfg.DailyBaseUSDT = usdt("0.20")
+	payroll, err := aiteamPayroll.New(root+"/payroll", payrollCfg,
 		judge, func(id string, amt decimal.Decimal, reason string) error {
 			_, e := wallet.Credit(id, amt, reason)
 			return e

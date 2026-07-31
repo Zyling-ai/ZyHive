@@ -5,6 +5,10 @@ on:
   push:
     branches: [main]
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -12,6 +16,7 @@ jobs:
   go:
     name: Go (test / vet / build)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -30,9 +35,32 @@ jobs:
       - name: go build
         run: go build ./...
 
+  go-race:
+    name: Go (race / critical packages)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.10'
+          cache: true
+
+      - name: Race detector
+        run: >-
+          go test -race -count=1 -timeout=10m
+          ./internal/api
+          ./pkg/network
+          ./pkg/safefs
+          ./pkg/session
+          ./pkg/tools
+
   lint-go:
     name: golangci-lint (advisory)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     # 首次接入：lint 只产生告警，不阻断 PR 合入；待存量清零后再改为 required check。
     # 用 --issues-exit-code=0 让 golangci-lint 始终 exit 0：issues 仍出现在
     # job log 里供审查，但 check 状态报告 SUCCESS，避免 GitHub 将 PR 标 UNSTABLE。
@@ -50,8 +78,9 @@ jobs:
           args: --timeout=5m --issues-exit-code=0
 
   ui:
-    name: UI (build)
+    name: UI (test / typecheck / build / embed)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: ui
@@ -61,12 +90,67 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '20.19.5'
           cache: 'npm'
           cache-dependency-path: ui/package-lock.json
 
       - name: Install deps
         run: npm ci
 
+      - name: Test
+        run: npm test
+
       - name: Build
         run: npm run build
+
+      - name: Verify embedded UI is current
+        run: git diff --no-index --exit-code -- dist ../cmd/aipanel/ui_dist
+
+  scripts:
+    name: Shell scripts (syntax)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: bash -n
+        run: bash -n scripts/*.sh scripts/test/*.sh
+
+  release-build:
+    name: Release build (${{ matrix.goos }}/${{ matrix.goarch }})
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [go, go-race, ui, scripts]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.10'
+          cache: true
+      - name: Build
+        env:
+          CGO_ENABLED: '0'
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: >-
+          go build
+          -ldflags "-X main.Version=${GITHUB_SHA::12}"
+          -o "zyhive-${{ matrix.goos }}-${{ matrix.goarch }}"
+          ./cmd/aipanel/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zyhive-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: zyhive-${{ matrix.goos }}-${{ matrix.goarch }}
+          if-no-files-found: error
