@@ -91,6 +91,14 @@ print(value)
 PY
 }
 
+file_mode() {
+  if stat -f '%Lp' "$1" >/dev/null 2>&1; then
+    stat -f '%Lp' "$1"
+  else
+    stat -c '%a' "$1"
+  fi
+}
+
 http_code() {
   local url="$1"
   shift
@@ -117,13 +125,14 @@ stop_process() {
 }
 
 basic_smoke() {
-  local home="$1" expected_version="$2" label="$3"
+  local home="$1" expected_version="$2" label="$3" data_mode="${4:-none}"
   local binary="$home/.local/bin/zyhive"
   local config="$home/.config/zyhive/zyhive.json"
   local token port base log pid code version
 
   [[ -x "$binary" ]] || fail "${label}：安装后的二进制不存在"
   [[ -f "$config" ]] || fail "${label}：配置文件不存在"
+  [[ "$(file_mode "$config")" == "600" ]] || fail "${label}：配置文件权限必须为 0600"
   assert_version "$binary" "$expected_version"
 
   token="$(json_value "$config" auth.token)"
@@ -133,7 +142,7 @@ basic_smoke() {
 
   (
     cd "$home"
-    HOME="$home" "$binary" --serve --config "$config"
+    exec env HOME="$home" "$binary" --serve --config "$config"
   ) >"$log" 2>&1 &
   pid=$!
   PIDS+=("$pid")
@@ -147,9 +156,17 @@ basic_smoke() {
   curl -fsS "$base/api/version" > "$TMP_ROOT/version.json"
   version="$(json_value "$TMP_ROOT/version.json" version)"
   [[ "$version" == "$expected_version" ]] || fail "${label}：API 版本错误 $version"
+  code="$(http_code "$base/api/update/status")"
+  [[ "$code" == "200" ]] || fail "${label}：更新状态接口失败，HTTP $code"
 
   code="$(http_code "$base/api/agents")"
   [[ "$code" == "401" ]] || fail "${label}：未鉴权访问 /api/agents 应返回 401，实际 $code"
+  code="$(http_code "$base/api/health" -H "Authorization: Bearer wrong-token")"
+  [[ "$code" == "401" ]] || fail "${label}：错误令牌访问 /api/health 应返回 401，实际 $code"
+  code="$(http_code "$base/api/health" -H "Authorization: Bearer $token")"
+  [[ "$code" == "200" ]] || fail "${label}：鉴权健康接口失败，HTTP $code"
+  code="$(http_code "$base/api/status" -H "Authorization: Bearer $token")"
+  [[ "$code" == "200" ]] || fail "${label}：系统状态接口失败，HTTP $code"
 
   code="$(http_code "$base/api/agents" -H "Authorization: Bearer $token")"
   [[ "$code" == "200" ]] || fail "${label}：鉴权访问 /api/agents 失败，HTTP $code"
@@ -169,8 +186,55 @@ PY
   code="$(http_code "$base/")"
   [[ "$code" == "200" ]] || fail "${label}：嵌入管理界面不可访问，HTTP $code"
 
+  case "$data_mode" in
+    crud|seed)
+      code="$(http_code "$base/api/agents" \
+        -X POST \
+        -H "Authorization: Bearer $token" \
+        -H 'Content-Type: application/json' \
+        -d '{"id":"release-smoke","name":"Release Smoke"}')"
+      [[ "$code" == "201" ]] || fail "${label}：创建测试成员失败，HTTP $code"
+
+      code="$(http_code "$base/api/agents/release-smoke" \
+        -X PATCH \
+        -H "Authorization: Bearer $token" \
+        -H 'Content-Type: application/json' \
+        -d '{"name":"Release Smoke Updated"}')"
+      [[ "$code" == "200" ]] || fail "${label}：更新测试成员失败，HTTP $code"
+
+      code="$(http_code "$base/api/agents/release-smoke/files/persist.txt" \
+        -X PUT \
+        -H "Authorization: Bearer $token" \
+        -H 'Content-Type: text/plain' \
+        --data-binary 'release-e2e-persistent-data')"
+      [[ "$code" == "200" ]] || fail "${label}：写入工作区文件失败，HTTP $code"
+      ;;
+    verify)
+      code="$(http_code "$base/api/agents/release-smoke" -H "Authorization: Bearer $token")"
+      [[ "$code" == "200" ]] || fail "${label}：更新后测试成员丢失，HTTP $code"
+      [[ "$(json_value "$TMP_ROOT/http-body" name)" == "Release Smoke Updated" ]] \
+        || fail "${label}：更新后成员字段未保留"
+
+      code="$(http_code "$base/api/agents/release-smoke/files/persist.txt" \
+        -H "Authorization: Bearer $token")"
+      [[ "$code" == "200" ]] || fail "${label}：更新后工作区文件丢失，HTTP $code"
+      [[ "$(json_value "$TMP_ROOT/http-body" content)" == "release-e2e-persistent-data" ]] \
+        || fail "${label}：更新后工作区文件内容错误"
+      ;;
+    none) ;;
+    *) fail "未知数据测试模式: $data_mode" ;;
+  esac
+
+  if [[ "$data_mode" == "crud" || "$data_mode" == "verify" ]]; then
+    code="$(http_code "$base/api/agents/release-smoke" \
+      -X DELETE -H "Authorization: Bearer $token")"
+    [[ "$code" == "200" ]] || fail "${label}：删除测试成员失败，HTTP $code"
+    code="$(http_code "$base/api/agents/release-smoke" -H "Authorization: Bearer $token")"
+    [[ "$code" == "404" ]] || fail "${label}：删除后的成员仍可访问，HTTP $code"
+  fi
+
   stop_process "$pid"
-  echo "  ✅ ${label}：安装、启动、鉴权、配置、基础 API 与管理界面通过"
+  echo "  ✅ ${label}：安装、启动、鉴权、CRUD、持久化与管理界面通过"
 }
 
 run_installer() {
@@ -179,6 +243,7 @@ run_installer() {
   local env_args=(
     "HOME=$home"
     "ZYHIVE_INSTALL_BASE=$install_base"
+    "ZYHIVE_DISABLE_FALLBACK=1"
   )
   [[ -n "$version_override" ]] && env_args+=("ZYHIVE_VERSION=$version_override")
 
@@ -191,11 +256,30 @@ run_installer() {
   fi
 }
 
+run_installer_expect_failure() {
+  local installer="$1" home="$2" port="$3" install_base="$4"
+  local log="$TMP_ROOT/install-expected-failure.log"
+  if env \
+      "HOME=$home" \
+      "ZYHIVE_INSTALL_BASE=$install_base" \
+      "ZYHIVE_DISABLE_FALLBACK=1" \
+      bash "$installer" \
+      --no-root --no-service --yes --skip-setup --bind localhost --port "$port" \
+      >"$log" 2>&1; then
+    fail "损坏发布源未能阻断安装"
+  fi
+  if ! python3 -c 'import sys; raise SystemExit(0 if "SHA-256 校验失败" in sys.stdin.read() else 1)' < "$log"; then
+    python3 -c 'import sys; print(sys.stdin.read()[-3000:])' < "$log" >&2
+    fail "损坏发布源的失败原因不符合预期"
+  fi
+}
+
 write_minimal_config() {
   local home="$1" port="$2"
   mkdir -p "$home/.config/zyhive" "$home/.local/share/zyhive/agents"
   python3 - "$home/.config/zyhive/zyhive.json" "$home" "$port" <<'PY'
 import json
+import pathlib
 import sys
 
 path, home, port = sys.argv[1], sys.argv[2], int(sys.argv[3])
@@ -212,6 +296,7 @@ config = {
 }
 with open(path, "w", encoding="utf-8") as handle:
     json.dump(config, handle)
+pathlib.Path(path).chmod(0o600)
 PY
 }
 
@@ -250,6 +335,7 @@ run_local() {
   local fixture_root="$TMP_ROOT/fixture"
   local old_binary="$TMP_ROOT/$BINARY_NAME.old"
   local base fresh_home upgrade_home fresh_port upgrade_port config_before config_after
+  local current_sums valid_sums
 
   require_command go
   [[ -x "$current_binary" ]] || fail "缺少当前平台发布产物: $current_binary"
@@ -272,7 +358,7 @@ run_local() {
   fresh_home="$TMP_ROOT/home-fresh"
   fresh_port="$(random_port)"
   run_installer "$INSTALL_SOURCE" "$fresh_home" "$fresh_port" "$base"
-  basic_smoke "$fresh_home" "$VERSION" "fresh-install"
+  basic_smoke "$fresh_home" "$VERSION" "fresh-install" crud
 
   echo "▶ [Release E2E/local] 验证旧版更新与备份"
   upgrade_home="$TMP_ROOT/home-upgrade"
@@ -280,9 +366,21 @@ run_local() {
   set_fixture_latest "$fixture_root" "$old_version"
   run_installer "$INSTALL_SOURCE" "$upgrade_home" "$upgrade_port" "$base"
   assert_version "$upgrade_home/.local/bin/zyhive" "$old_version"
+  basic_smoke "$upgrade_home" "$old_version" "old-version-seed" seed
   config_before="$(sha256_file "$upgrade_home/.config/zyhive/zyhive.json")"
 
+  echo "▶ [Release E2E/local] 验证损坏校验和不会替换旧版"
+  current_sums="$fixture_root/dl/$VERSION/SHA256SUMS"
+  valid_sums="$TMP_ROOT/valid-SHA256SUMS"
+  cp "$current_sums" "$valid_sums"
+  printf '%064d  %s\n' 0 "$BINARY_NAME" > "$current_sums"
   set_fixture_latest "$fixture_root" "$VERSION"
+  run_installer_expect_failure "$INSTALL_SOURCE" "$upgrade_home" "$upgrade_port" "$base"
+  assert_version "$upgrade_home/.local/bin/zyhive" "$old_version"
+  [[ ! -e "$upgrade_home/.local/bin/zyhive.new" ]] || fail "校验失败后残留 .new 文件"
+  cp "$valid_sums" "$current_sums"
+
+  echo "▶ [Release E2E/local] 执行有效更新并验证持久数据"
   run_installer "$INSTALL_SOURCE" "$upgrade_home" "$upgrade_port" "$base"
   assert_version "$upgrade_home/.local/bin/zyhive" "$VERSION"
   assert_version "$upgrade_home/.local/bin/zyhive.bak" "$old_version"
@@ -290,7 +388,7 @@ run_local() {
   [[ "$config_before" == "$config_after" ]] || fail "更新流程修改了已有配置"
 
   run_installer "$INSTALL_SOURCE" "$upgrade_home" "$upgrade_port" "$base"
-  basic_smoke "$upgrade_home" "$VERSION" "upgrade-install"
+  basic_smoke "$upgrade_home" "$VERSION" "upgrade-install" verify
   echo "✅ Release 本地全流程测试通过"
 }
 
@@ -314,22 +412,40 @@ wait_for_latest_release() {
   fail "GitHub latest Release 尚未指向 $expected"
 }
 
+wait_for_install_mirror() {
+  local expected="$1" payload tag
+  for _ in $(seq 1 210); do
+    payload="$(curl -fsSL "https://install.zyling.ai/latest" 2>/dev/null || true)"
+    if [[ -n "$payload" ]]; then
+      tag="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("version", ""))' <<<"$payload")"
+      [[ "$tag" == "$expected" ]] && return 0
+    fi
+    sleep 2
+  done
+  fail "install.zyling.ai/latest 在七分钟内未指向 $expected"
+}
+
 run_online() {
   local previous_version="$ARG3"
   local installer="$TMP_ROOT/install.sh"
   local fresh_home="$TMP_ROOT/home-online-fresh"
   local upgrade_home="$TMP_ROOT/home-online-upgrade"
   local fresh_port upgrade_port old_binary sums expected actual
+  local config_before config_after bootstrap
 
   echo "▶ [Release E2E/online] 等待 GitHub latest Release"
   wait_for_latest_release "$VERSION"
-  download_release_asset "$VERSION" install.sh "$installer"
+  echo "▶ [Release E2E/online] 等待安装镜像切换并获取正式安装器"
+  wait_for_install_mirror "$VERSION"
+  bootstrap="$(curl -fsSL https://install.zyling.ai/install)"
+  [[ "$bootstrap" == *"install.zyling.ai/zyhive.sh"* ]] || fail "通用安装入口未返回 ZyHive 引导脚本"
+  curl -fsSL https://install.zyling.ai/zyhive.sh -o "$installer"
   chmod +x "$installer"
 
   echo "▶ [Release E2E/online] 验证正式 Release 全新安装"
   fresh_port="$(random_port)"
-  run_installer "$installer" "$fresh_home" "$fresh_port" "https://install.zyling.ai" "$VERSION"
-  basic_smoke "$fresh_home" "$VERSION" "online-fresh"
+  run_installer "$installer" "$fresh_home" "$fresh_port" "https://install.zyling.ai"
+  basic_smoke "$fresh_home" "$VERSION" "online-fresh" crud
 
   if [[ -z "$previous_version" || "$previous_version" == "$VERSION" ]]; then
     echo "  ℹ️ 未提供可用旧版本，跳过真实旧版更新"
@@ -351,10 +467,14 @@ run_online() {
 
   upgrade_port="$(random_port)"
   write_minimal_config "$upgrade_home" "$upgrade_port"
-  run_installer "$installer" "$upgrade_home" "$upgrade_port" "https://install.zyling.ai" "$VERSION"
+  basic_smoke "$upgrade_home" "$previous_version" "online-old-seed" seed
+  config_before="$(sha256_file "$upgrade_home/.config/zyhive/zyhive.json")"
+  run_installer "$installer" "$upgrade_home" "$upgrade_port" "https://install.zyling.ai"
   assert_version "$old_binary" "$VERSION"
   assert_version "$upgrade_home/.local/bin/zyhive.bak" "$previous_version"
-  basic_smoke "$upgrade_home" "$VERSION" "online-upgrade"
+  config_after="$(sha256_file "$upgrade_home/.config/zyhive/zyhive.json")"
+  [[ "$config_before" == "$config_after" ]] || fail "线上更新修改了已有配置"
+  basic_smoke "$upgrade_home" "$VERSION" "online-upgrade" verify
   echo "✅ Release 线上安装与真实更新测试通过"
 }
 

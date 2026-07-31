@@ -11,6 +11,7 @@ INSTALL_BASE="${ZYHIVE_INSTALL_BASE:-https://install.zyling.ai}"
 GITHUB_API_URL="${ZYHIVE_GITHUB_API_URL:-https://api.github.com/repos/Zyling-ai/zyhive/releases/latest}"
 GITHUB_DOWNLOAD_BASE="${ZYHIVE_GITHUB_DOWNLOAD_BASE:-https://github.com/Zyling-ai/ZyHive/releases/download}"
 VERSION_OVERRIDE="${ZYHIVE_VERSION:-}"
+DISABLE_FALLBACK="${ZYHIVE_DISABLE_FALLBACK:-0}"
 
 # ══════════════════════════════════════════════════════════════════════════
 # 依赖检查：自动安装 curl（若缺失则尝试 apt/yum/apk/brew）
@@ -131,12 +132,10 @@ SUDO=""
 SUDO_KEEPALIVE_PID=""
 USE_SYSTEM_PATH=false
 
-if $NO_ROOT; then
+if $NO_ROOT || $NO_SERVICE; then
   USE_SYSTEM_PATH=false
 elif [ "$(id -u)" = "0" ]; then
   USE_SYSTEM_PATH=true
-elif $NO_SERVICE; then
-  USE_SYSTEM_PATH=false
 elif command -v sudo &>/dev/null; then
   echo ""
   echo -e "${BOLD}ZyHive 需要管理员权限来安装系统服务。${NC}"
@@ -174,6 +173,9 @@ else
 fi
 
 CONFIG_FILE="$CONFIG_DIR/$SERVICE_NAME.json"
+if [ -f "$CONFIG_FILE" ]; then
+  $SUDO chmod 600 "$CONFIG_FILE" || error "无法收紧配置文件权限: $CONFIG_FILE"
+fi
 
 # ── 获取最新版本号 ─────────────────────────────────────────────────────────
 if [ -n "$VERSION_OVERRIDE" ]; then
@@ -183,7 +185,7 @@ else
   info "查询最新版本…"
   LATEST=$(_dl "$INSTALL_BASE/latest" "" 8 2>/dev/null \
     | grep -o '"version":"[^"]*"' | sed 's/"version":"//;s/"//g')
-  if [ -z "$LATEST" ]; then
+  if [ -z "$LATEST" ] && [ "$DISABLE_FALLBACK" != "1" ]; then
     info "CF 镜像不可用，回退到 GitHub API…"
     LATEST=$(_dl "$GITHUB_API_URL" "" 10 \
       | grep '"tag_name"' | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')
@@ -204,9 +206,10 @@ _verify_download() {
   sums_path=$(mktemp)
 
   if ! _dl "$CHECKSUM_URL" "$sums_path" 20 2>/dev/null \
-    && ! _dl "$CHECKSUM_URL_FALLBACK" "$sums_path" 20 2>/dev/null; then
+    && { [ "$DISABLE_FALLBACK" = "1" ] \
+      || ! _dl "$CHECKSUM_URL_FALLBACK" "$sums_path" 20 2>/dev/null; }; then
     rm -f "$sums_path"
-    warning "版本 $LATEST 未提供 SHA256SUMS，将执行版本号验证；下一稳定版起必须发布校验和"
+    error "版本 $LATEST 未提供可用的 SHA256SUMS，已停止安装"
   else
     expected=$(awk -v name="$BINARY_FILENAME" '$2 == name || $2 == "*" name {print $1; exit}' "$sums_path")
     rm -f "$sums_path"
@@ -293,6 +296,8 @@ if [ -f "$INSTALL_BIN" ]; then
   info "下载 $BINARY_NAME $LATEST ($OS/$ARCH)…"
   TMP_BIN=$(mktemp)
   if ! _dl "$BINARY_URL" "$TMP_BIN" 120 2>/dev/null; then
+    [ "$DISABLE_FALLBACK" = "1" ] \
+      && { rm -f "$TMP_BIN"; error "指定下载源不可用，严格模式禁止回退: $BINARY_URL"; }
     info "CF 镜像下载失败，回退到 GitHub…"
     _dl "$BINARY_URL_FALLBACK" "$TMP_BIN" 120 \
       || { rm -f "$TMP_BIN"; error "下载失败。\n  CF: $BINARY_URL\n  GitHub: $BINARY_URL_FALLBACK"; }
@@ -305,7 +310,11 @@ if [ -f "$INSTALL_BIN" ]; then
     || { rm -f "$TMP_BIN"; error "无法备份当前版本，已取消更新"; }
 
   _stop_existing_service
-  info "服务已停止，正在原子替换二进制…"
+  if $NO_SERVICE; then
+    info "正在原子替换二进制…"
+  else
+    info "服务已停止，正在原子替换二进制…"
+  fi
 
   if ! $SUDO install -m 755 "$TMP_BIN" "$NEW_BIN" \
     || ! $SUDO mv -f "$NEW_BIN" "$INSTALL_BIN"; then
@@ -322,7 +331,11 @@ if [ -f "$INSTALL_BIN" ]; then
   success "二进制已更新至 $INSTALL_BIN"
 
   _start_existing_service
-  success "服务已重启；旧版本保留在 $BACKUP_BIN"
+  if $NO_SERVICE; then
+    success "二进制更新完成；旧版本保留在 $BACKUP_BIN"
+  else
+    success "服务已重启；旧版本保留在 $BACKUP_BIN"
+  fi
 
   # 停止 sudo 保活进程
   [ -n "$SUDO_KEEPALIVE_PID" ] && kill "$SUDO_KEEPALIVE_PID" 2>/dev/null || true
@@ -354,6 +367,8 @@ echo ""
 info "下载 $BINARY_NAME $LATEST ($OS/$ARCH)…"
 TMP_BIN=$(mktemp)
 if ! _dl "$BINARY_URL" "$TMP_BIN" 120 2>/dev/null; then
+  [ "$DISABLE_FALLBACK" = "1" ] \
+    && { rm -f "$TMP_BIN"; error "指定下载源不可用，严格模式禁止回退: $BINARY_URL"; }
   info "CF 镜像下载失败，回退到 GitHub…"
   _dl "$BINARY_URL_FALLBACK" "$TMP_BIN" 120 \
     || { rm -f "$TMP_BIN"; error "下载失败。\n  CF: $BINARY_URL\n  GitHub: $BINARY_URL_FALLBACK"; }
@@ -561,8 +576,10 @@ _wizard_setup() {
   [ -n "$sel_tg_token" ] && \
     channels_json=$(_make_channels_json "$sel_tg_token" "${sel_tg_allowed:-$WIZARD_TG_ALLOWED}")
 
-  # 写配置
-  cat > "$cfg_file" << CFGEOF
+  # 先写临时文件，再以 0600 安装；系统路径下也不会因 sudo 目录归属而失败。
+  local cfg_tmp
+  cfg_tmp=$(mktemp)
+  cat > "$cfg_tmp" << CFGEOF
 {
   "configVersion": 3,
   "gateway":  { "port": ${PORT}, "bind": "${bind_mode}" },
@@ -575,6 +592,8 @@ _wizard_setup() {
   "auth":      { "mode": "token", "token": "${admin_token}" }
 }
 CFGEOF
+  $SUDO install -m 600 "$cfg_tmp" "$cfg_file"
+  rm -f "$cfg_tmp"
 
   echo ""
   echo -e "  ${YELLOW}🔑 管理员 Token：${NC}${GREEN}${BOLD}${admin_token}${NC}"

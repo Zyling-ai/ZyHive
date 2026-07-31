@@ -7,7 +7,7 @@
 [![GitHub Forks](https://img.shields.io/github/forks/Zyling-ai/zyhive?style=flat&logo=github&color=orange)](https://github.com/Zyling-ai/zyhive/network/members)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 [![Go 1.25+](https://img.shields.io/badge/Go-1.25+-00ADD8.svg)](https://golang.org)
-[![Version](https://img.shields.io/badge/version-26.7.31v5-brightgreen.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-26.7.31v6-brightgreen.svg)](CHANGELOG.md)
 [![Release E2E](https://github.com/Zyling-ai/ZyHive/actions/workflows/release-e2e.yml/badge.svg)](https://github.com/Zyling-ai/ZyHive/actions/workflows/release-e2e.yml)
 [![官网](https://img.shields.io/badge/官网-zyling.ai-6366f1?logo=globe)](https://zyling.ai)
 
@@ -16,7 +16,7 @@
 一行命令安装，打开浏览器即可管理整个 AI 团队：配置每个成员的身份、灵魂、记忆、技能，设计组织架构，让成员之间互相协作讨论。
 
 > **发布状态**
-> 当前公开稳定版为 `26.7.31v5`，正式 Release 必须通过全新安装、服务启动、鉴权、基础 API 和旧版更新全流程测试。
+> 当前公开稳定版为 `26.7.31v6`，正式 Release 必须通过全新安装、服务启动、鉴权、基础 API、成员与文件持久化和旧版更新全流程测试。
 > 仓库已强制仅允许 `Zyling-ai` 提交身份；Release E2E 失败会自动转为草稿并停止公开分发。
 > 当前产品定位为单机、自托管 Beta，适合个人、小团队和可控环境部署；尚不承诺多租户、多实例、企业级高可用或关键业务连续性。
 > `pkg/aiteam/` 下的钱包、预算、评分、工资和收益模块属于实验能力，不作为稳定版默认商业承诺。
@@ -59,7 +59,7 @@ curl -sSL https://install.zyling.ai/install | bash
 | `https://install.zyling.ai/dl/{ver}/{file}` | 二进制下载代理（国内加速） |
 
 > 国内用户可通过 Cloudflare 全球节点加速下载。新发布版本同时提供 `SHA256SUMS`，安装和在线升级会先校验完整性，再替换本地二进制。
-> 发布前测试在隔离目录中执行，发布后还会在 Linux、macOS 上使用 GitHub 正式资产复测安装和真实版本更新。
+> 发布前测试在隔离目录中执行；发布后还会在 Linux、macOS 上严格使用 `install.zyling.ai` 复测，镜像、校验和或更新异常时禁止回退掩盖故障。
 
 ---
 
