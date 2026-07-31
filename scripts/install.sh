@@ -7,7 +7,10 @@
 # ─────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-INSTALL_BASE="https://install.zyling.ai"
+INSTALL_BASE="${ZYHIVE_INSTALL_BASE:-https://install.zyling.ai}"
+GITHUB_API_URL="${ZYHIVE_GITHUB_API_URL:-https://api.github.com/repos/Zyling-ai/zyhive/releases/latest}"
+GITHUB_DOWNLOAD_BASE="${ZYHIVE_GITHUB_DOWNLOAD_BASE:-https://github.com/Zyling-ai/ZyHive/releases/download}"
+VERSION_OVERRIDE="${ZYHIVE_VERSION:-}"
 
 # ══════════════════════════════════════════════════════════════════════════
 # 依赖检查：自动安装 curl（若缺失则尝试 apt/yum/apk/brew）
@@ -62,6 +65,8 @@ BINARY_NAME="zyhive"
 PORT=8080
 DOMAIN=""
 NO_ROOT=false   # --no-root 强制用户目录安装
+NO_SERVICE=false # --no-service 不注册系统服务（容器、CI 和手动托管）
+BIND_OVERRIDE="" # --bind 显式指定 localhost|lan|all|IP
 
 # ── 向导参数（可通过 flag 跳过交互）────────────────────────────────────────
 SKIP_SETUP=false          # --skip-setup 跳过向导
@@ -78,7 +83,9 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --domain)            DOMAIN="$2";           shift 2 ;;
     --port)              PORT="$2";             shift 2 ;;
+    --bind)              BIND_OVERRIDE="$2";    shift 2 ;;
     --no-root)           NO_ROOT=true;          shift   ;;
+    --no-service)        NO_SERVICE=true;       shift   ;;
     --skip-setup)        SKIP_SETUP=true;       shift   ;;
     --yes|-y)            YES_MODE=true;         shift   ;;
     --provider)          WIZARD_PROVIDER="$2";  shift 2 ;;
@@ -128,6 +135,8 @@ if $NO_ROOT; then
   USE_SYSTEM_PATH=false
 elif [ "$(id -u)" = "0" ]; then
   USE_SYSTEM_PATH=true
+elif $NO_SERVICE; then
+  USE_SYSTEM_PATH=false
 elif command -v sudo &>/dev/null; then
   echo ""
   echo -e "${BOLD}ZyHive 需要管理员权限来安装系统服务。${NC}"
@@ -167,22 +176,27 @@ fi
 CONFIG_FILE="$CONFIG_DIR/$SERVICE_NAME.json"
 
 # ── 获取最新版本号 ─────────────────────────────────────────────────────────
-info "查询最新版本…"
-LATEST=$(_dl "$INSTALL_BASE/latest" "" 8 2>/dev/null \
-  | grep -o '"version":"[^"]*"' | sed 's/"version":"//;s/"//g')
-if [ -z "$LATEST" ]; then
-  info "CF 镜像不可用，回退到 GitHub API…"
-  LATEST=$(_dl "https://api.github.com/repos/Zyling-ai/zyhive/releases/latest" "" 10 \
-    | grep '"tag_name"' | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')
+if [ -n "$VERSION_OVERRIDE" ]; then
+  LATEST="$VERSION_OVERRIDE"
+  info "使用指定版本：$LATEST"
+else
+  info "查询最新版本…"
+  LATEST=$(_dl "$INSTALL_BASE/latest" "" 8 2>/dev/null \
+    | grep -o '"version":"[^"]*"' | sed 's/"version":"//;s/"//g')
+  if [ -z "$LATEST" ]; then
+    info "CF 镜像不可用，回退到 GitHub API…"
+    LATEST=$(_dl "$GITHUB_API_URL" "" 10 \
+      | grep '"tag_name"' | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')
+  fi
 fi
 [ -z "$LATEST" ] && error "无法获取最新版本，请检查网络连接。"
 info "最新版本：$LATEST"
 
 BINARY_FILENAME="zyhive-${OS}-${ARCH}"
 BINARY_URL="$INSTALL_BASE/dl/$LATEST/$BINARY_FILENAME"
-BINARY_URL_FALLBACK="https://github.com/Zyling-ai/ZyHive/releases/download/$LATEST/$BINARY_FILENAME"
+BINARY_URL_FALLBACK="$GITHUB_DOWNLOAD_BASE/$LATEST/$BINARY_FILENAME"
 CHECKSUM_URL="$INSTALL_BASE/dl/$LATEST/SHA256SUMS"
-CHECKSUM_URL_FALLBACK="https://github.com/Zyling-ai/ZyHive/releases/download/$LATEST/SHA256SUMS"
+CHECKSUM_URL_FALLBACK="$GITHUB_DOWNLOAD_BASE/$LATEST/SHA256SUMS"
 
 _verify_download() {
   local binary_path="$1"
@@ -209,11 +223,12 @@ _verify_download() {
 
   chmod 755 "$binary_path"
   detected=$("$binary_path" --version 2>/dev/null | awk '{print $NF}')
-  [ "$detected" = "$LATEST" ] || error "二进制版本不匹配：期望 $LATEST，实际 ${detected:-未知}"
+  [ "$detected" = "$LATEST" ] || error "二进制版本不匹配：期望 ${LATEST}，实际 ${detected:-未知}"
   success "版本验证通过：$detected"
 }
 
 _stop_existing_service() {
+  $NO_SERVICE && return 0
   if [ "$OS" = "linux" ] && command -v systemctl &>/dev/null; then
     $SUDO systemctl stop "$SERVICE_NAME" 2>/dev/null || true
   elif [ "$OS" = "darwin" ]; then
@@ -227,6 +242,7 @@ _stop_existing_service() {
 }
 
 _start_existing_service() {
+  $NO_SERVICE && return 0
   if [ "$OS" = "linux" ] && command -v systemctl &>/dev/null; then
     $SUDO systemctl start "$SERVICE_NAME"
     info "查看日志：sudo journalctl -u $SERVICE_NAME -f"
@@ -256,9 +272,14 @@ if [ -f "$INSTALL_BIN" ]; then
     exit 0
   fi
 
-  printf "  是否更新 %s → %s？[Y/n] " "$CURRENT" "$LATEST"
-  read -r CONFIRM </dev/tty
-  CONFIRM="${CONFIRM:-Y}"
+  if $YES_MODE; then
+    CONFIRM="Y"
+    info "非交互模式：确认更新 $CURRENT → $LATEST"
+  else
+    printf "  是否更新 %s → %s？[Y/n] " "$CURRENT" "$LATEST"
+    read -r CONFIRM </dev/tty
+    CONFIRM="${CONFIRM:-Y}"
+  fi
   if [[ ! "$CONFIRM" =~ ^[Yy]$ ]]; then
     echo ""
     info "已取消，当前版本 $CURRENT 保持不变。"
@@ -266,7 +287,7 @@ if [ -f "$INSTALL_BIN" ]; then
   fi
 
   echo ""
-  info "开始更新 $CURRENT → $LATEST…"
+  info "开始更新 $CURRENT → ${LATEST}…"
 
   # 先下载并验证，避免服务在网络失败时无意义停机。
   info "下载 $BINARY_NAME $LATEST ($OS/$ARCH)…"
@@ -326,7 +347,7 @@ if $USE_SYSTEM_PATH; then
 else
   info "权限模式：用户目录安装"
 fi
-[ -n "$DOMAIN" ] && info "域名：$DOMAIN（将自动配置 NGINX + HTTPS）"
+[ -n "$DOMAIN" ] && info "域名：${DOMAIN}（将自动配置 NGINX + HTTPS）"
 echo ""
 
 # ── 下载二进制 ─────────────────────────────────────────────────────────────
@@ -351,7 +372,7 @@ if ! echo "$PATH" | grep -q "$(dirname "$INSTALL_BIN")"; then
     [ -f "$RC" ] || continue
     if ! grep -q "$(dirname "$INSTALL_BIN")" "$RC" 2>/dev/null; then
       echo "export PATH=\"$(dirname "$INSTALL_BIN"):\$PATH\"" >> "$RC"
-      info "已将 $(dirname "$INSTALL_BIN") 加入 PATH（$RC）"
+      info "已将 $(dirname "$INSTALL_BIN") 加入 PATH（${RC}）"
     fi
   done
 fi
@@ -577,6 +598,7 @@ SHOW_MODEL=""
 if [ ! -f "$CONFIG_FILE" ]; then
   BIND_MODE="lan"
   [ -n "$DOMAIN" ] && BIND_MODE="localhost"
+  [ -n "$BIND_OVERRIDE" ] && BIND_MODE="$BIND_OVERRIDE"
   _wizard_setup "$CONFIG_FILE" "$BIND_MODE"
 fi
 
@@ -760,7 +782,9 @@ NGINX
 
 # ── 服务安装入口 ───────────────────────────────────────────────────────────
 echo ""
-if [ "$OS" = "linux" ]; then
+if $NO_SERVICE; then
+  info "已按要求跳过系统服务注册；可手动启动：$INSTALL_BIN --serve --config $CONFIG_FILE"
+elif [ "$OS" = "linux" ]; then
   if command -v systemctl &>/dev/null; then
     info "配置 systemd 服务…"
     install_systemd

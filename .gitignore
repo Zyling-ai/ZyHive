@@ -22,3 +22,7 @@ agents/
 *.log
 .DS_Store
 /aipanel
+
+# Test helpers
+__pycache__/
+*.pyc

@@ -1,4 +1,4 @@
-.PHONY: build ui test check sync-ui clean run release release-dry-run
+.PHONY: build ui test check sync-ui clean run release release-dry-run release-e2e
 
 # 版本号：优先用 git tag，否则用 commit hash
 VERSION := $(shell git describe --tags --abbrev=0 2>/dev/null || git rev-parse --short HEAD 2>/dev/null || echo "dev")
@@ -49,6 +49,15 @@ release:
 release-dry-run:
 	@test -n "$(RELEASE_VERSION)" || (echo "请提供 RELEASE_VERSION=YY.M.DvN" >&2; exit 2)
 	./scripts/release.sh "$(RELEASE_VERSION)" --dry-run
+
+# Build the current host artifact and verify clean install, basic API and update.
+release-e2e:
+	@test -n "$(RELEASE_VERSION)" || (echo "请提供 RELEASE_VERSION=YY.M.DvN" >&2; exit 2)
+	rm -rf /tmp/zyhive-release-e2e-make
+	mkdir -p /tmp/zyhive-release-e2e-make
+	CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.Version=$(RELEASE_VERSION)" \
+		-o /tmp/zyhive-release-e2e-make/zyhive-$(shell go env GOOS)-$(shell go env GOARCH) ./cmd/aipanel/
+	scripts/test/release-e2e/run.sh local "$(RELEASE_VERSION)" /tmp/zyhive-release-e2e-make
 
 clean:
 	rm -rf cmd/aipanel/ui_dist ui/dist bin/aipanel bin/release

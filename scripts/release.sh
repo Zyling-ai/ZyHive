@@ -31,7 +31,7 @@ require_command() {
   }
 }
 
-for cmd in git go node npm; do
+for cmd in git go node npm curl python3; do
   require_command "$cmd"
 done
 
@@ -60,18 +60,24 @@ if [[ "$DRY_RUN" == false ]]; then
     echo "❌ Release $VERSION 已存在" >&2
     exit 1
   fi
+  PREVIOUS_VERSION="$(
+    gh release list --repo "$REPO" --exclude-drafts --exclude-pre-releases \
+      --limit 1 --json tagName --jq '.[0].tagName // ""'
+  )"
+else
+  PREVIOUS_VERSION=""
 fi
 
 echo "▶ 版本: $VERSION"
 echo "▶ 模式: $([[ "$DRY_RUN" == true ]] && echo "干运行" || echo "正式发布")"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-echo "🧪 [1/6] 后端质量门槛..."
+echo "🧪 [1/8] 后端质量门槛..."
 go vet ./...
 go test ./... -count=1 -timeout=5m
 go build ./...
 
-echo "🖥  [2/6] 前端测试、类型检查与构建..."
+echo "🖥  [2/8] 前端测试、类型检查与构建..."
 (
   cd ui
   npm ci
@@ -79,7 +85,7 @@ echo "🖥  [2/6] 前端测试、类型检查与构建..."
   npm run build
 )
 
-echo "🔄 [3/6] 同步并验证嵌入 UI..."
+echo "🔄 [3/8] 同步并验证嵌入 UI..."
 rm -rf cmd/aipanel/ui_dist
 cp -R ui/dist cmd/aipanel/ui_dist
 if ! git diff --no-index --quiet -- ui/dist cmd/aipanel/ui_dist; then
@@ -87,7 +93,7 @@ if ! git diff --no-index --quiet -- ui/dist cmd/aipanel/ui_dist; then
   exit 1
 fi
 
-echo "🔨 [4/6] 构建官方支持平台..."
+echo "🔨 [4/8] 构建官方支持平台..."
 rm -rf "$DIST_DIR"
 mkdir -p "$DIST_DIR"
 cp scripts/install.sh "$DIST_DIR/install.sh"
@@ -106,7 +112,7 @@ for platform in "${platforms[@]}"; do
   echo "   ✅ $name"
 done
 
-echo "🔐 [5/6] 生成 SHA-256 校验和..."
+echo "🔐 [5/8] 生成 SHA-256 校验和..."
 (
   cd "$DIST_DIR"
   if command -v sha256sum >/dev/null 2>&1; then
@@ -116,14 +122,17 @@ echo "🔐 [5/6] 生成 SHA-256 校验和..."
   fi
 )
 
+echo "🧭 [6/8] 隔离环境验证全新安装、基础功能与旧版更新..."
+scripts/test/release-e2e/run.sh local "$VERSION" "$DIST_DIR"
+
 if [[ "$DRY_RUN" == true ]]; then
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "✅ 干运行完成，未创建 Release"
+  echo "✅ 干运行完成，发布前全流程测试通过，未创建 Release"
   echo "   产物目录: $DIST_DIR"
   exit 0
 fi
 
-echo "🚀 [6/6] 创建 GitHub Release..."
+echo "🚀 [7/8] 创建 GitHub Release..."
 release_notes=$(cat <<EOF
 ## ${VERSION}
 
@@ -142,6 +151,13 @@ gh release create "$VERSION" \
   --target "$(git rev-parse HEAD)" \
   --title "$VERSION" \
   --notes "$release_notes"
+
+echo "🌐 [8/8] 验证正式 Release 在线安装与真实版本更新..."
+if ! scripts/test/release-e2e/run.sh online "$VERSION" "$PREVIOUS_VERSION"; then
+  echo "❌ Release 在线全流程测试失败，正在转为草稿以停止公开分发..." >&2
+  gh release edit "$VERSION" --repo "$REPO" --draft
+  exit 1
+fi
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "✅ 发布完成: ${VERSION}"

@@ -1,0 +1,70 @@
+name: Release E2E
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  install-update:
+    name: Install and update (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    concurrency:
+      group: release-e2e-${{ github.event.release.tag_name }}-${{ matrix.os }}
+      cancel-in-progress: false
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Resolve previous stable release
+        id: previous
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CURRENT_VERSION: ${{ github.event.release.tag_name }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          gh api "repos/${REPOSITORY}/releases?per_page=100" > /tmp/releases.json
+          previous="$(
+            python3 - "$CURRENT_VERSION" /tmp/releases.json <<'PY'
+          import json
+          import sys
+
+          current = sys.argv[1]
+          releases = json.load(open(sys.argv[2], encoding="utf-8"))
+          print(next((
+              item["tag_name"]
+              for item in releases
+              if not item["draft"] and not item["prerelease"] and item["tag_name"] != current
+          ), ""))
+          PY
+          )"
+          echo "version=$previous" >> "$GITHUB_OUTPUT"
+
+      - name: Test official install, basic API and real update
+        id: release_e2e
+        continue-on-error: true
+        env:
+          ZYHIVE_REPO: ${{ github.repository }}
+        run: >-
+          scripts/test/release-e2e/run.sh
+          online
+          "${{ github.event.release.tag_name }}"
+          "${{ steps.previous.outputs.version }}"
+
+      - name: Withdraw release when E2E fails
+        if: steps.release_e2e.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ github.event.release.tag_name }}
+        run: |
+          gh release edit "$VERSION" --repo "${{ github.repository }}" --draft
+          echo "Release $VERSION failed installation/update E2E and was moved to draft." >&2
+          exit 1

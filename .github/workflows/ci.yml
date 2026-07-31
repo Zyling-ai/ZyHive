@@ -125,12 +125,33 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: bash -n
-        run: bash -n scripts/*.sh scripts/test/*.sh
+        run: bash -n scripts/*.sh scripts/test/*.sh scripts/test/release-e2e/*.sh
+
+  release-smoke:
+    name: Release E2E (install / API / update)
+    needs: [go, scripts]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.10'
+          cache: true
+      - name: Build native release fixture
+        run: |
+          mkdir -p /tmp/zyhive-release-smoke
+          CGO_ENABLED=0 go build -trimpath \
+            -ldflags="-s -w -X main.Version=00.0.0v1" \
+            -o /tmp/zyhive-release-smoke/zyhive-linux-amd64 \
+            ./cmd/aipanel/
+      - name: Test clean install, basic API and update
+        run: scripts/test/release-e2e/run.sh local 00.0.0v1 /tmp/zyhive-release-smoke
 
   release-build:
     name: Release build (${{ matrix.goos }}/${{ matrix.goarch }})
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [identity, go, go-race, ui, scripts]
+    needs: [identity, go, go-race, ui, scripts, release-smoke]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:

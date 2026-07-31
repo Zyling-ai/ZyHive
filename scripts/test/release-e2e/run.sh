@@ -1,0 +1,369 @@
+#!/usr/bin/env bash
+# Release 全流程测试：产物校验 → 全新安装 → 服务/API → 旧版更新 → 备份确认。
+set -euo pipefail
+
+MODE="${1:-}"
+VERSION="${2:-}"
+ARG3="${3:-}"
+REPO="${ZYHIVE_REPO:-Zyling-ai/ZyHive}"
+REPO_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
+INSTALL_SOURCE="$REPO_ROOT/scripts/install.sh"
+SERVER_SCRIPT="$REPO_ROOT/scripts/test/release-e2e/server.py"
+TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/zyhive-release-e2e.XXXXXX")"
+PIDS=()
+
+cleanup() {
+  local pid
+  for pid in "${PIDS[@]:-}"; do
+    kill "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+  done
+  rm -rf "$TMP_ROOT"
+}
+trap cleanup EXIT
+
+fail() {
+  echo "❌ $*" >&2
+  exit 1
+}
+
+require_command() {
+  command -v "$1" >/dev/null 2>&1 || fail "缺少命令: $1"
+}
+
+for command_name in bash curl python3; do
+  require_command "$command_name"
+done
+
+case "$(uname -s)" in
+  Linux) OS="linux" ;;
+  Darwin) OS="darwin" ;;
+  *) fail "不支持的测试系统: $(uname -s)" ;;
+esac
+
+case "$(uname -m)" in
+  x86_64) ARCH="amd64" ;;
+  arm64|aarch64) ARCH="arm64" ;;
+  *) fail "不支持的测试架构: $(uname -m)" ;;
+esac
+
+BINARY_NAME="zyhive-${OS}-${ARCH}"
+
+sha256_file() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  else
+    shasum -a 256 "$1" | awk '{print $1}'
+  fi
+}
+
+version_of() {
+  "$1" --version 2>/dev/null | awk '{print $NF}'
+}
+
+assert_version() {
+  local binary="$1" expected="$2" actual
+  actual="$(version_of "$binary")"
+  [[ "$actual" == "$expected" ]] || fail "版本不匹配：期望 ${expected}，实际 ${actual:-未知}"
+}
+
+random_port() {
+  python3 - <<'PY'
+import socket
+
+sock = socket.socket()
+sock.bind(("127.0.0.1", 0))
+print(sock.getsockname()[1])
+sock.close()
+PY
+}
+
+json_value() {
+  local file="$1" expression="$2"
+  python3 - "$file" "$expression" <<'PY'
+import json
+import sys
+
+value = json.load(open(sys.argv[1], encoding="utf-8"))
+for key in sys.argv[2].split("."):
+    value = value[key]
+print(value)
+PY
+}
+
+http_code() {
+  local url="$1"
+  shift
+  curl -sS -o "$TMP_ROOT/http-body" -w '%{http_code}' "$@" "$url"
+}
+
+wait_for_code() {
+  local url="$1" expected="$2" attempts="${3:-60}" code=""
+  shift 3 || true
+  for _ in $(seq 1 "$attempts"); do
+    code="$(http_code "$url" "$@" 2>/dev/null || true)"
+    [[ "$code" == "$expected" ]] && return 0
+    sleep 0.5
+  done
+  echo "最后响应（HTTP ${code:-000}）：" >&2
+  test -f "$TMP_ROOT/http-body" && python3 -c 'import sys; print(sys.stdin.read()[:1000])' < "$TMP_ROOT/http-body" >&2
+  return 1
+}
+
+stop_process() {
+  local pid="$1"
+  kill "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+}
+
+basic_smoke() {
+  local home="$1" expected_version="$2" label="$3"
+  local binary="$home/.local/bin/zyhive"
+  local config="$home/.config/zyhive/zyhive.json"
+  local token port base log pid code version
+
+  [[ -x "$binary" ]] || fail "${label}：安装后的二进制不存在"
+  [[ -f "$config" ]] || fail "${label}：配置文件不存在"
+  assert_version "$binary" "$expected_version"
+
+  token="$(json_value "$config" auth.token)"
+  port="$(json_value "$config" gateway.port)"
+  base="http://127.0.0.1:${port}"
+  log="$TMP_ROOT/${label}.log"
+
+  (
+    cd "$home"
+    HOME="$home" "$binary" --serve --config "$config"
+  ) >"$log" 2>&1 &
+  pid=$!
+  PIDS+=("$pid")
+
+  if ! wait_for_code "$base/healthz" 200 60; then
+    echo "服务日志：" >&2
+    python3 -c 'import sys; print(sys.stdin.read()[-4000:])' < "$log" >&2
+    fail "${label}：服务未通过健康检查"
+  fi
+
+  curl -fsS "$base/api/version" > "$TMP_ROOT/version.json"
+  version="$(json_value "$TMP_ROOT/version.json" version)"
+  [[ "$version" == "$expected_version" ]] || fail "${label}：API 版本错误 $version"
+
+  code="$(http_code "$base/api/agents")"
+  [[ "$code" == "401" ]] || fail "${label}：未鉴权访问 /api/agents 应返回 401，实际 $code"
+
+  code="$(http_code "$base/api/agents" -H "Authorization: Bearer $token")"
+  [[ "$code" == "200" ]] || fail "${label}：鉴权访问 /api/agents 失败，HTTP $code"
+  python3 - "$TMP_ROOT/http-body" <<'PY'
+import json
+import sys
+
+assert isinstance(json.load(open(sys.argv[1], encoding="utf-8")), list)
+PY
+
+  code="$(http_code "$base/api/config" -H "Authorization: Bearer $token")"
+  [[ "$code" == "200" ]] || fail "${label}：读取 /api/config 失败，HTTP $code"
+  [[ "$(json_value "$TMP_ROOT/http-body" auth.token)" == "***" ]] \
+    || fail "${label}：配置 API 未遮蔽管理令牌"
+
+  wait_for_code "$base/readyz" 200 30 || fail "${label}：服务未进入 ready 状态"
+  code="$(http_code "$base/")"
+  [[ "$code" == "200" ]] || fail "${label}：嵌入管理界面不可访问，HTTP $code"
+
+  stop_process "$pid"
+  echo "  ✅ ${label}：安装、启动、鉴权、配置、基础 API 与管理界面通过"
+}
+
+run_installer() {
+  local installer="$1" home="$2" port="$3" install_base="$4" version_override="${5:-}"
+  local log="$TMP_ROOT/install-$(basename "$home").log"
+  local env_args=(
+    "HOME=$home"
+    "ZYHIVE_INSTALL_BASE=$install_base"
+  )
+  [[ -n "$version_override" ]] && env_args+=("ZYHIVE_VERSION=$version_override")
+
+  mkdir -p "$home"
+  if ! env "${env_args[@]}" bash "$installer" \
+      --no-root --no-service --yes --skip-setup --bind localhost --port "$port" \
+      >"$log" 2>&1; then
+    python3 -c 'import sys; print(sys.stdin.read()[-5000:])' < "$log" >&2
+    fail "安装脚本执行失败"
+  fi
+}
+
+write_minimal_config() {
+  local home="$1" port="$2"
+  mkdir -p "$home/.config/zyhive" "$home/.local/share/zyhive/agents"
+  python3 - "$home/.config/zyhive/zyhive.json" "$home" "$port" <<'PY'
+import json
+import sys
+
+path, home, port = sys.argv[1], sys.argv[2], int(sys.argv[3])
+config = {
+    "configVersion": 3,
+    "gateway": {"port": port, "bind": "localhost"},
+    "agents": {"dir": f"{home}/.local/share/zyhive/agents"},
+    "providers": [],
+    "models": [],
+    "channels": [],
+    "tools": [],
+    "skills": [],
+    "auth": {"mode": "token", "token": "release-smoke-token"},
+}
+with open(path, "w", encoding="utf-8") as handle:
+    json.dump(config, handle)
+PY
+}
+
+prepare_fixture_release() {
+  local fixture_root="$1" version="$2" binary="$3"
+  local release_dir="$fixture_root/dl/$version"
+  mkdir -p "$release_dir"
+  cp "$binary" "$release_dir/$BINARY_NAME"
+  printf '%s  %s\n' "$(sha256_file "$binary")" "$BINARY_NAME" > "$release_dir/SHA256SUMS"
+}
+
+set_fixture_latest() {
+  local fixture_root="$1" version="$2"
+  printf '{"version":"%s"}\n' "$version" > "$fixture_root/latest.new"
+  mv "$fixture_root/latest.new" "$fixture_root/latest"
+}
+
+start_fixture_server() {
+  local fixture_root="$1"
+  local port_file="$TMP_ROOT/fixture-port"
+  python3 "$SERVER_SCRIPT" "$fixture_root" "$port_file" >"$TMP_ROOT/fixture-server.log" 2>&1 &
+  local pid=$!
+  PIDS+=("$pid")
+  for _ in $(seq 1 50); do
+    [[ -s "$port_file" ]] && break
+    sleep 0.1
+  done
+  [[ -s "$port_file" ]] || fail "本地 Release 服务启动失败"
+  FIXTURE_BASE="http://127.0.0.1:$(<"$port_file")"
+}
+
+run_local() {
+  local dist_dir="$ARG3"
+  local current_binary="$dist_dir/$BINARY_NAME"
+  local old_version="00.0.0v0"
+  local fixture_root="$TMP_ROOT/fixture"
+  local old_binary="$TMP_ROOT/$BINARY_NAME.old"
+  local base fresh_home upgrade_home fresh_port upgrade_port config_before config_after
+
+  require_command go
+  [[ -x "$current_binary" ]] || fail "缺少当前平台发布产物: $current_binary"
+  assert_version "$current_binary" "$VERSION"
+
+  echo "▶ [Release E2E/local] 准备隔离 Release 仓库"
+  (
+    cd "$REPO_ROOT"
+    CGO_ENABLED=0 GOOS="$OS" GOARCH="$ARCH" \
+      go build -trimpath -ldflags="-s -w -X main.Version=${old_version}" \
+      -o "$old_binary" ./cmd/aipanel/
+  )
+  prepare_fixture_release "$fixture_root" "$old_version" "$old_binary"
+  prepare_fixture_release "$fixture_root" "$VERSION" "$current_binary"
+  set_fixture_latest "$fixture_root" "$VERSION"
+  start_fixture_server "$fixture_root"
+  base="$FIXTURE_BASE"
+
+  echo "▶ [Release E2E/local] 验证全新安装"
+  fresh_home="$TMP_ROOT/home-fresh"
+  fresh_port="$(random_port)"
+  run_installer "$INSTALL_SOURCE" "$fresh_home" "$fresh_port" "$base"
+  basic_smoke "$fresh_home" "$VERSION" "fresh-install"
+
+  echo "▶ [Release E2E/local] 验证旧版更新与备份"
+  upgrade_home="$TMP_ROOT/home-upgrade"
+  upgrade_port="$(random_port)"
+  set_fixture_latest "$fixture_root" "$old_version"
+  run_installer "$INSTALL_SOURCE" "$upgrade_home" "$upgrade_port" "$base"
+  assert_version "$upgrade_home/.local/bin/zyhive" "$old_version"
+  config_before="$(sha256_file "$upgrade_home/.config/zyhive/zyhive.json")"
+
+  set_fixture_latest "$fixture_root" "$VERSION"
+  run_installer "$INSTALL_SOURCE" "$upgrade_home" "$upgrade_port" "$base"
+  assert_version "$upgrade_home/.local/bin/zyhive" "$VERSION"
+  assert_version "$upgrade_home/.local/bin/zyhive.bak" "$old_version"
+  config_after="$(sha256_file "$upgrade_home/.config/zyhive/zyhive.json")"
+  [[ "$config_before" == "$config_after" ]] || fail "更新流程修改了已有配置"
+
+  run_installer "$INSTALL_SOURCE" "$upgrade_home" "$upgrade_port" "$base"
+  basic_smoke "$upgrade_home" "$VERSION" "upgrade-install"
+  echo "✅ Release 本地全流程测试通过"
+}
+
+download_release_asset() {
+  local version="$1" asset="$2" destination="$3"
+  curl -fsSL --retry 3 \
+    "https://github.com/${REPO}/releases/download/${version}/${asset}" \
+    -o "$destination"
+}
+
+wait_for_latest_release() {
+  local expected="$1" payload tag
+  for _ in $(seq 1 24); do
+    payload="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null || true)"
+    if [[ -n "$payload" ]]; then
+      tag="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("tag_name", ""))' <<<"$payload")"
+      [[ "$tag" == "$expected" ]] && return 0
+    fi
+    sleep 2
+  done
+  fail "GitHub latest Release 尚未指向 $expected"
+}
+
+run_online() {
+  local previous_version="$ARG3"
+  local installer="$TMP_ROOT/install.sh"
+  local fresh_home="$TMP_ROOT/home-online-fresh"
+  local upgrade_home="$TMP_ROOT/home-online-upgrade"
+  local fresh_port upgrade_port old_binary sums expected actual
+
+  echo "▶ [Release E2E/online] 等待 GitHub latest Release"
+  wait_for_latest_release "$VERSION"
+  download_release_asset "$VERSION" install.sh "$installer"
+  chmod +x "$installer"
+
+  echo "▶ [Release E2E/online] 验证正式 Release 全新安装"
+  fresh_port="$(random_port)"
+  run_installer "$installer" "$fresh_home" "$fresh_port" "https://install.zyling.ai" "$VERSION"
+  basic_smoke "$fresh_home" "$VERSION" "online-fresh"
+
+  if [[ -z "$previous_version" || "$previous_version" == "$VERSION" ]]; then
+    echo "  ℹ️ 未提供可用旧版本，跳过真实旧版更新"
+    echo "✅ Release 线上安装测试通过"
+    return
+  fi
+
+  echo "▶ [Release E2E/online] 验证 $previous_version → $VERSION 真实更新"
+  mkdir -p "$upgrade_home/.local/bin"
+  old_binary="$upgrade_home/.local/bin/zyhive"
+  sums="$TMP_ROOT/previous-SHA256SUMS"
+  download_release_asset "$previous_version" "$BINARY_NAME" "$old_binary"
+  download_release_asset "$previous_version" SHA256SUMS "$sums"
+  chmod +x "$old_binary"
+  expected="$(awk -v name="$BINARY_NAME" '$2 == name || $2 == "*" name {print $1; exit}' "$sums")"
+  actual="$(sha256_file "$old_binary")"
+  [[ -n "$expected" && "$actual" == "$expected" ]] || fail "旧版发布产物校验失败"
+  assert_version "$old_binary" "$previous_version"
+
+  upgrade_port="$(random_port)"
+  write_minimal_config "$upgrade_home" "$upgrade_port"
+  run_installer "$installer" "$upgrade_home" "$upgrade_port" "https://install.zyling.ai" "$VERSION"
+  assert_version "$old_binary" "$VERSION"
+  assert_version "$upgrade_home/.local/bin/zyhive.bak" "$previous_version"
+  basic_smoke "$upgrade_home" "$VERSION" "online-upgrade"
+  echo "✅ Release 线上安装与真实更新测试通过"
+}
+
+if [[ -z "$MODE" || -z "$VERSION" ]]; then
+  fail "用法: $0 local <version> <dist-dir> | online <version> [previous-version]"
+fi
+
+case "$MODE" in
+  local) run_local ;;
+  online) run_online ;;
+  *) fail "未知模式: $MODE" ;;
+esac
