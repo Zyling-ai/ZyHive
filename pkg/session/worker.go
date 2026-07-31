@@ -44,33 +44,48 @@ type SessionWorker struct {
 	idleTimer *time.Timer
 	stopOnce  sync.Once
 	stopCh    chan struct{}
+	enqueueMu sync.Mutex
+	stopped   bool
 	busy      atomic.Bool
+	reserved  atomic.Bool
 
+	key  workerKey
 	pool *WorkerPool // back-reference for self-removal
 }
 
 const workerIdleTimeout = 30 * time.Minute
 
-func newSessionWorker(sessionID string, pool *WorkerPool) *SessionWorker {
+func newSessionWorker(key workerKey, pool *WorkerPool) *SessionWorker {
 	w := &SessionWorker{
-		sessionID:   sessionID,
+		sessionID:   key.sessionID,
 		Broadcaster: NewBroadcaster(),
-		inputChan:   make(chan RunRequest, 8),
+		inputChan:   make(chan RunRequest, 1),
 		stopCh:      make(chan struct{}),
+		key:         key,
 		pool:        pool,
 	}
-	w.idleTimer = time.AfterFunc(workerIdleTimeout, w.Stop)
+	w.idleTimer = time.AfterFunc(workerIdleTimeout, w.handleIdleTimeout)
 	go w.loop()
 	return w
 }
 
-// Enqueue adds a run request to the worker's queue (non-blocking).
-// If the queue is full, the request is dropped and an error is returned.
+// Enqueue reserves the worker for one run request (non-blocking).
+// A second request is rejected until the current turn reaches a terminal state.
 func (w *SessionWorker) Enqueue(req RunRequest) error {
+	w.enqueueMu.Lock()
+	defer w.enqueueMu.Unlock()
+	if w.stopped {
+		return fmt.Errorf("session %s worker stopped", w.sessionID)
+	}
+	if w.reserved.Swap(true) {
+		return fmt.Errorf("session %s is busy", w.sessionID)
+	}
+	w.Broadcaster.StartGen()
 	select {
 	case w.inputChan <- req:
 		return nil
 	default:
+		w.reserved.Store(false)
 		return fmt.Errorf("session %s worker queue full", w.sessionID)
 	}
 }
@@ -83,11 +98,25 @@ func (w *SessionWorker) IsBusy() bool {
 // Stop shuts down the worker goroutine (idempotent).
 func (w *SessionWorker) Stop() {
 	w.stopOnce.Do(func() {
+		w.enqueueMu.Lock()
+		w.stopped = true
+		if w.idleTimer != nil {
+			w.idleTimer.Stop()
+		}
 		close(w.stopCh)
+		w.enqueueMu.Unlock()
 		if w.pool != nil {
-			w.pool.remove(w.sessionID)
+			w.pool.remove(w.key)
 		}
 	})
+}
+
+func (w *SessionWorker) handleIdleTimeout() {
+	if w.reserved.Load() {
+		w.idleTimer.Reset(workerIdleTimeout)
+		return
+	}
+	w.Stop()
 }
 
 func (w *SessionWorker) loop() {
@@ -108,63 +137,108 @@ func (w *SessionWorker) loop() {
 
 func (w *SessionWorker) process(req RunRequest) {
 	w.busy.Store(true)
-	defer w.busy.Store(false)
-
-	// Signal start of a new generation (clears replay buffer)
-	w.Broadcaster.StartGen()
+	defer func() {
+		w.busy.Store(false)
+		w.reserved.Store(false)
+		w.enqueueMu.Lock()
+		if !w.stopped {
+			w.idleTimer.Reset(workerIdleTimeout)
+		}
+		w.enqueueMu.Unlock()
+	}()
 
 	// Use background context — runner is NOT tied to any HTTP request lifecycle.
 	ctx := context.Background()
+	var runErr error
+	func() {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				runErr = fmt.Errorf("session worker panic: %v", recovered)
+			}
+		}()
+		runErr = req.RunFn(ctx, req.SessionID, req.Message, w.Broadcaster)
+	}()
 
-	if err := req.RunFn(ctx, req.SessionID, req.Message, w.Broadcaster); err != nil {
-		log.Printf("[worker %s] run error: %v", w.sessionID, err)
-		errData, _ := json.Marshal(map[string]any{"type": "error", "error": err.Error()})
-		w.Broadcaster.Publish(BroadcastEvent{Type: "error", Data: errData})
+	if w.Broadcaster.IsDone() {
+		return
 	}
+	if runErr != nil {
+		log.Printf("[worker %s] run error: %v", w.sessionID, runErr)
+		errData, _ := json.Marshal(map[string]any{"type": "error", "error": runErr.Error()})
+		w.Broadcaster.Publish(BroadcastEvent{Type: "error", Data: errData})
+		return
+	}
+	doneData, _ := json.Marshal(map[string]any{"type": "done", "sessionId": req.SessionID})
+	w.Broadcaster.Publish(BroadcastEvent{Type: "done", Data: doneData})
 }
 
 // ---------------------------------------------------------------------------
-// WorkerPool — manages one SessionWorker per session
+// WorkerPool — manages one SessionWorker per owner/session pair
 // ---------------------------------------------------------------------------
 
-// WorkerPool manages a pool of SessionWorkers, one per session.
+// WorkerPool manages a pool of SessionWorkers, one per owner/session pair.
 // Workers are created lazily and removed after idle timeout.
 type WorkerPool struct {
 	mu      sync.Mutex
-	workers map[string]*SessionWorker
+	workers map[workerKey]*SessionWorker
+}
+
+type workerKey struct {
+	ownerID   string
+	sessionID string
 }
 
 // NewWorkerPool creates an empty WorkerPool.
 func NewWorkerPool() *WorkerPool {
 	return &WorkerPool{
-		workers: make(map[string]*SessionWorker),
+		workers: make(map[workerKey]*SessionWorker),
 	}
 }
 
-// GetOrCreate returns the worker for sessionID, creating one if necessary.
-func (p *WorkerPool) GetOrCreate(sessionID string) *SessionWorker {
+// GetOrCreate returns the worker for an owner/session pair, creating one if necessary.
+func (p *WorkerPool) GetOrCreate(ownerID, sessionID string) *SessionWorker {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if w, ok := p.workers[sessionID]; ok {
+	key := workerKey{ownerID: ownerID, sessionID: sessionID}
+	if w, ok := p.workers[key]; ok {
 		return w
 	}
-	w := newSessionWorker(sessionID, p)
-	p.workers[sessionID] = w
+	w := newSessionWorker(key, p)
+	p.workers[key] = w
 	return w
 }
 
-// Get returns the worker for sessionID if it exists, otherwise nil.
-func (p *WorkerPool) Get(sessionID string) *SessionWorker {
+// Get returns the worker for an owner/session pair if it exists, otherwise nil.
+func (p *WorkerPool) Get(ownerID, sessionID string) *SessionWorker {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.workers[sessionID]
+	return p.workers[workerKey{ownerID: ownerID, sessionID: sessionID}]
+}
+
+// GetUnique returns a worker only when sessionID identifies exactly one owner.
+// It is intended for legacy callbacks that do not yet carry an owner ID and
+// fails closed instead of broadcasting across colliding sessions.
+func (p *WorkerPool) GetUnique(sessionID string) *SessionWorker {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	var found *SessionWorker
+	for key, worker := range p.workers {
+		if key.sessionID != sessionID {
+			continue
+		}
+		if found != nil {
+			return nil
+		}
+		found = worker
+	}
+	return found
 }
 
 // remove is called by the worker itself when it stops.
-func (p *WorkerPool) remove(sessionID string) {
+func (p *WorkerPool) remove(key workerKey) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	delete(p.workers, sessionID)
+	delete(p.workers, key)
 }
 
 // ActiveCount returns (totalWorkers, busyWorkers) for the pool.

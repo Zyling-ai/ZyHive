@@ -2,15 +2,15 @@
 //
 // Architecture (post-worker refactor):
 //
-//   Browser → POST /api/agents/:id/chat
-//              ├─ Resolves session, builds RunFn closure, enqueues into SessionWorker
-//              └─ Subscribes this HTTP connection to the Broadcaster (SSE stream)
+//	Browser → POST /api/agents/:id/chat
+//	           ├─ Resolves session, builds RunFn closure, enqueues into SessionWorker
+//	           └─ Subscribes this HTTP connection to the Broadcaster (SSE stream)
 //
-//   Runner executes in background goroutine — independent of HTTP connections.
-//   Browser disconnect stops SSE but does NOT cancel the runner.
+//	Runner executes in background goroutine — independent of HTTP connections.
+//	Browser disconnect stops SSE but does NOT cancel the runner.
 //
-//   Browser reconnects → GET /api/agents/:id/chat/stream?sessionId=...
-//              └─ Subscribes to Broadcaster; gets buffered events first, then live.
+//	Browser reconnects → GET /api/agents/:id/chat/stream?sessionId=...
+//	           └─ Subscribes to Broadcaster; gets buffered events first, then live.
 package api
 
 import (
@@ -25,7 +25,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/Zyling-ai/zyhive/pkg/agent"
 	"github.com/Zyling-ai/zyhive/pkg/artifact"
 	"github.com/Zyling-ai/zyhive/pkg/budget"
@@ -39,6 +38,7 @@ import (
 	"github.com/Zyling-ai/zyhive/pkg/toolaudit"
 	"github.com/Zyling-ai/zyhive/pkg/tools"
 	"github.com/Zyling-ai/zyhive/pkg/usage"
+	"github.com/gin-gonic/gin"
 )
 
 var subCounter atomic.Uint64
@@ -126,14 +126,7 @@ func (h *chatHandler) Chat(c *gin.Context) {
 			modelSupportsTools)
 	}
 
-	worker := h.workerPool.GetOrCreate(sessionID)
-
-	// Clear stale replay buffer BEFORE subscribing via pipeSSE.
-	// Without this, Subscribe() snapshots the previous generation's buffer
-	// (which ends with "done") and replays the old response to the new request.
-	// Calling StartGen() here is safe: the buffer is only used for reconnect replay;
-	// live subscribers receive events via their own channels and are unaffected.
-	worker.Broadcaster.StartGen()
+	worker := h.workerPool.GetOrCreate(ag.ID, sessionID)
 
 	if err := worker.Enqueue(session.RunRequest{
 		AgentID:   ag.ID,
@@ -161,7 +154,7 @@ func (h *chatHandler) StreamSession(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "sessionId required"})
 		return
 	}
-	worker := h.workerPool.Get(sessionID)
+	worker := h.workerPool.Get(id, sessionID)
 	if worker == nil {
 		// Worker gone — generation finished before reconnect; signal idle
 		c.Header("Content-Type", "text/event-stream")
@@ -178,7 +171,7 @@ func (h *chatHandler) StreamSession(c *gin.Context) {
 // SessionStatus GET /api/agents/:id/chat/status?sessionId=...
 func (h *chatHandler) SessionStatus(c *gin.Context) {
 	sessionID := c.Query("sessionId")
-	w := h.workerPool.Get(sessionID)
+	w := h.workerPool.Get(c.Param("id"), sessionID)
 	if w == nil {
 		c.JSON(http.StatusOK, gin.H{"status": "idle", "hasWorker": false})
 		return
@@ -376,21 +369,21 @@ func (h *chatHandler) execRunner(
 		capCtx = agent.BuildCapabilitiesContext(toolRegistry, ag, h.cfg, workspaceDir)
 	}
 	r := runner.New(runner.Config{
-		AgentID:             agentID,
-		WorkspaceDir:        workspaceDir,
-		Model:               model,
-		APIKey:              apiKey,
-		Provider:            provider,
-		SessionID:           sessionID,
-		LLM:                 llmClient,
-		Tools:               toolRegistry,
-		SupportsTools:       supportsTools,
-		Session:             store,
-		ExtraContext:        extraContext,
-		Images:              images,
-		PreloadedHistory:    preHistory,
-		ProjectContext:      runner.BuildProjectContext(h.projectMgr, agentID),
-		AgentEnv:            agEnv,
+		AgentID:               agentID,
+		WorkspaceDir:          workspaceDir,
+		Model:                 model,
+		APIKey:                apiKey,
+		Provider:              provider,
+		SessionID:             sessionID,
+		LLM:                   llmClient,
+		Tools:                 toolRegistry,
+		SupportsTools:         supportsTools,
+		Session:               store,
+		ExtraContext:          extraContext,
+		Images:                images,
+		PreloadedHistory:      preHistory,
+		ProjectContext:        runner.BuildProjectContext(h.projectMgr, agentID),
+		AgentEnv:              agEnv,
 		UsageRecorder:         usageRec,
 		BudgetCheck:           h.budgetCheckAdapter(),
 		CapabilitiesContext:   capCtx,
@@ -581,10 +574,10 @@ func (h *chatHandler) GetSession(c *gin.Context) {
 
 	// Convert raw JSONL entries to UI-friendly {messages:[{role,text,toolCalls,isCompact}]} format.
 	type UIMessage struct {
-		Role      string                  `json:"role"`
-		Text      string                  `json:"text"`
+		Role      string                   `json:"role"`
+		Text      string                   `json:"text"`
 		ToolCalls []session.ToolCallRecord `json:"toolCalls,omitempty"`
-		IsCompact bool                    `json:"isCompact,omitempty"`
+		IsCompact bool                     `json:"isCompact,omitempty"`
 	}
 	type UISession struct {
 		Messages []UIMessage `json:"messages"`

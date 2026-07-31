@@ -92,6 +92,10 @@ func buildWebSessionID(channelID, sessionToken string) string {
 	return "web-" + channelID + "-" + t
 }
 
+func publicWorkerOwner(agentID, channelID string) string {
+	return "public/" + agentID + "/" + channelID
+}
+
 // ─── Info ─────────────────────────────────────────────────────────────────────
 
 func (h *publicChatHandler) Info(c *gin.Context) {
@@ -177,7 +181,8 @@ func (h *publicChatHandler) Stream(c *gin.Context) {
 	if sid == "" {
 		sid = fmt.Sprintf("web-%s-%d", ch.ID, pubSSECounter.Add(1))
 	}
-	release, status, err := h.limiter.admit(h.limiter.sourceKey(c), sid, time.Now())
+	workerOwner := publicWorkerOwner(ag.ID, ch.ID)
+	release, status, err := h.limiter.admit(h.limiter.sourceKey(c), workerOwner+"\x00"+sid, time.Now())
 	if err != nil {
 		c.Header("Retry-After", "60")
 		c.JSON(status, gin.H{"error": err.Error()})
@@ -216,8 +221,7 @@ func (h *publicChatHandler) Stream(c *gin.Context) {
 		return err
 	}
 
-	worker := h.workerPool.GetOrCreate(sid)
-	worker.Broadcaster.StartGen()
+	worker := h.workerPool.GetOrCreate(workerOwner, sid)
 	if err := worker.Enqueue(session.RunRequest{
 		AgentID: ag.ID, SessionID: sid, Message: req.Message, RunFn: runFn,
 	}); err != nil {
@@ -249,7 +253,7 @@ func (h *publicChatHandler) Reconnect(c *gin.Context) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "session does not belong to this channel"})
 		return
 	}
-	worker := h.workerPool.Get(sid)
+	worker := h.workerPool.Get(publicWorkerOwner(ag.ID, ch.ID), sid)
 	if worker == nil {
 		c.Header("Content-Type", "text/event-stream")
 		c.Header("Cache-Control", "no-cache")
@@ -365,6 +369,8 @@ func (h *publicChatHandler) runPublic(
 				data, _ := json.Marshal(map[string]any{"type": "error", "error": ev.Error.Error()})
 				bc.Publish(session.BroadcastEvent{Type: "error", Data: data})
 			}
+		case "done":
+			bc.Publish(session.BroadcastEvent{Type: "done", Data: runEventToJSON(ev)})
 		}
 	}
 
@@ -376,7 +382,6 @@ func (h *publicChatHandler) runPublic(
 		})
 	}
 
-	// done event is published by the worker after RunFn returns (via broadcaster)
 	return nil
 }
 
@@ -404,7 +409,7 @@ func (h *publicChatHandler) pipeSSE(
 				return false
 			}
 			if ev.Type == "done" || ev.Type == "error" {
-				data, _ := json.Marshal(map[string]any{"type": ev.Type, "sessionId": sessionID})
+				data := publicTerminalData(ev, sessionID)
 				fmt.Fprintf(w, "data: %s\n\n", data)
 				return false
 			}
@@ -414,6 +419,15 @@ func (h *publicChatHandler) pipeSSE(
 			return false
 		}
 	})
+}
+
+func publicTerminalData(ev session.BroadcastEvent, sessionID string) []byte {
+	payload := map[string]any{"type": ev.Type}
+	_ = json.Unmarshal(ev.Data, &payload)
+	payload["type"] = ev.Type
+	payload["sessionId"] = sessionID
+	data, _ := json.Marshal(payload)
+	return data
 }
 
 // ─── Legacy ──────────────────────────────────────────────────────────────────

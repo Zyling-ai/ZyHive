@@ -39,14 +39,14 @@ import (
 
 // Pool manages multiple concurrent agent runners (one per agent).
 type Pool struct {
-	manager      *Manager
-	cfg          *config.Config
-	projectMgr   *project.Manager  // shared project workspace (may be nil)
-	SubagentMgr  *subagent.Manager // background task manager (set after NewPool)
-	workerPool   *session.WorkerPool // session worker pool for subagent broadcast (may be nil)
-	browserMgr   *browser.Manager  // shared headless browser (lazy-init, may be nil if disabled)
-	runners      map[string]*runner.Runner
-	mu           sync.Mutex
+	manager     *Manager
+	cfg         *config.Config
+	projectMgr  *project.Manager    // shared project workspace (may be nil)
+	SubagentMgr *subagent.Manager   // background task manager (set after NewPool)
+	workerPool  *session.WorkerPool // session worker pool for subagent broadcast (may be nil)
+	browserMgr  *browser.Manager    // shared headless browser (lazy-init, may be nil if disabled)
+	runners     map[string]*runner.Runner
+	mu          sync.Mutex
 
 	// messageSenderFn returns a MessageSenderFunc for the given agentID.
 	// Used to inject the send_message tool so agents can proactively push notifications
@@ -135,7 +135,7 @@ func (p *Pool) SetWorkerPool(wp *session.WorkerPool) {
 	p.workerPool = wp
 	if p.SubagentMgr != nil && wp != nil {
 		p.SubagentMgr.SetBroadcaster(func(sessionID, eventType string, data []byte) {
-			w := wp.Get(sessionID)
+			w := wp.GetUnique(sessionID)
 			if w == nil {
 				return
 			}
@@ -744,7 +744,6 @@ func (p *Pool) buildProjectContext(agentID string) string {
 	return runner.BuildProjectContext(p.projectMgr, agentID)
 }
 
-
 // resolveModel finds the model entry for an agent, falling back to default.
 func (p *Pool) resolveModel(ag *Agent) (*config.ModelEntry, error) {
 	// 系统 config agent 始终跟随当前默认模型，避免创建后模型不更新
@@ -935,19 +934,19 @@ func (p *Pool) Run(ctx context.Context, agentID, message string) (string, error)
 	store := session.NewStore(ag.SessionDir)
 
 	r := runner.New(runner.Config{
-		AgentID:       ag.ID,
-		WorkspaceDir:  ag.WorkspaceDir,
-		Model:         model,
-		APIKey:        apiKey,
-		Provider:      modelEntry.Provider,
-		LLM:           llmClient,
-		Tools:         toolRegistry,
-		SupportsTools: config.ModelSupportsTools(modelEntry),
-		Session:       store,
-		ProjectContext: p.buildProjectContext(ag.ID),
-		AgentEnv:      ag.Env,
-		UsageRecorder: p.usageRecorder(),
-		BudgetCheck:   p.budgetChecker(),
+		AgentID:             ag.ID,
+		WorkspaceDir:        ag.WorkspaceDir,
+		Model:               model,
+		APIKey:              apiKey,
+		Provider:            modelEntry.Provider,
+		LLM:                 llmClient,
+		Tools:               toolRegistry,
+		SupportsTools:       config.ModelSupportsTools(modelEntry),
+		Session:             store,
+		ProjectContext:      p.buildProjectContext(ag.ID),
+		AgentEnv:            ag.Env,
+		UsageRecorder:       p.usageRecorder(),
+		BudgetCheck:         p.budgetChecker(),
 		CapabilitiesContext: BuildCapabilitiesContext(toolRegistry, ag, p.cfg, ag.WorkspaceDir),
 	})
 
@@ -1020,24 +1019,24 @@ func (p *Pool) RunStreamEvents(ctx context.Context, agentID, message, sessionID 
 	}
 
 	r := runner.New(runner.Config{
-		AgentID:        ag.ID,
-		WorkspaceDir:   ag.WorkspaceDir,
-		Model:          model,
-		APIKey:         apiKey,
-		Provider:       modelEntry.Provider,
-		LLM:            llmClient,
-		Tools:          toolRegistry,
-		SupportsTools:  config.ModelSupportsTools(modelEntry),
-		Session:        store,
-		SessionID:      sessionID,
-		Images:         images,
-		ProjectContext: p.buildProjectContext(ag.ID),
-		AgentEnv:       ag.Env,
-		UsageRecorder:  p.usageRecorder(),
-		BudgetCheck:    p.budgetChecker(),
+		AgentID:               ag.ID,
+		WorkspaceDir:          ag.WorkspaceDir,
+		Model:                 model,
+		APIKey:                apiKey,
+		Provider:              modelEntry.Provider,
+		LLM:                   llmClient,
+		Tools:                 toolRegistry,
+		SupportsTools:         config.ModelSupportsTools(modelEntry),
+		Session:               store,
+		SessionID:             sessionID,
+		Images:                images,
+		ProjectContext:        p.buildProjectContext(ag.ID),
+		AgentEnv:              ag.Env,
+		UsageRecorder:         p.usageRecorder(),
+		BudgetCheck:           p.budgetChecker(),
 		CapabilitiesContext:   BuildCapabilitiesContext(toolRegistry, ag, p.cfg, ag.WorkspaceDir),
 		CurrentSessionContext: BuildSessionContext(store, sessionID),
-		ExtraContext:   strings.Join(extraSystemContext, "\n"),
+		ExtraContext:          strings.Join(extraSystemContext, "\n"),
 	})
 
 	raw := r.Run(ctx, message)
@@ -1083,20 +1082,20 @@ func (p *Pool) RunStream(ctx context.Context, agentID, message, sessionID string
 	store := session.NewStore(ag.SessionDir)
 
 	r := runner.New(runner.Config{
-		AgentID:        ag.ID,
-		WorkspaceDir:   ag.WorkspaceDir,
-		Model:          model,
-		APIKey:         apiKey,
-		Provider:       modelEntry.Provider,
-		LLM:            llmClient,
-		Tools:          toolRegistry,
-		SupportsTools:  config.ModelSupportsTools(modelEntry),
-		Session:        store,
-		SessionID:      sessionID,
-		ProjectContext: p.buildProjectContext(ag.ID),
-		AgentEnv:       ag.Env,
-		UsageRecorder:  p.usageRecorder(),
-		BudgetCheck:    p.budgetChecker(),
+		AgentID:               ag.ID,
+		WorkspaceDir:          ag.WorkspaceDir,
+		Model:                 model,
+		APIKey:                apiKey,
+		Provider:              modelEntry.Provider,
+		LLM:                   llmClient,
+		Tools:                 toolRegistry,
+		SupportsTools:         config.ModelSupportsTools(modelEntry),
+		Session:               store,
+		SessionID:             sessionID,
+		ProjectContext:        p.buildProjectContext(ag.ID),
+		AgentEnv:              ag.Env,
+		UsageRecorder:         p.usageRecorder(),
+		BudgetCheck:           p.budgetChecker(),
 		CapabilitiesContext:   BuildCapabilitiesContext(toolRegistry, ag, p.cfg, ag.WorkspaceDir),
 		CurrentSessionContext: BuildSessionContext(store, sessionID),
 	})
@@ -1228,7 +1227,7 @@ func (p *Pool) subagentRunFuncExt() subagent.RunFuncExt {
 			// ── report_to_parent broadcaster ──────────────────────────────────────
 			if task.SpawnedBySession != "" && p.workerPool != nil {
 				broadcastFn := func(sid, evType string, data []byte) {
-					w := p.workerPool.Get(sid)
+					w := p.workerPool.GetUnique(sid)
 					if w == nil {
 						return
 					}
@@ -1238,21 +1237,21 @@ func (p *Pool) subagentRunFuncExt() subagent.RunFuncExt {
 			}
 
 			r := runner.New(runner.Config{
-				AgentID:         ag.ID,
-				WorkspaceDir:    ag.WorkspaceDir,
-				Model:           resolvedModel,
-				APIKey:          apiKey,
-				Provider:        modelEntry.Provider,
-				SessionID:       task.SessionID,
-				ParentSessionID: task.SpawnedBySession,
-				LLM:             llmClient,
-				Tools:           toolRegistry,
-				SupportsTools:   supportsTools,
-				Session:         store,
-				ProjectContext:  p.buildProjectContext(ag.ID),
-				AgentEnv:        ag.Env,
-				UsageRecorder:   p.usageRecorder(),
-				BudgetCheck:     p.budgetChecker(),
+				AgentID:               ag.ID,
+				WorkspaceDir:          ag.WorkspaceDir,
+				Model:                 resolvedModel,
+				APIKey:                apiKey,
+				Provider:              modelEntry.Provider,
+				SessionID:             task.SessionID,
+				ParentSessionID:       task.SpawnedBySession,
+				LLM:                   llmClient,
+				Tools:                 toolRegistry,
+				SupportsTools:         supportsTools,
+				Session:               store,
+				ProjectContext:        p.buildProjectContext(ag.ID),
+				AgentEnv:              ag.Env,
+				UsageRecorder:         p.usageRecorder(),
+				BudgetCheck:           p.budgetChecker(),
 				CapabilitiesContext:   BuildCapabilitiesContext(toolRegistry, ag, p.cfg, ag.WorkspaceDir),
 				CurrentSessionContext: BuildSessionContext(store, task.SessionID),
 			})
@@ -1314,7 +1313,7 @@ func (p *Pool) SubagentRunFunc() subagent.RunFunc {
 			// Wire report_to_parent if this is a subagent with a known parent session
 			if parentSessionID != "" && p.workerPool != nil {
 				broadcastFn := func(sid, evType string, data []byte) {
-					w := p.workerPool.Get(sid)
+					w := p.workerPool.GetUnique(sid)
 					if w == nil {
 						return
 					}
@@ -1324,21 +1323,21 @@ func (p *Pool) SubagentRunFunc() subagent.RunFunc {
 			}
 
 			r := runner.New(runner.Config{
-				AgentID:         ag.ID,
-				WorkspaceDir:    ag.WorkspaceDir,
-				Model:           resolvedModel,
-				APIKey:          apiKey,
-				Provider:        modelEntry.Provider,
-				SessionID:       sessionID,
-				ParentSessionID: parentSessionID,
-				LLM:             llmClient,
-				Tools:           toolRegistry,
-				SupportsTools:   supportsToolsLegacy,
-				Session:         store,
-				ProjectContext:  p.buildProjectContext(ag.ID),
-				AgentEnv:        ag.Env,
-				UsageRecorder:   p.usageRecorder(),
-				BudgetCheck:     p.budgetChecker(),
+				AgentID:               ag.ID,
+				WorkspaceDir:          ag.WorkspaceDir,
+				Model:                 resolvedModel,
+				APIKey:                apiKey,
+				Provider:              modelEntry.Provider,
+				SessionID:             sessionID,
+				ParentSessionID:       parentSessionID,
+				LLM:                   llmClient,
+				Tools:                 toolRegistry,
+				SupportsTools:         supportsToolsLegacy,
+				Session:               store,
+				ProjectContext:        p.buildProjectContext(ag.ID),
+				AgentEnv:              ag.Env,
+				UsageRecorder:         p.usageRecorder(),
+				BudgetCheck:           p.budgetChecker(),
 				CapabilitiesContext:   BuildCapabilitiesContext(toolRegistry, ag, p.cfg, ag.WorkspaceDir),
 				CurrentSessionContext: BuildSessionContext(store, sessionID),
 			})

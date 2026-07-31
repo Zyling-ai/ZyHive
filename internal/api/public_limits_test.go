@@ -14,13 +14,16 @@ func newTestPublicLimiter(rate, concurrent, sessions int) *publicAccessLimiter {
 		requestRates:      make(map[string]publicRateWindow),
 		rates:             make(map[string]publicRateWindow),
 		sessions:          make(map[string]map[string]time.Time),
+		globalSessions:    make(map[string]time.Time),
 		slots:             make(chan struct{}, concurrent),
 		sseSlots:          make(chan struct{}, concurrent),
 		requestsPerMinute: rate,
 		ratePerMinute:     rate,
 		sessionsPerSource: sessions,
+		maxActiveSessions: 100,
 		runTimeout:        time.Second,
 		sessionTTL:        time.Hour,
+		activeSessionTTL:  time.Hour,
 		maxMessageBytes:   1024,
 	}
 }
@@ -100,6 +103,28 @@ func TestPublicLimiterSessionCapAndExpiry(t *testing.T) {
 	release()
 }
 
+func TestPublicLimiterGlobalActiveSessionCapAndExpiry(t *testing.T) {
+	limiter := newTestPublicLimiter(10, 1, 10)
+	limiter.maxActiveSessions = 1
+	now := time.Now()
+	release, _, err := limiter.admit("source-a", "session-a", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	release()
+
+	if _, status, err := limiter.admit("source-b", "session-b", now); err == nil || status != http.StatusServiceUnavailable {
+		t.Fatalf("expected global session capacity, status=%d err=%v", status, err)
+	}
+
+	limiter.activeSessionTTL = time.Minute
+	release, _, err = limiter.admit("source-b", "session-b", now.Add(2*time.Minute))
+	if err != nil {
+		t.Fatalf("expired global session should be pruned: %v", err)
+	}
+	release()
+}
+
 func TestPublicLimiterSourceKeyDoesNotTrustHeadersByDefault(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	req := httptest.NewRequest(http.MethodPost, "/", nil)
@@ -125,15 +150,19 @@ func TestPublicLimiterEnvironmentDefaultsAndOverrides(t *testing.T) {
 	t.Setenv("ZYHIVE_PUBLIC_REQUESTS_PER_MINUTE", "30")
 	t.Setenv("ZYHIVE_PUBLIC_RATE_PER_MINUTE", "7")
 	t.Setenv("ZYHIVE_PUBLIC_MAX_SESSIONS", "3")
+	t.Setenv("ZYHIVE_PUBLIC_MAX_ACTIVE_SESSIONS", "9")
 	t.Setenv("ZYHIVE_PUBLIC_RUN_TIMEOUT", "5s")
+	t.Setenv("ZYHIVE_PUBLIC_ACTIVE_SESSION_TTL", "10m")
 	t.Setenv("ZYHIVE_PUBLIC_MAX_MESSAGE_BYTES", "2048")
 
 	limiter := newPublicAccessLimiterFromEnv()
 	if cap(limiter.slots) != 2 || cap(limiter.sseSlots) != 4 ||
-		limiter.requestsPerMinute != 30 || limiter.ratePerMinute != 7 || limiter.sessionsPerSource != 3 {
+		limiter.requestsPerMinute != 30 || limiter.ratePerMinute != 7 ||
+		limiter.sessionsPerSource != 3 || limiter.maxActiveSessions != 9 {
 		t.Fatalf("unexpected limits: %+v", limiter)
 	}
-	if limiter.runTimeout != 5*time.Second || limiter.maxMessageBytes != 2048 {
+	if limiter.runTimeout != 5*time.Second || limiter.activeSessionTTL != 10*time.Minute ||
+		limiter.maxMessageBytes != 2048 {
 		t.Fatalf("unexpected timeout/message limits: %+v", limiter)
 	}
 }

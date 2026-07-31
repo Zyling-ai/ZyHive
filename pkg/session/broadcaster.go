@@ -29,9 +29,9 @@ type BroadcastEvent struct {
 type Broadcaster struct {
 	mu     sync.RWMutex
 	subs   map[string]chan BroadcastEvent // subscriber id → channel
-	buffer []BroadcastEvent              // events for the current generation
-	genID  int                           // monotonically increasing per generation turn
-	done   bool                          // true if current generation is finished
+	buffer []BroadcastEvent               // events for the current generation
+	genID  int                            // monotonically increasing per generation turn
+	done   bool                           // true if current generation is finished
 }
 
 // NewBroadcaster creates an idle Broadcaster.
@@ -72,39 +72,42 @@ func (b *Broadcaster) Publish(ev BroadcastEvent) {
 // Call the returned unsubscribe func when done.
 func (b *Broadcaster) Subscribe(id string) (<-chan BroadcastEvent, func()) {
 	ch := make(chan BroadcastEvent, 256)
+	cancelReplay := make(chan struct{})
 
 	b.mu.Lock()
 	// Replay buffer first (under lock so no events are missed)
 	snapshot := make([]BroadcastEvent, len(b.buffer))
 	copy(snapshot, b.buffer)
-	isDone := b.done
 	b.subs[id] = ch
 	b.mu.Unlock()
 
 	// Send buffered events without holding the lock to avoid deadlock
 	go func() {
 		for _, ev := range snapshot {
-			ch <- ev
-		}
-		// If generation already finished, signal and close
-		if isDone {
-			// The "done" event is already in snapshot; nothing extra needed.
-			_ = isDone
-		}
-	}()
-
-	unsub := func() {
-		b.mu.Lock()
-		delete(b.subs, id)
-		b.mu.Unlock()
-		// Drain the channel so the goroutine above doesn't block
-		for {
 			select {
-			case <-ch:
-			default:
+			case ch <- ev:
+			case <-cancelReplay:
 				return
 			}
 		}
+	}()
+
+	var unsubscribeOnce sync.Once
+	unsub := func() {
+		unsubscribeOnce.Do(func() {
+			close(cancelReplay)
+			b.mu.Lock()
+			delete(b.subs, id)
+			b.mu.Unlock()
+			// Drain any replay events already queued.
+			for {
+				select {
+				case <-ch:
+				default:
+					return
+				}
+			}
+		})
 	}
 	return ch, unsub
 }

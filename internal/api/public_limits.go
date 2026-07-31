@@ -19,8 +19,10 @@ const (
 	defaultPublicConcurrent        = 4
 	defaultPublicSSEConnections    = 32
 	defaultPublicSessions          = 8
+	defaultPublicActiveSessions    = 100
 	defaultPublicRunTimeout        = 2 * time.Minute
 	defaultPublicSessionTTL        = 24 * time.Hour
+	defaultPublicActiveSessionTTL  = 30 * time.Minute
 	defaultPublicMessageBytes      = 16 * 1024
 )
 
@@ -34,13 +36,16 @@ type publicAccessLimiter struct {
 	requestRates      map[string]publicRateWindow
 	rates             map[string]publicRateWindow
 	sessions          map[string]map[string]time.Time
+	globalSessions    map[string]time.Time
 	slots             chan struct{}
 	sseSlots          chan struct{}
 	requestsPerMinute int
 	ratePerMinute     int
 	sessionsPerSource int
+	maxActiveSessions int
 	runTimeout        time.Duration
 	sessionTTL        time.Duration
+	activeSessionTTL  time.Duration
 	maxMessageBytes   int
 	trustProxyHeader  bool
 	lastCleanup       time.Time
@@ -51,13 +56,16 @@ func newPublicAccessLimiterFromEnv() *publicAccessLimiter {
 		requestRates:      make(map[string]publicRateWindow),
 		rates:             make(map[string]publicRateWindow),
 		sessions:          make(map[string]map[string]time.Time),
+		globalSessions:    make(map[string]time.Time),
 		slots:             make(chan struct{}, envPositiveInt("ZYHIVE_PUBLIC_MAX_CONCURRENT", defaultPublicConcurrent)),
 		sseSlots:          make(chan struct{}, envPositiveInt("ZYHIVE_PUBLIC_MAX_SSE", defaultPublicSSEConnections)),
 		requestsPerMinute: envPositiveInt("ZYHIVE_PUBLIC_REQUESTS_PER_MINUTE", defaultPublicRequestsPerMinute),
 		ratePerMinute:     envPositiveInt("ZYHIVE_PUBLIC_RATE_PER_MINUTE", defaultPublicRatePerMinute),
 		sessionsPerSource: envPositiveInt("ZYHIVE_PUBLIC_MAX_SESSIONS", defaultPublicSessions),
+		maxActiveSessions: envPositiveInt("ZYHIVE_PUBLIC_MAX_ACTIVE_SESSIONS", defaultPublicActiveSessions),
 		runTimeout:        envPositiveDuration("ZYHIVE_PUBLIC_RUN_TIMEOUT", defaultPublicRunTimeout),
 		sessionTTL:        envPositiveDuration("ZYHIVE_PUBLIC_SESSION_TTL", defaultPublicSessionTTL),
+		activeSessionTTL:  envPositiveDuration("ZYHIVE_PUBLIC_ACTIVE_SESSION_TTL", defaultPublicActiveSessionTTL),
 		maxMessageBytes:   envPositiveInt("ZYHIVE_PUBLIC_MAX_MESSAGE_BYTES", defaultPublicMessageBytes),
 		trustProxyHeader:  os.Getenv("ZYHIVE_TRUST_PROXY_HEADERS") == "1",
 	}
@@ -156,10 +164,15 @@ func (l *publicAccessLimiter) admit(source, sessionID string, now time.Time) (fu
 		l.mu.Unlock()
 		return nil, http.StatusTooManyRequests, fmt.Errorf("public chat session limit exceeded")
 	}
+	if _, exists := l.globalSessions[sessionID]; !exists && len(l.globalSessions) >= l.maxActiveSessions {
+		l.mu.Unlock()
+		return nil, http.StatusServiceUnavailable, fmt.Errorf("public chat active session capacity exceeded")
+	}
 
 	select {
 	case l.slots <- struct{}{}:
 		sourceSessions[sessionID] = now
+		l.globalSessions[sessionID] = now
 		l.mu.Unlock()
 		var once sync.Once
 		return func() {
@@ -190,6 +203,11 @@ func (l *publicAccessLimiter) cleanupLocked(now time.Time) {
 		}
 		if len(sourceSessions) == 0 {
 			delete(l.sessions, source)
+		}
+	}
+	for sessionID, seenAt := range l.globalSessions {
+		if now.Sub(seenAt) >= l.activeSessionTTL {
+			delete(l.globalSessions, sessionID)
 		}
 	}
 }
