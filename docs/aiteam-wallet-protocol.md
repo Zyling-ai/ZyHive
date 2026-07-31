@@ -1,5 +1,8 @@
 # aiteam Wallet Ledger Protocol (PR-001)
 
+> Status: experimental and disabled by default; this is an internal test ledger, not custody, payment, banking, or a stable-version commercial commitment.
+> Last reviewed: 2026-08-01. Current behavior is defined by code, tests, and the formal Release.
+>
 > Per-agent USDT ledger with append-only JSONL persistence and FX
 > snapshot per entry. Internal to ZyHive; external systems interact
 > via the `/api/aiteam/wallet/*` REST surface or the AI tool

@@ -1,8 +1,12 @@
 # GoalsView 右侧对话面板 — 增量任务
 
+> 状态：历史实现任务，不是当前待办
+> 最近复核：2026-08-01
+> 使用边界：用于追溯原始需求；当前界面、组件接口和行为以代码与测试为准
+
 ## 背景
-GoalsView.vue（`ui/src/views/GoalsView.vue`）已实现甘特图+表单。  
-现在要参照 `ui/src/components/SkillStudio.vue` 的右侧 AiChat 面板模式，  
+GoalsView.vue（`ui/src/views/GoalsView.vue`）已实现甘特图+表单。
+现在要参照 `ui/src/components/SkillStudio.vue` 的右侧 AiChat 面板模式，
 为 GoalsView 添加右侧对话区域——用户可以通过和 AI 成员聊天来创建/修改目标，省去填写表单的麻烦。
 
 ## 必读参考文件（先读懂再动手）

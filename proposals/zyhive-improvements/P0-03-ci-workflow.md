@@ -3,7 +3,8 @@
 - 主题：H 工程化
 - 优先级：P0
 - 规模：S（新增 `.github/workflows/`、`.golangci.yml`、`ui/.eslintrc.cjs`）
-- 状态：proposed
+- 状态：implemented — `26.5.10v1`
+- 边界：本文保留原始设计要求；当前 CI 已在后续版本继续扩展
 
 ## 1. 背景与问题
 

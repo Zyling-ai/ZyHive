@@ -1,5 +1,10 @@
 # ZyHive Agent CLI
 
+> 文档版本：V1.0
+> 基准日期：2026-08-01
+> 状态：当前使用说明
+> 适用范围：内置 `zyhive` CLI；具体命令、参数和默认值以当前二进制 `--help` 为准
+
 `zyhive` 现在同时提供两类能力：
 
 - 人类运维面板：`zyhive`、`zyhive start`、`zyhive stop`、`zyhive status` 等。

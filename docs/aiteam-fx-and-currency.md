@@ -1,5 +1,8 @@
 # aiteam FX & Currency Display Layer
 
+> Status: experimental and disabled by default; rates and defaults are display aids, not financial advice, settlement prices, or stable-version commitments.
+> Last reviewed: 2026-08-01. Current behavior is defined by code and tests.
+>
 > Internal accounting is always USDT. The FX layer translates USDT
 > figures to whichever currency the user prefers in the UI. AI tools
 > never touch this layer — they always see USDT decimal numbers.

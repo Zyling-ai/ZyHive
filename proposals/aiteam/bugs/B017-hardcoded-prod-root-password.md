@@ -1,7 +1,7 @@
 # B017 · scripts/deploy-hive.sh hardcoded production root password
 
 > **严重度**: 🔴 CRITICAL（生产服务器 root 密码明文在公共 repo）
-> **状态**: ✅ 脚本已修 26.5.10v25 (P3-S6) — 强制 env var，无 fallback
+> **状态**: 🟡 代码已修 `26.5.10v25`（强制 env var，无 fallback）；生产服务器密码是否完成轮换缺少运维证据
 > **报告人**: P3-S6 PAT 清理时连带发现
 
 ---

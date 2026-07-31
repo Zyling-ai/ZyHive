@@ -1,5 +1,9 @@
 # `proposals/aiteam/` — aiteam 实验项目对 ZyHive 的需求与提议
 
+> **状态边界（2026-08-01）：本目录是历史提案与实验记录。**
+>
+> 下方优先级和“待填 spec”等状态反映提案形成时点，不代表当前代码状态；部分实验模块已经实现，但仍默认关闭，不属于稳定版默认商业承诺。是否实现以代码和测试为准，是否发布以正式 Release 为准。
+>
 > 本目录是 **aiteam 实验**（自治经济实体方向）对 ZyHive 主项目的提议合集。
 >
 > 与同仓的 `proposals/zyhive-improvements/`（ZyHive 通用改进路线）**并行**，目标受众和优先级不同。
@@ -26,24 +30,24 @@
 
 | ID | 标题 | 状态 | 描述 |
 |----|------|-----|------|
-| **PR-001** | Wallet 钱包抽象 | 📝 待用户填 spec | per-agent 账户、计价单位、计费维度、API |
-| **PR-002** | Payroll 工资发放 | 📝 待用户填 spec | 评估 → 给 agent 发钱 |
-| **PR-003** | Budget Guard 预算护栏 + panic-stop | 🟡 初稿 v0 已写 | per-agent 软警告 + 硬上限 panic-stop |
-| **PR-004** | Judge Agent 评判智能体 | 📝 待用户填 spec | 独立 agent 评分/否决其他 agent 输出 |
+| **PR-001** | Wallet 钱包抽象 | ✅ 已实现（Labs） | per-agent 账户、计价单位、计费维度、API |
+| **PR-002** | Payroll 工资发放 | ✅ 已实现（Labs） | 评估 → 给 agent 发钱 |
+| **PR-003** | Budget Guard 预算护栏 + panic-stop | ✅ 已实现（Labs） | per-agent 软警告 + 硬上限 panic-stop |
+| **PR-004** | Judge Agent 评判智能体 | ✅ 已实现（Labs） | 独立 agent 评分/否决其他 agent 输出 |
 
 ### 🟠 P1 · 收入 / 可观测性
 
 | ID | 标题 | 状态 |
 |----|------|------|
-| PR-005 | Revenue Engine 收入引擎 | 📝 待用户填 spec |
-| PR-006 | aiteam-specific Observability | 📝 待用户填 spec（与 ZyHive P0-01/02 协同） |
+| PR-005 | Revenue Engine 收入引擎 | ✅ 已实现（Labs） |
+| PR-006 | aiteam-specific Observability | ✅ 已实现（Labs，含前端） |
 
 ### 🛡️ 安全护栏（B5/B6 系列）
 
 | ID | 标题 | 状态 |
 |----|------|------|
-| PR-007 | B5 工具沙箱（exec 隔离） | 📝 待用户填 spec |
-| PR-008 | B6 提示词注入防御 | 📝 待用户填 spec |
+| PR-007 | B5 工具沙箱（exec 隔离） | ✅ 已实现（Labs；不等于强容器隔离） |
+| PR-008 | B6 提示词注入防御 | ✅ 已实现（Labs） |
 
 ---
 
@@ -57,17 +61,17 @@ QA 在 ZyHive 主项目发现的漏洞，编号 B001~B015。详见 `bugs/` 子�
 | **B002** | Bearer / download / media token 时延侧信道 | 🟠 HIGH | ✅ 已修复 26.5.10v3 |
 | **B003** | 无界请求体 OOM DoS（gin ShouldBindJSON 无 size cap） | 🟠 HIGH | ✅ 已修复 26.5.10v4 |
 | **B004** | Slowloris（http.Server 缺 ReadHeaderTimeout / IdleTimeout） | 🟠 HIGH | ✅ 已修复 26.5.10v5 |
-| **B005** | Go stdlib CVE 继承 (Go 1.22.2 toolchain 老) | 🟠 HIGH | 🔄 S1 修复中 |
-| **B006** | 飞书 protobuf 整数转换溢出 (G115) | 🟡 MEDIUM | 🔄 推后 S3 |
+| **B005** | Go stdlib CVE 继承 (Go 1.22.2 toolchain 老) | 🟠 HIGH | ✅ 已修复 `26.5.10v7` |
+| **B006** | 飞书 protobuf 整数转换溢出 (G115) | 🟡 MEDIUM | 🟡 开放，需按 v4 重新验证 |
 | B007 | 自更新 syscall.Exec 信任 os.Args (G702) | 🟢 LOW | 📝 false positive |
 | B008 | CLI $EDITOR 命令执行 (G702) | 🟢 LOW | 📝 false positive |
 | B009 | LLM retry 用 math/rand (G404) | 🟢 LOW | 📝 非安全敏感 |
-| B010 | Provider 启动自检 SSRF taint (G704) | 🟢 LOW | 📝 false positive |
+| B010 | Provider 启动自检 SSRF taint (G704) | 🟢 LOW | ✅ `26.8.1v2` 统一出站防护覆盖 |
 | B011 | CLI 状态显示文案被误标 hardcoded credentials (G101) | 🟢 LOW | 📝 false positive |
 | B012 | 工具 read/write/edit 路径 taint (G703) | 🟢 LOW | ✅ B001 已覆盖 |
 | B013 | memory indexer filepath.Walk race (G122) | 🟢 LOW | 🟡 后续切 WalkDir |
-| **B014** | 文件/目录权限偏宽 0644/0755 (108 处 G301/G302/G306) | 🟡 MEDIUM | 🔄 S2-S4 渐进 |
-| B015 | 多处 err 静默丢弃 (G104) | 🟢 LOW | 🔄 S5 核心路径 |
+| **B014** | 文件/目录权限偏宽 0644/0755 (108 处 G301/G302/G306) | 🟡 MEDIUM | 🟡 部分修复 |
+| B015 | 多处 err 静默丢弃 (G104) | 🟢 LOW | 📝 已接受技术债 |
 
 ---
 
@@ -110,10 +114,6 @@ QA 在 ZyHive 主项目发现的漏洞，编号 B001~B015。详见 `bugs/` 子�
 
 ---
 
-## 5. 待办
+## 5. 归档结论
 
-- [ ] 用户贴 PR-001/002/004 spec markdown 到对应 stub
-- [ ] 用户贴 B002-B015 bug 描述到 `bugs/B0xx-template.md`
-- [ ] 用户决定 PR-003 BudgetGuard 初稿里的单位/策略问题（详见 `PR-003-budget-guard.md` § 0）
-- [ ] 用户决定是否走 GitHub Security Advisory 私下报 B001（建议私下，CVE 流程）
-- [ ] aiteam 项目自己 README / 立项文档放哪里？（建议另开一个 repo 或在本仓 `aiteam/` 顶级目录）
+原“待填 spec”和模板填充任务已经失效，不再作为当前待办。aiteam 已作为默认关闭的 Labs 能力保留；后续是否继续产品化须重新立项。当前仍需跟踪的安全项以 `bugs/README.md` 为准。

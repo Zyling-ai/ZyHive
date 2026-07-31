@@ -1,5 +1,9 @@
 # aiteam Revenue Webhook Protocol v1
 
+> 状态：默认关闭的实验协议，不是已上线任务市场、支付服务或稳定版商业承诺
+> 最近复核：2026-08-01
+> 使用边界：仅限受控实验；当前行为与安全要求以代码和测试为准
+>
 > 与 ZyStudio（或任何兼容任务市场）的入账 webhook 协议。
 >
 > Endpoint: `POST /api/aiteam/revenue/incoming`

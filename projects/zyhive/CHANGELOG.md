@@ -1,6 +1,9 @@
 # Changelog — 引巢 · ZyHive
 
-> 所有重要版本变更记录。版本号遵循 [Semantic Versioning](https://semver.org/)。
+> 文档类型：历史记录
+> 快照范围：早期 v0.1–v0.8 内嵌项目
+> 最近复核：2026-08-01
+> 本文只记录当时的重要版本，不代表当前稳定版、安装端点、许可或安全结论。当前事实以仓库根 README、根 CHANGELOG 最新条目和 GitHub Releases 为准。
 
 ---
 

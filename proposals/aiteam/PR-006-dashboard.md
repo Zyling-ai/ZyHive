@@ -1,6 +1,6 @@
 # PR-006 · aiteam Dashboard / Observability
 
-> 状态: 🟡 后端 landed S10 (26.5.10v16) · 🔜 前端 UI 留作后续 PR
+> 状态: ✅ 后端与前端均已实现；本文保留 S10 原始设计，最终行为以当前代码和测试为准
 > 优先级: 🟠 P1
 > 依赖: 所有 aiteam 子系统 (S2-S9)
 > Flag: `ZYHIVE_EXPERIMENTAL_AITEAM_DASHBOARD=1`

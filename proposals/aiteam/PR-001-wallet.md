@@ -1,6 +1,7 @@
 # PR-001 · Wallet 钱包抽象
 
 > 状态: ✅ landed S5 (26.5.10v11)
+> 归档说明：下文“待用户提供”保留原始提案问题，不是当前实施待办；最终行为以代码和测试为准。
 > 优先级: 🔴 P0（aiteam Genesis 跑真业务前必备）
 > 依赖: 无（钱包是 Payroll / Judge / Revenue 的基础）
 > Flag: `ZYHIVE_EXPERIMENTAL_WALLET=1`

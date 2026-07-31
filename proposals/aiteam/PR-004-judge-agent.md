@@ -1,6 +1,7 @@
 # PR-004 · Judge Agent 评判智能体
 
 > 状态: ✅ landed S7 (26.5.10v13) — heuristic v0
+> 归档说明：下文“待用户提供”保留原始提案问题，不是当前实施待办；最终行为以代码和测试为准。
 > 优先级: 🔴 P0
 > 依赖: 无（结果输入给 PR-002 Payroll）
 > Flag: `ZYHIVE_EXPERIMENTAL_JUDGE=1`

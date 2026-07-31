@@ -1,6 +1,9 @@
 # aiteam 提议目录 INDEX
 
-> 简短目录，详见各 PR-XXX 文件 + 顶部 `README.md`
+> 文档类型：历史实验索引
+> 最近复核：2026-08-01
+> 产品级别：Labs，默认关闭
+> 简短目录，详见各 PR-XXX 文件、顶部 `README.md` 和 `bugs/README.md`
 
 ## PR
 
@@ -11,7 +14,7 @@
 | PR-003 | [PR-003-budget-guard.md](PR-003-budget-guard.md) | ✅ landed S4 (26.5.10v10) | 🔴 P0 |
 | PR-004 | [PR-004-judge-agent.md](PR-004-judge-agent.md) | ✅ landed S7 (26.5.10v13) heuristic v0 | 🔴 P0 |
 | PR-005 | [PR-005-revenue.md](PR-005-revenue.md) | ✅ landed S9 (26.5.10v15) | 🟠 P1 |
-| PR-006 | [PR-006-dashboard.md](PR-006-dashboard.md) | 🟡 backend landed S10, UI 后续 | 🟠 P1 |
+| PR-006 | [PR-006-dashboard.md](PR-006-dashboard.md) | ✅ backend + UI landed | 🟠 P1 |
 | PR-007 | [PR-007-sandbox.md](PR-007-sandbox.md) | ✅ landed S2 (26.5.10v8) | 🟠 P1 |
 | PR-008 | [PR-008-prompt-defense.md](PR-008-prompt-defense.md) | ✅ landed S3 (26.5.10v9) | 🟠 P1 |
 
@@ -23,19 +26,19 @@
 | B002 | [bugs/B002-timing-attack.md](bugs/B002-timing-attack.md) | 🟠 HIGH | ✅ 26.5.10v3 |
 | B003 | [bugs/B003-unbounded-body-oom.md](bugs/B003-unbounded-body-oom.md) | 🟠 HIGH | ✅ 26.5.10v4 |
 | B004 | [bugs/B004-slowloris.md](bugs/B004-slowloris.md) | 🟠 HIGH | ✅ 26.5.10v5 |
-| B005 | [bugs/B005-stdlib-cve-toolchain.md](bugs/B005-stdlib-cve-toolchain.md) | 🟠 HIGH | 🔄 S1 修复中 (Go toolchain bump) |
-| B006 | [bugs/B006-feishu-proto-int-overflow.md](bugs/B006-feishu-proto-int-overflow.md) | 🟡 MEDIUM | 🔄 推后 S3 |
+| B005 | [bugs/B005-stdlib-cve-toolchain.md](bugs/B005-stdlib-cve-toolchain.md) | 🟠 HIGH | ✅ `26.5.10v7` |
+| B006 | [bugs/B006-feishu-proto-int-overflow.md](bugs/B006-feishu-proto-int-overflow.md) | 🟡 MEDIUM | 🟡 开放，需按 v4 重新验证 |
 | B007 | [bugs/B007-self-restart-exec.md](bugs/B007-self-restart-exec.md) | 🟢 LOW | 📝 不修 (false positive) |
 | B008 | [bugs/B008-cli-editor-exec.md](bugs/B008-cli-editor-exec.md) | 🟢 LOW | 📝 不修 (false positive) |
 | B009 | [bugs/B009-llm-retry-weakrand.md](bugs/B009-llm-retry-weakrand.md) | 🟢 LOW | 📝 不修 (非安全敏感) |
-| B010 | [bugs/B010-startup-test-ssrf.md](bugs/B010-startup-test-ssrf.md) | 🟢 LOW | 📝 不修 (false positive) |
+| B010 | [bugs/B010-startup-test-ssrf.md](bugs/B010-startup-test-ssrf.md) | 🟢 LOW | ✅ `26.8.1v2` 出站防护覆盖 |
 | B011 | [bugs/B011-cli-token-display-as-credential.md](bugs/B011-cli-token-display-as-credential.md) | 🟢 LOW | 📝 不修 (false positive) |
 | B012 | [bugs/B012-tool-readwrite-path-taint.md](bugs/B012-tool-readwrite-path-taint.md) | 🟢 LOW | ✅ B001 已覆盖 |
 | B013 | [bugs/B013-memory-indexer-race-walk.md](bugs/B013-memory-indexer-race-walk.md) | 🟢 LOW | 🟡 后续闲时切 WalkDir |
-| B014 | [bugs/B014-file-perms-lax.md](bugs/B014-file-perms-lax.md) | 🟡 MEDIUM | 🔄 S2-S4 渐进修 |
-| B015 | [bugs/B015-untracked-error-returns.md](bugs/B015-untracked-error-returns.md) | 🟢 LOW | 🔄 S5 (wallet) 核心路径 |
-| **B016** | [bugs/B016-hardcoded-github-pat.md](bugs/B016-hardcoded-github-pat.md) | 🟠 HIGH | ✅ 脚本修 P3-S6 / 仓库所有者需 revoke PAT |
-| **B017** | [bugs/B017-hardcoded-prod-root-password.md](bugs/B017-hardcoded-prod-root-password.md) | 🔴 CRITICAL | ✅ 脚本修 P3-S6 / 仓库所有者需改服务器密码 |
+| B014 | [bugs/B014-file-perms-lax.md](bugs/B014-file-perms-lax.md) | 🟡 MEDIUM | 🟡 部分修复 |
+| B015 | [bugs/B015-untracked-error-returns.md](bugs/B015-untracked-error-returns.md) | 🟢 LOW | 📝 已接受技术债 |
+| **B016** | [bugs/B016-hardcoded-github-pat.md](bugs/B016-hardcoded-github-pat.md) | 🟠 HIGH | ✅ 代码修复且历史 PAT 已撤销 |
+| **B017** | [bugs/B017-hardcoded-prod-root-password.md](bugs/B017-hardcoded-prod-root-password.md) | 🔴 CRITICAL | 🟡 代码已修；生产密码轮换待运维证据 |
 | **B018** | `wallet WriteHook panic propagates` | 🟠 HIGH | ✅ P3-S8 修 (recover()) |
 | **B019** | `wallet replay aborts on corrupt line` | 🟡 MEDIUM | ✅ P3-S8 修 (skip + continue) |
 | **B020** | `guard SetAgentLimit accepts negative` | 🟡 MEDIUM | ✅ P3-S8 修 (clamp to 0) |

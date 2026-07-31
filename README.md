@@ -1,13 +1,18 @@
 # 引巢 · ZyHive
 
 > zyling 旗下 AI 团队操作系统 — 让每一个 AI 成员各司其职、协同引领
+>
+> 文档版本：V3.0
+> 基准日期：2026-08-01
+> 状态：当前产品入口；动态能力以最新正式 Release 和代码为准
+> 适用范围：安装、使用、能力边界和项目导航
 
 [![CI](https://github.com/Zyling-ai/ZyHive/actions/workflows/ci.yml/badge.svg)](https://github.com/Zyling-ai/ZyHive/actions/workflows/ci.yml)
 [![GitHub Stars](https://img.shields.io/github/stars/Zyling-ai/zyhive?style=flat&logo=github&color=yellow)](https://github.com/Zyling-ai/zyhive/stargazers)
 [![GitHub Forks](https://img.shields.io/github/forks/Zyling-ai/zyhive?style=flat&logo=github&color=orange)](https://github.com/Zyling-ai/zyhive/network/members)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 [![Go 1.25+](https://img.shields.io/badge/Go-1.25+-00ADD8.svg)](https://golang.org)
-[![Version](https://img.shields.io/badge/version-26.8.1v4-brightgreen.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-26.8.1v5-brightgreen.svg)](CHANGELOG.md)
 [![Release E2E](https://github.com/Zyling-ai/ZyHive/actions/workflows/release-e2e.yml/badge.svg)](https://github.com/Zyling-ai/ZyHive/actions/workflows/release-e2e.yml)
 [![官网](https://img.shields.io/badge/官网-zyling.ai-6366f1?logo=globe)](https://zyling.ai)
 
@@ -16,7 +21,7 @@
 一行命令安装，打开浏览器即可管理整个 AI 团队：配置每个成员的身份、灵魂、记忆、技能，设计组织架构，让成员之间互相协作讨论。
 
 > **发布状态**
-> 当前公开稳定版为 `26.8.1v4`，正式 Release 必须通过全新安装、服务启动、鉴权、基础 API、成员与文件持久化和旧版更新全流程测试。
+> 当前公开稳定版为 `26.8.1v5`，正式 Release 必须通过全新安装、服务启动、鉴权、基础 API、成员与文件持久化和旧版更新全流程测试。
 > 仓库已强制仅允许 `Zyling-ai` 提交身份；Release E2E 失败会自动转为草稿并停止公开分发。
 > 当前产品定位为单机、自托管 Beta，适合个人、小团队和可控环境部署；尚不承诺多租户、多实例、企业级高可用或关键业务连续性。
 > `pkg/aiteam/` 下的钱包、预算、评分、工资和收益模块属于实验能力，不作为稳定版默认商业承诺。
@@ -33,7 +38,7 @@
 
 **macOS / Linux：**
 ```bash
-curl -sSL https://install.zyling.ai/install | bash
+curl -fsSL https://install.zyling.ai/install | bash
 ```
 
 安装完成后，终端直接显示访问地址和访问令牌：
@@ -68,7 +73,7 @@ curl -sSL https://install.zyling.ai/install | bash
 ### 成员管理
 - **多 AI 成员**：每个成员有独立的身份（IDENTITY.md）、灵魂（SOUL.md）、记忆、工作区、技能、定时任务、消息渠道
 - **系统配置助手 `__config__`**：内置不可删除，启动时自动创建，专门负责全局配置问答
-- **独立模型**：每个成员可单独配置大模型（身份 Tab 下拉选择），支持 10+ Provider
+- **独立模型**：每个成员可单独配置大模型（身份 Tab 下拉选择），支持多家主流 Provider 与 OpenAI 兼容端点
 - **删除成员**：自动停止 Bot、清理工作区，前端确认弹窗防误操作
 - **头像颜色**：每个成员有个性化颜色，图谱 / 对话均展示
 - **能力愿望清单 WISHLIST**：AI 主动用 `wish_add` 工具表达能力缺口（例 "我希望能联网"），用户在身份 tab 底部可见愿望卡（P0/P1/P2 优先级 + 理由 + 时间）
@@ -114,19 +119,19 @@ curl -sSL https://install.zyling.ai/install | bash
 - **关系双向同步**：`RELATIONS.md` 所有类型（上下级/平级/支持/其他/服务/客户/...）自动双向写入；`agent_spawn` 必须在关系表内（内置 agent 类型豁免）
 - **团队图谱 💡 建议连接**：未建立关系的成员对一键建立平级协作关系
 
-### 工具生态（80+ 工具）
+### 工具生态（按配置动态注册）
 - **执行工具**：`exec`（bash 命令）、`read` / `write` / `edit`（文件操作）、`glob`（文件匹配）、`grep`
-- **浏览器自动化（go-rod）**：`browser_navigate` / `snapshot` / `screenshot` / `click` / `type` / `fill` / `press` / `hover` / `scroll` / `select` / `eval` / `wait`，支持 ARIA 快照
+- **浏览器自动化（go-rod）**：导航、ARIA 快照、截图、交互、等待，以及标签页查看/新建/切换/关闭；运行时完整名称以 Capabilities 为准
 - **进程管理**：`process`（管理 Bash 与 ACP 后台任务；成员/会话所有权隔离，支持 list / poll / log / write / kill，并限制并发、输出和运行时间）
 - **记忆检索**：`memory_search`（向量 + BM25 语义检索）
 - **网络工具**：`web_search`（Brave Search API）、`web_fetch`（抓取页面内容）
 - **图像分析**：`image`（Vision 模型分析图片）
-- **消息推送**：`messaging`（向 Telegram 等渠道发消息）
+- **消息推送**：`send_message`（向已配置渠道发送消息）
 - **定时任务**：成员工具提供 `cron_list` / `cron_add` / `cron_remove`；管理员可在面板更新和立即运行
 - **多会话管理**：`sessions_list` / `sessions_history` / `sessions_send` / `sessions_spawn`（派遣子成员）
 - **ACP 编程代理**：`acp_*`（在成员工作区内启动受管 ACP 进程，用于长任务编程委派）
 - **项目工作区**：`project_list` / `project_read` / `project_write` / `project_glob`
-- **飞书能力**：`feishu_send_message` / `feishu_create_chat` / `feishu_calendar_*` / `feishu_sheets_*` / `feishu_upload_image` / `feishu_reply_with_card`（7 大飞书工具）
+- **飞书能力**：消息、群聊、日历、文档、表格、Bitable、图片与卡片等按配置动态注册；完整名称以运行时 Capabilities 为准
 - **自我管理**：`self_list_skills` / `self_install_skill` / `self_uninstall_skill` / `self_rename` / `self_update_soul`
 - **愿望清单**：`wish_add(title, reason, priority)` / `wish_list` — AI 主动记录能力诉求
 - **通讯录维护**：`network_note(entityId, section, text)` — AI 追加事实/偏好/待跟进到联系人档案
@@ -161,12 +166,12 @@ curl -sSL https://install.zyling.ai/install | bash
 
 ### 消息渠道
 - **Telegram Bot**：每个成员可绑定独立 Bot（per-agent），支持 per-chat 持久会话、命令菜单、图片媒体处理；发送者自动建档到通讯录
-- **飞书（Lark）**：WebSocket 长连接 + 流式卡片回复 + 7 大飞书能力工具 + 群聊 @ 模式配置 + 多人对话上下文区分 + 发送者自动建档
+- **飞书（Lark）**：WebSocket 长连接 + 流式卡片回复 + 动态飞书工具集 + 群聊 @ 模式配置 + 多人对话上下文区分 + 发送者自动建档
 - **Web 公开聊天（PublicChatView）**：无需登录的公开对话页面，visitor sessionToken 自动建档到 `network/contacts/web-*.md`
 - **渠道管理（ChannelsView）**：可视化管理 Telegram / 飞书 token 配置，实时测试连接
 - **`source` 精细识别**：侧边栏按来源打标签（飞书/TG/Web/面板 4 色区分），飞书/TG 会话自动只读 + 锁图标
 
-### 多模型支持（10+ Provider）
+### 多模型支持
 - Anthropic Claude（claude-3-5/3-7 系列）
 - OpenAI（GPT-4o / o1 / o3 系列）
 - DeepSeek（deepseek-chat / deepseek-reasoner）
@@ -185,7 +190,7 @@ curl -sSL https://install.zyling.ai/install | bash
 - **多 Provider 计费单价**：内置主流 Provider 官方计费标准
 
 ### 系统管理
-- **在线升级（UpdateView）**：检测 GitHub 最新版本，一键在线升级，五阶段进度显示（下载→验证→应用→完成）
+- **在线升级（UpdateView）**：检测 GitHub 最新版本，一键在线升级，四阶段进度显示（下载→验证→应用→完成）
 - **日志查看（LogsView）**：三级降级读取（`/tmp/aipanel.log` → `journalctl` → macOS `log show`），浅色主题终端风格
 - **技能工作室（SkillStudio）**：安装、启用、编辑成员技能（SKILL.md）
 - **设置（SettingsView）**：全局配置、Provider 管理、模型选择、系统提示词调试
@@ -222,7 +227,7 @@ zyhive/
 │   ├── sessions.go      ← 会话管理
 │   ├── relations.go     ← 关系图谱 + 全类型双向同步 + `relationsPath()` 迁移兼容
 │   ├── network.go       ← 通讯录 REST（list/get/patch/delete/merge/refresh）
-│   ├── update.go        ← 在线升级（五阶段状态机）
+│   ├── update.go        ← 在线升级（下载、验证、应用、完成四阶段）
 │   ├── goals.go         ← 目标规划 API
 │   ├── projects.go      ← 共享项目工作区 API
 │   ├── subagents.go     ← 子成员 API
@@ -234,8 +239,8 @@ zyhive/
 │   ├── agent/           ← 成员生命周期 + 工作区 + IDENTITY/SOUL + 关系图 + manager.go 自动迁移 hook
 │   ├── runner/          ← 对话主循环（工具调用循环）+ system_prompt.go 分层构建（9 层）
 │   ├── session/         ← 会话工作者池 + Broadcaster + 持久化
-│   ├── llm/             ← 10+ Provider 适配（StreamEvent 统一抽象）
-│   ├── tools/           ← 80+ 工具注册 + 权限策略（ToolPolicy）+ wish / network_note / chat_note / capabilities
+│   ├── llm/             ← 多 Provider 适配（StreamEvent 统一抽象）
+│   ├── tools/           ← 动态工具注册 + 权限策略（ToolPolicy）+ wish / network_note / chat_note / capabilities
 │   ├── memory/          ← 四层记忆树 + INDEX.md + Consolidator 蒸馏 + 语义检索
 │   ├── network/         ← 通讯录（contact Store + codec + summary + migrate）+ 群档案（chat_store / chat_codec / chat_summary, 26.4.24v1），每 agent 私有
 │   ├── channel/         ← Telegram / 飞书 / 渠道路由 + Feishu WS 长连接
@@ -428,6 +433,9 @@ make release
 | **26.4.24v1** | **Chat Profile（群档案）— 通讯录扩展到群聊**：把"每 agent 一本通讯录"对称扩展到群聊。新 `pkg/network/chat.go` Chat 数据模型 (Title/Kind/MemberCount/4 段 body)；新 `chat_store.go` `GetChat / SaveChat / DeleteChat / ListChats / TouchChat / ResolveChat` (复用同一 Store, 物理隔离 `chats/` 子目录, 与 `contacts/` ID 同名也不冲突)；`refreshIndexUnlocked` 同时重建 contacts + chats 段, INDEX.md 群段最多 20 个；`Store.ChatSummary` Layer-2 渲染 (硬 cap 1200 chars)；飞书 / Telegram 群聊场景自动 `ResolveChat` (私聊不建群档案)；新工具 `chat_note(chatId, section, text)` (section: 基础信息/群规则/重要议题/待跟进, Did-you-mean 提示)；新 REST `/api/agents/:id/network/chats` CRUD；TeamView 联系人 tab 加 sub-tab 「👤 联系人 / 💬 群聊」+ 540px 编辑 drawer (群名/类型/成员数/标签/markdown body)；`ResolveChat` 仅在 title/kind 当前为空时回填 (保护用户编辑)。25 个新测试用例 (`TestChatIDIsolation_DoesNotCollideWithContact` / `TestStoreResolveChatBackfillsEmptyFieldsButProtectsUserEdits` 等), 老 INDEX.json 兼容 (omitempty), 不动 contact 任何 API/数据 | ✅ |
 | **26.5.12v1** | **第 4 程 · 产品价值收官（6 子项一次落地）**：(1) **B-05 Web 访客升级为命名联系人**：TeamView 联系人抽屉对未命名 web visitor 显示橙提示条 + 升级 dialog（真实姓名 / 6 预设标签 / 4 档案模板）；(2) **E-01 头像 API 拉取 + 缓存**：`pkg/network/avatar.go` (1 MiB 上限) + `pkg/channel/{feishu,telegram}_avatar.go` 异步拉头像 → `workspace/network/avatars/`，TeamView 列表/抽屉渲染真实头像（fallback 首字母圆）；(3) **GoalsChat 增强**：把 sidebar 过滤状态 + 可见前 8 个目标注入 AI 助手 context；(4) **B-03 跨 agent 聚合视图**：`GET /api/network/{contacts,chats}` 并发聚合 + 去重 + perAgent 分解，TeamView 加「📋 本地 / 🌐 全局」toggle + 头像簇可跳本地视图；(5) **F-03 工具调用全量审计 + ToolAuditView**：`pkg/toolaudit/` JSONL 按日切 + 200KiB 溢出 blobs，AiChat 工具卡「🔍 详情」内嵌 drawer + 全局 ToolAuditView 页 + 4 个新 REST 端点；(6) **F-01 `policy=ask` 工具审批**：`pkg/tools/approval.go` Broker 阻塞 + 5min timeout + SSE 推送，4 个新 REST + EventSource，顶栏 🔔 铃铛 + AgentDetailView「需审批 (Ask)」配置，审批日志写入 `pkg/aiteam/audit`。**42 个新单测**全部绿。 | ✅ |
 | **26.5.16v1** | **🪶 飞书集成 UX 全面升级 (F1)**：把绑定飞书机器人从 10 步摸黑配置变成 30 秒可视化向导。新建 `pkg/channel/feishu_probe.go` 一站式检测（凭据 + 5 个 OAuth scope + 事件订阅 + 长连接 + 已加群），返回固定词汇 error 供前端精准映射文案；3 个新 REST（`/feishu/probe` + `/test-connect` + per-channel `/feishu-status`，secret 不出服务器）；新建 `FeishuSetupWizard.vue` 4 步向导：(1) 配置清单 + 跳转飞书后台 (2) 一键绑定显示 bot 头像/名字 (3) 缺权限/事件深链 `open.feishu.cn/app/{appId}/{auth,event,version}` + 复制权限名 + 重新检测 (4) 启动测试 + 加群预览；AgentDetailView 渠道卡片新增「🪶 飞书状态」可展开块（bot 头像 + 已加群 + 问题诊断）；引入 `larksuite/oapi-sdk-go v3.7.5`（二进制 +3 MB）；9 个新单测 `-race` 全绿；端到端 smoke 通过。**F2 全面 SDK 化 / F4 群聊看板写操作 推迟到独立后续 PR**（避免在已稳定的 WS/streaming 路径上引入回归风险）。 | ✅ |
+| **26.6.24v1–v2** | Agent CLI 与 SkillOpt 自进化能力落地；具体边界见 CHANGELOG | ✅ |
+| **26.7.31v1–v11** | 质量恢复、唯一提交身份、Release E2E、公共入口门禁、会话隔离、Chromium 全流量保护及统一 Policy/Approval/Audit | ✅ |
+| **26.8.1v1–v4** | 后台进程所有权、动态出站收口及 Cron 一次性任务/时区/重叠/所有权修复 | ✅ |
 | P1（规划中）| AI 自动合并联系人/群 · 飞书拉群名 API · Bitable 视图 · 自主记忆体检 · 主动 escalation | 🔜 |
 
 ---
@@ -437,7 +445,7 @@ make release
 ZyHive 在主线之上孵化一个 **aiteam** 实验路线：让 AI 成员有自己的钱包、被
 评分、领工资、接外部任务付款 — 把 "AI 团队" 升级为 "可跑业务的自治经济体"。
 
-**默认完全关闭**，对普通用户零影响。需要全部 8 个独立 env flag 显式启用：
+**默认完全关闭**，对普通用户零影响。单项实验可独立启用；只有运行完整 aiteam 演示套件时才需要全部 8 个 env flag：
 
 ```bash
 export ZYHIVE_EXPERIMENTAL_WALLET=1
@@ -463,7 +471,7 @@ export ZYHIVE_AITEAM_REVENUE_SECRET="$(openssl rand -hex 32)"
 - [docs/aiteam-revenue-protocol.md](docs/aiteam-revenue-protocol.md) — ZyStudio webhook v1
 - [docs/aiteam-deploy-aws.md](docs/aiteam-deploy-aws.md) — AWS staging 部署
 
-> aiteam 共 19 次 staging 部署，每次 smoke 20/20 通过。详见 CHANGELOG `26.5.10v6` ~ `26.5.10v24`。
+> 历史记录：`26.5.10v6` 至 `26.5.10v24` 期间曾完成 19 次 staging 部署及对应 smoke；这不代表当前 `26.8.1v5` 仍运行在该 staging 环境。
 
 ## 📄 License
 

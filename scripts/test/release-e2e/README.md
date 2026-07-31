@@ -1,5 +1,10 @@
 # Release 安装更新全流程测试
 
+> 文档版本：V1.1
+> 基准日期：2026-08-01
+> 状态：当前发布门禁说明
+> 适用范围：正式 Release 的全新安装、基础功能、持久化与旧版更新验证
+
 本目录是 ZyHive 正式发布门禁。它不调用真实模型，也不写入当前用户的配置、服务或成员目录。
 
 ## 覆盖范围
@@ -20,6 +25,8 @@
 12. 损坏校验和必须失败，且不能替换原二进制；
 13. 重复安装同版本保持幂等。
 
+当前不覆盖“新二进制替换成功、但新进程启动后健康检查失败时自动恢复旧版本”；`.bak` 可执行性验证不能等同于自动健康回滚。
+
 ## 两层门禁
 
 - `local`：正式发布前运行。本机启动临时 HTTP Release 仓库，用合成旧版验证当前待发布产物。
@@ -30,8 +37,12 @@
 ## 手动运行
 
 ```bash
-scripts/test/release-e2e/run.sh local 26.8.1v1 /tmp/zyhive-release-26.8.1v1
-scripts/test/release-e2e/run.sh online 26.8.1v1 26.7.31v4
+VERSION=<待测版本>
+PREVIOUS_VERSION=<上一正式版本>
+ARTIFACT_DIR=<四平台产物与SHA256SUMS所在目录>
+
+scripts/test/release-e2e/run.sh local "$VERSION" "$ARTIFACT_DIR"
+scripts/test/release-e2e/run.sh online "$VERSION" "$PREVIOUS_VERSION"
 ```
 
 测试依赖：`bash`、`curl`、`python3`；`local` 模式额外需要 `go`。

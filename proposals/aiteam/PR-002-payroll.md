@@ -1,6 +1,7 @@
 # PR-002 · Payroll 工资发放
 
 > 状态: ✅ landed S8 (26.5.10v14)
+> 归档说明：下文“待用户提供”保留原始提案问题，不是当前实施待办；最终行为以代码和测试为准。
 > 优先级: 🔴 P0
 > 依赖: PR-001 (Wallet) ✅ + PR-004 (Judge) ✅
 > Flag: `ZYHIVE_EXPERIMENTAL_PAYROLL=1`

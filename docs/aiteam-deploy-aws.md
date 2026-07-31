@@ -1,5 +1,9 @@
 # aiteam AWS Staging Deploy Guide
 
+> 状态：历史实验部署记录，不是当前生产部署指南
+> 最近复核：2026-08-01
+> 使用边界：实例、公网地址、域名、路径和部署次数均为历史快照；不得据此操作当前环境
+>
 > ZyHive aiteam direction runs on a dedicated AWS staging instance.
 > The production `hive.lilianbot.com` deploy is unaffected.
 

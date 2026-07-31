@@ -2,7 +2,7 @@
 # ZyHive (引巢) — 一键安装脚本（通用版，自动识别平台）
 # ─────────────────────────────────────────────────────────────────────────
 # Linux / macOS:
-#   curl -sSL https://install.zyling.ai/install | bash
+#   curl -fsSL https://install.zyling.ai/install | bash
 #
 # ─────────────────────────────────────────────────────────────────────────
 set -euo pipefail
@@ -115,7 +115,7 @@ RAW_ARCH=$(uname -m)
 case "$RAW_ARCH" in
   x86_64)         ARCH="amd64" ;;
   aarch64|arm64)  ARCH="arm64" ;;
-  armv7l|armv6l)  ARCH="arm"   ;;
+  armv7l|armv6l)  error "暂不提供 32 位 ARM 发布包（$RAW_ARCH），请使用 64 位 arm64 系统" ;;
   *) error "不支持的架构: $RAW_ARCH" ;;
 esac
 

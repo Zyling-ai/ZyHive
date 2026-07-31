@@ -3,7 +3,8 @@
 - 主题：C 生产稳定性
 - 优先级：P1
 - 规模：M（单包级，扩 `pkg/llm`）
-- 状态：proposed
+- 状态：implemented — `26.5.10v1`
+- 边界：本文保留原始设计要求；当前实现见 `pkg/llm/throttle.go`
 
 ## 1. 背景与问题
 

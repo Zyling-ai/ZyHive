@@ -10,7 +10,7 @@
 
 *让每一个 AI 成员各司其职，协同引领*
 
-[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
+[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](../../LICENSE)
 [![Go 1.22+](https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go)](https://golang.org)
 [![Vue 3](https://img.shields.io/badge/Vue-3-4FC08D?logo=vue.js)](https://vuejs.org)
 [![Version](https://img.shields.io/badge/version-v0.9.0-orange)]()
@@ -59,10 +59,10 @@
 
 ## 🚀 快速开始
 
-### 一行安装（Linux / macOS）
+### 当前安全安装入口（替代历史 raw main 命令）
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/Zyling-ai/zyhive/main/scripts/install.sh | bash
+curl -fsSL https://install.zyling.ai/install | bash
 ```
 
 安装完成后，终端会输出访问地址：
@@ -112,7 +112,7 @@ cp aipanel.example.json aipanel.json
 | `agents.dir` | Agent 工作区根目录 |
 | `models.primary` | 默认模型，格式 `provider/model` |
 | `models.apiKeys` | 各 LLM 提供商的 API Key |
-| `auth.token` | 访问令牌，设为 `changeme` 可禁用验证（不推荐） |
+| `auth.token` | 历史配置字段。当前版本要求有效随机令牌，不存在通过 `changeme` 禁用验证的受支持方式 |
 
 ---
 
@@ -191,30 +191,15 @@ zyhive/
 
 ## 📄 License
 
-ZyHive 采用 **AGPL-3.0** 开源协议。
+历史版本曾写有“商业闭源集成或 SaaS 需要商业授权”，该表述已经废止，不能作为当前许可承诺。
 
-| 使用场景 | 是否需要授权 |
-|---------|------------|
-| 个人学习、研究 | ✅ 免费 |
-| 自托管私用 | ✅ 免费 |
-| 修改后以相同协议开源 | ✅ 免费 |
-| 基于本项目提供网络服务 | ⚠️ 需开源全部改动 |
-| 商业闭源集成或 SaaS 销售 | 🔑 需要商业授权 |
-
-### 商业授权
-
-如需商业授权，请联系：
-
-- 📧 邮件：`yison@zyling.ai`
-- 🌐 官网：[zyling.ai](https://zyling.ai)
-
-> 完整协议见 [LICENSE](LICENSE)
+当前 ZyHive 仅按仓库根目录 [LICENSE](../../LICENSE) 的 **AGPL-3.0** 发布，当前没有专有商业许可证或闭源企业版。部署、配置、培训、运维和定制服务可以收费；具体边界以[现行商业边界](../../docs/commercial-boundaries.md)为准。
 
 ---
 
 ## 🤝 贡献
 
-欢迎提交 Issue 和 PR！请先阅读 [贡献指南](CONTRIBUTING.md)。
+该历史快照不接受独立修改。问题与改进请提交到[当前仓库 Issues](https://github.com/Zyling-ai/ZyHive/issues)。
 
 ---
 
