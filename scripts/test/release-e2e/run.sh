@@ -400,16 +400,24 @@ download_release_asset() {
 }
 
 wait_for_latest_release() {
-  local expected="$1" payload tag
-  for _ in $(seq 1 24); do
-    payload="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null || true)"
+  local expected="$1" payload tag attempt
+  local attempts="${ZYHIVE_RELEASE_WAIT_ATTEMPTS:-150}"
+  [[ "$attempts" =~ ^[0-9]+$ ]] || attempts=150
+  for ((attempt = 1; attempt <= attempts; attempt++)); do
+    payload="$(
+      curl -fsSL \
+        -H "Accept: application/vnd.github+json" \
+        -H "Cache-Control: no-cache" \
+        "https://api.github.com/repos/${REPO}/releases/latest?nocache=$(date +%s)-${attempt}" \
+        2>/dev/null || true
+    )"
     if [[ -n "$payload" ]]; then
       tag="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("tag_name", ""))' <<<"$payload")"
       [[ "$tag" == "$expected" ]] && return 0
     fi
     sleep 2
   done
-  fail "GitHub latest Release 尚未指向 $expected"
+  fail "GitHub latest Release 在五分钟内尚未指向 $expected"
 }
 
 wait_for_install_mirror() {

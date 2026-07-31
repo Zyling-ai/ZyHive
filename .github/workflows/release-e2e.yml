@@ -49,8 +49,6 @@ jobs:
           echo "version=$previous" >> "$GITHUB_OUTPUT"
 
       - name: Test official install, basic API and real update
-        id: release_e2e
-        continue-on-error: true
         env:
           ZYHIVE_REPO: ${{ github.repository }}
         run: >-
@@ -59,8 +57,13 @@ jobs:
           "${{ github.event.release.tag_name }}"
           "${{ steps.previous.outputs.version }}"
 
+  withdraw:
+    name: Withdraw failed release
+    needs: install-update
+    if: ${{ always() && needs.install-update.result == 'failure' }}
+    runs-on: ubuntu-latest
+    steps:
       - name: Withdraw release when E2E fails
-        if: steps.release_e2e.outcome == 'failure'
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ github.event.release.tag_name }}
