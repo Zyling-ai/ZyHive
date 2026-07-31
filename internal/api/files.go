@@ -4,6 +4,7 @@ package api
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Zyling-ai/zyhive/pkg/agent"
+	"github.com/Zyling-ai/zyhive/pkg/artifact"
 	"github.com/Zyling-ai/zyhive/pkg/safefs"
 	"github.com/gin-gonic/gin"
 )
@@ -298,33 +300,34 @@ func (h *fileHandler) Delete(c *gin.Context) {
 }
 
 // ── Download Handler ──────────────────────────────────────────────────────
-// GET /api/download?path=ABSOLUTE_PATH&token=AUTH_TOKEN
-// Serves files inside loaded agent workspaces. Auth is via the `token` query
-// parameter for current clickable-link compatibility, or a Bearer header.
+// GET /api/download?id=ARTIFACT_ID&token=ONE_TIME_TOKEN
+// Serves one registered agent-workspace file through a short-lived,
+// single-use credential. Host paths and administrator tokens never appear in
+// the URL.
 
 type downloadHandler struct {
-	authToken string
-	manager   *agent.Manager
+	manager *agent.Manager
+	tickets *artifact.TicketStore
 }
 
 func (h *downloadHandler) ServeFile(c *gin.Context) {
-	// Verify token (B002 26.5.10v3: constant-time compare).
-	if h.authToken == "" {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "authentication is not configured"})
-		return
-	}
+	artifactID := c.Query("id")
 	token := c.Query("token")
-	if auth := c.GetHeader("Authorization"); strings.HasPrefix(auth, "Bearer ") {
-		token = strings.TrimPrefix(auth, "Bearer ")
-	}
-	if !secretsEqual(token, h.authToken) {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
+	if artifactID == "" || token == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid download credential"})
 		return
 	}
-
-	filePath := c.Query("path")
-	if filePath == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "path required"})
+	tickets := h.tickets
+	if tickets == nil {
+		tickets = artifact.DefaultTickets
+	}
+	filePath, err := tickets.Consume(artifactID, token)
+	if err != nil {
+		if errors.Is(err, artifact.ErrExpiredTicket) {
+			c.JSON(http.StatusGone, gin.H{"error": "download credential expired"})
+		} else {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid download credential"})
+		}
 		return
 	}
 
@@ -341,6 +344,8 @@ func (h *downloadHandler) ServeFile(c *gin.Context) {
 	}
 
 	baseName := filepath.Base(confinedPath)
+	c.Header("Cache-Control", "no-store")
+	c.Header("Referrer-Policy", "no-referrer")
 	c.Header("Content-Disposition", `attachment; filename="`+baseName+`"`)
 	c.FileAttachment(confinedPath, baseName)
 }
@@ -352,11 +357,15 @@ func confineToAgentWorkspace(manager *agent.Manager, filePath string) (string, b
 		return "", false
 	}
 	for _, ag := range manager.List() {
-		rel, err := filepath.Rel(ag.WorkspaceDir, filePath)
+		base, err := safefs.ConfineToBase(ag.WorkspaceDir, ".")
 		if err != nil {
 			continue
 		}
-		resolved, err := safefs.ConfineToBase(ag.WorkspaceDir, rel)
+		rel, err := filepath.Rel(base, filePath)
+		if err != nil {
+			continue
+		}
+		resolved, err := safefs.ConfineToBase(base, rel)
 		if err == nil {
 			return resolved, true
 		}

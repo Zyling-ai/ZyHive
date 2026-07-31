@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,6 +27,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/Zyling-ai/zyhive/pkg/agent"
+	"github.com/Zyling-ai/zyhive/pkg/artifact"
 	"github.com/Zyling-ai/zyhive/pkg/budget"
 	"github.com/Zyling-ai/zyhive/pkg/chatlog"
 	"github.com/Zyling-ai/zyhive/pkg/config"
@@ -304,7 +304,6 @@ func (h *chatHandler) execRunner(
 	//   Other files → [file_card:URL|NAME|SIZE] → AiChat.vue renders as download card
 	if scenario != "skill-studio" {
 		baseURL := h.cfg.Gateway.BaseURL()
-		authToken := h.cfg.Auth.Token
 		webSender := func(filePath string) (string, error) {
 			info, err := os.Stat(filePath)
 			if err != nil {
@@ -321,8 +320,10 @@ func (h *chatHandler) execRunner(
 			}
 
 			// Other files: file card marker rendered by AiChat.vue
-			dlURL := baseURL + "/api/download?path=" + url.QueryEscape(filePath) +
-				"&token=" + url.QueryEscape(authToken)
+			dlURL, err := artifact.DefaultTickets.IssueURL(baseURL, filePath, 0)
+			if err != nil {
+				return "", fmt.Errorf("create download credential: %w", err)
+			}
 			sizeKB := float64(info.Size()) / 1024
 			var sizeStr string
 			if sizeKB < 1024 {
@@ -332,7 +333,7 @@ func (h *chatHandler) execRunner(
 			}
 			return fmt.Sprintf("[file_card:%s|%s|%s]", dlURL, name, sizeStr), nil
 		}
-		toolRegistry.WithFileSender(webSender, baseURL, authToken)
+		toolRegistry.WithFileSender(webSender, baseURL)
 	}
 
 	var preHistory []llm.ChatMessage

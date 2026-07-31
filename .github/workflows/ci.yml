@@ -52,6 +52,7 @@ jobs:
         run: >-
           go test -race -count=1 -timeout=10m
           ./internal/api
+          ./pkg/artifact
           ./pkg/network
           ./pkg/safefs
           ./pkg/session

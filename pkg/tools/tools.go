@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -508,9 +507,11 @@ func (r *Registry) handleSendFile(_ context.Context, input json.RawMessage) (str
 	// Files > 50 MB: generate download link instead of uploading
 	if size > fileSizeLimit50MB {
 		mb := float64(size) / (1024 * 1024)
-		if r.serverBaseURL != "" && r.authToken != "" {
-			dlURL := r.serverBaseURL + "/api/download?path=" + url.QueryEscape(p.Path) +
-				"&token=" + url.QueryEscape(r.authToken)
+		if r.serverBaseURL != "" && r.downloadTickets != nil {
+			dlURL, err := r.downloadTickets.IssueURL(r.serverBaseURL, p.Path, 0)
+			if err != nil {
+				return "", fmt.Errorf("create download credential: %w", err)
+			}
 			return fmt.Sprintf("⚠️ 文件 %s 过大 (%.1f MB，超过50MB限制)，无法直接发送。\n\n下载链接：%s", baseName, mb, dlURL), nil
 		}
 		return fmt.Sprintf("⚠️ 文件 %s 过大 (%.1f MB)，超过50MB限制，无法直接发送。\n文件路径：%s", baseName, mb, p.Path), nil

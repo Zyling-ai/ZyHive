@@ -64,9 +64,9 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, cfgPath string, mgr *agen
 	r.Use(bodyLimitMiddleware())
 	log.Printf("[api] request body limit: %s", describeBodyLimit())
 
-	// File download endpoint — auth via ?token= query param (for shareable links).
-	// This endpoint is intentionally outside the auth middleware group.
-	dlH := &downloadHandler{authToken: cfg.Auth.Token, manager: mgr}
+	// File download endpoint — one-time, short-lived Artifact credential.
+	// It is outside admin auth because the ticket itself is the scoped grant.
+	dlH := &downloadHandler{manager: mgr}
 	r.GET("/api/download", dlH.ServeFile)
 
 	// Public: version info (no auth required — needed for login page)

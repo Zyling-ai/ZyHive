@@ -628,7 +628,7 @@ func (p *Pool) configureToolRegistry(reg *tools.Registry, ag *Agent, fileSender 
 		return summaries
 	})
 	if fileSender != nil {
-		reg.WithFileSender(fileSender, p.cfg.Gateway.BaseURL(), p.cfg.Auth.Token)
+		reg.WithFileSender(fileSender, p.cfg.Gateway.BaseURL())
 	}
 	// Allow the agent to update its own env vars via self_set_env / self_delete_env tools.
 	agID := ag.ID

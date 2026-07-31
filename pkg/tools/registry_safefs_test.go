@@ -10,10 +10,13 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/Zyling-ai/zyhive/pkg/artifact"
 )
 
 func newRegistryAt(t *testing.T) (*Registry, string) {
@@ -184,5 +187,53 @@ func TestSendFileAllowsPathInsideWorkspace(t *testing.T) {
 	}
 	if result != "sent" || sentPath != expectedPath {
 		t.Fatalf("unexpected send result=%q path=%q", result, sentPath)
+	}
+}
+
+func TestSendFileLargeFileUsesOneTimeArtifactURL(t *testing.T) {
+	r, workspace := newRegistryAt(t)
+	filePath := filepath.Join(workspace, "large.bin")
+	file, err := os.Create(filePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Truncate(fileSizeLimit50MB + 1); err != nil {
+		file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	tickets := artifact.NewTicketStore()
+	r.serverBaseURL = "https://example.test"
+	r.downloadTickets = tickets
+	result, err := r.handleSendFile(context.Background(), mustJSON(map[string]any{"path": "large.bin"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const marker = "下载链接："
+	index := strings.Index(result, marker)
+	if index < 0 {
+		t.Fatalf("missing download link: %s", result)
+	}
+	downloadURL := strings.TrimSpace(result[index+len(marker):])
+	parsed, err := url.Parse(downloadURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Query().Get("path") != "" {
+		t.Fatalf("download URL exposed a host path: %s", downloadURL)
+	}
+	resolved, err := tickets.Consume(parsed.Query().Get("id"), parsed.Query().Get("token"))
+	if err != nil {
+		t.Fatalf("generated ticket was invalid: %v", err)
+	}
+	expected, err := filepath.EvalSymlinks(filePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved != expected {
+		t.Fatalf("resolved path=%q want=%q", resolved, expected)
 	}
 }

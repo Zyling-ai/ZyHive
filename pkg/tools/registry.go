@@ -15,6 +15,7 @@ import (
 	"github.com/Zyling-ai/zyhive/pkg/aiteam/flags"
 	"github.com/Zyling-ai/zyhive/pkg/aiteam/sandbox"
 	aiteamWallet "github.com/Zyling-ai/zyhive/pkg/aiteam/wallet"
+	"github.com/Zyling-ai/zyhive/pkg/artifact"
 	"github.com/Zyling-ai/zyhive/pkg/llm"
 	"github.com/Zyling-ai/zyhive/pkg/project"
 	"github.com/Zyling-ai/zyhive/pkg/safefs"
@@ -40,10 +41,10 @@ type Registry struct {
 	agentEnv      map[string]string            // per-agent env vars injected into exec (bypass sanitize)
 	subagentMgr   *subagent.Manager            // background task manager (nil = no subagent tools)
 	agentLister   func() []AgentSummary        // optional: lists available agents for agent_list tool
-	fileSender    func(string) (string, error)                   // optional: sends a file to the current chat (e.g. Telegram)
-	serverBaseURL string                                         // base URL for generating download links (files > 50 MB)
-	authToken     string                                         // auth token for download link generation
-	envUpdater    func(key, value string, remove bool) error     // optional: lets the agent update its own env vars
+	fileSender      func(string) (string, error)               // optional: sends a file to the current chat (e.g. Telegram)
+	serverBaseURL   string                                     // base URL for generating download links (files > 50 MB)
+	downloadTickets *artifact.TicketStore                      // one-time download credential issuer
+	envUpdater      func(key, value string, remove bool) error // optional: lets the agent update its own env vars
 
 	// Dispatch panel: report_to_parent support
 	parentSessionID string                // non-empty when this agent was spawned by a parent session
@@ -258,11 +259,11 @@ func (r *Registry) handleReportToParent(_ context.Context, input json.RawMessage
 
 // WithFileSender registers the send_file tool backed by the given sender function.
 // sender is a closure that delivers a local file to the active chat (e.g. via Telegram).
-// serverBaseURL and authToken are used to generate download links for files > 50 MB.
-func (r *Registry) WithFileSender(sender func(string) (string, error), serverBaseURL, authToken string) {
+// serverBaseURL is used with a one-time Artifact ticket for files > 50 MB.
+func (r *Registry) WithFileSender(sender func(string) (string, error), serverBaseURL string) {
 	r.fileSender = sender
 	r.serverBaseURL = serverBaseURL
-	r.authToken = authToken
+	r.downloadTickets = artifact.DefaultTickets
 	r.register(sendFileDef, func(ctx context.Context, input json.RawMessage) (string, error) {
 		return r.handleSendFile(ctx, input)
 	})

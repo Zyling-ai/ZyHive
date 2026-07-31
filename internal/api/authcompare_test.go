@@ -4,8 +4,13 @@ package api
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/Zyling-ai/zyhive/pkg/artifact"
 	"github.com/gin-gonic/gin"
 )
 
@@ -93,14 +98,24 @@ func TestAuthMiddleware_NoTokenFailsClosed(t *testing.T) {
 	}
 }
 
-// download token: query-param auth, also constant-time
+// Download credentials are short-lived and compared in constant time.
 func TestDownloadHandler_WrongTokenRejected(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	path := filepath.Join(t.TempDir(), "report.txt")
+	if err := os.WriteFile(path, []byte("report"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	tickets := artifact.NewTicketStore()
+	artifactID, _, _, err := tickets.Issue(path, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
 	r := gin.New()
-	h := &downloadHandler{authToken: "super-secret-token"}
+	h := &downloadHandler{tickets: tickets}
 	r.GET("/api/download", h.ServeFile)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/download?path=/tmp/x&token=wrong", nil)
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/download?id="+url.QueryEscape(artifactID)+"&token=wrong", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusUnauthorized {
@@ -108,17 +123,17 @@ func TestDownloadHandler_WrongTokenRejected(t *testing.T) {
 	}
 }
 
-func TestDownloadHandler_EmptyConfiguredTokenFailsClosed(t *testing.T) {
+func TestDownloadHandler_MissingCredentialFailsClosed(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	h := &downloadHandler{}
 	r.GET("/api/download", h.ServeFile)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/download?path=/tmp/x", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/download", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
-	if w.Code != http.StatusServiceUnavailable {
-		t.Fatalf("empty configured token should fail closed, got %d", w.Code)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("missing download credential should fail closed, got %d", w.Code)
 	}
 }
 

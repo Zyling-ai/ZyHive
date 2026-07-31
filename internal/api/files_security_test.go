@@ -11,8 +11,10 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/Zyling-ai/zyhive/pkg/agent"
+	"github.com/Zyling-ai/zyhive/pkg/artifact"
 	"github.com/gin-gonic/gin"
 )
 
@@ -162,17 +164,29 @@ func TestB001_DeleteRejectsSiblingPrefixBypass(t *testing.T) {
 
 func TestDownloadHandler_AllowsAgentWorkspaceFile(t *testing.T) {
 	mgr, aliceWS := setupSecurityTestEnv(t)
-	h := &downloadHandler{authToken: "secret", manager: mgr}
+	tickets := artifact.NewTicketStore()
+	artifactID, token, _, err := tickets.Issue(filepath.Join(aliceWS, "ok.md"), time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := &downloadHandler{manager: mgr, tickets: tickets}
 	r := gin.New()
 	r.GET("/api/download", h.ServeFile)
 
-	filePath := filepath.Join(aliceWS, "ok.md")
 	req := httptest.NewRequest(http.MethodGet,
-		"/api/download?path="+url.QueryEscape(filePath)+"&token=secret", nil)
+		"/api/download?id="+url.QueryEscape(artifactID)+"&token="+url.QueryEscape(token), nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
 		t.Fatalf("workspace download failed: got %d body=%s", w.Code, w.Body.String())
+	}
+
+	replay := httptest.NewRequest(http.MethodGet,
+		"/api/download?id="+url.QueryEscape(artifactID)+"&token="+url.QueryEscape(token), nil)
+	replayResult := httptest.NewRecorder()
+	r.ServeHTTP(replayResult, replay)
+	if replayResult.Code != http.StatusUnauthorized {
+		t.Fatalf("replayed download credential should fail: got %d", replayResult.Code)
 	}
 }
 
@@ -184,11 +198,16 @@ func TestDownloadHandler_RejectsFileOutsideAgentWorkspaces(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h := &downloadHandler{authToken: "secret", manager: mgr}
+	tickets := artifact.NewTicketStore()
+	artifactID, token, _, err := tickets.Issue(outsidePath, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := &downloadHandler{manager: mgr, tickets: tickets}
 	r := gin.New()
 	r.GET("/api/download", h.ServeFile)
 	req := httptest.NewRequest(http.MethodGet,
-		"/api/download?path="+url.QueryEscape(outsidePath)+"&token=secret", nil)
+		"/api/download?id="+url.QueryEscape(artifactID)+"&token="+url.QueryEscape(token), nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusForbidden {
