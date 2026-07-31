@@ -23,6 +23,7 @@ import (
 
 	"github.com/Zyling-ai/zyhive/pkg/chatlog"
 	"github.com/Zyling-ai/zyhive/pkg/convlog"
+	"github.com/Zyling-ai/zyhive/pkg/netguard"
 	"github.com/Zyling-ai/zyhive/pkg/network"
 )
 
@@ -60,9 +61,9 @@ type StreamFunc func(ctx context.Context, agentID, message, sessionID string, me
 // ── Telegram API types ────────────────────────────────────────────────────
 
 type TelegramUpdate struct {
-	UpdateID      int64                `json:"update_id"`
-	Message       *TelegramMessage     `json:"message"`
-	ChannelPost   *TelegramMessage     `json:"channel_post"`
+	UpdateID      int64                  `json:"update_id"`
+	Message       *TelegramMessage       `json:"message"`
+	ChannelPost   *TelegramMessage       `json:"channel_post"`
 	CallbackQuery *TelegramCallbackQuery `json:"callback_query"`
 }
 
@@ -86,11 +87,11 @@ type TelegramMessage struct {
 	Sticker         *TelegramSticker    `json:"sticker,omitempty"`
 	Animation       *TelegramFile       `json:"animation,omitempty"`
 	// Forward context (old API)
-	ForwardFrom     *TelegramUser       `json:"forward_from,omitempty"`
+	ForwardFrom     *TelegramUser        `json:"forward_from,omitempty"`
 	ForwardFromChat *TelegramForwardChat `json:"forward_from_chat,omitempty"`
-	ForwardDate     int64               `json:"forward_date,omitempty"`
+	ForwardDate     int64                `json:"forward_date,omitempty"`
 	// Forward origin (Bot API 7.0+)
-	ForwardOrigin   *TelegramForwardOrigin `json:"forward_origin,omitempty"`
+	ForwardOrigin *TelegramForwardOrigin `json:"forward_origin,omitempty"`
 }
 
 // TelegramForwardChat represents the chat a message was forwarded from.
@@ -103,11 +104,11 @@ type TelegramForwardChat struct {
 
 // TelegramForwardOrigin represents the new-style forward_origin (Bot API 7.0+).
 type TelegramForwardOrigin struct {
-	Type        string       `json:"type"` // "user" | "hidden_user" | "chat" | "channel"
-	SenderUser  *TelegramUser `json:"sender_user,omitempty"`
-	SenderUserName string    `json:"sender_user_name,omitempty"`
-	Chat        *TelegramForwardChat `json:"chat,omitempty"`
-	Date        int64        `json:"date,omitempty"`
+	Type           string               `json:"type"` // "user" | "hidden_user" | "chat" | "channel"
+	SenderUser     *TelegramUser        `json:"sender_user,omitempty"`
+	SenderUserName string               `json:"sender_user_name,omitempty"`
+	Chat           *TelegramForwardChat `json:"chat,omitempty"`
+	Date           int64                `json:"date,omitempty"`
 }
 
 type TelegramPhotoSize struct {
@@ -172,8 +173,8 @@ type mediaGroupEntry struct {
 type TelegramBot struct {
 	token        string
 	agentID      string
-	agentDir     string // root dir for this agent (agents/{id}), used for conv logging
-	channelID    string // channel config ID, used for approved user store
+	agentDir     string         // root dir for this agent (agents/{id}), used for conv logging
+	channelID    string         // channel config ID, used for approved user store
 	getAllowFrom func() []int64 // dynamic allowFrom getter — hot-reloads on every message
 	streamFunc   StreamFunc
 	client       *http.Client
@@ -230,9 +231,9 @@ func NewTelegramBot(token, agentID, agentDir string, allowFrom []int64, runner R
 		token:        token,
 		agentID:      agentID,
 		agentDir:     agentDir,
-		getAllowFrom:  func() []int64 { return fixedList },
+		getAllowFrom: func() []int64 { return fixedList },
 		streamFunc:   sf,
-		client:       &http.Client{Timeout: 90 * time.Second},
+		client:       netguard.NewSafeClient(90 * time.Second),
 		pendingStore: pending,
 		mediaGroups:  make(map[string]*mediaGroupEntry),
 		pendingMsgs:  make(map[int64]*TelegramMessage),
@@ -256,9 +257,9 @@ func NewTelegramBotWithStream(token, agentID, agentDir, channelID string, getAll
 		agentID:      agentID,
 		agentDir:     agentDir,
 		channelID:    channelID,
-		getAllowFrom:  getAllowFrom,
+		getAllowFrom: getAllowFrom,
 		streamFunc:   sf,
-		client:       &http.Client{Timeout: 90 * time.Second},
+		client:       netguard.NewSafeClient(90 * time.Second),
 		pendingStore: pending,
 		mediaGroups:  make(map[string]*mediaGroupEntry),
 		pendingMsgs:  make(map[int64]*TelegramMessage),
@@ -302,7 +303,7 @@ func SendApprovalWelcome(token string, chatID int64, agentName string) error {
 		"reply_markup": keyboard,
 	}
 	data, _ := json.Marshal(payload)
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := netguard.NewSafeClient(10 * time.Second)
 	resp, err := client.Post(
 		fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", token),
 		"application/json",
@@ -685,9 +686,9 @@ func (b *TelegramBot) handleCallbackQuery(ctx context.Context, cq *TelegramCallb
 
 	// Create a synthetic message for generateAndSendWithMedia
 	synth := &TelegramMessage{
-		Chat:    TelegramChat{ID: chatID},
-		Text:    cq.Data,
-		From:    cq.From,
+		Chat: TelegramChat{ID: chatID},
+		Text: cq.Data,
+		From: cq.From,
 	}
 	if cq.Message != nil {
 		synth.MessageThreadID = cq.Message.MessageThreadID
@@ -1126,4 +1127,3 @@ func (b *TelegramBot) resolveForwardSender(msg *TelegramMessage) string {
 	}
 	return ""
 }
-

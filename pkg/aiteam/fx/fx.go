@@ -28,6 +28,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Zyling-ai/zyhive/pkg/netguard"
 )
 
 // SupportedCurrencies enumerates the displayable currencies. USDT is
@@ -57,19 +59,19 @@ var HardcodedRates = map[string]float64{
 type Source string
 
 const (
-	SourceCoinGecko       Source = "coingecko"
+	SourceCoinGecko        Source = "coingecko"
 	SourceExchangerateHost Source = "exchangerate.host"
-	SourceHardcoded       Source = "hardcoded"
-	SourceDiskCache       Source = "disk_cache"
+	SourceHardcoded        Source = "hardcoded"
+	SourceDiskCache        Source = "disk_cache"
 )
 
 // Snapshot is the read-only view returned to callers / API.
 type Snapshot struct {
-	Base       string             `json:"base"`         // always "USDT"
-	Rates      map[string]float64 `json:"rates"`        // currency → rate (1 USDT = N <currency>)
-	Source     Source             `json:"source"`
-	FetchedAt  time.Time          `json:"fetched_at"`
-	Overrides  map[string]float64 `json:"overrides,omitempty"` // currency → manually overridden rate
+	Base      string             `json:"base"`  // always "USDT"
+	Rates     map[string]float64 `json:"rates"` // currency → rate (1 USDT = N <currency>)
+	Source    Source             `json:"source"`
+	FetchedAt time.Time          `json:"fetched_at"`
+	Overrides map[string]float64 `json:"overrides,omitempty"` // currency → manually overridden rate
 }
 
 // Service is the public FX engine.
@@ -90,7 +92,7 @@ type Service struct {
 // is never "blind" before the first network refresh completes.
 func New(cacheFile string) *Service {
 	s := &Service{
-		httpClient:  &http.Client{Timeout: 8 * time.Second},
+		httpClient:  netguard.NewSafeClient(8 * time.Second),
 		cacheFile:   cacheFile,
 		mainTTL:     time.Hour,
 		fallbackTTL: 24 * time.Hour,

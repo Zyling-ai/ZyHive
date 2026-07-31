@@ -1,12 +1,15 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/Zyling-ai/zyhive/pkg/netguard"
 )
 
 func TestParseChecksumList(t *testing.T) {
@@ -99,7 +102,7 @@ func TestDownloadFile(t *testing.T) {
 	defer server.Close()
 
 	dest := filepath.Join(t.TempDir(), "download")
-	if err := downloadFile(server.URL, dest, nil); err != nil {
+	if err := downloadFileWithClient(server.Client(), server.URL, dest, nil); err != nil {
 		t.Fatalf("download: %v", err)
 	}
 	data, err := os.ReadFile(dest)
@@ -119,7 +122,19 @@ func TestDownloadFileRejectsOversizedContent(t *testing.T) {
 	defer server.Close()
 
 	dest := filepath.Join(t.TempDir(), "download")
-	if err := downloadFile(server.URL, dest, nil); err == nil {
+	if err := downloadFileWithClient(server.Client(), server.URL, dest, nil); err == nil {
 		t.Fatal("expected oversized download error")
+	}
+}
+
+func TestDownloadFileBlocksPrivateRedirectTargets(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("blocked update endpoint received a request")
+	}))
+	defer server.Close()
+
+	dest := filepath.Join(t.TempDir(), "download")
+	if err := downloadFile(server.URL, dest, nil); !errors.Is(err, netguard.ErrBlocked) {
+		t.Fatalf("expected private endpoint block, got %v", err)
 	}
 }

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/Zyling-ai/zyhive/pkg/config"
+	"github.com/Zyling-ai/zyhive/pkg/llm"
 )
 
 // ── ANSI 颜色 ──────────────────────────────────────────────────────────────
@@ -198,7 +199,7 @@ func menuSystemInfo() {
 		fmt.Printf(ansiBold+ansiMagenta+"  │  🔒 域名：  https://%s\n"+ansiReset, domain)
 	}
 
-	fmt.Printf(ansiBold+"  │\n"+ansiReset)
+	fmt.Printf(ansiBold + "  │\n" + ansiReset)
 	fmt.Printf(ansiBold+ansiYellow+"  │  🔑 访问令牌： %s\n"+ansiReset, token)
 	if tokenFull != "" {
 		fmt.Printf(ansiYellow+"  │  （完整令牌）%s\n"+ansiReset, tokenFull)
@@ -529,15 +530,15 @@ func menuProviderConfig() {
 }
 
 var providerChoices = []struct{ key, label string }{
-	{"anthropic",  "Anthropic (Claude)"},
-	{"openai",     "OpenAI (GPT)"},
-	{"deepseek",   "DeepSeek"},
+	{"anthropic", "Anthropic (Claude)"},
+	{"openai", "OpenAI (GPT)"},
+	{"deepseek", "DeepSeek"},
 	{"openrouter", "OpenRouter"},
-	{"zhipu",      "智谱 AI (GLM)"},
-	{"kimi",       "月之暗面 (Kimi)"},
-	{"minimax",    "MiniMax"},
-	{"qwen",       "阿里通义千问"},
-	{"custom",     "自定义"},
+	{"zhipu", "智谱 AI (GLM)"},
+	{"kimi", "月之暗面 (Kimi)"},
+	{"minimax", "MiniMax"},
+	{"qwen", "阿里通义千问"},
+	{"custom", "自定义"},
 }
 
 func menuProviderAdd(cfg *config.Config, configPath string) {
@@ -728,6 +729,7 @@ func testAPIKey(provider, apiKey, baseURL string) (bool, string) {
 		}
 	}
 	base = strings.TrimRight(base, "/")
+	base = llm.NormalizeProviderBaseURL(provider, base)
 
 	var target string
 	var headers map[string]string
@@ -754,7 +756,10 @@ func testAPIKey(provider, apiKey, baseURL string) (bool, string) {
 		req.Header.Set(k, v)
 	}
 	req.Header.Set("User-Agent", "ZyHive/0.9")
-	client := &http.Client{Timeout: 15 * time.Second}
+	client, clientErr := llm.NewProviderHTTPClient(provider, base, 15*time.Second)
+	if clientErr != nil {
+		return false, "地址被阻止: " + clientErr.Error()
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return false, "连接失败: " + err.Error()
@@ -983,8 +988,8 @@ func menuUpdate() {
 	}
 
 	// 确定下载 URL（跨平台）
-	osName := runtime.GOOS  // linux / darwin / windows
-	arch := runtime.GOARCH  // amd64 / arm64
+	osName := runtime.GOOS // linux / darwin / windows
+	arch := runtime.GOARCH // amd64 / arm64
 	suffix := ""
 	if osName == "windows" {
 		suffix = ".exe"

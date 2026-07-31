@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Zyling-ai/zyhive/pkg/llm"
+	"github.com/Zyling-ai/zyhive/pkg/netguard"
 )
 
 // VisionCaller is a function that calls the LLM with images for visual analysis.
@@ -178,12 +179,19 @@ func BuildVisionCaller(client llm.Client, model, apiKey string) VisionCaller {
 // fetchURLToTempFile downloads a URL to a temp file and returns its path.
 // Used internally if we need to normalize URL images.
 func fetchURLToTempFile(imageURL string) (string, error) {
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := netguard.NewSafeClient(30 * time.Second)
 	resp, err := client.Get(imageURL)
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("image download returned HTTP %d", resp.StatusCode)
+	}
+	const maxImageDownload = int64(20 * 1024 * 1024)
+	if resp.ContentLength > maxImageDownload {
+		return "", fmt.Errorf("image exceeds %d bytes", maxImageDownload)
+	}
 
 	ext := ".jpg"
 	ct := resp.Header.Get("Content-Type")
@@ -202,9 +210,14 @@ func fetchURLToTempFile(imageURL string) (string, error) {
 	}
 	defer f.Close()
 
-	if _, err := io.Copy(f, resp.Body); err != nil {
+	written, err := io.Copy(f, io.LimitReader(resp.Body, maxImageDownload+1))
+	if err != nil {
 		os.Remove(f.Name())
 		return "", err
+	}
+	if written > maxImageDownload {
+		os.Remove(f.Name())
+		return "", fmt.Errorf("image exceeds %d bytes", maxImageDownload)
 	}
 	return f.Name(), nil
 }

@@ -17,6 +17,7 @@ import (
 	"time"
 
 	lllm "github.com/Zyling-ai/zyhive/pkg/llm"
+	"github.com/Zyling-ai/zyhive/pkg/netguard"
 )
 
 // feishuClient is a lightweight Feishu API client with token caching.
@@ -32,7 +33,7 @@ type feishuClient struct {
 func newFeishuClient(appID, appSecret string) *feishuClient {
 	return &feishuClient{
 		appID: appID, appSecret: appSecret,
-		hc: &http.Client{Timeout: 15 * time.Second},
+		hc: netguard.NewSafeClient(15 * time.Second),
 	}
 }
 
@@ -640,10 +641,14 @@ Each inner array is a paragraph, elements are inline.`,
 			return "", err
 		}
 		ps := p.PageSize
-		if ps <= 0 { ps = 50 }
+		if ps <= 0 {
+			ps = 50
+		}
 		path := fmt.Sprintf("/im/v1/chats/%s/members?member_id_type=open_id&page_size=%d", p.ChatID, ps)
 		result, err := fc.do("GET", path, nil)
-		if err != nil { return "", err }
+		if err != nil {
+			return "", err
+		}
 		return fJSON(result["data"]), nil
 	})
 
@@ -658,12 +663,20 @@ Each inner array is a paragraph, elements are inline.`,
 			}
 		}`),
 	}, func(ctx context.Context, input json.RawMessage) (string, error) {
-		var p struct{ PageSize int `json:"page_size"` }
-		if err := json.Unmarshal(input, &p); err != nil { return "", err }
+		var p struct {
+			PageSize int `json:"page_size"`
+		}
+		if err := json.Unmarshal(input, &p); err != nil {
+			return "", err
+		}
 		ps := p.PageSize
-		if ps <= 0 { ps = 20 }
+		if ps <= 0 {
+			ps = 20
+		}
 		result, err := fc.do("GET", fmt.Sprintf("/im/v1/chats?user_id_type=open_id&page_size=%d", ps), nil)
-		if err != nil { return "", err }
+		if err != nil {
+			return "", err
+		}
 		return fJSON(result["data"]), nil
 	})
 
@@ -684,13 +697,21 @@ Each inner array is a paragraph, elements are inline.`,
 			DepartmentID string `json:"department_id"`
 			PageSize     int    `json:"page_size"`
 		}
-		if err := json.Unmarshal(input, &p); err != nil { return "", err }
-		if p.DepartmentID == "" { p.DepartmentID = "0" }
+		if err := json.Unmarshal(input, &p); err != nil {
+			return "", err
+		}
+		if p.DepartmentID == "" {
+			p.DepartmentID = "0"
+		}
 		ps := p.PageSize
-		if ps <= 0 || ps > 50 { ps = 50 }
+		if ps <= 0 || ps > 50 {
+			ps = 50
+		}
 		path := fmt.Sprintf("/contact/v3/users?user_id_type=open_id&department_id=%s&page_size=%d", p.DepartmentID, ps)
 		result, err := fc.do("GET", path, nil)
-		if err != nil { return "", err }
+		if err != nil {
+			return "", err
+		}
 		return fJSON(result["data"]), nil
 	})
 
@@ -705,12 +726,20 @@ Each inner array is a paragraph, elements are inline.`,
 			}
 		}`),
 	}, func(ctx context.Context, input json.RawMessage) (string, error) {
-		var p struct{ ParentDepartmentID string `json:"parent_department_id"` }
-		if err := json.Unmarshal(input, &p); err != nil { return "", err }
-		if p.ParentDepartmentID == "" { p.ParentDepartmentID = "0" }
+		var p struct {
+			ParentDepartmentID string `json:"parent_department_id"`
+		}
+		if err := json.Unmarshal(input, &p); err != nil {
+			return "", err
+		}
+		if p.ParentDepartmentID == "" {
+			p.ParentDepartmentID = "0"
+		}
 		path := fmt.Sprintf("/contact/v3/departments?user_id_type=open_id&department_id_type=department_id&parent_department_id=%s", p.ParentDepartmentID)
 		result, err := fc.do("GET", path, nil)
-		if err != nil { return "", err }
+		if err != nil {
+			return "", err
+		}
 		return fJSON(result["data"]), nil
 	})
 
@@ -726,10 +755,16 @@ Each inner array is a paragraph, elements are inline.`,
 			"required":["chat_id"]
 		}`),
 	}, func(ctx context.Context, input json.RawMessage) (string, error) {
-		var p struct{ ChatID string `json:"chat_id"` }
-		if err := json.Unmarshal(input, &p); err != nil { return "", err }
+		var p struct {
+			ChatID string `json:"chat_id"`
+		}
+		if err := json.Unmarshal(input, &p); err != nil {
+			return "", err
+		}
 		result, err := fc.do("GET", fmt.Sprintf("/im/v1/chats/%s", p.ChatID), nil)
-		if err != nil { return "", err }
+		if err != nil {
+			return "", err
+		}
 		return fJSON(result["data"]), nil
 	})
 
@@ -750,11 +785,17 @@ Each inner array is a paragraph, elements are inline.`,
 			Title       string `json:"title"`
 			FolderToken string `json:"folder_token"`
 		}
-		if err := json.Unmarshal(input, &p); err != nil { return "", err }
+		if err := json.Unmarshal(input, &p); err != nil {
+			return "", err
+		}
 		body := map[string]string{"title": p.Title}
-		if p.FolderToken != "" { body["folder_token"] = p.FolderToken }
+		if p.FolderToken != "" {
+			body["folder_token"] = p.FolderToken
+		}
 		result, err := fc.do("POST", "/docx/v1/documents", body)
-		if err != nil { return "", err }
+		if err != nil {
+			return "", err
+		}
 		return fJSON(result["data"]), nil
 	})
 
@@ -775,14 +816,18 @@ Each inner array is a paragraph, elements are inline.`,
 			ChatID  string   `json:"chat_id"`
 			UserIDs []string `json:"user_ids"`
 		}
-		if err := json.Unmarshal(input, &p); err != nil { return "", err }
+		if err := json.Unmarshal(input, &p); err != nil {
+			return "", err
+		}
 		members := make([]map[string]string, len(p.UserIDs))
 		for i, uid := range p.UserIDs {
 			members[i] = map[string]string{"member_id": uid, "member_type": "user", "member_id_type": "open_id"}
 		}
 		result, err := fc.do("POST", fmt.Sprintf("/im/v1/chats/%s/members", p.ChatID),
 			map[string]interface{}{"id_list": p.UserIDs})
-		if err != nil { return "", err }
+		if err != nil {
+			return "", err
+		}
 		return fJSON(result["data"]), nil
 	})
 
@@ -805,12 +850,20 @@ Each inner array is a paragraph, elements are inline.`,
 			Name        string `json:"name"`
 			Description string `json:"description"`
 		}
-		if err := json.Unmarshal(input, &p); err != nil { return "", err }
+		if err := json.Unmarshal(input, &p); err != nil {
+			return "", err
+		}
 		body := map[string]string{}
-		if p.Name != "" { body["name"] = p.Name }
-		if p.Description != "" { body["description"] = p.Description }
+		if p.Name != "" {
+			body["name"] = p.Name
+		}
+		if p.Description != "" {
+			body["description"] = p.Description
+		}
 		result, err := fc.do("PUT", fmt.Sprintf("/im/v1/chats/%s", p.ChatID), body)
-		if err != nil { return "", err }
+		if err != nil {
+			return "", err
+		}
 		return fJSON(result["data"]), nil
 	})
 
@@ -826,10 +879,16 @@ Each inner array is a paragraph, elements are inline.`,
 			"required":["message_id"]
 		}`),
 	}, func(ctx context.Context, input json.RawMessage) (string, error) {
-		var p struct{ MessageID string `json:"message_id"` }
-		if err := json.Unmarshal(input, &p); err != nil { return "", err }
+		var p struct {
+			MessageID string `json:"message_id"`
+		}
+		if err := json.Unmarshal(input, &p); err != nil {
+			return "", err
+		}
 		result, err := fc.do("POST", "/im/v1/pins", map[string]string{"message_id": p.MessageID})
-		if err != nil { return "", err }
+		if err != nil {
+			return "", err
+		}
 		return fJSON(result["data"]), nil
 	})
 
@@ -845,15 +904,23 @@ Each inner array is a paragraph, elements are inline.`,
 			"required":["message_id"]
 		}`),
 	}, func(ctx context.Context, input json.RawMessage) (string, error) {
-		var p struct{ MessageID string `json:"message_id"` }
-		if err := json.Unmarshal(input, &p); err != nil { return "", err }
+		var p struct {
+			MessageID string `json:"message_id"`
+		}
+		if err := json.Unmarshal(input, &p); err != nil {
+			return "", err
+		}
 		token, err := fc.getToken()
-		if err != nil { return "", err }
+		if err != nil {
+			return "", err
+		}
 		req, _ := http.NewRequest("DELETE",
 			"https://open.feishu.cn/open-apis/im/v1/pins/"+p.MessageID, nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 		resp, err := fc.hc.Do(req)
-		if err != nil { return "", err }
+		if err != nil {
+			return "", err
+		}
 		defer resp.Body.Close()
 		return "已取消置顶", nil
 	})
@@ -870,10 +937,16 @@ Each inner array is a paragraph, elements are inline.`,
 			"required":["chat_id"]
 		}`),
 	}, func(ctx context.Context, input json.RawMessage) (string, error) {
-		var p struct{ ChatID string `json:"chat_id"` }
-		if err := json.Unmarshal(input, &p); err != nil { return "", err }
+		var p struct {
+			ChatID string `json:"chat_id"`
+		}
+		if err := json.Unmarshal(input, &p); err != nil {
+			return "", err
+		}
 		result, err := fc.do("GET", fmt.Sprintf("/im/v1/pins?chat_id=%s", p.ChatID), nil)
-		if err != nil { return "", err }
+		if err != nil {
+			return "", err
+		}
 		return fJSON(result["data"]), nil
 	})
 
@@ -894,20 +967,28 @@ Each inner array is a paragraph, elements are inline.`,
 			ChatID string `json:"chat_id"`
 			Text   string `json:"text"`
 		}
-		if err := json.Unmarshal(input, &p); err != nil { return "", err }
+		if err := json.Unmarshal(input, &p); err != nil {
+			return "", err
+		}
 		// Send message
 		content, _ := json.Marshal(map[string]string{"text": p.Text})
 		sendResult, err := fc.do("POST", "/im/v1/messages?receive_id_type=chat_id",
 			map[string]string{"receive_id": p.ChatID, "msg_type": "text", "content": string(content)})
-		if err != nil { return "", err }
+		if err != nil {
+			return "", err
+		}
 		msgID := ""
 		if data, ok := sendResult["data"].(map[string]interface{}); ok {
 			msgID, _ = data["message_id"].(string)
 		}
-		if msgID == "" { return "消息已发送（置顶失败：无法获取消息ID）", nil }
+		if msgID == "" {
+			return "消息已发送（置顶失败：无法获取消息ID）", nil
+		}
 		// Pin it
 		_, err = fc.do("POST", "/im/v1/pins", map[string]string{"message_id": msgID})
-		if err != nil { return fmt.Sprintf("消息已发送（message_id=%s），但置顶失败: %v", msgID, err), nil }
+		if err != nil {
+			return fmt.Sprintf("消息已发送（message_id=%s），但置顶失败: %v", msgID, err), nil
+		}
 		return fmt.Sprintf("消息已发送并置顶，message_id=%s", msgID), nil
 	})
 
@@ -925,7 +1006,9 @@ Each inner array is a paragraph, elements are inline.`,
 			"required":["url"]
 		}`),
 	}, func(ctx context.Context, input json.RawMessage) (string, error) {
-		var p struct{ URL string `json:"url"` }
+		var p struct {
+			URL string `json:"url"`
+		}
 		if err := json.Unmarshal(input, &p); err != nil {
 			return "", err
 		}
@@ -1204,7 +1287,9 @@ Each inner array is a paragraph, elements are inline.`,
 				}
 				for _, b := range blocks {
 					bm, ok := b.(map[string]interface{})
-					if !ok { continue }
+					if !ok {
+						continue
+					}
 					if firstIDSet[fmt.Sprintf("%v", bm["block_id"])] {
 						insertBlocks = append(insertBlocks, b)
 					}

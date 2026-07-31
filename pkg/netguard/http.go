@@ -83,6 +83,26 @@ func ValidateURLWithPolicy(ctx context.Context, rawURL string, policy Policy) er
 	return validateURLWithPolicy(ctx, rawURL, defaultResolver{resolver: net.DefaultResolver}, policy)
 }
 
+func ValidateWebSocketURL(ctx context.Context, rawURL string) error {
+	return validateWebSocketURL(ctx, rawURL, defaultResolver{resolver: net.DefaultResolver})
+}
+
+func validateWebSocketURL(ctx context.Context, rawURL string, resolver ipResolver) error {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid WebSocket URL: %w", err)
+	}
+	switch parsed.Scheme {
+	case "ws":
+		parsed.Scheme = "http"
+	case "wss":
+		parsed.Scheme = "https"
+	default:
+		return fmt.Errorf("%w: only ws and wss are allowed", ErrBlocked)
+	}
+	return validateURLWithPolicy(ctx, parsed.String(), resolver, PublicOnlyPolicy())
+}
+
 func validateURL(ctx context.Context, rawURL string, resolver ipResolver) error {
 	return validateURLWithPolicy(ctx, rawURL, resolver, PublicOnlyPolicy())
 }

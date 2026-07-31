@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Zyling-ai/zyhive/pkg/llm"
+	"github.com/Zyling-ai/zyhive/pkg/netguard"
 )
 
 var webSearchToolDef = llm.ToolDef{
@@ -69,7 +70,7 @@ func handleWebSearch(_ context.Context, input json.RawMessage, apiKey string) (s
 	req.Header.Set("X-Subscription-Token", apiKey)
 	req.Header.Set("Accept", "application/json")
 
-	client := &http.Client{Timeout: 15 * time.Second}
+	client := netguard.NewSafeClient(15 * time.Second)
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("web_search: request failed: %v", err)

@@ -17,17 +17,18 @@ import (
 
 	"github.com/Zyling-ai/zyhive/pkg/chatlog"
 	"github.com/Zyling-ai/zyhive/pkg/convlog"
+	"github.com/Zyling-ai/zyhive/pkg/netguard"
 )
 
 // ── Markdown → Telegram HTML ──────────────────────────────────────────────
 
 var (
-	reCodeBlock = regexp.MustCompile("(?s)```(?:[a-zA-Z0-9]*)?\n(.*?)```")
+	reCodeBlock  = regexp.MustCompile("(?s)```(?:[a-zA-Z0-9]*)?\n(.*?)```")
 	reInlineCode = regexp.MustCompile("`([^`]+)`")
-	reBold      = regexp.MustCompile(`\*\*(.+?)\*\*`)
-	reItalic    = regexp.MustCompile(`\*([^*]+?)\*`)
-	reUnder     = regexp.MustCompile(`__(.+?)__`)
-	reStrike    = regexp.MustCompile(`~~(.+?)~~`)
+	reBold       = regexp.MustCompile(`\*\*(.+?)\*\*`)
+	reItalic     = regexp.MustCompile(`\*([^*]+?)\*`)
+	reUnder      = regexp.MustCompile(`__(.+?)__`)
+	reStrike     = regexp.MustCompile(`~~(.+?)~~`)
 )
 
 // markdownToHTML converts markdown-style text to Telegram-compatible HTML.
@@ -358,7 +359,7 @@ func TestTelegramBot(ctx context.Context, token string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	client := &http.Client{Timeout: 8 * time.Second}
+	client := netguard.NewSafeClient(8 * time.Second)
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
@@ -415,10 +416,11 @@ func mediaToDataURIs(media []MediaInput) []string {
 
 // SendFileToChat sends a local file to a Telegram chat using multipart form upload.
 // It auto-selects the appropriate Telegram method based on file extension:
-//   image/*  → sendPhoto (Telegram displays inline)
-//   video/*  → sendVideo
-//   audio/*  → sendAudio
-//   other    → sendDocument (generic file delivery)
+//
+//	image/*  → sendPhoto (Telegram displays inline)
+//	video/*  → sendVideo
+//	audio/*  → sendAudio
+//	other    → sendDocument (generic file delivery)
 //
 // Telegram hard-limits are 10 MB for photos and 50 MB for other types.
 // Files exceeding the limit return an error so the caller can fall back to a download link.

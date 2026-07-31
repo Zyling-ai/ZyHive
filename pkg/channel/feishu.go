@@ -14,12 +14,14 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/Zyling-ai/zyhive/pkg/netguard"
 	"github.com/Zyling-ai/zyhive/pkg/network"
 	"github.com/gorilla/websocket"
 )
@@ -27,10 +29,10 @@ import (
 // ── Feishu API types ──────────────────────────────────────────────────────
 
 type feishuTokenResp struct {
-	Code            int    `json:"code"`
-	Msg             string `json:"msg"`
-	AppAccessToken  string `json:"app_access_token"`
-	Expire          int    `json:"expire"`
+	Code           int    `json:"code"`
+	Msg            string `json:"msg"`
+	AppAccessToken string `json:"app_access_token"`
+	Expire         int    `json:"expire"`
 }
 
 type feishuWsEndpointResp struct {
@@ -43,16 +45,16 @@ type feishuWsEndpointResp struct {
 
 // feishuWsFrame is the envelope for all WebSocket messages.
 type feishuWsFrame struct {
-	Type    int             `json:"type"`    // 0=ping, 1=data
+	Type    int               `json:"type"` // 0=ping, 1=data
 	Headers map[string]string `json:"headers,omitempty"`
-	Data    json.RawMessage `json:"data,omitempty"`
+	Data    json.RawMessage   `json:"data,omitempty"`
 }
 
 // feishuEvent is the top-level event from Feishu.
 type feishuEvent struct {
-	Schema string          `json:"schema"`
+	Schema string            `json:"schema"`
 	Header feishuEventHeader `json:"header"`
-	Event  json.RawMessage `json:"event"`
+	Event  json.RawMessage   `json:"event"`
 }
 
 type feishuEventHeader struct {
@@ -76,12 +78,12 @@ type feishuSender struct {
 }
 
 type feishuMessage struct {
-	MessageID   string            `json:"message_id"`
-	ChatID      string            `json:"chat_id"`
-	ChatType    string            `json:"chat_type"` // "p2p" | "group"
-	MessageType string            `json:"message_type"`
-	Content     string            `json:"content"` // JSON string
-	Mentions    []feishuMention   `json:"mentions"`
+	MessageID   string          `json:"message_id"`
+	ChatID      string          `json:"chat_id"`
+	ChatType    string          `json:"chat_type"` // "p2p" | "group"
+	MessageType string          `json:"message_type"`
+	Content     string          `json:"content"` // JSON string
+	Mentions    []feishuMention `json:"mentions"`
 }
 
 type feishuMention struct {
@@ -94,12 +96,12 @@ type feishuMention struct {
 // ── FeishuBot ─────────────────────────────────────────────────────────────
 
 type FeishuBot struct {
-	appID       string
-	appSecret   string
-	agentID     string
-	agentDir    string
-	channelID   string
-	domain      string // "open.feishu.cn" or "open.larksuite.com"
+	appID        string
+	appSecret    string
+	agentID      string
+	agentDir     string
+	channelID    string
+	domain       string          // "open.feishu.cn" or "open.larksuite.com"
 	getAllowFrom func() []string // open_id list; empty = pairing mode
 
 	streamFunc   StreamFunc
@@ -115,7 +117,7 @@ type FeishuBot struct {
 
 	botOpenID string // bot's own open_id (fetched on start)
 
-	onConnected  func(name string)
+	onConnected func(name string)
 	// panelBaseURL is the ZyHive panel URL shown in pairing messages (e.g. "https://hive.example.com")
 	panelBaseURL string
 
@@ -132,10 +134,10 @@ func NewFeishuBotWithStream(appID, appSecret, agentID, agentDir, channelID strin
 		agentDir:     agentDir,
 		channelID:    channelID,
 		domain:       "open.feishu.cn",
-		getAllowFrom:  getAllowFrom,
+		getAllowFrom: getAllowFrom,
 		streamFunc:   sf,
 		pendingStore: pending,
-		client:       &http.Client{Timeout: 15 * time.Second},
+		client:       netguard.NewSafeClient(15 * time.Second),
 		seenEvents:   make(map[string]time.Time),
 	}
 }
@@ -193,8 +195,13 @@ func (b *FeishuBot) runOnce(ctx context.Context) error {
 		return fmt.Errorf("get ws endpoint: %w", err)
 	}
 
-	// Connect
-	dialer := websocket.DefaultDialer
+	// Connect — only allow Feishu/Lark public WebSocket hosts.
+	if err := validateFeishuWebSocketURL(ctx, wsURL); err != nil {
+		return fmt.Errorf("ws endpoint blocked: %w", err)
+	}
+	dialer := *websocket.DefaultDialer
+	dialer.Proxy = nil
+	dialer.NetDialContext = netguard.DialContext
 	// Feishu WS does not accept Authorization header; token is in the URL
 	conn, _, err := dialer.DialContext(ctx, wsURL, nil)
 	if err != nil {
@@ -696,6 +703,33 @@ func (b *FeishuBot) refreshToken() (string, error) {
 	return b.accessToken, nil
 }
 
+func validateFeishuWebSocketURL(ctx context.Context, rawURL string) error {
+	if err := netguard.ValidateWebSocketURL(ctx, rawURL); err != nil {
+		return err
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid WebSocket URL: %w", err)
+	}
+	host := strings.ToLower(parsed.Hostname())
+	allowed := false
+	for _, suffix := range []string{
+		".feishu.cn",
+		".larksuite.com",
+		".feishucdn.com",
+		".larkenterprise.com",
+	} {
+		if host == strings.TrimPrefix(suffix, ".") || strings.HasSuffix(host, suffix) {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
+		return fmt.Errorf("%w: WebSocket host %q is not a Feishu/Lark endpoint", netguard.ErrBlocked, host)
+	}
+	return nil
+}
+
 func (b *FeishuBot) getWsEndpoint(_ string) (string, error) {
 	// Feishu WS long connection: POST /callback/ws/endpoint with AppID + AppSecret
 	// This returns a wss://msg-frontier.feishu.cn/ws/v2?... URL.
@@ -736,7 +770,7 @@ func (b *FeishuBot) fetchBotOpenID(token string) (string, error) {
 		Code int    `json:"code"`
 		Msg  string `json:"msg"`
 		Bot  struct {
-			OpenID string `json:"open_id"`
+			OpenID  string `json:"open_id"`
 			AppName string `json:"app_name"`
 		} `json:"bot"`
 	}
@@ -845,9 +879,9 @@ func (b *FeishuBot) sendText(chatID, text string) (string, error) {
 
 	contentJSON, _ := json.Marshal(map[string]string{"text": text})
 	payload := map[string]string{
-		"receive_id":  chatID,
-		"msg_type":    "text",
-		"content":     string(contentJSON),
+		"receive_id": chatID,
+		"msg_type":   "text",
+		"content":    string(contentJSON),
 	}
 	data, _ := json.Marshal(payload)
 
@@ -927,7 +961,7 @@ func TestFeishuBot(appID, appSecret string) (string, error) {
 	domain := "open.feishu.cn"
 	payload := map[string]string{"app_id": appID, "app_secret": appSecret}
 	data, _ := json.Marshal(payload)
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := netguard.NewSafeClient(10 * time.Second)
 	resp, err := client.Post(
 		"https://"+domain+"/open-apis/auth/v3/app_access_token/internal",
 		"application/json",
@@ -957,7 +991,9 @@ func TestFeishuBot(appID, appSecret string) (string, error) {
 	defer resp2.Body.Close()
 	body2, _ := io.ReadAll(io.LimitReader(resp2.Body, 4096))
 	var botInfo struct {
-		Bot struct{ AppName string `json:"app_name"` } `json:"bot"`
+		Bot struct {
+			AppName string `json:"app_name"`
+		} `json:"bot"`
 	}
 	json.Unmarshal(body2, &botInfo)
 	if botInfo.Bot.AppName != "" {
@@ -975,7 +1011,8 @@ func SendFeishuApprovedNotice(appID, appSecret, openID string) error {
 		AppAccessToken string `json:"app_access_token"`
 	}
 	payload := fmt.Sprintf(`{"app_id":%q,"app_secret":%q}`, appID, appSecret)
-	resp, err := http.Post(
+	client := netguard.NewSafeClient(10 * time.Second)
+	resp, err := client.Post(
 		"https://open.feishu.cn/open-apis/auth/v3/app_access_token/internal",
 		"application/json",
 		strings.NewReader(payload),
@@ -1000,7 +1037,6 @@ func SendFeishuApprovedNotice(appID, appSecret, openID string) error {
 	req.Header.Set("Authorization", "Bearer "+tr.AppAccessToken)
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{Timeout: 10 * time.Second}
 	r2, err := client.Do(req)
 	if err != nil {
 		return err

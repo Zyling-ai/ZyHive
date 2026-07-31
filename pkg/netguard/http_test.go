@@ -74,6 +74,26 @@ func TestValidateURLAllowsOnlyPublicResolution(t *testing.T) {
 	}
 }
 
+func TestValidateWebSocketURLUsesPublicOnlyPolicy(t *testing.T) {
+	resolver := staticResolver{
+		"public.example":  {netip.MustParseAddr("93.184.216.34")},
+		"private.example": {netip.MustParseAddr("10.0.0.8")},
+	}
+	if err := validateWebSocketURL(context.Background(), "wss://public.example/events", resolver); err != nil {
+		t.Fatalf("public WebSocket rejected: %v", err)
+	}
+	for _, target := range []string{
+		"wss://private.example/events",
+		"ws://localhost/events",
+		"https://public.example/events",
+		"wss://user:pass@public.example/events",
+	} {
+		if err := validateWebSocketURL(context.Background(), target, resolver); !errors.Is(err, ErrBlocked) {
+			t.Errorf("%s: expected ErrBlocked, got %v", target, err)
+		}
+	}
+}
+
 func TestSafeClientRejectsPrivateRedirect(t *testing.T) {
 	resolver := staticResolver{"private.example": {netip.MustParseAddr("192.168.1.5")}}
 	client := newSafeClient(time.Second, resolver)

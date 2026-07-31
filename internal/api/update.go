@@ -20,6 +20,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Zyling-ai/zyhive/pkg/netguard"
 	"github.com/gin-gonic/gin"
 )
 
@@ -301,7 +302,7 @@ func runUpdate(targetVersion string) {
 
 // fetchLatestRelease 查询最新版本，优先用 CF 镜像（国内可访问），失败才回退 GitHub API
 func fetchLatestRelease() (string, string, error) {
-	client := &http.Client{Timeout: 8 * time.Second}
+	client := netguard.NewSafeClient(8 * time.Second)
 
 	// 优先：install.zyling.ai/latest（CF Worker，国内可访问）
 	if resp, err := client.Get("https://install.zyling.ai/latest"); err == nil {
@@ -351,7 +352,7 @@ func fetchExpectedChecksum(version, filename string) (string, error) {
 		fmt.Sprintf("https://github.com/Zyling-ai/zyhive/releases/download/%s/SHA256SUMS", version),
 		fmt.Sprintf("https://install.zyling.ai/dl/%s/SHA256SUMS", version),
 	}
-	client := &http.Client{Timeout: 15 * time.Second}
+	client := netguard.NewSafeClient(15 * time.Second)
 	var failures []string
 
 	for _, url := range urls {
@@ -421,7 +422,10 @@ func fileSHA256(path string) (string, error) {
 
 // downloadFile 下载 url 到 dest，progress 回调 0-100
 func downloadFile(url, dest string, progress func(int)) error {
-	client := &http.Client{Timeout: 120 * time.Second}
+	return downloadFileWithClient(netguard.NewSafeClient(120*time.Second), url, dest, progress)
+}
+
+func downloadFileWithClient(client *http.Client, url, dest string, progress func(int)) error {
 	resp, err := client.Get(url)
 	if err != nil {
 		return err
@@ -496,12 +500,7 @@ func downloadFile(url, dest string, progress func(int)) error {
 
 // isURLReachable 快速探测 URL 是否可访问（HEAD 请求，3s 超时）
 func isURLReachable(url string) bool {
-	client := &http.Client{
-		Timeout: 5 * time.Second,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return nil // 允许重定向
-		},
-	}
+	client := netguard.NewSafeClient(5 * time.Second)
 	resp, err := client.Head(url)
 	if err != nil {
 		return false

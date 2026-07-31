@@ -23,6 +23,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/Zyling-ai/zyhive/pkg/netguard"
 )
 
 // RequiredScopes is the canonical list of OAuth scopes ZyHive's Feishu channel
@@ -30,11 +32,11 @@ import (
 //
 // Order matters for UI display. Group: receive + send + resources + contact + chats.
 var RequiredScopes = []string{
-	"im:message",                  // receive + send messages
-	"im:message:send_as_bot",      // send-as-bot (mandatory for chat reply)
-	"im:resource",                 // download images / files
-	"contact:user.base:readonly",  // resolve sender name / avatar
-	"im:chat:readonly",            // list joined groups (F4 group dashboard)
+	"im:message",                 // receive + send messages
+	"im:message:send_as_bot",     // send-as-bot (mandatory for chat reply)
+	"im:resource",                // download images / files
+	"contact:user.base:readonly", // resolve sender name / avatar
+	"im:chat:readonly",           // list joined groups (F4 group dashboard)
 }
 
 // ProbeResult is the JSON shape returned to the wizard.
@@ -360,10 +362,10 @@ func probeFetchJoinedChats(ctx context.Context, domain, token string, out *Probe
 		Code int `json:"code"`
 		Data struct {
 			Items []struct {
-				ChatID    string `json:"chat_id"`
-				Name      string `json:"name"`
-				ChatMode  string `json:"chat_mode"` // group | p2p | topic
-				OwnerID   string `json:"owner_id"`
+				ChatID   string `json:"chat_id"`
+				Name     string `json:"name"`
+				ChatMode string `json:"chat_mode"` // group | p2p | topic
+				OwnerID  string `json:"owner_id"`
 			} `json:"items"`
 		} `json:"data"`
 	}
@@ -428,4 +430,4 @@ func (e *probeHTTPError) Error() string {
 
 // probeHTTPClient is a separate http.Client with a 8s timeout so probes never
 // hang the wizard. (FeishuBot's own client has a longer timeout for streaming.)
-var probeHTTPClient = &http.Client{Timeout: 8 * time.Second}
+var probeHTTPClient = netguard.NewSafeClient(8 * time.Second)

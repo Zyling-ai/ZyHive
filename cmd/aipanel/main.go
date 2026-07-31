@@ -41,6 +41,7 @@ import (
 	"github.com/Zyling-ai/zyhive/pkg/cron"
 	"github.com/Zyling-ai/zyhive/pkg/llm"
 	"github.com/Zyling-ai/zyhive/pkg/logging"
+	"github.com/Zyling-ai/zyhive/pkg/netguard"
 	"github.com/Zyling-ai/zyhive/pkg/project"
 	"github.com/Zyling-ai/zyhive/pkg/session"
 	"github.com/Zyling-ai/zyhive/pkg/skillopt"
@@ -1029,7 +1030,7 @@ func getLocalIP() string {
 }
 
 func getPublicIP() string {
-	client := &http.Client{Timeout: 3 * time.Second}
+	client := netguard.NewSafeClient(3 * time.Second)
 	resp, err := client.Get("https://api.ipify.org")
 	if err != nil {
 		return os.Getenv("PUBLIC_IP")

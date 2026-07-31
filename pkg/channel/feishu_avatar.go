@@ -14,6 +14,7 @@
 package channel
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -21,7 +22,9 @@ import (
 	"net/http"
 	"path/filepath"
 	"sync"
+	"time"
 
+	"github.com/Zyling-ai/zyhive/pkg/netguard"
 	"github.com/Zyling-ai/zyhive/pkg/network"
 )
 
@@ -128,9 +131,18 @@ func (b *FeishuBot) fetchFeishuAvatarURL(openID string) (string, error) {
 
 // downloadAvatarBytes pulls an image URL and returns (bytes, content-type).
 // Hard-capped at MaxAvatarBytes+1 so SaveAvatar can reject oversized images
-// without us holding huge buffers.
-func (b *FeishuBot) downloadAvatarBytes(url string) ([]byte, string, error) {
-	req, _ := http.NewRequest("GET", url, nil)
+// without us holding huge buffers. The URL comes from Feishu and is treated
+// as untrusted: only public http(s) targets are allowed.
+func (b *FeishuBot) downloadAvatarBytes(rawURL string) ([]byte, string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := netguard.ValidateURL(ctx, rawURL); err != nil {
+		return nil, "", fmt.Errorf("avatar URL blocked: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, "GET", rawURL, nil)
+	if err != nil {
+		return nil, "", err
+	}
 	resp, err := b.client.Do(req)
 	if err != nil {
 		return nil, "", err
