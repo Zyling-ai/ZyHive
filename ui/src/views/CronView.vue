@@ -47,14 +47,13 @@
         </el-table-column>
         <el-table-column label="调度" min-width="160">
           <template #default="{ row }">
-            <span style="font-size: 12px; font-family: monospace;">{{ row.schedule?.expr }}</span>
-            <el-text type="info" size="small" style="margin-left: 4px;">({{ row.schedule?.tz }})</el-text>
+            <span style="font-size: 12px; font-family: monospace;">{{ formatSchedule(row) }}</span>
           </template>
         </el-table-column>
         <el-table-column label="最近运行" width="170">
           <template #default="{ row }">
             <template v-if="row.state?.lastRunAtMs">
-              <el-tag :type="row.state?.lastStatus === 'ok' ? 'success' : 'danger'" size="small">
+              <el-tag :type="statusTagType(row.state?.lastStatus)" size="small">
                 {{ row.state?.lastStatus }}
               </el-tag>
               <el-text type="info" size="small" style="margin-left: 4px">
@@ -108,7 +107,7 @@
         </el-table-column>
         <el-table-column label="状态" width="75">
           <template #default="{ row }">
-            <el-tag :type="row.status === 'ok' ? 'success' : 'danger'" size="small">
+            <el-tag :type="statusTagType(row.status)" size="small">
               {{ row.status }}
             </el-tag>
           </template>
@@ -121,7 +120,7 @@
         </el-table-column>
         <el-table-column label="输出 / 错误" min-width="200">
           <template #default="{ row }">
-            <div v-if="row.status === 'error'" style="color: #f56c6c; font-size: 12px; white-space: pre-wrap; max-height: 80px; overflow: auto;">
+            <div v-if="row.status !== 'ok'" :style="{ color: row.status === 'skipped' ? '#e6a23c' : '#f56c6c', fontSize: '12px', whiteSpace: 'pre-wrap', maxHeight: '80px', overflow: 'auto' }">
               {{ row.error }}
             </div>
             <div v-else style="font-size: 12px; color: #606266; white-space: pre-wrap; max-height: 80px; overflow: auto;">
@@ -153,13 +152,29 @@
         <el-form-item label="备注">
           <el-input v-model="form.remark" placeholder="可选，说明这个任务的用途" />
         </el-form-item>
-        <el-form-item label="Cron 表达式">
+        <el-form-item label="调度方式">
+          <el-radio-group v-model="form.kind">
+            <el-radio-button value="cron">周期表达式</el-radio-button>
+            <el-radio-button value="every">固定间隔</el-radio-button>
+            <el-radio-button value="at">一次性</el-radio-button>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item v-if="form.kind === 'cron'" label="Cron 表达式">
           <el-input v-model="form.expr" placeholder="0 9 * * *" />
           <el-text type="info" size="small" style="margin-top: 4px; display: block;">
             格式：秒(可选) 分 时 日 月 周。例：0 0 9 * * * = 每天09:00
           </el-text>
         </el-form-item>
-        <el-form-item label="时区">
+        <el-form-item v-else-if="form.kind === 'every'" label="间隔分钟">
+          <el-input-number v-model="form.everyMinutes" :min="1" :max="525600" style="width: 100%" />
+        </el-form-item>
+        <el-form-item v-else label="执行时间">
+          <el-input v-model="form.atExpr" placeholder="2026-08-01 18:30" />
+          <el-text type="info" size="small" style="margin-top: 4px; display: block;">
+            按所选时区解释，只执行一次；也可填写带时区的 ISO-8601 时间。
+          </el-text>
+        </el-form-item>
+        <el-form-item v-if="form.kind !== 'every'" label="时区">
           <el-select v-model="form.tz" style="width: 100%">
             <el-option label="Asia/Shanghai" value="Asia/Shanghai" />
             <el-option label="UTC" value="UTC" />
@@ -251,7 +266,10 @@ const form = reactive({
   agentId: '',
   name: '',
   remark: '',
+  kind: 'cron' as 'cron' | 'every' | 'at',
   expr: '0 0 9 * * *',
+  everyMinutes: 60,
+  atExpr: '',
   tz: 'Asia/Shanghai',
   message: '',
   enabled: true,
@@ -283,6 +301,23 @@ function formatTime(ms: number) {
   return ms ? new Date(ms).toLocaleString('zh-CN') : ''
 }
 
+function formatSchedule(row: CronJob) {
+  const schedule = row.schedule
+  if (!schedule) return '—'
+  if (schedule.kind === 'every') {
+    const minutes = Math.round((schedule.everyMs || 0) / 60000)
+    return `每 ${minutes} 分钟`
+  }
+  if (schedule.kind === 'at') return `一次性 ${schedule.expr || '—'} (${schedule.tz || 'UTC'})`
+  return `${schedule.expr || '—'} (${schedule.tz || 'UTC'})`
+}
+
+function statusTagType(status?: string) {
+  if (status === 'ok') return 'success'
+  if (status === 'skipped') return 'warning'
+  return 'danger'
+}
+
 function isMemoryJob(row: CronJob): boolean {
   return row.payload?.message === '__MEMORY_CONSOLIDATE__'
 }
@@ -297,7 +332,10 @@ function openCreate() {
   form.agentId = ''
   form.name = ''
   form.remark = ''
+  form.kind = 'cron'
   form.expr = '0 0 9 * * *'
+  form.everyMinutes = 60
+  form.atExpr = ''
   form.tz = 'Asia/Shanghai'
   form.message = ''
   form.enabled = true
@@ -375,8 +413,12 @@ async function createCron() {
     ElMessage.warning('请填写任务名称')
     return
   }
-  if (!isValidCronExpr(form.expr)) {
+  if (form.kind === 'cron' && !isValidCronExpr(form.expr)) {
     ElMessage.error('Cron 表达式格式错误，格式为：分 时 日 月 周（如 0 9 * * 1）')
+    return
+  }
+  if (form.kind === 'at' && !form.atExpr.trim()) {
+    ElMessage.error('请填写一次性执行时间')
     return
   }
   if (!form.message?.trim()) {
@@ -384,12 +426,17 @@ async function createCron() {
     return
   }
   try {
+    const schedule = form.kind === 'every'
+      ? { kind: 'every', everyMs: form.everyMinutes * 60_000 }
+      : form.kind === 'at'
+        ? { kind: 'at', expr: form.atExpr.trim(), tz: form.tz }
+        : { kind: 'cron', expr: form.expr.trim(), tz: form.tz }
     await cronApi.create({
       name: form.name,
       remark: form.remark || undefined,
       agentId: form.agentId || undefined,
       enabled: form.enabled,
-      schedule: { kind: 'cron', expr: form.expr.trim(), tz: form.tz },
+      schedule,
       payload: { kind: 'agentTurn', message: form.message },
       delivery: { mode: 'announce' },
     } as any)

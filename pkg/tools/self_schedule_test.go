@@ -43,6 +43,17 @@ func (f *fakeCronEngine) Remove(id string) error {
 	return nil
 }
 
+func (f *fakeCronEngine) RemoveForAgent(id, agentID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	job, ok := f.jobs[id]
+	if !ok || job.AgentID != agentID {
+		return fmt.Errorf("job %q not found", id)
+	}
+	delete(f.jobs, id)
+	return nil
+}
+
 func (f *fakeCronEngine) ListJobs() []*cron.Job {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -217,13 +228,13 @@ func TestCountPendingSelfSchedule(t *testing.T) {
 		}
 	}
 	jobs := []*cron.Job{
-		mk("self_schedule", "at", now.Add(time.Hour).Format(time.RFC3339), true), // 计数
+		mk("self_schedule", "at", now.Add(time.Hour).Format(time.RFC3339), true),  // 计数
 		mk("self_schedule", "at", now.Add(-time.Hour).Format(time.RFC3339), true), // 已过去, 不计数
 		mk("self_schedule", "at", now.Add(time.Hour).Format(time.RFC3339), false), // 已禁用, 不计数
 		mk("", "at", now.Add(time.Hour).Format(time.RFC3339), true),               // 非 self_schedule, 不计数
 		mk("self_schedule", "cron", "0 9 * * 1", true),                            // 非 at, 不计数
 		mk("self_schedule", "at", "garbage", true),                                // 解析失败, 不计数
-		nil,                                                                       // nil-safety
+		nil, // nil-safety
 	}
 	if got := countPendingSelfSchedule(jobs, now); got != 1 {
 		t.Fatalf("expected 1, got %d", got)

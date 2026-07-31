@@ -14,8 +14,7 @@ import (
 // CronEngine abstracts the cron scheduler for dependency injection into tools.
 type CronEngine interface {
 	Add(job *cron.Job) error
-	Remove(id string) error
-	ListJobs() []*cron.Job
+	RemoveForAgent(id, agentID string) error
 	ListJobsByAgent(agentID string) []*cron.Job
 }
 
@@ -24,15 +23,7 @@ type CronEngine interface {
 var cronListDef = llm.ToolDef{
 	Name:        "cron_list",
 	Description: "列出当前 Agent 的所有定时任务（含任务 ID、名称、调度规则、状态、下次/上次执行时间）。",
-	InputSchema: json.RawMessage(`{
-		"type": "object",
-		"properties": {
-			"all": {
-				"type": "boolean",
-				"description": "是否显示所有 Agent 的任务（默认仅显示当前 Agent 的任务）"
-			}
-		}
-	}`),
+	InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
 }
 
 var cronAddDef = llm.ToolDef{
@@ -122,21 +113,11 @@ func (r *Registry) WithCronEngine(engine CronEngine) {
 
 // ── Handlers ──────────────────────────────────────────────────────────────────
 
-func (r *Registry) handleCronList(_ context.Context, input json.RawMessage) (string, error) {
+func (r *Registry) handleCronList(_ context.Context, _ json.RawMessage) (string, error) {
 	if r.cronEngine == nil {
 		return "", fmt.Errorf("cron engine not configured")
 	}
-	var p struct {
-		All bool `json:"all"`
-	}
-	_ = json.Unmarshal(input, &p)
-
-	var jobs []*cron.Job
-	if p.All {
-		jobs = r.cronEngine.ListJobs()
-	} else {
-		jobs = r.cronEngine.ListJobsByAgent(r.agentID)
-	}
+	jobs := r.cronEngine.ListJobsByAgent(r.agentID)
 
 	if len(jobs) == 0 {
 		return "（暂无定时任务）", nil
@@ -211,8 +192,8 @@ func (r *Registry) handleCronAdd(_ context.Context, input json.RawMessage) (stri
 	var sched cron.Schedule
 	switch p.Kind {
 	case "every":
-		if p.EveryMs <= 0 {
-			return "", fmt.Errorf("everyMs must be > 0 for kind=every")
+		if p.EveryMs < 1000 {
+			return "", fmt.Errorf("everyMs must be at least 1000 for kind=every")
 		}
 		sched = cron.Schedule{Kind: "every", EveryMs: p.EveryMs}
 	case "cron":
@@ -224,7 +205,7 @@ func (r *Registry) handleCronAdd(_ context.Context, input json.RawMessage) (stri
 		if p.Expr == "" {
 			return "", fmt.Errorf("expr (ISO-8601 timestamp) is required for kind=at")
 		}
-		sched = cron.Schedule{Kind: "at", Expr: p.Expr}
+		sched = cron.Schedule{Kind: "at", Expr: p.Expr, TZ: p.TZ}
 	default:
 		return "", fmt.Errorf("kind must be one of: every, cron, at")
 	}
@@ -236,10 +217,10 @@ func (r *Registry) handleCronAdd(_ context.Context, input json.RawMessage) (stri
 	}
 
 	job := &cron.Job{
-		Name:    p.Name,
-		Enabled: true,
-		Remark:  p.Remark,
-		AgentID: r.agentID,
+		Name:     p.Name,
+		Enabled:  true,
+		Remark:   p.Remark,
+		AgentID:  r.agentID,
 		Schedule: sched,
 		Payload: cron.Payload{
 			Kind:    "agentTurn",
@@ -269,7 +250,7 @@ func (r *Registry) handleCronRemove(_ context.Context, input json.RawMessage) (s
 	if p.ID == "" {
 		return "", fmt.Errorf("id is required")
 	}
-	if err := r.cronEngine.Remove(p.ID); err != nil {
+	if err := r.cronEngine.RemoveForAgent(p.ID, r.agentID); err != nil {
 		return "", fmt.Errorf("删除任务失败: %w", err)
 	}
 	return fmt.Sprintf("✅ 定时任务 %s 已删除", p.ID), nil

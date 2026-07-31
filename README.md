@@ -7,7 +7,7 @@
 [![GitHub Forks](https://img.shields.io/github/forks/Zyling-ai/zyhive?style=flat&logo=github&color=orange)](https://github.com/Zyling-ai/zyhive/network/members)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 [![Go 1.25+](https://img.shields.io/badge/Go-1.25+-00ADD8.svg)](https://golang.org)
-[![Version](https://img.shields.io/badge/version-26.8.1v3-brightgreen.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-26.8.1v4-brightgreen.svg)](CHANGELOG.md)
 [![Release E2E](https://github.com/Zyling-ai/ZyHive/actions/workflows/release-e2e.yml/badge.svg)](https://github.com/Zyling-ai/ZyHive/actions/workflows/release-e2e.yml)
 [![官网](https://img.shields.io/badge/官网-zyling.ai-6366f1?logo=globe)](https://zyling.ai)
 
@@ -16,7 +16,7 @@
 一行命令安装，打开浏览器即可管理整个 AI 团队：配置每个成员的身份、灵魂、记忆、技能，设计组织架构，让成员之间互相协作讨论。
 
 > **发布状态**
-> 当前公开稳定版为 `26.8.1v3`，正式 Release 必须通过全新安装、服务启动、鉴权、基础 API、成员与文件持久化和旧版更新全流程测试。
+> 当前公开稳定版为 `26.8.1v4`，正式 Release 必须通过全新安装、服务启动、鉴权、基础 API、成员与文件持久化和旧版更新全流程测试。
 > 仓库已强制仅允许 `Zyling-ai` 提交身份；Release E2E 失败会自动转为草稿并停止公开分发。
 > 当前产品定位为单机、自托管 Beta，适合个人、小团队和可控环境部署；尚不承诺多租户、多实例、企业级高可用或关键业务连续性。
 > `pkg/aiteam/` 下的钱包、预算、评分、工资和收益模块属于实验能力，不作为稳定版默认商业承诺。
@@ -122,7 +122,7 @@ curl -sSL https://install.zyling.ai/install | bash
 - **网络工具**：`web_search`（Brave Search API）、`web_fetch`（抓取页面内容）
 - **图像分析**：`image`（Vision 模型分析图片）
 - **消息推送**：`messaging`（向 Telegram 等渠道发消息）
-- **定时任务**：`cron_list` / `cron_add` / `cron_update` / `cron_remove` / `cron_run`
+- **定时任务**：成员工具提供 `cron_list` / `cron_add` / `cron_remove`；管理员可在面板更新和立即运行
 - **多会话管理**：`sessions_list` / `sessions_history` / `sessions_send` / `sessions_spawn`（派遣子成员）
 - **ACP 编程代理**：`acp_*`（在成员工作区内启动受管 ACP 进程，用于长任务编程委派）
 - **项目工作区**：`project_list` / `project_read` / `project_write` / `project_glob`
@@ -141,7 +141,10 @@ curl -sSL https://install.zyling.ai/install | bash
 
 ### 定时任务（Cron）
 - **隔离会话**：每次 Cron 任务在独立 session 中执行，不污染主对话历史
-- **表达式支持**：标准 cron 表达式 + 时区配置
+- **三种调度**：标准 Cron 表达式、固定间隔和一次性 `at`；任务时区真实参与计算
+- **一次性语义**：`at` 规范为绝对 UTC，执行一次后自动禁用，重启不会重复触发
+- **重叠保护**：同一任务只允许一个运行，重叠触发默认跳过并留下 `skipped` 记录
+- **原子保存与回收**：无效调度不落盘；删除任务或服务关闭会取消并回收正在执行的任务
 - **`NO_ALERT` 静默机制**：AI 若无事可汇报，只回一个 `NO_ALERT` 即被 cron engine 识别并静默，不打扰用户
 - **Cron 管理 UI（CronView）**：可视化创建、编辑、立即执行、查看历史记录
 - **🌅 晨间例行一键模板**：选 agent + 时间（HH:mm）+ 时区，自动构造 cron 表达式 + 预置 prompt（整理昨日 / 检查 WISHLIST / 留便条到 `memory/daily/notes-to-user.md`），对接 NO_ALERT 无事静默

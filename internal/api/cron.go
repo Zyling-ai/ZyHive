@@ -2,10 +2,11 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 
-	"github.com/gin-gonic/gin"
 	"github.com/Zyling-ai/zyhive/pkg/cron"
+	"github.com/gin-gonic/gin"
 )
 
 type cronHandler struct {
@@ -49,6 +50,10 @@ func (h *cronHandler) Create(c *gin.Context) {
 		return
 	}
 	if err := h.engine.Add(&job); err != nil {
+		if errors.Is(err, cron.ErrInvalidJob) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -68,6 +73,10 @@ func (h *cronHandler) Update(c *gin.Context) {
 		return
 	}
 	if err := h.engine.Update(jobID, &patch); err != nil {
+		if errors.Is(err, cron.ErrInvalidJob) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
 	}
@@ -96,6 +105,10 @@ func (h *cronHandler) Run(c *gin.Context) {
 	}
 	jobID := c.Param("jobId")
 	if err := h.engine.RunNow(jobID); err != nil {
+		if errors.Is(err, cron.ErrJobAlreadyRunning) {
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
 	}

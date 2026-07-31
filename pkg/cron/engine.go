@@ -5,9 +5,12 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -66,22 +69,27 @@ type Delivery struct {
 }
 
 type JobState struct {
-	NextRunAtMs     int64  `json:"nextRunAtMs,omitempty"`
-	LastRunAtMs     int64  `json:"lastRunAtMs,omitempty"`
-	LastStatus      string `json:"lastStatus,omitempty"` // "ok" | "error"
-	ErrorCount      int    `json:"errorCount,omitempty"` // consecutive failure count
-	DisabledReason  string `json:"disabledReason,omitempty"` // set when auto-disabled
+	NextRunAtMs    int64  `json:"nextRunAtMs,omitempty"`
+	LastRunAtMs    int64  `json:"lastRunAtMs,omitempty"`
+	LastStatus     string `json:"lastStatus,omitempty"`     // "ok" | "error"
+	ErrorCount     int    `json:"errorCount,omitempty"`     // consecutive failure count
+	DisabledReason string `json:"disabledReason,omitempty"` // set when auto-disabled
 }
 
 // maxConsecutiveErrors is the threshold after which a job is automatically disabled.
 const maxConsecutiveErrors = 3
+
+var (
+	ErrInvalidJob        = errors.New("invalid cron job")
+	ErrJobAlreadyRunning = errors.New("cron job is already running")
+)
 
 type RunRecord struct {
 	JobID     string `json:"jobId"`
 	RunID     string `json:"runId"`
 	StartedAt int64  `json:"startedAt"`
 	EndedAt   int64  `json:"endedAt"`
-	Status    string `json:"status"` // "ok" | "error"
+	Status    string `json:"status"` // "ok" | "error" | "skipped"
 	Output    string `json:"output"`
 	Error     string `json:"error,omitempty"`
 	Announced bool   `json:"announced,omitempty"` // true if delivered to user
@@ -105,9 +113,20 @@ type Engine struct {
 	// lastTickAtMs is updated by a lightweight heartbeat goroutine while the
 	// engine is running, so /readyz can verify the scheduler is alive even
 	// when no jobs happen to be triggering.
-	lastTickAtMs int64        // accessed via atomic load/store
-	heartbeatMu  sync.Mutex   // guards heartbeatStop
+	lastTickAtMs  int64      // accessed via atomic load/store
+	heartbeatMu   sync.Mutex // guards heartbeatStop
 	heartbeatStop chan struct{}
+
+	runMu      sync.Mutex
+	activeRuns map[string]*activeRun
+	runWG      sync.WaitGroup
+	stopping   bool
+	recordMu   sync.Mutex
+}
+
+type activeRun struct {
+	runID  string
+	cancel context.CancelFunc
 }
 
 // NewEngine creates a new cron engine.
@@ -115,12 +134,13 @@ type Engine struct {
 //   - announce: output delivery callback; may be nil (disables announce mode)
 func NewEngine(dataDir string, runJob CronRunFunc, announce AnnounceFunc) *Engine {
 	return &Engine{
-		cron:     cron.New(cron.WithSeconds()),
-		jobs:     make(map[string]*Job),
-		entryIDs: make(map[string]cron.EntryID),
-		dataDir:  dataDir,
-		runJob:   runJob,
-		announce: announce,
+		cron:       cron.New(cron.WithSeconds()),
+		jobs:       make(map[string]*Job),
+		entryIDs:   make(map[string]cron.EntryID),
+		activeRuns: make(map[string]*activeRun),
+		dataDir:    dataDir,
+		runJob:     runJob,
+		announce:   announce,
 	}
 }
 
@@ -128,6 +148,11 @@ func NewEngine(dataDir string, runJob CronRunFunc, announce AnnounceFunc) *Engin
 func (e *Engine) Load() error {
 	e.jobMu.Lock()
 	defer e.jobMu.Unlock()
+	for _, entryID := range e.entryIDs {
+		e.cron.Remove(entryID)
+	}
+	e.jobs = make(map[string]*Job)
+	e.entryIDs = make(map[string]cron.EntryID)
 
 	if err := os.MkdirAll(e.dataDir, 0755); err != nil {
 		return err
@@ -146,10 +171,34 @@ func (e *Engine) Load() error {
 		if err := json.Unmarshal(data, &jobs); err != nil {
 			return fmt.Errorf("parse jobs.json: %w", err)
 		}
+		changed := false
 		for _, j := range jobs {
+			if j == nil || !validJobID(j.ID) {
+				changed = true
+				continue
+			}
+			originalSchedule := j.Schedule
+			if validationErr := normalizeJob(j, time.Now()); validationErr != nil {
+				j.Enabled = false
+				j.State.NextRunAtMs = 0
+				j.State.DisabledReason = "invalid job: " + validationErr.Error()
+				changed = true
+			} else if j.Schedule != originalSchedule {
+				changed = true
+			}
 			e.jobs[j.ID] = j
 			if j.Enabled {
-				e.scheduleJobLocked(j)
+				if scheduleErr := e.scheduleJobLocked(j); scheduleErr != nil {
+					j.Enabled = false
+					j.State.NextRunAtMs = 0
+					j.State.DisabledReason = "invalid schedule: " + scheduleErr.Error()
+					changed = true
+				}
+			}
+		}
+		if changed {
+			if err := e.saveLocked(); err != nil {
+				return err
 			}
 		}
 	}
@@ -157,19 +206,41 @@ func (e *Engine) Load() error {
 	// Start the scheduler and heartbeat regardless of whether jobs.json existed,
 	// so /readyz can verify the engine is alive even on a fresh install with
 	// zero jobs configured.
+	e.setStopping(false)
 	e.cron.Start()
 	e.startHeartbeat()
 	return nil
 }
 
 func (e *Engine) Start() {
+	e.setStopping(false)
 	e.cron.Start()
 	e.startHeartbeat()
 }
 
 func (e *Engine) Stop() context.Context {
 	e.stopHeartbeat()
-	return e.cron.Stop()
+	e.runMu.Lock()
+	e.stopping = true
+	for _, run := range e.activeRuns {
+		run.cancel()
+	}
+	e.runMu.Unlock()
+
+	schedulerDone := e.cron.Stop()
+	done, cancel := context.WithCancel(context.Background())
+	go func() {
+		<-schedulerDone.Done()
+		e.runWG.Wait()
+		cancel()
+	}()
+	return done
+}
+
+func (e *Engine) setStopping(stopping bool) {
+	e.runMu.Lock()
+	e.stopping = stopping
+	e.runMu.Unlock()
 }
 
 // heartbeatInterval — how often the engine refreshes its liveness timestamp.
@@ -227,17 +298,37 @@ func (e *Engine) Add(job *Job) error {
 	e.jobMu.Lock()
 	defer e.jobMu.Unlock()
 
-	if job.ID == "" {
-		job.ID = "job-" + uuid.New().String()[:8]
+	candidate := cloneJob(job)
+	if candidate.ID == "" {
+		candidate.ID = "job-" + uuid.New().String()[:8]
 	}
-	if job.CreatedAtMs == 0 {
-		job.CreatedAtMs = time.Now().UnixMilli()
+	if !validJobID(candidate.ID) {
+		return fmt.Errorf("%w: invalid job id %q", ErrInvalidJob, candidate.ID)
 	}
-	e.jobs[job.ID] = job
-	if job.Enabled {
-		e.scheduleJobLocked(job)
+	if _, exists := e.jobs[candidate.ID]; exists {
+		return fmt.Errorf("job %q already exists", candidate.ID)
 	}
-	return e.saveLocked()
+	if candidate.CreatedAtMs == 0 {
+		candidate.CreatedAtMs = time.Now().UnixMilli()
+	}
+	if err := normalizeJob(candidate, time.Now()); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidJob, err)
+	}
+
+	e.jobs[candidate.ID] = candidate
+	if candidate.Enabled {
+		if err := e.scheduleJobLocked(candidate); err != nil {
+			delete(e.jobs, candidate.ID)
+			return err
+		}
+	}
+	if err := e.saveLocked(); err != nil {
+		e.unscheduleJobLocked(candidate.ID)
+		delete(e.jobs, candidate.ID)
+		return err
+	}
+	*job = *cloneJob(candidate)
+	return nil
 }
 
 // Update patches a job, reschedules, and saves.
@@ -249,45 +340,95 @@ func (e *Engine) Update(id string, patch *Job) error {
 	if !ok {
 		return fmt.Errorf("job %q not found", id)
 	}
-	e.unscheduleJobLocked(id)
-
+	candidate := cloneJob(existing)
 	if patch.Name != "" {
-		existing.Name = patch.Name
+		candidate.Name = patch.Name
 	}
 	if patch.Remark != "" {
-		existing.Remark = patch.Remark
+		candidate.Remark = patch.Remark
 	}
-	existing.Enabled = patch.Enabled
+	candidate.Enabled = patch.Enabled
 	if patch.Schedule.Expr != "" || patch.Schedule.EveryMs > 0 {
-		existing.Schedule = patch.Schedule
+		candidate.Schedule = patch.Schedule
 	}
 	if patch.Payload.Message != "" {
-		existing.Payload = patch.Payload
+		candidate.Payload = patch.Payload
 	}
 	if patch.Delivery.Mode != "" {
-		existing.Delivery = patch.Delivery
+		candidate.Delivery = patch.Delivery
 	}
 	if patch.AgentID != "" {
-		existing.AgentID = patch.AgentID
+		candidate.AgentID = patch.AgentID
+	}
+	if err := normalizeJob(candidate, time.Now()); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidJob, err)
 	}
 
-	if existing.Enabled {
-		e.scheduleJobLocked(existing)
+	oldEntry, hadOldEntry := e.entryIDs[id]
+	e.jobs[id] = candidate
+	if candidate.Enabled {
+		if err := e.scheduleJobLocked(candidate); err != nil {
+			e.jobs[id] = existing
+			if hadOldEntry {
+				e.entryIDs[id] = oldEntry
+			} else {
+				delete(e.entryIDs, id)
+			}
+			return err
+		}
+	} else {
+		delete(e.entryIDs, id)
 	}
-	return e.saveLocked()
+	newEntry, hasNewEntry := e.entryIDs[id]
+	if err := e.saveLocked(); err != nil {
+		if hasNewEntry && (!hadOldEntry || newEntry != oldEntry) {
+			e.cron.Remove(newEntry)
+		}
+		e.jobs[id] = existing
+		if hadOldEntry {
+			e.entryIDs[id] = oldEntry
+		} else {
+			delete(e.entryIDs, id)
+		}
+		return err
+	}
+	if hadOldEntry && (!hasNewEntry || oldEntry != newEntry) {
+		e.cron.Remove(oldEntry)
+	}
+	return nil
 }
 
 // Remove deletes a job and unschedules it.
 func (e *Engine) Remove(id string) error {
 	e.jobMu.Lock()
 	defer e.jobMu.Unlock()
+	return e.removeLocked(id)
+}
 
-	if _, ok := e.jobs[id]; !ok {
+func (e *Engine) removeLocked(id string) error {
+	job, ok := e.jobs[id]
+	if !ok {
 		return fmt.Errorf("job %q not found", id)
 	}
-	e.unscheduleJobLocked(id)
 	delete(e.jobs, id)
-	return e.saveLocked()
+	if err := e.saveLocked(); err != nil {
+		e.jobs[id] = job
+		return err
+	}
+	e.unscheduleJobLocked(id)
+	e.cancelRun(id)
+	return nil
+}
+
+// RemoveForAgent removes a job only when it belongs to the given agent.
+func (e *Engine) RemoveForAgent(id, agentID string) error {
+	e.jobMu.Lock()
+	defer e.jobMu.Unlock()
+	job, ok := e.jobs[id]
+	if !ok || job.AgentID != agentID {
+		return fmt.Errorf("job %q not found", id)
+	}
+	return e.removeLocked(id)
 }
 
 // RunNow triggers a job immediately in a goroutine.
@@ -301,8 +442,7 @@ func (e *Engine) RunNow(id string) error {
 	j := *job
 	e.jobMu.RUnlock()
 
-	go e.executeJob(&j)
-	return nil
+	return e.startJob(&j, false)
 }
 
 // ListJobs returns all jobs.
@@ -311,8 +451,9 @@ func (e *Engine) ListJobs() []*Job {
 	defer e.jobMu.RUnlock()
 	result := make([]*Job, 0, len(e.jobs))
 	for _, j := range e.jobs {
-		result = append(result, j)
+		result = append(result, cloneJob(j))
 	}
+	sort.Slice(result, func(i, j int) bool { return result[i].CreatedAtMs < result[j].CreatedAtMs })
 	return result
 }
 
@@ -323,9 +464,10 @@ func (e *Engine) ListJobsByAgent(agentID string) []*Job {
 	result := make([]*Job, 0)
 	for _, j := range e.jobs {
 		if agentID == "*" || j.AgentID == agentID {
-			result = append(result, j)
+			result = append(result, cloneJob(j))
 		}
 	}
+	sort.Slice(result, func(i, j int) bool { return result[i].CreatedAtMs < result[j].CreatedAtMs })
 	return result
 }
 
@@ -340,17 +482,45 @@ func (e *Engine) EnableJob(id string) error {
 		return fmt.Errorf("job %q not found", id)
 	}
 
-	j.Enabled = true
-	j.State.ErrorCount = 0
-	j.State.DisabledReason = ""
-	e.unscheduleJobLocked(id) // safety: remove any stale entry
-	e.scheduleJobLocked(j)
+	candidate := cloneJob(j)
+	candidate.Enabled = true
+	candidate.State.ErrorCount = 0
+	candidate.State.DisabledReason = ""
+	if err := normalizeJob(candidate, time.Now()); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidJob, err)
+	}
+	oldEntry, hadOldEntry := e.entryIDs[id]
+	e.jobs[id] = candidate
+	if err := e.scheduleJobLocked(candidate); err != nil {
+		e.jobs[id] = j
+		if hadOldEntry {
+			e.entryIDs[id] = oldEntry
+		}
+		return err
+	}
+	newEntry := e.entryIDs[id]
+	if err := e.saveLocked(); err != nil {
+		e.cron.Remove(newEntry)
+		e.jobs[id] = j
+		if hadOldEntry {
+			e.entryIDs[id] = oldEntry
+		} else {
+			delete(e.entryIDs, id)
+		}
+		return err
+	}
+	if hadOldEntry && oldEntry != newEntry {
+		e.cron.Remove(oldEntry)
+	}
 	fmt.Printf("cron: job %s (%s) manually re-enabled\n", j.ID, j.Name)
-	return e.saveLocked()
+	return nil
 }
 
 // ListRuns returns the last 50 run records for a job.
 func (e *Engine) ListRuns(jobID string) ([]RunRecord, error) {
+	if !validJobID(jobID) {
+		return nil, fmt.Errorf("invalid job id %q", jobID)
+	}
 	path := filepath.Join(e.dataDir, "runs", jobID+".jsonl")
 	f, err := os.Open(path)
 	if err != nil {
@@ -381,72 +551,70 @@ func (e *Engine) ListRuns(jobID string) ([]RunRecord, error) {
 	return records, nil
 }
 
-// ── Internal helpers ──────────────────────────────────────────────────────
-
-// scheduleJobLocked converts the Job's Schedule to a robfig/cron spec and registers it.
-// Supports:
-//   - kind=cron  → use Expr directly (5 or 6-field cron)
-//   - kind=every → convert EveryMs to "@every Xs" / "@every Xm" / "@every Xh"
-//   - kind=at    → use Expr directly (one-shot; robfig supports absolute timestamps via Expr)
-func (e *Engine) scheduleJobLocked(job *Job) {
-	spec := e.buildSpec(job.Schedule)
-	if spec == "" {
-		fmt.Printf("cron: job %s has no valid schedule, skipping\n", job.ID)
-		return
+func (e *Engine) startJobByID(id string, scheduled bool) error {
+	e.jobMu.RLock()
+	job, ok := e.jobs[id]
+	if !ok || (scheduled && !job.Enabled) {
+		e.jobMu.RUnlock()
+		return nil
 	}
+	candidate := cloneJob(job)
+	e.jobMu.RUnlock()
+	return e.startJob(candidate, scheduled)
+}
 
-	j := job // capture for closure
-	entryID, err := e.cron.AddFunc(spec, func() {
-		e.executeJob(j)
-	})
-	if err != nil {
-		// Retry with "0 " prefix for standard 5-field cron (no seconds column)
-		entryID, err = e.cron.AddFunc("0 "+spec, func() {
-			e.executeJob(j)
+func (e *Engine) startJob(job *Job, scheduled bool) error {
+	runID := "run-" + uuid.New().String()[:8]
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+
+	e.runMu.Lock()
+	if e.stopping {
+		e.runMu.Unlock()
+		cancel()
+		return fmt.Errorf("cron engine is stopping")
+	}
+	if active, exists := e.activeRuns[job.ID]; exists {
+		e.runMu.Unlock()
+		cancel()
+		e.appendRunRecord(RunRecord{
+			JobID:     job.ID,
+			RunID:     runID,
+			StartedAt: time.Now().UnixMilli(),
+			EndedAt:   time.Now().UnixMilli(),
+			Status:    "skipped",
+			Error:     fmt.Sprintf("%v: active run %s", ErrJobAlreadyRunning, active.runID),
 		})
-		if err != nil {
-			fmt.Printf("cron: failed to schedule job %s (%s): %v\n", job.ID, spec, err)
-			return
-		}
+		return ErrJobAlreadyRunning
 	}
-	e.entryIDs[job.ID] = entryID
+	e.activeRuns[job.ID] = &activeRun{runID: runID, cancel: cancel}
+	e.runWG.Add(1)
+	e.runMu.Unlock()
 
-	entry := e.cron.Entry(entryID)
-	if !entry.Next.IsZero() {
-		job.State.NextRunAtMs = entry.Next.UnixMilli()
-	}
+	go e.executeJob(job, runID, ctx, scheduled)
+	return nil
 }
 
-// buildSpec converts a Schedule to a robfig/cron spec string.
-func (e *Engine) buildSpec(s Schedule) string {
-	switch s.Kind {
-	case "every":
-		if s.EveryMs <= 0 {
-			return ""
-		}
-		d := time.Duration(s.EveryMs) * time.Millisecond
-		// Use seconds-level precision; robfig/cron WithSeconds() supports @every with sub-minute
-		secs := int(d.Seconds())
-		if secs < 1 {
-			secs = 1
-		}
-		return fmt.Sprintf("@every %ds", secs)
-	case "cron", "at", "":
-		return s.Expr
-	default:
-		return s.Expr
+func (e *Engine) finishRun(jobID, runID string) {
+	e.runMu.Lock()
+	if active, ok := e.activeRuns[jobID]; ok && active.runID == runID {
+		active.cancel()
+		delete(e.activeRuns, jobID)
 	}
+	e.runMu.Unlock()
+	e.runWG.Done()
 }
 
-func (e *Engine) unscheduleJobLocked(id string) {
-	if entryID, ok := e.entryIDs[id]; ok {
-		e.cron.Remove(entryID)
-		delete(e.entryIDs, id)
+func (e *Engine) cancelRun(jobID string) {
+	e.runMu.Lock()
+	if active := e.activeRuns[jobID]; active != nil {
+		active.cancel()
 	}
+	e.runMu.Unlock()
 }
 
-// executeJob runs a single job invocation in an isolated session.
-func (e *Engine) executeJob(job *Job) {
+// executeJob runs a claimed job invocation in an isolated session.
+func (e *Engine) executeJob(job *Job, runID string, ctx context.Context, scheduled bool) {
+	defer e.finishRun(job.ID, runID)
 	startedAt := time.Now().UnixMilli()
 
 	agentID := job.AgentID
@@ -454,15 +622,11 @@ func (e *Engine) executeJob(job *Job) {
 		agentID = "main"
 	}
 
-	runID := "run-" + uuid.New().String()[:8]
 	record := RunRecord{
 		JobID:     job.ID,
 		RunID:     runID,
 		StartedAt: startedAt,
 	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-	defer cancel()
 
 	var output string
 	switch job.Payload.Kind {
@@ -531,13 +695,26 @@ func (e *Engine) executeJob(job *Job) {
 			}
 		}
 
-		if entryID, ok2 := e.entryIDs[job.ID]; ok2 {
+		if scheduled && job.Schedule.Kind == "at" && j.Schedule == job.Schedule {
+			j.Enabled = false
+			j.State.NextRunAtMs = 0
+			if record.Status == "ok" {
+				j.State.DisabledReason = "one-shot completed"
+			} else {
+				j.State.DisabledReason = "one-shot completed with error: " + record.Error
+			}
+			e.unscheduleJobLocked(j.ID)
+		} else if entryID, ok2 := e.entryIDs[job.ID]; ok2 {
 			entry := e.cron.Entry(entryID)
 			if !entry.Next.IsZero() {
 				j.State.NextRunAtMs = entry.Next.UnixMilli()
+			} else {
+				j.State.NextRunAtMs = 0
 			}
 		}
-		e.saveLocked()
+		if err := e.saveLocked(); err != nil {
+			fmt.Printf("cron: failed to save job state: %v\n", err)
+		}
 	}
 	e.jobMu.Unlock()
 
@@ -545,7 +722,14 @@ func (e *Engine) executeJob(job *Job) {
 }
 
 func (e *Engine) appendRunRecord(record RunRecord) {
-	path := filepath.Join(e.dataDir, "runs", record.JobID+".jsonl")
+	e.recordMu.Lock()
+	defer e.recordMu.Unlock()
+	runsDir := filepath.Join(e.dataDir, "runs")
+	if err := os.MkdirAll(runsDir, 0755); err != nil {
+		fmt.Printf("cron: failed to create run directory: %v\n", err)
+		return
+	}
+	path := filepath.Join(runsDir, record.JobID+".jsonl")
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		fmt.Printf("cron: failed to write run record: %v\n", err)
@@ -556,14 +740,53 @@ func (e *Engine) appendRunRecord(record RunRecord) {
 	fmt.Fprintf(f, "%s\n", data)
 }
 
+var jobIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
+
+func validJobID(id string) bool {
+	return jobIDPattern.MatchString(id)
+}
+
+func cloneJob(job *Job) *Job {
+	if job == nil {
+		return nil
+	}
+	cloned := *job
+	return &cloned
+}
+
 func (e *Engine) saveLocked() error {
 	jobs := make([]*Job, 0, len(e.jobs))
 	for _, j := range e.jobs {
-		jobs = append(jobs, j)
+		jobs = append(jobs, cloneJob(j))
 	}
+	sort.Slice(jobs, func(i, j int) bool { return jobs[i].CreatedAtMs < jobs[j].CreatedAtMs })
 	data, err := json.MarshalIndent(jobs, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(e.dataDir, "jobs.json"), data, 0644)
+	if err := os.MkdirAll(e.dataDir, 0755); err != nil {
+		return err
+	}
+	temp, err := os.CreateTemp(e.dataDir, ".jobs-*.tmp")
+	if err != nil {
+		return err
+	}
+	tempPath := temp.Name()
+	defer os.Remove(tempPath)
+	if err := temp.Chmod(0600); err != nil {
+		temp.Close()
+		return err
+	}
+	if _, err := temp.Write(data); err != nil {
+		temp.Close()
+		return err
+	}
+	if err := temp.Sync(); err != nil {
+		temp.Close()
+		return err
+	}
+	if err := temp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tempPath, filepath.Join(e.dataDir, "jobs.json"))
 }

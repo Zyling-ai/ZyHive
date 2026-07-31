@@ -150,7 +150,7 @@ export interface CronJob {
   name: string
   remark?: string
   enabled: boolean
-  schedule: { kind: string; expr: string; tz: string }
+  schedule: { kind: 'cron' | 'every' | 'at'; expr?: string; everyMs?: number; tz?: string }
   payload: { kind: string; message: string; model?: string }
   delivery: { mode: string }
   agentId?: string
