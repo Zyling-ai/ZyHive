@@ -7,7 +7,7 @@
 [![GitHub Forks](https://img.shields.io/github/forks/Zyling-ai/zyhive?style=flat&logo=github&color=orange)](https://github.com/Zyling-ai/zyhive/network/members)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 [![Go 1.25+](https://img.shields.io/badge/Go-1.25+-00ADD8.svg)](https://golang.org)
-[![Version](https://img.shields.io/badge/version-26.7.31v10-brightgreen.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-26.7.31v11-brightgreen.svg)](CHANGELOG.md)
 [![Release E2E](https://github.com/Zyling-ai/ZyHive/actions/workflows/release-e2e.yml/badge.svg)](https://github.com/Zyling-ai/ZyHive/actions/workflows/release-e2e.yml)
 [![官网](https://img.shields.io/badge/官网-zyling.ai-6366f1?logo=globe)](https://zyling.ai)
 
@@ -16,7 +16,7 @@
 一行命令安装，打开浏览器即可管理整个 AI 团队：配置每个成员的身份、灵魂、记忆、技能，设计组织架构，让成员之间互相协作讨论。
 
 > **发布状态**
-> 当前公开稳定版为 `26.7.31v10`，正式 Release 必须通过全新安装、服务启动、鉴权、基础 API、成员与文件持久化和旧版更新全流程测试。
+> 当前公开稳定版为 `26.7.31v11`，正式 Release 必须通过全新安装、服务启动、鉴权、基础 API、成员与文件持久化和旧版更新全流程测试。
 > 仓库已强制仅允许 `Zyling-ai` 提交身份；Release E2E 失败会自动转为草稿并停止公开分发。
 > 当前产品定位为单机、自托管 Beta，适合个人、小团队和可控环境部署；尚不承诺多租户、多实例、企业级高可用或关键业务连续性。
 > `pkg/aiteam/` 下的钱包、预算、评分、工资和收益模块属于实验能力，不作为稳定版默认商业承诺。
@@ -133,9 +133,11 @@ curl -sSL https://install.zyling.ai/install | bash
 - **群档案维护 (26.4.24v1)**：`chat_note(chatId, section, text)` — AI 追加群规则/重要议题/待跟进到群档案
 
 ### 工具权限系统
-- 每个成员可独立配置工具策略：`allow`（默认允许）/ `deny`（默认拒绝）+ 精细白名单 / 黑名单
-- 工具按组管理：`group:filesystem` / `group:runtime` / `group:browser` / `group:network` 等
-- 高危工具（如 `exec`）支持需用户审批模式（`ask`）
+- 全局策略是权限上限，成员策略只能进一步收紧；两层任意一层拒绝即不可调用
+- 支持 `full` / `coding` / `messaging` / `minimal` Profile，以及 `allow` / `deny` / `ask`
+- 工具按 `group:fs` / `group:runtime` / `group:web` / `group:ui` / `group:agent` / `group:sessions` / `group:cron` / `group:messaging` / `group:self` / `group:project` / `group:network` 管理
+- `ask` 在 Web、Telegram、飞书、Cron、Heartbeat 和 Subagent 使用同一审批中心；审批不可用时默认拒绝
+- 所有入口的工具结果写入成员级审计，审批流重连后自动恢复待办
 
 ### 定时任务（Cron）
 - **隔离会话**：每次 Cron 任务在独立 session 中执行，不污染主对话历史

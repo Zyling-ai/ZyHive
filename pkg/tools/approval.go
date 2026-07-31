@@ -24,6 +24,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 )
@@ -31,15 +32,19 @@ import (
 // DefaultApprovalTimeout 是没显式配置时的兜底 timeout。
 const DefaultApprovalTimeout = 5 * time.Minute
 
+// ErrApprovalUnavailable means policy requires approval but no broker is
+// connected. The tool must remain blocked in this state.
+var ErrApprovalUnavailable = errors.New("tool approval service is unavailable")
+
 // ApprovalRequest 是 broker 公开给 UI 的 pending item。
 type ApprovalRequest struct {
-	ID         string          `json:"id"`
-	AgentID    string          `json:"agentId"`
-	SessionID  string          `json:"sessionId,omitempty"`
-	ToolName   string          `json:"toolName"`
-	Input      json.RawMessage `json:"input"`
-	CreatedAt  time.Time       `json:"createdAt"`
-	ExpiresAt  time.Time       `json:"expiresAt"`
+	ID        string          `json:"id"`
+	AgentID   string          `json:"agentId"`
+	SessionID string          `json:"sessionId,omitempty"`
+	ToolName  string          `json:"toolName"`
+	Input     json.RawMessage `json:"input"`
+	CreatedAt time.Time       `json:"createdAt"`
+	ExpiresAt time.Time       `json:"expiresAt"`
 }
 
 // ApprovalDecision 是 UI 通过 REST 推回的决策。
@@ -51,11 +56,12 @@ type ApprovalDecision struct {
 
 // ApprovalEvent 通过 Subscribe 推给 SSE pipeline 的事件。
 type ApprovalEvent struct {
-	Type    string           `json:"type"` // "approval_request" | "approval_resolved" | "approval_expired"
-	Request *ApprovalRequest `json:"request,omitempty"`
+	Type    string            `json:"type"` // request | resolved | expired | hello/snapshot
+	Request *ApprovalRequest  `json:"request,omitempty"`
+	Pending []ApprovalRequest `json:"pending,omitempty"`
 	// Resolved/Expired 时携带：
-	ID       string             `json:"id,omitempty"`
-	Decision *ApprovalDecision  `json:"decision,omitempty"`
+	ID       string            `json:"id,omitempty"`
+	Decision *ApprovalDecision `json:"decision,omitempty"`
 }
 
 // AuditHook 由 Broker 调用，把每次决策落盘到 audit 包（或任何 sink）。
@@ -71,9 +77,8 @@ type Broker struct {
 }
 
 type pendingItem struct {
-	req     ApprovalRequest
-	respCh  chan ApprovalDecision // buffered(1)
-	expires time.Time
+	req    ApprovalRequest
+	respCh chan ApprovalDecision // buffered(1)
 }
 
 // NewBroker 返回一个新的 Broker。AuditHook 可为 nil（不持久化）。
@@ -112,9 +117,8 @@ func (b *Broker) Request(ctx context.Context, agentID, sessionID, toolName strin
 		ExpiresAt: now.Add(timeout),
 	}
 	item := &pendingItem{
-		req:     req,
-		respCh:  make(chan ApprovalDecision, 1),
-		expires: req.ExpiresAt,
+		req:    req,
+		respCh: make(chan ApprovalDecision, 1),
 	}
 
 	b.mu.Lock()
@@ -136,14 +140,20 @@ func (b *Broker) Request(ctx context.Context, agentID, sessionID, toolName strin
 		// Decide() already broadcast approval_resolved and ran hook.
 		return dec, req, nil
 	case <-time.After(timeout):
+		if !b.claimPending(id, item) {
+			return <-item.respCh, req, nil
+		}
 		// Auto-deny on timeout.
-		dec := ApprovalDecision{Approved: false, Reason: "审批超时（默认 5 分钟）", By: "auto-timeout"}
+		dec := ApprovalDecision{Approved: false, Reason: "审批超时", By: "auto-timeout"}
 		b.broadcast(ApprovalEvent{Type: "approval_expired", ID: id, Decision: &dec})
 		if hook := b.snapshotHook(); hook != nil {
 			hook(req, dec, "approval_expired")
 		}
 		return dec, req, nil
 	case <-ctx.Done():
+		if !b.claimPending(id, item) {
+			return <-item.respCh, req, nil
+		}
 		dec := ApprovalDecision{Approved: false, Reason: "请求已取消（context cancelled）", By: "auto-cancel"}
 		b.broadcast(ApprovalEvent{Type: "approval_expired", ID: id, Decision: &dec})
 		if hook := b.snapshotHook(); hook != nil {
@@ -158,27 +168,24 @@ func (b *Broker) Request(ctx context.Context, agentID, sessionID, toolName strin
 func (b *Broker) Decide(id string, dec ApprovalDecision) error {
 	b.mu.Lock()
 	item, ok := b.pending[id]
-	b.mu.Unlock()
 	if !ok {
+		b.mu.Unlock()
 		return fmt.Errorf("approval %q not found (expired or already decided?)", id)
 	}
-	// 非阻塞 send：respCh 容量 1。重复 Decide 走默认分支抛错。
-	select {
-	case item.respCh <- dec:
-		// Broadcast resolved + hook.
-		b.broadcast(ApprovalEvent{Type: "approval_resolved", ID: id, Decision: &dec})
-		if hook := b.snapshotHook(); hook != nil {
-			req := item.req
-			eventType := "approval_approved"
-			if !dec.Approved {
-				eventType = "approval_denied"
-			}
-			hook(req, dec, eventType)
+	delete(b.pending, id)
+	b.mu.Unlock()
+
+	b.broadcast(ApprovalEvent{Type: "approval_resolved", ID: id, Decision: &dec})
+	if hook := b.snapshotHook(); hook != nil {
+		req := item.req
+		eventType := "approval_approved"
+		if !dec.Approved {
+			eventType = "approval_denied"
 		}
-		return nil
-	default:
-		return errors.New("approval already decided")
+		hook(req, dec, eventType)
 	}
+	item.respCh <- dec
+	return nil
 }
 
 // ListPending 返回当前所有 pending（可选按 agentID 过滤）。
@@ -192,6 +199,9 @@ func (b *Broker) ListPending(agentID string) []ApprovalRequest {
 		}
 		out = append(out, item.req)
 	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].CreatedAt.Before(out[j].CreatedAt)
+	})
 	return out
 }
 
@@ -200,11 +210,14 @@ func (b *Broker) ListPending(agentID string) []ApprovalRequest {
 func (b *Broker) Subscribe(clientID string) (<-chan ApprovalEvent, func()) {
 	ch := make(chan ApprovalEvent, 16)
 	b.mu.Lock()
+	if previous, ok := b.subs[clientID]; ok {
+		close(previous)
+	}
 	b.subs[clientID] = ch
 	b.mu.Unlock()
 	unsub := func() {
 		b.mu.Lock()
-		if c, ok := b.subs[clientID]; ok {
+		if c, ok := b.subs[clientID]; ok && c == ch {
 			delete(b.subs, clientID)
 			close(c)
 		}
@@ -216,12 +229,8 @@ func (b *Broker) Subscribe(clientID string) (<-chan ApprovalEvent, func()) {
 // broadcast 推一条事件给所有订阅者（非阻塞）。
 func (b *Broker) broadcast(ev ApprovalEvent) {
 	b.mu.Lock()
-	subs := make([]chan ApprovalEvent, 0, len(b.subs))
+	defer b.mu.Unlock()
 	for _, c := range b.subs {
-		subs = append(subs, c)
-	}
-	b.mu.Unlock()
-	for _, c := range subs {
 		select {
 		case c <- ev:
 		default:
@@ -236,6 +245,17 @@ func (b *Broker) snapshotHook() AuditHook {
 	return b.hook
 }
 
+func (b *Broker) claimPending(id string, item *pendingItem) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	current, ok := b.pending[id]
+	if !ok || current != item {
+		return false
+	}
+	delete(b.pending, id)
+	return true
+}
+
 // genApprovalID returns a short, URL-safe identifier.
 func genApprovalID() string {
 	var bts [9]byte
@@ -246,7 +266,6 @@ func genApprovalID() string {
 // ── Registry hooks ────────────────────────────────────────────────────────
 
 // WithApprovalBroker 把 broker + ask 列表 + timeout 注入到 Registry。
-// 调用 ApplyPolicy 之后再调用此方法（ApplyPolicy 会重置 askNames）。
 func (r *Registry) WithApprovalBroker(b *Broker, ask []string, timeout time.Duration) *Registry {
 	r.broker = b
 	r.askTimeout = timeout

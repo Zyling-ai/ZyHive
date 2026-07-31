@@ -81,7 +81,7 @@
     <el-card shadow="hover" style="margin-top: 28px;">
       <template #header>
         <span style="font-weight: 600; font-size: 14px;">🔒 全局工具权限策略</span>
-        <span style="font-size: 12px; color: #64748b; margin-left: 8px;">所有成员默认继承此策略，可在成员详情页单独覆盖</span>
+        <span style="font-size: 12px; color: #64748b; margin-left: 8px;">这是所有成员的权限上限，成员策略只能进一步收紧</span>
       </template>
 
       <el-form label-width="90px" size="default" style="max-width: 680px;">
@@ -135,6 +135,29 @@
               @keyup.enter="addGlobalTag('deny')"
             >
               <template #append><el-button @click="addGlobalTag('deny')">添加</el-button></template>
+            </el-input>
+          </div>
+        </el-form-item>
+
+        <el-form-item label="全局 Ask">
+          <div style="width: 100%">
+            <el-tag
+              v-for="(item, idx) in globalPolicy.ask"
+              :key="idx"
+              closable
+              type="warning"
+              size="small"
+              style="margin: 2px 4px 2px 0;"
+              @close="globalPolicy.ask.splice(idx, 1)"
+            >🛡 {{ item }}</el-tag>
+            <el-input
+              v-model="globalPolicyAskInput"
+              size="small"
+              placeholder="工具名或 group:xx，回车设为需审批"
+              style="width: 260px; margin-top: 4px;"
+              @keyup.enter="addGlobalTag('ask')"
+            >
+              <template #append><el-button @click="addGlobalTag('ask')">添加</el-button></template>
             </el-input>
           </div>
         </el-form-item>
@@ -308,13 +331,15 @@ async function deleteTool(row: ToolEntry) {
 }
 
 // ── 全局工具权限策略 ──────────────────────────────────────────────────────────
-const globalPolicy = reactive<{ profile: string; allow: string[]; deny: string[] }>({
+const globalPolicy = reactive<{ profile: string; allow: string[]; deny: string[]; ask: string[] }>({
   profile: '',
   allow: [],
   deny: [],
+  ask: [],
 })
 const globalPolicyAllowInput = ref('')
 const globalPolicyDenyInput = ref('')
+const globalPolicyAskInput = ref('')
 const globalPolicySaving = ref(false)
 const globalPolicySaved = ref(false)
 
@@ -325,11 +350,16 @@ async function loadGlobalPolicy() {
     globalPolicy.profile = p?.profile || ''
     globalPolicy.allow = p?.allow ? [...p.allow] : []
     globalPolicy.deny = p?.deny ? [...p.deny] : []
+    globalPolicy.ask = p?.ask ? [...p.ask] : []
   } catch {}
 }
 
-function addGlobalTag(type: 'allow' | 'deny') {
-  const input = type === 'allow' ? globalPolicyAllowInput : globalPolicyDenyInput
+function addGlobalTag(type: 'allow' | 'deny' | 'ask') {
+  const input = type === 'allow'
+    ? globalPolicyAllowInput
+    : type === 'deny'
+      ? globalPolicyDenyInput
+      : globalPolicyAskInput
   const val = input.value.trim()
   if (!val) return
   if (!globalPolicy[type].includes(val)) globalPolicy[type].push(val)
@@ -343,10 +373,11 @@ async function saveGlobalPolicy() {
     if (globalPolicy.profile) policy.profile = globalPolicy.profile
     if (globalPolicy.allow.length) policy.allow = globalPolicy.allow
     if (globalPolicy.deny.length) policy.deny = globalPolicy.deny
+    if (globalPolicy.ask.length) policy.ask = globalPolicy.ask
     await configApi.patch({ toolPolicy: Object.keys(policy).length ? policy : null })
     globalPolicySaved.value = true
     setTimeout(() => { globalPolicySaved.value = false }, 2000)
-    ElMessage.success('全局工具权限已保存，重启后生效')
+    ElMessage.success('全局工具权限已保存，将在下一次任务生效')
   } catch {
     ElMessage.error('保存失败')
   } finally {

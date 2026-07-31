@@ -2,17 +2,18 @@
 // Reference: pi-coding-agent/dist/core/agent-session.js (AgentSession._handleAgentEvent)
 //
 // The main loop:
-//   1. Build system prompt (identity + soul + workspace files + skills)
-//   2. Append user message to history
-//   3. Call LLM with history + tools
-//   4. If response contains tool_use blocks → execute tools → append results → goto 3
-//   5. If response is plain text → return to caller
+//  1. Build system prompt (identity + soul + workspace files + skills)
+//  2. Append user message to history
+//  3. Call LLM with history + tools
+//  4. If response contains tool_use blocks → execute tools → append results → goto 3
+//  5. If response is plain text → return to caller
 package runner
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"sort"
 	"strings"
@@ -121,7 +122,7 @@ func IsBudgetExceeded(err error) bool {
 // is an adapter wired by main.go.
 type BudgetCheckResult struct {
 	Allowed       bool
-	Scope         string  // "agent" | "global"
+	Scope         string // "agent" | "global"
 	Used          float64
 	EffectiveCap  float64
 	Reason        string
@@ -185,11 +186,11 @@ func New(cfg Config) *Runner {
 
 // RunEvent is emitted to the caller during a conversation turn.
 type RunEvent struct {
-	Type          string // "text_delta" | "tool_call" | "tool_result" | "usage" | "error" | "done"
+	Type string // "text_delta" | "tool_call" | "tool_result" | "usage" | "error" | "done"
 	//                     | "compaction_start" | "compaction_end"  (P0.6)
-	Text          string
-	ToolCall      *llm.ToolCall
-	Error         error
+	Text     string
+	ToolCall *llm.ToolCall
+	Error    error
 	// tool_result 专属：对应的 tool_call ID（并行 tool 场景下前端必须按 ID 匹配，
 	// 不能靠顺序或 activeToolId）
 	ToolCallID string
@@ -405,7 +406,9 @@ func stripToolUseBlocks(raw json.RawMessage) json.RawMessage {
 	}
 	kept := blocks[:0]
 	for _, b := range blocks {
-		var probe struct{ Type string `json:"type"` }
+		var probe struct {
+			Type string `json:"type"`
+		}
 		if json.Unmarshal(b, &probe) == nil && probe.Type != "tool_use" {
 			kept = append(kept, b)
 		}
@@ -430,7 +433,9 @@ func stripToolResultBlocks(raw json.RawMessage) json.RawMessage {
 	}
 	kept := blocks[:0]
 	for _, b := range blocks {
-		var probe struct{ Type string `json:"type"` }
+		var probe struct {
+			Type string `json:"type"`
+		}
 		if json.Unmarshal(b, &probe) == nil && probe.Type != "tool_result" {
 			kept = append(kept, b)
 		}
@@ -494,14 +499,20 @@ func (r *Runner) run(ctx context.Context, userMsg string, out chan<- RunEvent) e
 				if img[:idx] == "data:" {
 					semi := 0
 					for i, c := range img[idx:] {
-						if c == ';' { semi = idx + i; break }
+						if c == ';' {
+							semi = idx + i
+							break
+						}
 					}
 					if semi > 0 {
 						mediaType = img[idx:semi]
 						// skip "base64,"
 						comma := semi
 						for i, c := range img[semi:] {
-							if c == ',' { comma = semi + i + 1; break }
+							if c == ',' {
+								comma = semi + i + 1
+								break
+							}
 						}
 						data = img[comma:]
 					}
@@ -815,7 +826,7 @@ func (r *Runner) executeTools(ctx context.Context, calls []llm.ToolCall, out cha
 				if origErr != nil {
 					errStr = origErr.Error()
 				}
-				_ = r.cfg.ToolAudit.Append(toolaudit.Entry{
+				if auditErr := r.cfg.ToolAudit.Append(toolaudit.Entry{
 					AgentID:    r.cfg.AgentID,
 					SessionID:  r.cfg.SessionID,
 					ToolCallID: tc.ID,
@@ -824,7 +835,10 @@ func (r *Runner) executeTools(ctx context.Context, calls []llm.ToolCall, out cha
 					Result:     result,
 					DurationMs: int(dur.Milliseconds()),
 					Error:      errStr,
-				})
+				}); auditErr != nil {
+					log.Printf("[toolaudit] append failed agent=%s session=%s call=%s: %v",
+						r.cfg.AgentID, r.cfg.SessionID, tc.ID, auditErr)
+				}
 			}
 		}(i, tc)
 	}

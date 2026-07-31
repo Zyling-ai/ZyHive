@@ -152,7 +152,7 @@ func approvalDecision(decision string) func(c *ctx, args []string) error {
 		if err := c.confirm("%s 审批 %s", decision, id); err != nil {
 			return err
 		}
-		resp, err := c.post("/api/approvals/"+id+"/"+decision, map[string]any{"reason": reason, "by": "zyhive-cli"})
+		resp, err := c.post("/api/approvals/"+id+"/"+decision, map[string]any{"reason": reason})
 		if err != nil {
 			return err
 		}

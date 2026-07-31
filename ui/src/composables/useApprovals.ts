@@ -25,8 +25,9 @@ export interface ApprovalDecision {
 }
 
 export interface ApprovalEvent {
-  type: 'hello' | 'approval_request' | 'approval_resolved' | 'approval_expired'
+  type: 'hello' | 'approval_snapshot' | 'approval_request' | 'approval_resolved' | 'approval_expired'
   request?: ApprovalRequest
+  pending?: ApprovalRequest[]
   id?: string
   decision?: ApprovalDecision
 }
@@ -71,7 +72,11 @@ async function open() {
     es = new EventSource(`/api/approvals/stream?ticket=${encodeURIComponent(payload.ticket)}`, {
       withCredentials: false,
     } as any)
-    es.onopen = () => { connected.value = true }
+    es.onopen = () => {
+      connected.value = true
+      // Reconcile events that may have been missed while disconnected.
+      refresh()
+    }
     es.onerror = () => {
       connected.value = false
       es?.close()
@@ -82,12 +87,15 @@ async function open() {
       try {
         const ev: ApprovalEvent = JSON.parse(msg.data)
         lastEvent.value = ev
-        if (ev.type === 'approval_request' && ev.request) {
+        if ((ev.type === 'hello' || ev.type === 'approval_snapshot') && ev.pending) {
+          pending.value = ev.pending
+        } else if (ev.type === 'approval_request' && ev.request) {
           // Append; dedupe by id.
           const exists = pending.value.find(p => p.id === ev.request!.id)
           if (!exists) pending.value.push(ev.request)
         } else if ((ev.type === 'approval_resolved' || ev.type === 'approval_expired') && ev.id) {
           pending.value = pending.value.filter(p => p.id !== ev.id)
+          refresh()
         }
       } catch {}
     }
@@ -119,6 +127,7 @@ export async function approve(id: string, reason = '') {
     },
     body: JSON.stringify({ reason }),
   })
+  if (resp.ok) refresh()
   return resp.ok
 }
 
@@ -131,5 +140,6 @@ export async function deny(id: string, reason = '') {
     },
     body: JSON.stringify({ reason }),
   })
+  if (resp.ok) refresh()
   return resp.ok
 }

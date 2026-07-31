@@ -33,6 +33,7 @@ import (
 	"github.com/Zyling-ai/zyhive/pkg/runner"
 	"github.com/Zyling-ai/zyhive/pkg/session"
 	"github.com/Zyling-ai/zyhive/pkg/subagent"
+	"github.com/Zyling-ai/zyhive/pkg/toolaudit"
 	"github.com/Zyling-ai/zyhive/pkg/tools"
 	"github.com/Zyling-ai/zyhive/pkg/usage"
 )
@@ -90,6 +91,8 @@ type Pool struct {
 	aiteamMetrics *aiteamMetrics.Registry
 
 	cronEngine *cron.Engine // optional: enables cron_list/add/remove tools
+
+	approvalBroker *tools.Broker // shared policy approval broker
 
 	// Heartbeat management: one goroutine per agent with heartbeat enabled.
 	hbMu      sync.Mutex
@@ -151,6 +154,12 @@ func (p *Pool) SetWorkerPool(wp *session.WorkerPool) {
 // SetCronEngine attaches the cron engine so agents can manage their own scheduled jobs.
 func (p *Pool) SetCronEngine(e *cron.Engine) {
 	p.cronEngine = e
+}
+
+// SetApprovalBroker attaches the process-wide approval broker used by every
+// Pool-created runner, including channels, cron, heartbeat, and subagents.
+func (p *Pool) SetApprovalBroker(b *tools.Broker) {
+	p.approvalBroker = b
 }
 
 // ── Heartbeat ────────────────────────────────────────────────────────────────
@@ -698,23 +707,20 @@ func (p *Pool) configureToolRegistry(reg *tools.Registry, ag *Agent, fileSender 
 		}
 	}
 
-	// Apply tool permission policy (allow/deny/profile).
-	// Parse raw JSON policies from config; nil-safe.
-	var globalPolicy, agentPolicy *tools.ToolPolicy
-	if len(p.cfg.ToolPolicyRaw) > 0 {
-		var gp tools.ToolPolicy
-		if err := json.Unmarshal(p.cfg.ToolPolicyRaw, &gp); err == nil {
-			globalPolicy = &gp
-		}
+}
+
+// finalizeToolRegistry applies governance only after every dynamic tool has
+// been registered, preventing late With* calls from bypassing policy.
+func (p *Pool) finalizeToolRegistry(reg *tools.Registry, ag *Agent, sessionID string) {
+	reg.WithSessionID(sessionID)
+	if err := reg.ConfigureGovernance(
+		p.cfg.ToolPolicyRaw,
+		ag.ToolPolicyRaw,
+		p.approvalBroker,
+		tools.DefaultApprovalTimeout,
+	); err != nil {
+		log.Printf("[policy] blocked all tools for agent %s: %v", ag.ID, err)
 	}
-	if len(ag.ToolPolicyRaw) > 0 {
-		var ap tools.ToolPolicy
-		if err := json.Unmarshal(ag.ToolPolicyRaw, &ap); err == nil {
-			agentPolicy = &ap
-		}
-	}
-	effectivePolicy := tools.MergePolicy(globalPolicy, agentPolicy)
-	reg.ApplyPolicy(effectivePolicy)
 }
 
 // resolveEmbedder finds the first configured provider that supports the embeddings API.
@@ -931,6 +937,7 @@ func (p *Pool) Run(ctx context.Context, agentID, message string) (string, error)
 	llmClient := llm.NewClient(modelEntry.Provider, resolvedBaseURL)
 	toolRegistry := tools.New(ag.WorkspaceDir, filepath.Dir(ag.WorkspaceDir), ag.ID)
 	p.configureToolRegistry(toolRegistry, ag, nil)
+	p.finalizeToolRegistry(toolRegistry, ag, "")
 	store := session.NewStore(ag.SessionDir)
 
 	r := runner.New(runner.Config{
@@ -948,6 +955,7 @@ func (p *Pool) Run(ctx context.Context, agentID, message string) (string, error)
 		UsageRecorder:       p.usageRecorder(),
 		BudgetCheck:         p.budgetChecker(),
 		CapabilitiesContext: BuildCapabilitiesContext(toolRegistry, ag, p.cfg, ag.WorkspaceDir),
+		ToolAudit:           toolaudit.New(filepath.Dir(ag.WorkspaceDir)),
 	})
 
 	// Run and collect all text
@@ -990,6 +998,7 @@ func (p *Pool) RunStreamEvents(ctx context.Context, agentID, message, sessionID 
 	llmClient := llm.NewClient(modelEntry.Provider, resolvedBaseURL)
 	toolRegistry := tools.New(ag.WorkspaceDir, filepath.Dir(ag.WorkspaceDir), ag.ID)
 	p.configureToolRegistry(toolRegistry, ag, fileSender)
+	p.finalizeToolRegistry(toolRegistry, ag, sessionID)
 	store := session.NewStore(ag.SessionDir)
 
 	// Convert MediaInput to base64 data URI strings for the runner.
@@ -1037,6 +1046,7 @@ func (p *Pool) RunStreamEvents(ctx context.Context, agentID, message, sessionID 
 		CapabilitiesContext:   BuildCapabilitiesContext(toolRegistry, ag, p.cfg, ag.WorkspaceDir),
 		CurrentSessionContext: BuildSessionContext(store, sessionID),
 		ExtraContext:          strings.Join(extraSystemContext, "\n"),
+		ToolAudit:             toolaudit.New(filepath.Dir(ag.WorkspaceDir)),
 	})
 
 	raw := r.Run(ctx, message)
@@ -1079,6 +1089,7 @@ func (p *Pool) RunStream(ctx context.Context, agentID, message, sessionID string
 	llmClient := llm.NewClient(modelEntry.Provider, resolvedBaseURL)
 	toolRegistry := tools.New(ag.WorkspaceDir, filepath.Dir(ag.WorkspaceDir), ag.ID)
 	p.configureToolRegistry(toolRegistry, ag, nil)
+	p.finalizeToolRegistry(toolRegistry, ag, sessionID)
 	store := session.NewStore(ag.SessionDir)
 
 	r := runner.New(runner.Config{
@@ -1098,6 +1109,7 @@ func (p *Pool) RunStream(ctx context.Context, agentID, message, sessionID string
 		BudgetCheck:           p.budgetChecker(),
 		CapabilitiesContext:   BuildCapabilitiesContext(toolRegistry, ag, p.cfg, ag.WorkspaceDir),
 		CurrentSessionContext: BuildSessionContext(store, sessionID),
+		ToolAudit:             toolaudit.New(filepath.Dir(ag.WorkspaceDir)),
 	})
 
 	return r.Run(ctx, message), nil
@@ -1235,6 +1247,7 @@ func (p *Pool) subagentRunFuncExt() subagent.RunFuncExt {
 				}
 				toolRegistry.WithParentSession(task.SpawnedBySession, broadcastFn)
 			}
+			p.finalizeToolRegistry(toolRegistry, ag, task.SessionID)
 
 			r := runner.New(runner.Config{
 				AgentID:               ag.ID,
@@ -1254,6 +1267,7 @@ func (p *Pool) subagentRunFuncExt() subagent.RunFuncExt {
 				BudgetCheck:           p.budgetChecker(),
 				CapabilitiesContext:   BuildCapabilitiesContext(toolRegistry, ag, p.cfg, ag.WorkspaceDir),
 				CurrentSessionContext: BuildSessionContext(store, task.SessionID),
+				ToolAudit:             toolaudit.New(filepath.Dir(ag.WorkspaceDir)),
 			})
 
 			for ev := range r.Run(ctx, enrichedTask) {
@@ -1321,6 +1335,7 @@ func (p *Pool) SubagentRunFunc() subagent.RunFunc {
 				}
 				toolRegistry.WithParentSession(parentSessionID, broadcastFn)
 			}
+			p.finalizeToolRegistry(toolRegistry, ag, sessionID)
 
 			r := runner.New(runner.Config{
 				AgentID:               ag.ID,
@@ -1340,6 +1355,7 @@ func (p *Pool) SubagentRunFunc() subagent.RunFunc {
 				BudgetCheck:           p.budgetChecker(),
 				CapabilitiesContext:   BuildCapabilitiesContext(toolRegistry, ag, p.cfg, ag.WorkspaceDir),
 				CurrentSessionContext: BuildSessionContext(store, sessionID),
+				ToolAudit:             toolaudit.New(filepath.Dir(ag.WorkspaceDir)),
 			})
 
 			for ev := range r.Run(ctx, task) {

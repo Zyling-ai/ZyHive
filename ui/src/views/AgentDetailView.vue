@@ -1431,7 +1431,7 @@
 
             <!-- 当前生效工具预览 -->
             <el-divider />
-            <div style="font-size:13px; color:#64748b; margin-bottom:8px;">当前策略预览（所有工具 → 过滤后可用）</div>
+            <div style="font-size:13px; color:#64748b; margin-bottom:8px;">成员策略预览（最终权限仍受全局策略上限约束）</div>
             <div style="display:flex; flex-wrap:wrap; gap:6px;">
               <el-tag
                 v-for="t in toolPolicyPreview"
@@ -1966,14 +1966,17 @@ const ALL_TOOL_NAMES = [
   'exec','process',
   'web_fetch','web_search',
   'memory_search',
-  'browser','show_image','image',
-  'agent_list','agent_spawn','agent_tasks','agent_kill','agent_result',
-  'sessions_list','sessions_history','sessions_send',
-  'cron_list','cron_add','cron_remove',
+  'browser_navigate','browser_snapshot','browser_screenshot','browser_click',
+  'browser_type','browser_fill','browser_press','browser_hover','browser_scroll',
+  'browser_select','browser_eval','browser_wait','browser_tabs','browser_new_tab',
+  'browser_switch_tab','browser_close_tab','show_image','image',
+  'agent_list','agent_spawn','agent_tasks','agent_kill','agent_result','report_result','report_to_parent',
+  'sessions_list','sessions_history','sessions_send','session_rename',
+  'cron_list','cron_add','cron_remove','self_schedule',
   'send_message','send_file',
-  'self_list_skills','self_install_skill','self_uninstall_skill','self_rename','self_update_soul','self_set_env','self_delete_env',
+  'self_list_skills','self_install_skill','self_uninstall_skill','self_rename','self_update_soul','self_set_env','self_delete_env','wish_add','wish_list',
   'project_list','project_read','project_write','project_create','project_glob',
-  'report_result',
+  'network_note','chat_note',
 ]
 
 const TOOL_GROUPS: Record<string, string[]> = {
@@ -1981,13 +1984,19 @@ const TOOL_GROUPS: Record<string, string[]> = {
   'group:runtime': ['exec','process'],
   'group:web': ['web_fetch','web_search'],
   'group:memory': ['memory_search'],
-  'group:ui': ['browser','show_image','image'],
-  'group:agent': ['agent_list','agent_spawn','agent_tasks','agent_kill','agent_result'],
-  'group:sessions': ['sessions_list','sessions_history','sessions_send'],
-  'group:cron': ['cron_list','cron_add','cron_remove'],
+  'group:ui': [
+    'browser_navigate','browser_snapshot','browser_screenshot','browser_click',
+    'browser_type','browser_fill','browser_press','browser_hover','browser_scroll',
+    'browser_select','browser_eval','browser_wait','browser_tabs','browser_new_tab',
+    'browser_switch_tab','browser_close_tab','show_image','image',
+  ],
+  'group:agent': ['agent_list','agent_spawn','agent_tasks','agent_kill','agent_result','report_result','report_to_parent'],
+  'group:sessions': ['sessions_list','sessions_history','sessions_send','session_rename'],
+  'group:cron': ['cron_list','cron_add','cron_remove','self_schedule'],
   'group:messaging': ['send_message','send_file'],
-  'group:self': ['self_list_skills','self_install_skill','self_uninstall_skill','self_rename','self_update_soul','self_set_env','self_delete_env'],
+  'group:self': ['self_list_skills','self_install_skill','self_uninstall_skill','self_rename','self_update_soul','self_set_env','self_delete_env','wish_add','wish_list'],
   'group:project': ['project_list','project_read','project_write','project_create','project_glob'],
+  'group:network': ['network_note','chat_note'],
 }
 
 const PROFILE_ALLOWLISTS: Record<string, string[] | null> = {

@@ -23,31 +23,29 @@ import (
 	"github.com/Zyling-ai/zyhive/pkg/subagent"
 )
 
-
-
 // Handler executes a tool call and returns the result string.
 type Handler func(ctx context.Context, input json.RawMessage) (string, error)
 
 // Registry maps tool names to their definition and handler.
 type Registry struct {
-	defs          []llm.ToolDef
-	handlers      map[string]Handler
-	workspaceDir  string // agent-specific working directory for path resolution
-	agentDir      string // parent dir of workspace (contains config.json)
-	agentID       string // agent ID (used for self-management tools)
-	sessionID     string // current session ID (passed to spawn so NotifyFunc can reply)
-	wallet        *aiteamWallet.Store // optional: aiteam wallet for wallet_balance tool
-	projectMgr    *project.Manager             // shared project workspace (nil = no project access)
-	agentEnv      map[string]string            // per-agent env vars injected into exec (bypass sanitize)
-	subagentMgr   *subagent.Manager            // background task manager (nil = no subagent tools)
-	agentLister   func() []AgentSummary        // optional: lists available agents for agent_list tool
+	defs            []llm.ToolDef
+	handlers        map[string]Handler
+	workspaceDir    string                                     // agent-specific working directory for path resolution
+	agentDir        string                                     // parent dir of workspace (contains config.json)
+	agentID         string                                     // agent ID (used for self-management tools)
+	sessionID       string                                     // current session ID (passed to spawn so NotifyFunc can reply)
+	wallet          *aiteamWallet.Store                        // optional: aiteam wallet for wallet_balance tool
+	projectMgr      *project.Manager                           // shared project workspace (nil = no project access)
+	agentEnv        map[string]string                          // per-agent env vars injected into exec (bypass sanitize)
+	subagentMgr     *subagent.Manager                          // background task manager (nil = no subagent tools)
+	agentLister     func() []AgentSummary                      // optional: lists available agents for agent_list tool
 	fileSender      func(string) (string, error)               // optional: sends a file to the current chat (e.g. Telegram)
 	serverBaseURL   string                                     // base URL for generating download links (files > 50 MB)
 	downloadTickets *artifact.TicketStore                      // one-time download credential issuer
 	envUpdater      func(key, value string, remove bool) error // optional: lets the agent update its own env vars
 
 	// Dispatch panel: report_to_parent support
-	parentSessionID string                // non-empty when this agent was spawned by a parent session
+	parentSessionID string               // non-empty when this agent was spawned by a parent session
 	broadcastFn     subagent.BroadcastFn // optional: publish subagent events to parent broadcaster
 
 	// report_result support: callback to update task artifacts in the manager
@@ -63,6 +61,9 @@ type Registry struct {
 	broker     *Broker
 	askNames   map[string]bool
 	askTimeout time.Duration
+
+	policyLayers         []*ToolPolicy
+	governanceConfigured bool
 }
 
 // AgentSummary is the minimal agent info exposed through the agent_list tool.
@@ -770,8 +771,11 @@ func (r *Registry) Execute(ctx context.Context, name string, input json.RawMessa
 		}
 		return "", fmt.Errorf("unknown tool %q — available tools: [%s]", name, strings.Join(available, ", "))
 	}
-	// Approval gate (F-01).
-	if r.broker != nil && (r.askNames["*"] || r.askNames[strings.ToLower(name)]) {
+	// Approval gate (F-01). A missing broker fails closed.
+	if r.askNames["*"] || r.askNames[strings.ToLower(name)] {
+		if r.broker == nil {
+			return "", fmt.Errorf("%w: %s", ErrApprovalUnavailable, name)
+		}
 		dec, _, err := r.broker.Request(ctx, r.agentID, r.sessionID, name, input, r.askTimeout)
 		if err != nil {
 			// ctx cancelled: surface as error so runner stops cleanly.
@@ -795,6 +799,9 @@ func (r *Registry) Execute(ctx context.Context, name string, input json.RawMessa
 }
 
 func (r *Registry) register(def llm.ToolDef, h Handler) {
+	if r.governanceConfigured && !allowsAllPolicyLayers(r.policyLayers, def.Name) {
+		return
+	}
 	// Update existing def if already registered (avoids duplicate tool names)
 	for i, d := range r.defs {
 		if d.Name == def.Name {

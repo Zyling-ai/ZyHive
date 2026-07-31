@@ -3,7 +3,9 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -169,6 +171,53 @@ func TestBrokerConcurrentRequests(t *testing.T) {
 	}
 }
 
+func TestBrokerDecisionAndCancellationPublishOneAuditResult(t *testing.T) {
+	for i := 0; i < 100; i++ {
+		var auditCount atomic.Int32
+		b := NewBroker(func(ApprovalRequest, ApprovalDecision, string) {
+			auditCount.Add(1)
+		})
+		ctx, cancel := context.WithCancel(context.Background())
+		requestDone := make(chan struct{})
+		go func() {
+			_, _, _ = b.Request(ctx, "agent", "session", "exec", nil, time.Second)
+			close(requestDone)
+		}()
+		var id string
+		deadline := time.Now().Add(time.Second)
+		for time.Now().Before(deadline) {
+			pending := b.ListPending("")
+			if len(pending) == 1 {
+				id = pending[0].ID
+				break
+			}
+			time.Sleep(time.Millisecond)
+		}
+		if id == "" {
+			t.Fatal("approval request did not become pending")
+		}
+		start := make(chan struct{})
+		var contenders sync.WaitGroup
+		contenders.Add(2)
+		go func() {
+			defer contenders.Done()
+			<-start
+			_ = b.Decide(id, ApprovalDecision{Approved: true})
+		}()
+		go func() {
+			defer contenders.Done()
+			<-start
+			cancel()
+		}()
+		close(start)
+		contenders.Wait()
+		<-requestDone
+		if got := auditCount.Load(); got != 1 {
+			t.Fatalf("iteration %d produced %d terminal audit results", i, got)
+		}
+	}
+}
+
 func TestBrokerAuditHookFires(t *testing.T) {
 	var (
 		mu     sync.Mutex
@@ -233,6 +282,43 @@ func TestBrokerSubscribeUnsub(t *testing.T) {
 		t.Errorf("expected immediate read")
 	}
 	unsub() // safe to call again
+}
+
+func TestBrokerUnsubscribeConcurrentBroadcast(t *testing.T) {
+	b := NewBroker(nil)
+	for i := 0; i < 200; i++ {
+		_, unsub := b.Subscribe(genApprovalID())
+		start := make(chan struct{})
+		done := make(chan struct{})
+		go func() {
+			<-start
+			b.broadcast(ApprovalEvent{Type: "approval_request"})
+			close(done)
+		}()
+		close(start)
+		unsub()
+		<-done
+	}
+}
+
+func TestBrokerDuplicateSubscriberIDKeepsNewestSubscription(t *testing.T) {
+	b := NewBroker(nil)
+	oldEvents, oldUnsub := b.Subscribe("same")
+	newEvents, newUnsub := b.Subscribe("same")
+	defer newUnsub()
+	if _, ok := <-oldEvents; ok {
+		t.Fatal("replaced subscription was not closed")
+	}
+	oldUnsub()
+	b.broadcast(ApprovalEvent{Type: "approval_request"})
+	select {
+	case event := <-newEvents:
+		if event.Type != "approval_request" {
+			t.Fatalf("unexpected event: %+v", event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("old unsubscribe removed the newest subscription")
+	}
 }
 
 // ── Registry integration ──────────────────────────────────────────────────
@@ -352,5 +438,21 @@ func TestRegistryExecuteAskPolicyNotInList(t *testing.T) {
 	}
 	if len(b.ListPending("")) != 0 {
 		t.Errorf("no pending should exist")
+	}
+}
+
+func TestRegistryExecuteAskPolicyWithoutBroker(t *testing.T) {
+	dir := t.TempDir()
+	r := New(dir, dir, "agent1")
+	var called bool
+	registerEcho(r, &called)
+	r.WithApprovalBroker(nil, []string{"echo"}, time.Second)
+
+	_, err := r.Execute(context.Background(), "echo", json.RawMessage(`{}`))
+	if !errors.Is(err, ErrApprovalUnavailable) {
+		t.Fatalf("expected unavailable approval error, got %v", err)
+	}
+	if called {
+		t.Fatal("handler ran without required approval broker")
 	}
 }

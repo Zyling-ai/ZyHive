@@ -94,13 +94,12 @@ func (h *approvalHandler) Approve(c *gin.Context) {
 	}
 	var body struct {
 		Reason string `json:"reason"`
-		By     string `json:"by"`
 	}
 	raw, _ := io.ReadAll(io.LimitReader(c.Request.Body, 8*1024))
 	if len(raw) > 0 {
 		_ = json.Unmarshal(raw, &body)
 	}
-	dec := tools.ApprovalDecision{Approved: true, Reason: body.Reason, By: defaultBy(body.By, c)}
+	dec := tools.ApprovalDecision{Approved: true, Reason: body.Reason, By: approvalActor(c)}
 	if err := b.Decide(id, dec); err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
@@ -121,13 +120,12 @@ func (h *approvalHandler) Deny(c *gin.Context) {
 	}
 	var body struct {
 		Reason string `json:"reason"`
-		By     string `json:"by"`
 	}
 	raw, _ := io.ReadAll(io.LimitReader(c.Request.Body, 8*1024))
 	if len(raw) > 0 {
 		_ = json.Unmarshal(raw, &body)
 	}
-	dec := tools.ApprovalDecision{Approved: false, Reason: body.Reason, By: defaultBy(body.By, c)}
+	dec := tools.ApprovalDecision{Approved: false, Reason: body.Reason, By: approvalActor(c)}
 	if err := b.Decide(id, dec); err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
@@ -152,8 +150,12 @@ func (h *approvalHandler) Stream(c *gin.Context) {
 	ch, unsub := b.Subscribe(subID)
 	defer unsub()
 
-	// Initial heartbeat so clients know the stream is alive.
-	_, _ = fmt.Fprintf(c.Writer, "data: %s\n\n", `{"type":"hello"}`)
+	// Initial authoritative snapshot closes the subscribe/list race on reconnect.
+	hello, _ := json.Marshal(tools.ApprovalEvent{
+		Type:    "hello",
+		Pending: b.ListPending(""),
+	})
+	_, _ = fmt.Fprintf(c.Writer, "data: %s\n\n", hello)
 	c.Writer.Flush()
 
 	heartbeat := time.NewTicker(25 * time.Second)
@@ -171,7 +173,11 @@ func (h *approvalHandler) Stream(c *gin.Context) {
 			fmt.Fprintf(w, "data: %s\n\n", data)
 			return true
 		case <-heartbeat.C:
-			fmt.Fprintf(w, ": ping\n\n")
+			snapshot, _ := json.Marshal(tools.ApprovalEvent{
+				Type:    "approval_snapshot",
+				Pending: b.ListPending(""),
+			})
+			fmt.Fprintf(w, "data: %s\n\n", snapshot)
 			return true
 		case <-c.Request.Context().Done():
 			return false
@@ -179,13 +185,9 @@ func (h *approvalHandler) Stream(c *gin.Context) {
 	})
 }
 
-func defaultBy(by string, c *gin.Context) string {
-	if by != "" {
-		return by
+func approvalActor(c *gin.Context) string {
+	if c.GetHeader("Authorization") != "" {
+		return "admin-token"
 	}
-	// Best-effort: use the auth Bearer token's last 6 chars as an identifier.
-	if h := c.GetHeader("Authorization"); len(h) > 16 {
-		return "tok:" + h[len(h)-6:]
-	}
-	return "anon"
+	return "api"
 }

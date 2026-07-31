@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/gin-gonic/gin"
 	"github.com/Zyling-ai/zyhive/pkg/agent"
 	"github.com/Zyling-ai/zyhive/pkg/config"
 	"github.com/Zyling-ai/zyhive/pkg/cron"
+	"github.com/Zyling-ai/zyhive/pkg/tools"
+	"github.com/gin-gonic/gin"
 )
-
 
 type agentHandler struct {
 	cfg        *config.Config
@@ -22,20 +22,20 @@ type agentHandler struct {
 
 // AgentInfo is the JSON shape returned to the frontend.
 type AgentInfo struct {
-	ID            string                  `json:"id"`
-	Name          string                  `json:"name"`
-	Description   string                  `json:"description,omitempty"`
-	Model         string                  `json:"model"`
-	ModelID       string                  `json:"modelId,omitempty"`
-	ToolIDs       []string                `json:"toolIds,omitempty"`
-	SkillIDs      []string                `json:"skillIds,omitempty"`
-	AvatarColor   string                  `json:"avatarColor,omitempty"`
-	System        bool                    `json:"system,omitempty"`
-	Status        string                  `json:"status"`
-	WorkspaceDir  string                  `json:"workspaceDir"`
-	Env           map[string]string       `json:"env,omitempty"`          // per-agent env vars
-	Heartbeat     *config.HeartbeatConfig `json:"heartbeat,omitempty"`    // built-in heartbeat config
-	ToolPolicy    json.RawMessage         `json:"toolPolicy,omitempty"`   // per-agent tool permission policy
+	ID           string                  `json:"id"`
+	Name         string                  `json:"name"`
+	Description  string                  `json:"description,omitempty"`
+	Model        string                  `json:"model"`
+	ModelID      string                  `json:"modelId,omitempty"`
+	ToolIDs      []string                `json:"toolIds,omitempty"`
+	SkillIDs     []string                `json:"skillIds,omitempty"`
+	AvatarColor  string                  `json:"avatarColor,omitempty"`
+	System       bool                    `json:"system,omitempty"`
+	Status       string                  `json:"status"`
+	WorkspaceDir string                  `json:"workspaceDir"`
+	Env          map[string]string       `json:"env,omitempty"`        // per-agent env vars
+	Heartbeat    *config.HeartbeatConfig `json:"heartbeat,omitempty"`  // built-in heartbeat config
+	ToolPolicy   json.RawMessage         `json:"toolPolicy,omitempty"` // per-agent tool permission policy
 }
 
 func agentToInfo(a *agent.Agent) AgentInfo {
@@ -217,9 +217,15 @@ func (h *agentHandler) Update(c *gin.Context) {
 			opts.ToolPolicyRaw = nil
 		} else {
 			b, err := json.Marshal(raw["toolPolicy"])
-			if err == nil {
-				opts.ToolPolicyRaw = json.RawMessage(b)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid toolPolicy: " + err.Error()})
+				return
 			}
+			if _, err := tools.DecodeToolPolicy(b); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid toolPolicy: " + err.Error()})
+				return
+			}
+			opts.ToolPolicyRaw = json.RawMessage(b)
 		}
 	}
 	if _, ok := raw["heartbeat"]; ok {

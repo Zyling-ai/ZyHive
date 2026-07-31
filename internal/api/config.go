@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Zyling-ai/zyhive/pkg/config"
+	"github.com/Zyling-ai/zyhive/pkg/tools"
 	"github.com/gin-gonic/gin"
 )
 
@@ -89,6 +90,10 @@ func (h *configHandler) Patch(c *gin.Context) {
 
 	if _, hasAuth := patch["auth"]; !hasAuth {
 		updated.Auth = h.cfg.Auth
+	}
+	if _, err := tools.DecodeToolPolicy(updated.ToolPolicyRaw); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid toolPolicy: " + err.Error()})
+		return
 	}
 	if err := updated.Gateway.Validate(); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid config: " + err.Error()})

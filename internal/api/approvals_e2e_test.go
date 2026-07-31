@@ -76,6 +76,59 @@ func TestApprovalStreamTicketEndpoint(t *testing.T) {
 	}
 }
 
+func TestApprovalStreamHelloReplaysPendingAfterReconnect(t *testing.T) {
+	r, broker, _, _ := buildApprovalTestRouter()
+	ts := httptest.NewServer(r)
+	defer ts.Close()
+
+	requestDone := make(chan struct{})
+	go func() {
+		_, _, _ = broker.Request(
+			context.Background(),
+			"agent-reconnect",
+			"session-reconnect",
+			"exec",
+			json.RawMessage(`{"cmd":"date"}`),
+			3*time.Second,
+		)
+		close(requestDone)
+	}()
+	var approvalID string
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		pending := broker.ListPending("")
+		if len(pending) == 1 {
+			approvalID = pending[0].ID
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if approvalID == "" {
+		t.Fatal("approval did not become pending")
+	}
+
+	resp, err := http.Get(ts.URL + "/api/approvals/stream")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	frame, err := readSSELine(t, bufio.NewReader(resp.Body), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var hello tools.ApprovalEvent
+	if err := json.Unmarshal(frame, &hello); err != nil {
+		t.Fatal(err)
+	}
+	if hello.Type != "hello" || len(hello.Pending) != 1 || hello.Pending[0].ID != approvalID {
+		t.Fatalf("reconnect snapshot missing pending approval: %+v", hello)
+	}
+	if err := broker.Decide(approvalID, tools.ApprovalDecision{Approved: false}); err != nil {
+		t.Fatal(err)
+	}
+	<-requestDone
+}
+
 // readSSELine reads a single SSE "data: <json>" payload from the reader,
 // skipping comments and blank lines. Returns the JSON bytes or err.
 func readSSELine(t *testing.T, r *bufio.Reader, deadline time.Duration) ([]byte, error) {
@@ -191,10 +244,11 @@ func TestApprovalE2E_ApproveFlow(t *testing.T) {
 	}
 
 	// 4. POST /api/approvals/:id/approve
-	body := strings.NewReader(`{"reason":"go ahead","by":"e2e-test"}`)
+	body := strings.NewReader(`{"reason":"go ahead","by":"spoofed-client"}`)
 	approveReq, _ := http.NewRequest("POST",
 		ts.URL+"/api/approvals/"+apID+"/approve", body)
 	approveReq.Header.Set("Content-Type", "application/json")
+	approveReq.Header.Set("Authorization", "Bearer admin-secret")
 	approveResp, err := http.DefaultClient.Do(approveReq)
 	if err != nil {
 		t.Fatalf("approve POST: %v", err)
@@ -213,7 +267,7 @@ func TestApprovalE2E_ApproveFlow(t *testing.T) {
 		if !rr.dec.Approved {
 			t.Errorf("expected approved, got: %+v", rr.dec)
 		}
-		if rr.dec.By != "e2e-test" {
+		if rr.dec.By != "admin-token" {
 			t.Errorf("By: %s", rr.dec.By)
 		}
 	case <-time.After(3 * time.Second):
@@ -313,7 +367,7 @@ func TestApprovalE2E_DenyFlow(t *testing.T) {
 		t.Fatal("approval did not appear in /pending")
 	}
 
-	body := strings.NewReader(`{"reason":"not safe","by":"e2e"}`)
+	body := strings.NewReader(`{"reason":"not safe","by":"spoofed-client"}`)
 	denyReq, _ := http.NewRequest("POST",
 		ts.URL+"/api/approvals/"+apID+"/deny", body)
 	denyReq.Header.Set("Content-Type", "application/json")
