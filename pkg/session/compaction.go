@@ -4,20 +4,28 @@
 package session
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/Zyling-ai/zyhive/pkg/chatlog"
+	"github.com/Zyling-ai/zyhive/pkg/persist"
+	"github.com/Zyling-ai/zyhive/pkg/safefs"
 )
 
 // CompactionThreshold is the token count that triggers compaction.
 // Set conservatively so that after compaction the remaining context fits
 // well within any proxy/CDN timeout budget (Cloudflare: ~100s idle).
 const CompactionThreshold = 50_000
+
+var ErrSessionChanged = errors.New("session changed during compaction")
 
 // CompactionEventFunc is a lifecycle hook invoked before/after an async
 // compaction so callers (runner → SSE) can inform the user that the long
@@ -77,10 +85,11 @@ func CompactIfNeeded(store *Store, sessionID string,
 func Compact(ctx context.Context, store *Store, sessionID string, callLLM func(ctx context.Context, systemPrompt, userMsg string) (string, error), workspaceDir string) error {
 	const keepTurns = 20
 
-	msgs, _, err := store.ReadHistory(sessionID)
+	snapshot, err := store.compactionSnapshot(sessionID)
 	if err != nil {
 		return fmt.Errorf("read history: %w", err)
 	}
+	msgs := snapshot.Messages
 	if len(msgs) <= keepTurns {
 		return nil // nothing to compact
 	}
@@ -92,6 +101,11 @@ func Compact(ctx context.Context, store *Store, sessionID string, callLLM func(c
 
 	// Build conversation text for summarization
 	var sb strings.Builder
+	if snapshot.PreviousSummary != "" {
+		sb.WriteString("Earlier conversation summary:\n")
+		sb.WriteString(snapshot.PreviousSummary)
+		sb.WriteString("\n\n")
+	}
 	for _, m := range old {
 		label := "User"
 		if m.Role == "assistant" {
@@ -115,35 +129,32 @@ Produce a concise summary (max 500 words) of the conversation below that capture
 
 Be factual and preserve technical details. Reply with just the summary, no preamble.`
 
-	summary, err := callLLM(ctx, systemPrompt, sb.String())
-	if err != nil {
-		return fmt.Errorf("llm summarize: %w", err)
-	}
-	summary = strings.TrimSpace(summary)
-	if summary == "" {
-		return fmt.Errorf("empty summary from LLM")
-	}
-
-	// Write CompactionEntry to JSONL
-	// The entry marks the boundary: history before this is replaced by summary
-	compEntry := CompactionEntry{
-		BaseEntry:        BaseEntry{Type: EntryTypeCompaction},
-		Summary:          summary,
-		FirstKeptEntryID: fmt.Sprintf("turn-%d", boundary),
-		TokensBefore:     store.EstimateTokens(sessionID),
-		Timestamp:        nowMs(),
-	}
-	if err := store.Append(sessionID, compEntry); err != nil {
-		return fmt.Errorf("append compaction entry: %w", err)
-	}
-
-	// Re-append the recent messages after the compaction marker
-	// (so ReadHistory picks them up correctly on next load)
-	for _, m := range msgs[boundary:] {
-		if err := store.AppendMessage(sessionID, m.Role, m.Content); err != nil {
-			log.Printf("[compaction] failed to re-append message: %v", err)
+	state, _ := store.loadCompactionState(sessionID)
+	summary := ""
+	if state.Status == "prepared" && state.Generation == snapshot.Generation && state.Summary != "" {
+		summary = state.Summary
+	} else {
+		state = compactionState{
+			Version:      1,
+			Status:       "summarizing",
+			Generation:   snapshot.Generation,
+			TokensBefore: snapshot.TokensBefore,
+			Boundary:     boundary,
+			UpdatedAt:    nowMs(),
+		}
+		if err := store.saveCompactionState(sessionID, state); err != nil {
+			return fmt.Errorf("save compaction intent: %w", err)
+		}
+		summary, err = callLLM(ctx, systemPrompt, sb.String())
+		if err != nil {
+			return fmt.Errorf("llm summarize: %w", err)
+		}
+		summary = strings.TrimSpace(summary)
+		if summary == "" {
+			return fmt.Errorf("empty summary from LLM")
 		}
 	}
+	summary = strings.TrimSpace(summary)
 
 	// Update token estimate to post-compaction size (~summary + recent turns)
 	summaryTokens := len(summary) / 4
@@ -152,22 +163,25 @@ Be factual and preserve technical details. Reply with just the summary, no pream
 		recentTokens += len(m.Content) / 4
 	}
 	newEstimate := summaryTokens + recentTokens + 500 // 500 overhead
-	compEntry.TokensAfter = newEstimate
-
-	// Update the index
-	store.mu.Lock()
-	idx, err2 := store.loadIndex()
-	if err2 == nil {
-		if meta, ok := idx.Sessions[sessionID]; ok {
-			meta.TokenEstimate = newEstimate
-			idx.Sessions[sessionID] = meta
-			_ = store.saveIndex(idx)
-		}
+	state = compactionState{
+		Version:      1,
+		Status:       "prepared",
+		Generation:   snapshot.Generation,
+		Summary:      summary,
+		TokensBefore: snapshot.TokensBefore,
+		TokensAfter:  newEstimate,
+		Boundary:     boundary,
+		UpdatedAt:    nowMs(),
 	}
-	store.mu.Unlock()
+	if err := store.saveCompactionState(sessionID, state); err != nil {
+		return fmt.Errorf("save prepared compaction: %w", err)
+	}
+	if err := store.commitCompaction(sessionID, state, keepTurns); err != nil {
+		return fmt.Errorf("commit compaction: %w", err)
+	}
 
 	log.Printf("[compaction] session %s: %d → %d tokens, summary: %d chars",
-		sessionID, compEntry.TokensBefore, newEstimate, len(summary))
+		sessionID, snapshot.TokensBefore, newEstimate, len(summary))
 
 	// Update chatlog summary so the AI-visible index reflects this session's topic
 	if workspaceDir != "" {
@@ -177,6 +191,233 @@ Be factual and preserve technical details. Reply with just the summary, no pream
 	}
 
 	return nil
+}
+
+type sessionGeneration struct {
+	Size        int64 `json:"size"`
+	ModUnixNano int64 `json:"modUnixNano"`
+}
+
+type compactionSnapshot struct {
+	Generation      sessionGeneration
+	Messages        []Message
+	PreviousSummary string
+	TokensBefore    int
+}
+
+type compactionState struct {
+	Version      int               `json:"version"`
+	Status       string            `json:"status"`
+	Generation   sessionGeneration `json:"generation"`
+	Summary      string            `json:"summary,omitempty"`
+	TokensBefore int               `json:"tokensBefore"`
+	TokensAfter  int               `json:"tokensAfter,omitempty"`
+	Boundary     int               `json:"boundary"`
+	UpdatedAt    int64             `json:"updatedAt"`
+}
+
+func (s *Store) compactionStatePath(sessionID string) (string, error) {
+	if err := safefs.ValidateResourceID(sessionID); err != nil {
+		return "", err
+	}
+	return safefs.ConfineToBase(s.dir, sessionID+".compaction.json")
+}
+
+func (s *Store) loadCompactionState(sessionID string) (compactionState, error) {
+	path, err := s.compactionStatePath(sessionID)
+	if err != nil {
+		return compactionState{}, err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return compactionState{}, err
+	}
+	var state compactionState
+	if err := json.Unmarshal(data, &state); err != nil {
+		return compactionState{}, err
+	}
+	return state, nil
+}
+
+func (s *Store) saveCompactionState(sessionID string, state compactionState) error {
+	path, err := s.compactionStatePath(sessionID)
+	if err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return err
+	}
+	return persist.WriteFile(path, data, 0600)
+}
+
+func (s *Store) compactionSnapshot(sessionID string) (compactionSnapshot, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	unlock, err := s.lockStore()
+	if err != nil {
+		return compactionSnapshot{}, err
+	}
+	defer unlock()
+
+	path, err := s.sessionPath(sessionID)
+	if err != nil {
+		return compactionSnapshot{}, err
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return compactionSnapshot{}, err
+	}
+	info, err := file.Stat()
+	if err != nil {
+		file.Close()
+		return compactionSnapshot{}, err
+	}
+	var snapshot compactionSnapshot
+	snapshot.Generation = sessionGeneration{Size: info.Size(), ModUnixNano: info.ModTime().UnixNano()}
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 8*1024*1024), 8*1024*1024)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		var base BaseEntry
+		if json.Unmarshal(line, &base) != nil {
+			continue
+		}
+		switch base.Type {
+		case EntryTypeCompaction:
+			var entry CompactionEntry
+			if json.Unmarshal(line, &entry) == nil {
+				snapshot.PreviousSummary = entry.Summary
+				snapshot.Messages = nil
+			}
+		case EntryTypeMessage:
+			var entry MessageEntry
+			if json.Unmarshal(line, &entry) == nil &&
+				(entry.Message.Role == "user" || entry.Message.Role == "assistant") {
+				snapshot.Messages = append(snapshot.Messages, entry.Message)
+			}
+		}
+	}
+	closeErr := file.Close()
+	if err := scanner.Err(); err != nil {
+		return compactionSnapshot{}, err
+	}
+	if closeErr != nil {
+		return compactionSnapshot{}, closeErr
+	}
+	idx, err := s.loadIndex()
+	if err == nil {
+		snapshot.TokensBefore = idx.Sessions[sessionID].TokenEstimate
+	}
+	return snapshot, nil
+}
+
+func (s *Store) commitCompaction(sessionID string, state compactionState, keepMessages int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	unlock, err := s.lockStore()
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
+	path, err := s.sessionPath(sessionID)
+	if err != nil {
+		return err
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	current := sessionGeneration{Size: info.Size(), ModUnixNano: info.ModTime().UnixNano()}
+	if current != state.Generation {
+		return ErrSessionChanged
+	}
+	header, messages, err := compactableLines(path)
+	if err != nil {
+		return err
+	}
+	if len(messages) <= keepMessages {
+		return nil
+	}
+	messages = messages[len(messages)-keepMessages:]
+	entry := CompactionEntry{
+		BaseEntry:        BaseEntry{Type: EntryTypeCompaction},
+		Summary:          state.Summary,
+		FirstKeptEntryID: fmt.Sprintf("generation-%d", state.Generation.ModUnixNano),
+		TokensBefore:     state.TokensBefore,
+		TokensAfter:      state.TokensAfter,
+		Timestamp:        nowMs(),
+	}
+	entryData, err := json.Marshal(entry)
+	if err != nil {
+		return err
+	}
+	var output bytes.Buffer
+	output.Write(header)
+	output.WriteByte('\n')
+	output.Write(entryData)
+	output.WriteByte('\n')
+	for _, line := range messages {
+		output.Write(line)
+		output.WriteByte('\n')
+	}
+	if err := persist.AtomicWrite(path, output.Bytes(), 0600); err != nil {
+		return err
+	}
+	idx, err := s.loadIndex()
+	if err != nil {
+		return err
+	}
+	if meta, ok := idx.Sessions[sessionID]; ok {
+		meta.TokenEstimate = state.TokensAfter
+		meta.MessageCount = len(messages)
+		idx.Sessions[sessionID] = meta
+	}
+	if err := s.saveIndex(idx); err != nil {
+		return err
+	}
+	sidecar, err := s.compactionStatePath(sessionID)
+	if err == nil {
+		_ = os.Remove(sidecar)
+	}
+	return nil
+}
+
+func compactableLines(path string) ([]byte, [][]byte, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer file.Close()
+	var header []byte
+	var messages [][]byte
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 8*1024*1024), 8*1024*1024)
+	for scanner.Scan() {
+		line := append([]byte(nil), scanner.Bytes()...)
+		var base BaseEntry
+		if json.Unmarshal(line, &base) != nil {
+			continue
+		}
+		switch base.Type {
+		case EntryTypeSession:
+			if header == nil {
+				header = line
+			}
+		case EntryTypeCompaction:
+			messages = nil
+		case EntryTypeMessage:
+			messages = append(messages, line)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, nil, err
+	}
+	if header == nil {
+		return nil, nil, fmt.Errorf("session header missing")
+	}
+	return header, messages, nil
 }
 
 // extractTextFromContent pulls plain text from raw message content.

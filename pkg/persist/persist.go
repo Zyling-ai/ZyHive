@@ -20,19 +20,38 @@ func mutexFor(path string) *sync.Mutex {
 // WithFileLock serializes fn for path in this process and with other ZyHive
 // processes that use the same adjacent lock file.
 func WithFileLock(path string, fn func() error) error {
-	mutex := mutexFor(path)
-	mutex.Lock()
-	defer mutex.Unlock()
-
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-		return fmt.Errorf("create lock directory: %w", err)
-	}
-	lock, err := acquireFileLock(path + ".lock")
+	unlock, err := LockFile(path)
 	if err != nil {
 		return err
 	}
-	defer lock.Close()
+	defer unlock()
 	return fn()
+}
+
+// LockFile acquires the shared in-process and cross-process lock for path.
+// The returned function must be called exactly once.
+func LockFile(path string) (func() error, error) {
+	mutex := mutexFor(path)
+	mutex.Lock()
+
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		mutex.Unlock()
+		return nil, fmt.Errorf("create lock directory: %w", err)
+	}
+	lock, err := acquireFileLock(path + ".lock")
+	if err != nil {
+		mutex.Unlock()
+		return nil, err
+	}
+	var once sync.Once
+	var unlockErr error
+	return func() error {
+		once.Do(func() {
+			unlockErr = lock.Close()
+			mutex.Unlock()
+		})
+		return unlockErr
+	}, nil
 }
 
 // AtomicWrite replaces path only after the complete new content and its

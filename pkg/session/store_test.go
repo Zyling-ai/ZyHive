@@ -2,6 +2,8 @@ package session
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -135,4 +137,31 @@ func TestFixOrphanedToolUse(t *testing.T) {
 			t.Errorf("expected 1, got %d", len(result))
 		}
 	})
+}
+
+func TestIndexRebuildsFromJSONLAfterCorruption(t *testing.T) {
+	dir := t.TempDir()
+	store := NewStore(dir)
+	seedSession(t, store, "recover-index", 6)
+	if err := os.WriteFile(filepath.Join(dir, "sessions.json"), []byte("{broken"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	fresh := NewStore(dir)
+	sessions, err := fresh.ListSessions()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 1 || sessions[0].ID != "recover-index" || sessions[0].MessageCount != 6 {
+		t.Fatalf("rebuilt sessions = %+v", sessions)
+	}
+}
+
+func TestStoreRejectsUnsafeSessionID(t *testing.T) {
+	store := NewStore(t.TempDir())
+	if _, _, err := store.GetOrCreate("../outside", "agent"); err == nil {
+		t.Fatal("unsafe session ID should be rejected")
+	}
+	if err := store.AppendMessage("../outside", "user", json.RawMessage(`"bad"`)); err == nil {
+		t.Fatal("unsafe append should be rejected")
+	}
 }

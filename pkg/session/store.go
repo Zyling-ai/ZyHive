@@ -12,6 +12,9 @@ import (
 	"sync"
 	"time"
 	"unicode/utf8"
+
+	"github.com/Zyling-ai/zyhive/pkg/persist"
+	"github.com/Zyling-ai/zyhive/pkg/safefs"
 )
 
 // SessionIndex maps session IDs to their file paths and metadata.
@@ -23,12 +26,29 @@ type SessionIndex struct {
 // Store manages session files for one agent.
 type Store struct {
 	dir string
-	mu  sync.Mutex
+	mu  *sync.Mutex
 }
+
+var sessionDirLocks sync.Map
 
 // NewStore creates a Store backed by the given directory.
 func NewStore(dir string) *Store {
-	return &Store{dir: dir}
+	if abs, err := filepath.Abs(dir); err == nil {
+		dir = filepath.Clean(abs)
+	}
+	value, _ := sessionDirLocks.LoadOrStore(dir, &sync.Mutex{})
+	return &Store{dir: dir, mu: value.(*sync.Mutex)}
+}
+
+func (s *Store) sessionPath(sessionID string) (string, error) {
+	if err := safefs.ValidateResourceID(sessionID); err != nil {
+		return "", fmt.Errorf("invalid session id %q: %w", sessionID, err)
+	}
+	return safefs.ConfineToBase(s.dir, sessionID+".jsonl")
+}
+
+func (s *Store) lockStore() (func() error, error) {
+	return persist.LockFile(filepath.Join(s.dir, ".store-transaction"))
 }
 
 // GetOrCreate returns a session ID, creating a new session if sessionID is empty or not found.
@@ -36,6 +56,11 @@ func NewStore(dir string) *Store {
 func (s *Store) GetOrCreate(sessionID, agentID string) (string, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	unlock, err := s.lockStore()
+	if err != nil {
+		return "", false, err
+	}
+	defer unlock()
 
 	if err := os.MkdirAll(s.dir, 0o700); err != nil {
 		return "", false, err
@@ -55,7 +80,10 @@ func (s *Store) GetOrCreate(sessionID, agentID string) (string, bool, error) {
 	if sessionID == "" {
 		sessionID = fmt.Sprintf("ses-%d", nowMs())
 	}
-	path := filepath.Join(s.dir, sessionID+".jsonl")
+	path, err := s.sessionPath(sessionID)
+	if err != nil {
+		return "", false, err
+	}
 
 	header := SessionHeader{
 		BaseEntry: BaseEntry{Type: EntryTypeSession},
@@ -67,16 +95,6 @@ func (s *Store) GetOrCreate(sessionID, agentID string) (string, bool, error) {
 		return "", false, err
 	}
 
-	// Infer source from sessionID prefix for channel-originated sessions
-	source := "web"
-	if strings.HasPrefix(sessionID, "feishu-") {
-		source = "feishu"
-	} else if strings.HasPrefix(sessionID, "telegram-") || strings.HasPrefix(sessionID, "tg-") {
-		source = "telegram"
-	} else if strings.HasPrefix(sessionID, "ses-") {
-		source = "web"
-	}
-
 	idx, _ := s.loadIndex()
 	idx.Sessions[sessionID] = SessionIndexEntry{
 		ID:        sessionID,
@@ -84,7 +102,7 @@ func (s *Store) GetOrCreate(sessionID, agentID string) (string, bool, error) {
 		FilePath:  sessionID + ".jsonl",
 		CreatedAt: nowMs(),
 		LastAt:    nowMs(),
-		Source:    source,
+		Source:    sessionSource(sessionID),
 	}
 	if err := s.saveIndex(idx); err != nil {
 		return "", false, err
@@ -95,7 +113,10 @@ func (s *Store) GetOrCreate(sessionID, agentID string) (string, bool, error) {
 // Create initialises a new session file and returns its path (legacy compat).
 func (s *Store) Create(sessionID, agentID string) (string, error) {
 	id, _, err := s.GetOrCreate(sessionID, agentID)
-	return filepath.Join(s.dir, id+".jsonl"), err
+	if err != nil {
+		return "", err
+	}
+	return s.sessionPath(id)
 }
 
 // AppendMessage appends a user or assistant message and updates session metadata.
@@ -108,24 +129,38 @@ func (s *Store) AppendMessage(sessionID, role string, content json.RawMessage) e
 func (s *Store) AppendMessageWithTools(sessionID, role string, content json.RawMessage, toolCalls []ToolCallRecord) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	unlock, err := s.lockStore()
+	if err != nil {
+		return err
+	}
+	defer unlock()
 
-	path := filepath.Join(s.dir, sessionID+".jsonl")
+	path, err := s.sessionPath(sessionID)
+	if err != nil {
+		return err
+	}
 	entry := MessageEntry{
 		BaseEntry: BaseEntry{Type: EntryTypeMessage},
 		Message:   Message{Role: role, Content: content, ToolCalls: toolCalls},
 		Timestamp: nowMs(),
+	}
+	// Read metadata before appending. Reconciliation treats JSONL as source of
+	// truth, so loading after append would already count the new line once.
+	idx, indexErr := s.loadIndex()
+	var meta SessionIndexEntry
+	var metaExists bool
+	if indexErr == nil {
+		meta, metaExists = idx.Sessions[sessionID]
 	}
 	if err := appendEntry(path, entry); err != nil {
 		return err
 	}
 
 	// Update metadata in index
-	idx, err := s.loadIndex()
-	if err != nil {
+	if indexErr != nil {
 		return nil // best-effort
 	}
-	meta, ok := idx.Sessions[sessionID]
-	if !ok {
+	if !metaExists {
 		return nil
 	}
 	meta.MessageCount++
@@ -145,7 +180,17 @@ func (s *Store) AppendMessageWithTools(sessionID, role string, content json.RawM
 // If a compaction entry is found, the summary is returned as a synthetic "system" entry
 // and only messages after the compaction boundary are included.
 func (s *Store) ReadHistory(sessionID string) ([]Message, string, error) {
-	path := filepath.Join(s.dir, sessionID+".jsonl")
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	unlock, err := s.lockStore()
+	if err != nil {
+		return nil, "", err
+	}
+	defer unlock()
+	path, err := s.sessionPath(sessionID)
+	if err != nil {
+		return nil, "", err
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -201,6 +246,11 @@ func (s *Store) ReadHistory(sessionID string) ([]Message, string, error) {
 func (s *Store) EstimateTokens(sessionID string) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	unlock, err := s.lockStore()
+	if err != nil {
+		return 0
+	}
+	defer unlock()
 	idx, err := s.loadIndex()
 	if err != nil {
 		return 0
@@ -212,6 +262,11 @@ func (s *Store) EstimateTokens(sessionID string) int {
 func (s *Store) GetMeta(sessionID string) (SessionIndexEntry, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	unlock, err := s.lockStore()
+	if err != nil {
+		return SessionIndexEntry{}, false
+	}
+	defer unlock()
 	idx, err := s.loadIndex()
 	if err != nil {
 		return SessionIndexEntry{}, false
@@ -224,13 +279,31 @@ func (s *Store) GetMeta(sessionID string) (SessionIndexEntry, bool) {
 func (s *Store) Append(sessionID string, entry any) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	path := filepath.Join(s.dir, sessionID+".jsonl")
+	unlock, err := s.lockStore()
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	path, err := s.sessionPath(sessionID)
+	if err != nil {
+		return err
+	}
 	return appendEntry(path, entry)
 }
 
 // ReadAll parses all raw JSON lines from a session file.
 func (s *Store) ReadAll(sessionID string) ([]json.RawMessage, error) {
-	path := filepath.Join(s.dir, sessionID+".jsonl")
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	unlock, err := s.lockStore()
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+	path, err := s.sessionPath(sessionID)
+	if err != nil {
+		return nil, err
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -254,9 +327,17 @@ func (s *Store) ReadAll(sessionID string) ([]json.RawMessage, error) {
 func (s *Store) DeleteSession(sessionID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	unlock, err := s.lockStore()
+	if err != nil {
+		return err
+	}
+	defer unlock()
 
 	// Remove JSONL file
-	path := filepath.Join(s.dir, sessionID+".jsonl")
+	path, err := s.sessionPath(sessionID)
+	if err != nil {
+		return err
+	}
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return err
 	}
@@ -274,6 +355,11 @@ func (s *Store) DeleteSession(sessionID string) error {
 func (s *Store) UpdateTitle(sessionID, title string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	unlock, err := s.lockStore()
+	if err != nil {
+		return err
+	}
+	defer unlock()
 
 	idx, err := s.loadIndex()
 	if err != nil {
@@ -296,6 +382,11 @@ func (s *Store) UpdateTitle(sessionID, title string) error {
 func (s *Store) UpdateAutoTitle(sessionID, title string, atMsgCount int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	unlock, err := s.lockStore()
+	if err != nil {
+		return err
+	}
+	defer unlock()
 
 	idx, err := s.loadIndex()
 	if err != nil {
@@ -344,6 +435,11 @@ func (s *Store) NeedsAutoRetitle(sessionID string) bool {
 func (s *Store) ListSessions() ([]SessionIndexEntry, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	unlock, err := s.lockStore()
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
 	idx, err := s.loadIndex()
 	if err != nil {
 		return nil, err
@@ -375,20 +471,134 @@ func (s *Store) updateIndex(sessionID, agentID, filePath string) error {
 func (s *Store) loadIndex() (*SessionIndex, error) {
 	indexPath := filepath.Join(s.dir, "sessions.json")
 	data, err := os.ReadFile(indexPath)
+	idx := &SessionIndex{Sessions: make(map[string]SessionIndexEntry)}
 	if err != nil {
-		if os.IsNotExist(err) {
-			return &SessionIndex{Sessions: make(map[string]SessionIndexEntry)}, nil
+		if !os.IsNotExist(err) {
+			return nil, err
 		}
-		return nil, err
-	}
-	var idx SessionIndex
-	if err := json.Unmarshal(data, &idx); err != nil {
-		return &SessionIndex{Sessions: make(map[string]SessionIndexEntry)}, nil
-	}
-	if idx.Sessions == nil {
+	} else if json.Unmarshal(data, idx) != nil || idx.Sessions == nil {
 		idx.Sessions = make(map[string]SessionIndexEntry)
 	}
-	return &idx, nil
+	if err := s.reconcileIndex(idx); err != nil {
+		return nil, err
+	}
+	return idx, nil
+}
+
+// reconcileIndex treats JSONL files as the source of truth and sessions.json
+// as a rebuildable cache. It adds files missing after an interrupted index
+// update and removes entries whose source file no longer exists.
+func (s *Store) reconcileIndex(idx *SessionIndex) error {
+	if err := os.MkdirAll(s.dir, 0700); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(s.dir)
+	if err != nil {
+		return err
+	}
+	existing := make(map[string]bool)
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".jsonl" {
+			continue
+		}
+		id := strings.TrimSuffix(entry.Name(), ".jsonl")
+		if safefs.ValidateResourceID(id) != nil {
+			continue
+		}
+		existing[id] = true
+		path := filepath.Join(s.dir, entry.Name())
+		current, ok := idx.Sessions[id]
+		info, statErr := entry.Info()
+		if ok && (statErr != nil || info.ModTime().UnixMilli() <= current.LastAt) {
+			continue
+		}
+		rebuilt, rebuildErr := rebuildSessionMeta(path, id)
+		if rebuildErr == nil {
+			if ok {
+				rebuilt.Title = current.Title
+				rebuilt.TitleOverridden = current.TitleOverridden
+				rebuilt.TitledAtMsgCount = current.TitledAtMsgCount
+				rebuilt.Active = current.Active
+				if current.Source != "" {
+					rebuilt.Source = current.Source
+				}
+			}
+			idx.Sessions[id] = rebuilt
+		}
+	}
+	for id := range idx.Sessions {
+		if !existing[id] {
+			delete(idx.Sessions, id)
+		}
+	}
+	return nil
+}
+
+func rebuildSessionMeta(path, sessionID string) (SessionIndexEntry, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return SessionIndexEntry{}, err
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return SessionIndexEntry{}, err
+	}
+	meta := SessionIndexEntry{
+		ID:        sessionID,
+		FilePath:  sessionID + ".jsonl",
+		CreatedAt: info.ModTime().UnixMilli(),
+		LastAt:    info.ModTime().UnixMilli(),
+		Source:    sessionSource(sessionID),
+	}
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 8*1024*1024), 8*1024*1024)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		var base BaseEntry
+		if json.Unmarshal(line, &base) != nil {
+			continue
+		}
+		switch base.Type {
+		case EntryTypeSession:
+			var header SessionHeader
+			if json.Unmarshal(line, &header) == nil {
+				meta.AgentID = header.AgentID
+				meta.CreatedAt = header.CreatedAt
+			}
+		case EntryTypeCompaction:
+			var compaction CompactionEntry
+			if json.Unmarshal(line, &compaction) == nil {
+				meta.MessageCount = 0
+				meta.TokenEstimate = len(compaction.Summary)/4 + 500
+			}
+		case EntryTypeMessage:
+			var message MessageEntry
+			if json.Unmarshal(line, &message) != nil {
+				continue
+			}
+			meta.MessageCount++
+			meta.TokenEstimate += estimateTokensRaw(message.Message.Content)
+			if message.Timestamp > meta.LastAt {
+				meta.LastAt = message.Timestamp
+			}
+			if meta.Title == "" && message.Message.Role == "user" {
+				meta.Title = extractTitle(message.Message.Content)
+			}
+		}
+	}
+	return meta, scanner.Err()
+}
+
+func sessionSource(sessionID string) string {
+	switch {
+	case strings.HasPrefix(sessionID, "feishu-"):
+		return "feishu"
+	case strings.HasPrefix(sessionID, "telegram-"), strings.HasPrefix(sessionID, "tg-"):
+		return "telegram"
+	default:
+		return "web"
+	}
 }
 
 // saveIndex writes sessions.json to disk.
@@ -397,7 +607,7 @@ func (s *Store) saveIndex(idx *SessionIndex) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(s.dir, "sessions.json"), data, 0o600)
+	return persist.WriteFile(filepath.Join(s.dir, "sessions.json"), data, 0o600)
 }
 
 // appendEntry marshals v as JSON and appends a newline-terminated line.
@@ -406,13 +616,21 @@ func appendEntry(path string, v any) error {
 	if err != nil {
 		return fmt.Errorf("marshal entry: %w", err)
 	}
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	_, err = fmt.Fprintf(f, "%s\n", data)
-	return err
+	return persist.WithFileLock(path, func() error {
+		f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+		if err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(f, "%s\n", data); err != nil {
+			_ = f.Close()
+			return err
+		}
+		if err := f.Sync(); err != nil {
+			_ = f.Close()
+			return err
+		}
+		return f.Close()
+	})
 }
 
 // estimateTokensRaw estimates token count for raw JSON content (~4 chars per token).
@@ -454,8 +672,16 @@ func truncateRune(s string, maxRunes int) string {
 func (s *Store) TrimToLastN(sessionID string, keepMsgs int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	unlock, err := s.lockStore()
+	if err != nil {
+		return err
+	}
+	defer unlock()
 
-	path := filepath.Join(s.dir, sessionID+".jsonl")
+	path, err := s.sessionPath(sessionID)
+	if err != nil {
+		return err
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		return err
