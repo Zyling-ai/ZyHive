@@ -8,19 +8,16 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/Zyling-ai/zyhive/pkg/agent"
 	"github.com/Zyling-ai/zyhive/pkg/channel"
 	"github.com/Zyling-ai/zyhive/pkg/config"
+	"github.com/gin-gonic/gin"
 )
-
-func removeFile(path string) error { return os.Remove(path) }
 
 type agentChannelHandler struct {
 	manager    *agent.Manager
@@ -178,13 +175,10 @@ func (h *agentChannelHandler) SetChannels(c *gin.Context) {
 	for _, ch := range incoming {
 		incomingIDs[ch.ID] = true
 	}
-	agentDir := filepath.Join(h.manager.AgentsDir(), agentID)
-	pendingDir := filepath.Join(agentDir, "channels-pending")
+	pendingStoresDir := pendingDir(ag)
 	for _, ex := range existing {
 		if !incomingIDs[ex.ID] {
-			// Channel removed — delete its pending store
-			pendingFile := filepath.Join(pendingDir, ex.ID+"-pending.json")
-			_ = removeFile(pendingFile)
+			channel.RemoveChannelStores(pendingStoresDir, ex.ID)
 		}
 	}
 

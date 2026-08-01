@@ -18,6 +18,7 @@ import (
 	"github.com/Zyling-ai/zyhive/pkg/config"
 	"github.com/Zyling-ai/zyhive/pkg/memory"
 	"github.com/Zyling-ai/zyhive/pkg/network"
+	"github.com/Zyling-ai/zyhive/pkg/safefs"
 )
 
 // SystemConfigAgentID is the reserved ID for the built-in configuration assistant.
@@ -88,8 +89,11 @@ func (m *Manager) LoadAll() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if err := os.MkdirAll(m.rootDir, 0755); err != nil {
+	if err := os.MkdirAll(m.rootDir, 0700); err != nil {
 		return fmt.Errorf("create agents dir: %w", err)
+	}
+	if err := os.Chmod(m.rootDir, 0700); err != nil {
+		return fmt.Errorf("secure agents dir: %w", err)
 	}
 
 	entries, err := os.ReadDir(m.rootDir)
@@ -101,7 +105,15 @@ func (m *Manager) LoadAll() error {
 		if !e.IsDir() {
 			continue
 		}
-		agentDir := filepath.Join(m.rootDir, e.Name())
+		if err := safefs.ValidateResourceID(e.Name()); err != nil {
+			log.Printf("[manager] ignoring unsafe agent directory %q: %v", e.Name(), err)
+			continue
+		}
+		agentDir, err := safefs.ConfineResource(m.rootDir, e.Name())
+		if err != nil {
+			log.Printf("[manager] ignoring unsafe agent directory %q: %v", e.Name(), err)
+			continue
+		}
 		cfgPath := filepath.Join(agentDir, "config.json")
 
 		data, err := os.ReadFile(cfgPath)
@@ -113,6 +125,17 @@ func (m *Manager) LoadAll() error {
 		var cfg agentConfig
 		if err := json.Unmarshal(data, &cfg); err != nil {
 			continue
+		}
+		if cfg.ID != e.Name() || safefs.ValidateResourceID(cfg.ID) != nil {
+			log.Printf("[manager] ignoring agent %q: config id %q does not match directory", e.Name(), cfg.ID)
+			continue
+		}
+		if _, exists := m.agents[cfg.ID]; exists {
+			log.Printf("[manager] ignoring duplicate agent id %q", cfg.ID)
+			continue
+		}
+		if err := secureTree(agentDir); err != nil {
+			return fmt.Errorf("secure agent %q: %w", cfg.ID, err)
 		}
 
 		wsDir := filepath.Join(agentDir, "workspace")
@@ -180,6 +203,34 @@ func (m *Manager) List() []*Agent {
 	return result
 }
 
+// secureTree removes group/other permissions without following symlinks.
+// Owner execute bits are preserved so existing workspace scripts remain usable.
+func secureTree(root string) error {
+	return filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return nil
+		}
+		if entry.IsDir() {
+			return os.Chmod(path, 0700)
+		}
+		if !info.Mode().IsRegular() {
+			return nil
+		}
+		mode := os.FileMode(0600)
+		if info.Mode().Perm()&0100 != 0 {
+			mode = 0700
+		}
+		return os.Chmod(path, mode)
+	})
+}
+
 // Create creates a new agent with the given id, name, and model.
 // It creates the full directory structure:
 //
@@ -211,20 +262,47 @@ func (m *Manager) CreateWithOpts(opts CreateOpts) (*Agent, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	if err := safefs.ValidateResourceID(opts.ID); err != nil {
+		return nil, fmt.Errorf("invalid agent id %q: %w", opts.ID, err)
+	}
 	if _, exists := m.agents[opts.ID]; exists {
 		return nil, fmt.Errorf("agent %q already exists", opts.ID)
 	}
 
-	agentDir := filepath.Join(m.rootDir, opts.ID)
+	if err := os.MkdirAll(m.rootDir, 0700); err != nil {
+		return nil, fmt.Errorf("create agents dir: %w", err)
+	}
+	if err := os.Chmod(m.rootDir, 0700); err != nil {
+		return nil, fmt.Errorf("secure agents dir: %w", err)
+	}
+	agentDir, err := safefs.ConfineResource(m.rootDir, opts.ID)
+	if err != nil {
+		return nil, fmt.Errorf("resolve agent dir: %w", err)
+	}
+	if _, err := os.Lstat(agentDir); err == nil {
+		return nil, fmt.Errorf("agent %q already exists on disk", opts.ID)
+	} else if !os.IsNotExist(err) {
+		return nil, fmt.Errorf("inspect agent dir: %w", err)
+	}
 	workspaceDir := filepath.Join(agentDir, "workspace")
 	sessionDir := filepath.Join(agentDir, "sessions")
+	created := false
+	defer func() {
+		if created {
+			_ = os.RemoveAll(agentDir)
+		}
+	}()
 
 	// Create directory structure
-	for _, dir := range []string{workspaceDir, sessionDir} {
-		if err := os.MkdirAll(dir, 0755); err != nil {
+	for _, dir := range []string{agentDir, workspaceDir, sessionDir} {
+		if err := os.MkdirAll(dir, 0700); err != nil {
 			return nil, fmt.Errorf("create dir %s: %w", dir, err)
 		}
+		if err := os.Chmod(dir, 0700); err != nil {
+			return nil, fmt.Errorf("secure dir %s: %w", dir, err)
+		}
 	}
+	created = true
 
 	// Write config.json
 	cfg := agentConfig{
@@ -245,7 +323,7 @@ func (m *Manager) CreateWithOpts(opts CreateOpts) (*Agent, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := os.WriteFile(filepath.Join(agentDir, "config.json"), cfgData, 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(agentDir, "config.json"), cfgData, 0600); err != nil {
 		return nil, fmt.Errorf("write config.json: %w", err)
 	}
 
@@ -253,6 +331,9 @@ func (m *Manager) CreateWithOpts(opts CreateOpts) (*Agent, error) {
 	role := "AI Assistant"
 	if err := InitWorkspace(workspaceDir, opts.Name, role); err != nil {
 		return nil, fmt.Errorf("init workspace: %w", err)
+	}
+	if err := secureTree(agentDir); err != nil {
+		return nil, fmt.Errorf("secure agent files: %w", err)
 	}
 
 	a := &Agent{
@@ -273,6 +354,7 @@ func (m *Manager) CreateWithOpts(opts CreateOpts) (*Agent, error) {
 		Status:        "idle",
 	}
 	m.agents[opts.ID] = a
+	created = false
 
 	return a, nil
 }
@@ -293,8 +375,14 @@ func (m *Manager) Remove(id string) error {
 		return fmt.Errorf("agent %q is a system agent and cannot be deleted", id)
 	}
 
-	// Delete the agent directory (workspace, sessions, convlogs, config)
-	agentDir := filepath.Dir(ag.WorkspaceDir) // agents/{id}
+	// Resolve from the trusted root and id instead of deleting a stored path.
+	agentDir, err := safefs.ConfineResource(m.rootDir, id)
+	if err != nil {
+		return fmt.Errorf("resolve agent dir: %w", err)
+	}
+	if filepath.Clean(filepath.Dir(ag.WorkspaceDir)) != filepath.Clean(agentDir) {
+		return fmt.Errorf("agent %q workspace is outside its managed directory", id)
+	}
 	if err := os.RemoveAll(agentDir); err != nil {
 		return fmt.Errorf("remove agent dir: %w", err)
 	}
@@ -388,7 +476,10 @@ func (m *Manager) UpdateAgent(agentID string, opts UpdateOpts) error {
 	if err != nil {
 		return fmt.Errorf("marshal config.json: %w", err)
 	}
-	return os.WriteFile(cfgPath, out, 0644)
+	if err := os.WriteFile(cfgPath, out, 0600); err != nil {
+		return err
+	}
+	return os.Chmod(cfgPath, 0600)
 }
 
 // SetAgentEnvVar sets or deletes a single environment variable for an agent.
@@ -444,7 +535,10 @@ func (m *Manager) UpdateChannels(agentID string, channels []config.ChannelEntry)
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(cfgPath, out, 0644)
+	if err := os.WriteFile(cfgPath, out, 0600); err != nil {
+		return err
+	}
+	return os.Chmod(cfgPath, 0600)
 }
 
 // UpdateChannelStatus sets the status (and optionally botName) for a specific channel.
@@ -487,7 +581,9 @@ func (m *Manager) UpdateChannelStatus(agentID, channelID, status, botName string
 	}
 	cfg.Channels = ag.Channels
 	out, _ := json.MarshalIndent(cfg, "", "  ")
-	_ = os.WriteFile(cfgPath, out, 0644)
+	if err := os.WriteFile(cfgPath, out, 0600); err == nil {
+		_ = os.Chmod(cfgPath, 0600)
+	}
 }
 
 // FindAgentByBotToken returns the agent and channel that use the given bot token,

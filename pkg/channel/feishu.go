@@ -9,6 +9,7 @@ package channel
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -23,6 +24,7 @@ import (
 
 	"github.com/Zyling-ai/zyhive/pkg/netguard"
 	"github.com/Zyling-ai/zyhive/pkg/network"
+	"github.com/Zyling-ai/zyhive/pkg/safefs"
 	"github.com/gorilla/websocket"
 )
 
@@ -1162,7 +1164,7 @@ type feishuChatConfig struct {
 func (b *FeishuBot) chatConfigPath(chatID string) string {
 	dir := filepath.Join(b.agentDir, "feishu-chat-config")
 	_ = os.MkdirAll(dir, 0700)
-	return filepath.Join(dir, strings.ReplaceAll(chatID, "/", "_")+".json")
+	return opaqueChannelPath(dir, chatID)
 }
 
 func (b *FeishuBot) loadChatConfig(chatID string) feishuChatConfig {
@@ -1220,7 +1222,25 @@ func (b *FeishuBot) handleGroupCommand(chatID, text string) bool {
 func (b *FeishuBot) seenEventPath() string {
 	dir := filepath.Join(b.agentDir, "feishu-seen-events")
 	_ = os.MkdirAll(dir, 0700)
-	return filepath.Join(dir, b.channelID+".json")
+	return opaqueChannelPath(dir, b.channelID)
+}
+
+func opaqueChannelPath(dir, id string) string {
+	sum := sha256.Sum256([]byte(id))
+	path := filepath.Join(dir, fmt.Sprintf("%x.json", sum))
+	if _, err := os.Stat(path); err == nil {
+		return path
+	}
+	if safefs.ValidateResourceID(id) == nil {
+		if legacy, err := safefs.ConfineToBase(dir, id+".json"); err == nil {
+			if _, statErr := os.Stat(legacy); statErr == nil {
+				if renameErr := os.Rename(legacy, path); renameErr == nil {
+					_ = os.Chmod(path, 0600)
+				}
+			}
+		}
+	}
+	return path
 }
 
 func (b *FeishuBot) loadSeenEvents() {

@@ -165,6 +165,37 @@ func TestConfineToBase_NonExistentBaseUnderSymlinkedParent(t *testing.T) {
 	}
 }
 
+func TestValidateResourceID(t *testing.T) {
+	for _, id := range []string{
+		"main", "配置助手", "研发一组", "客户-A（广东）", "agent@example", "项目 2026",
+	} {
+		if err := ValidateResourceID(id); err != nil {
+			t.Errorf("valid id %q rejected: %v", id, err)
+		}
+	}
+	for _, id := range []string{
+		"", ".", "..", "../x", `a\b`, "/tmp/x", "a/x", "bad\x00id", string([]byte{0xff}),
+	} {
+		if err := ValidateResourceID(id); !errors.Is(err, ErrInvalidResourceID) {
+			t.Errorf("invalid id %q: expected ErrInvalidResourceID, got %v", id, err)
+		}
+	}
+}
+
+func TestConfineResource(t *testing.T) {
+	base := t.TempDir()
+	got, err := ConfineResource(base, "项目 2026")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(got, "项目 2026") {
+		t.Fatalf("unexpected resource path %q", got)
+	}
+	if _, err := ConfineResource(base, "../outside"); !errors.Is(err, ErrInvalidResourceID) {
+		t.Fatalf("expected invalid resource id, got %v", err)
+	}
+}
+
 // Composite test: symlink INSIDE base → another file inside base is fine.
 func TestConfineToBase_AllowsSymlinkStayingInside(t *testing.T) {
 	if runtime.GOOS == "windows" {

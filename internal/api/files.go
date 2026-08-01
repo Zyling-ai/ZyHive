@@ -286,8 +286,12 @@ func (h *fileHandler) Write(c *gin.Context) {
 
 // Delete DELETE /api/agents/:id/files/*path
 func (h *fileHandler) Delete(c *gin.Context) {
-	_, absPath, ok := h.resolveWorkspacePath(c)
+	wsDir, absPath, ok := h.resolveWorkspacePath(c)
 	if !ok {
+		return
+	}
+	if filepath.Clean(absPath) == filepath.Clean(wsDir) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "workspace root is reserved"})
 		return
 	}
 

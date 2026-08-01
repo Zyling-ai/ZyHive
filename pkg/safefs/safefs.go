@@ -25,6 +25,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 )
 
 // ErrEscape is returned when the resolved path falls outside base.
@@ -36,6 +37,35 @@ var ErrAbsoluteRel = errors.New("safefs: rel must be relative, not absolute")
 
 // ErrNullByte is returned when rel contains a NUL byte.
 var ErrNullByte = errors.New("safefs: path contains NUL byte")
+
+// ErrInvalidResourceID is returned when an ID cannot be represented as one
+// safe path segment. Unicode display names are allowed; path syntax is not.
+var ErrInvalidResourceID = errors.New("safefs: invalid resource id")
+
+// ValidateResourceID accepts a single UTF-8 path segment while preserving
+// existing Unicode IDs. It deliberately rejects path separators on every OS
+// so data created on one platform remains safe when moved to another.
+func ValidateResourceID(id string) error {
+	if id == "" || id == "." || id == ".." || !utf8.ValidString(id) {
+		return ErrInvalidResourceID
+	}
+	if strings.ContainsRune(id, 0) || strings.ContainsAny(id, `/\`) {
+		return ErrInvalidResourceID
+	}
+	if filepath.IsAbs(id) || filepath.VolumeName(id) != "" || filepath.Clean(id) != id {
+		return ErrInvalidResourceID
+	}
+	return nil
+}
+
+// ConfineResource validates id as one safe path segment and resolves it under
+// base using the same symlink-aware boundary checks as ConfineToBase.
+func ConfineResource(base, id string) (string, error) {
+	if err := ValidateResourceID(id); err != nil {
+		return "", err
+	}
+	return ConfineToBase(base, id)
+}
 
 // ConfineToBase resolves rel relative to base, returning an absolute path
 // that is guaranteed to live inside (or equal to) base, even when base or

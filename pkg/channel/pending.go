@@ -3,12 +3,16 @@
 package channel
 
 import (
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/Zyling-ai/zyhive/pkg/safefs"
 )
 
 // PendingUser holds info about a user who knocked on the bot's door.
@@ -28,9 +32,8 @@ type PendingStore struct {
 
 // NewPendingStore creates a store backed by {dir}/{channelID}-pending.json.
 func NewPendingStore(dir, channelID string) *PendingStore {
-	_ = os.MkdirAll(dir, 0755)
 	ps := &PendingStore{
-		path:  filepath.Join(dir, channelID+"-pending.json"),
+		path:  channelStorePath(dir, channelID, "-pending.json"),
 		users: make(map[int64]PendingUser),
 	}
 	ps.load()
@@ -91,7 +94,7 @@ func (ps *PendingStore) save() {
 		list = append(list, u)
 	}
 	data, _ := json.MarshalIndent(list, "", "  ")
-	_ = os.WriteFile(ps.path, data, 0644)
+	_ = os.WriteFile(ps.path, data, 0600)
 }
 
 // ── ApprovedStore — persists info about users that were approved ───────────
@@ -107,9 +110,8 @@ type ApprovedStore struct {
 
 // NewApprovedStore creates a store backed by {dir}/{channelID}-approved.json.
 func NewApprovedStore(dir, channelID string) *ApprovedStore {
-	_ = os.MkdirAll(dir, 0755)
 	s := &ApprovedStore{
-		path:  filepath.Join(dir, channelID+"-approved.json"),
+		path:  channelStorePath(dir, channelID, "-approved.json"),
 		users: make(map[int64]PendingUser),
 	}
 	s.load()
@@ -173,7 +175,7 @@ func (s *ApprovedStore) save() {
 		list = append(list, u)
 	}
 	data, _ := json.MarshalIndent(list, "", "  ")
-	_ = os.WriteFile(s.path, data, 0644)
+	_ = os.WriteFile(s.path, data, 0600)
 }
 
 // ── PendingStoreStr — string-keyed pending store (for Feishu open_ids) ────
@@ -195,9 +197,8 @@ type PendingStoreStr struct {
 
 // NewPendingStoreStr creates a store backed by {dir}/{channelID}-pending-str.json.
 func NewPendingStoreStr(dir, channelID string) *PendingStoreStr {
-	_ = os.MkdirAll(dir, 0755)
 	ps := &PendingStoreStr{
-		path:  filepath.Join(dir, channelID+"-pending-str.json"),
+		path:  channelStorePath(dir, channelID, "-pending-str.json"),
 		users: make(map[string]PendingUserStr),
 	}
 	ps.load()
@@ -257,7 +258,7 @@ func (ps *PendingStoreStr) save() {
 		list = append(list, u)
 	}
 	data, _ := json.MarshalIndent(list, "", "  ")
-	_ = os.WriteFile(ps.path, data, 0644)
+	_ = os.WriteFile(ps.path, data, 0600)
 }
 
 // ── ApprovedStoreStr — string-keyed approved store (for Feishu open_ids) ──
@@ -271,9 +272,8 @@ type ApprovedStoreStr struct {
 
 // NewApprovedStoreStr creates a store backed by {dir}/{channelID}-approved-str.json.
 func NewApprovedStoreStr(dir, channelID string) *ApprovedStoreStr {
-	_ = os.MkdirAll(dir, 0755)
 	s := &ApprovedStoreStr{
-		path:  filepath.Join(dir, channelID+"-approved-str.json"),
+		path:  channelStorePath(dir, channelID, "-approved-str.json"),
 		users: make(map[string]PendingUserStr),
 	}
 	s.load()
@@ -326,5 +326,44 @@ func (s *ApprovedStoreStr) save() {
 		list = append(list, u)
 	}
 	data, _ := json.MarshalIndent(list, "", "  ")
-	_ = os.WriteFile(s.path, data, 0644)
+	_ = os.WriteFile(s.path, data, 0600)
+}
+
+// channelStorePath maps an untrusted channel ID to a fixed, opaque filename.
+// Existing safe single-segment filenames are migrated once for compatibility.
+func channelStorePath(dir, channelID, suffix string) string {
+	_ = os.MkdirAll(dir, 0700)
+	_ = os.Chmod(dir, 0700)
+	sum := sha256.Sum256([]byte(channelID))
+	path := filepath.Join(dir, fmt.Sprintf("%x%s", sum, suffix))
+	if _, err := os.Stat(path); err == nil {
+		return path
+	}
+	if safefs.ValidateResourceID(channelID) == nil {
+		legacy, err := safefs.ConfineToBase(dir, channelID+suffix)
+		if err == nil {
+			if _, statErr := os.Stat(legacy); statErr == nil {
+				if renameErr := os.Rename(legacy, path); renameErr == nil {
+					_ = os.Chmod(path, 0600)
+				}
+			}
+		}
+	}
+	return path
+}
+
+// RemoveChannelStores removes all pending/approved files for one channel
+// without ever interpreting the channel ID as path syntax.
+func RemoveChannelStores(dir, channelID string) {
+	for _, suffix := range []string{
+		"-pending.json", "-approved.json", "-pending-str.json", "-approved-str.json",
+	} {
+		path := channelStorePath(dir, channelID, suffix)
+		_ = os.Remove(path)
+		if safefs.ValidateResourceID(channelID) == nil {
+			if legacy, err := safefs.ConfineToBase(dir, channelID+suffix); err == nil {
+				_ = os.Remove(legacy)
+			}
+		}
+	}
 }

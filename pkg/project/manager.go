@@ -9,21 +9,23 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/Zyling-ai/zyhive/pkg/safefs"
 )
 
 // Project represents a shared project (source code, docs, assets, etc.)
 type Project struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Description string    `json:"description,omitempty"`
-	Tags        []string  `json:"tags,omitempty"`
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Description string   `json:"description,omitempty"`
+	Tags        []string `json:"tags,omitempty"`
 	// Editors: agent IDs that can write to this project.
 	// Empty slice = all agents can write (default open).
 	// Use ["__none__"] to make a project read-only for everyone.
-	Editors     []string  `json:"editors,omitempty"`
-	CreatedAt   time.Time `json:"createdAt"`
-	UpdatedAt   time.Time `json:"updatedAt"`
-	FilesDir    string    `json:"-"` // absolute path
+	Editors   []string  `json:"editors,omitempty"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+	FilesDir  string    `json:"-"` // absolute path
 }
 
 // CanWrite returns true if agentID has write permission on this project.
@@ -60,6 +62,9 @@ type Manager struct {
 
 // NewManager creates a Manager rooted at rootDir.
 func NewManager(rootDir string) *Manager {
+	if abs, err := filepath.Abs(rootDir); err == nil {
+		rootDir = abs
+	}
 	return &Manager{
 		rootDir:  rootDir,
 		projects: make(map[string]*Project),
@@ -71,8 +76,11 @@ func (m *Manager) LoadAll() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if err := os.MkdirAll(m.rootDir, 0755); err != nil {
+	if err := os.MkdirAll(m.rootDir, 0700); err != nil {
 		return fmt.Errorf("create projects dir: %w", err)
+	}
+	if err := os.Chmod(m.rootDir, 0700); err != nil {
+		return fmt.Errorf("secure projects dir: %w", err)
 	}
 
 	entries, err := os.ReadDir(m.rootDir)
@@ -84,7 +92,14 @@ func (m *Manager) LoadAll() error {
 		if !e.IsDir() {
 			continue
 		}
-		metaPath := filepath.Join(m.rootDir, e.Name(), "meta.json")
+		if err := safefs.ValidateResourceID(e.Name()); err != nil {
+			continue
+		}
+		projectDir, err := safefs.ConfineResource(m.rootDir, e.Name())
+		if err != nil {
+			continue
+		}
+		metaPath := filepath.Join(projectDir, "meta.json")
 		data, err := os.ReadFile(metaPath)
 		if err != nil {
 			continue
@@ -92,6 +107,15 @@ func (m *Manager) LoadAll() error {
 		var meta projectMeta
 		if err := json.Unmarshal(data, &meta); err != nil {
 			continue
+		}
+		if meta.ID != e.Name() || safefs.ValidateResourceID(meta.ID) != nil {
+			continue
+		}
+		if _, exists := m.projects[meta.ID]; exists {
+			continue
+		}
+		if err := secureProjectTree(projectDir); err != nil {
+			return fmt.Errorf("secure project %q: %w", meta.ID, err)
 		}
 		m.projects[meta.ID] = &Project{
 			ID:          meta.ID,
@@ -101,7 +125,7 @@ func (m *Manager) LoadAll() error {
 			Editors:     meta.Editors,
 			CreatedAt:   meta.CreatedAt,
 			UpdatedAt:   meta.UpdatedAt,
-			FilesDir:    filepath.Join(m.rootDir, e.Name()),
+			FilesDir:    projectDir,
 		}
 	}
 	return nil
@@ -144,14 +168,34 @@ func (m *Manager) Create(opts CreateOpts) (*Project, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	if err := safefs.ValidateResourceID(opts.ID); err != nil {
+		return nil, fmt.Errorf("invalid project id %q: %w", opts.ID, err)
+	}
 	if _, exists := m.projects[opts.ID]; exists {
 		return nil, fmt.Errorf("project %q already exists", opts.ID)
 	}
 
-	projectDir := filepath.Join(m.rootDir, opts.ID)
-	if err := os.MkdirAll(projectDir, 0755); err != nil {
+	if err := os.MkdirAll(m.rootDir, 0700); err != nil {
+		return nil, fmt.Errorf("create projects dir: %w", err)
+	}
+	projectDir, err := safefs.ConfineResource(m.rootDir, opts.ID)
+	if err != nil {
+		return nil, fmt.Errorf("resolve project dir: %w", err)
+	}
+	if _, err := os.Lstat(projectDir); err == nil {
+		return nil, fmt.Errorf("project %q already exists on disk", opts.ID)
+	} else if !os.IsNotExist(err) {
+		return nil, fmt.Errorf("inspect project dir: %w", err)
+	}
+	if err := os.MkdirAll(projectDir, 0700); err != nil {
 		return nil, fmt.Errorf("create project dir: %w", err)
 	}
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = os.RemoveAll(projectDir)
+		}
+	}()
 
 	now := time.Now()
 	meta := projectMeta{
@@ -167,13 +211,15 @@ func (m *Manager) Create(opts CreateOpts) (*Project, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := os.WriteFile(filepath.Join(projectDir, "meta.json"), data, 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(projectDir, "meta.json"), data, 0600); err != nil {
 		return nil, fmt.Errorf("write meta.json: %w", err)
 	}
 
 	// Create a default README.md
 	readme := fmt.Sprintf("# %s\n\n%s\n", opts.Name, opts.Description)
-	_ = os.WriteFile(filepath.Join(projectDir, "README.md"), []byte(readme), 0644)
+	if err := os.WriteFile(filepath.Join(projectDir, "README.md"), []byte(readme), 0600); err != nil {
+		return nil, fmt.Errorf("write README.md: %w", err)
+	}
 
 	p := &Project{
 		ID:          opts.ID,
@@ -186,6 +232,7 @@ func (m *Manager) Create(opts CreateOpts) (*Project, error) {
 		FilesDir:    projectDir,
 	}
 	m.projects[opts.ID] = p
+	cleanup = false
 	return p, nil
 }
 
@@ -200,16 +247,20 @@ func (m *Manager) SetEditors(projectID string, editors []string) error {
 	if !ok {
 		return fmt.Errorf("project %q not found", projectID)
 	}
-	p.Editors = editors
-	p.UpdatedAt = time.Now()
+	candidate := *p
+	candidate.Editors = editors
+	candidate.UpdatedAt = time.Now()
 
 	meta := projectMeta{
-		ID: p.ID, Name: p.Name, Description: p.Description,
-		Tags: p.Tags, Editors: p.Editors,
-		CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt,
+		ID: candidate.ID, Name: candidate.Name, Description: candidate.Description,
+		Tags: candidate.Tags, Editors: candidate.Editors,
+		CreatedAt: candidate.CreatedAt, UpdatedAt: candidate.UpdatedAt,
 	}
-	data, _ := json.MarshalIndent(meta, "", "  ")
-	return os.WriteFile(filepath.Join(p.FilesDir, "meta.json"), data, 0644)
+	if err := writeProjectMeta(candidate.FilesDir, meta); err != nil {
+		return err
+	}
+	*p = candidate
+	return nil
 }
 
 // Update updates project metadata.
@@ -222,22 +273,26 @@ func (m *Manager) Update(id string, name, description string, tags []string) err
 		return fmt.Errorf("project %q not found", id)
 	}
 
+	candidate := *p
 	if name != "" {
-		p.Name = name
+		candidate.Name = name
 	}
-	p.Description = description
+	candidate.Description = description
 	if tags != nil {
-		p.Tags = tags
+		candidate.Tags = tags
 	}
-	p.UpdatedAt = time.Now()
+	candidate.UpdatedAt = time.Now()
 
 	meta := projectMeta{
-		ID: p.ID, Name: p.Name, Description: p.Description,
-		Tags: p.Tags, Editors: p.Editors,
-		CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt,
+		ID: candidate.ID, Name: candidate.Name, Description: candidate.Description,
+		Tags: candidate.Tags, Editors: candidate.Editors,
+		CreatedAt: candidate.CreatedAt, UpdatedAt: candidate.UpdatedAt,
 	}
-	data, _ := json.MarshalIndent(meta, "", "  ")
-	return os.WriteFile(filepath.Join(p.FilesDir, "meta.json"), data, 0644)
+	if err := writeProjectMeta(candidate.FilesDir, meta); err != nil {
+		return err
+	}
+	*p = candidate
+	return nil
 }
 
 // Remove deletes a project and all its files.
@@ -249,9 +304,54 @@ func (m *Manager) Remove(id string) error {
 	if !ok {
 		return fmt.Errorf("project %q not found", id)
 	}
-	if err := os.RemoveAll(p.FilesDir); err != nil {
+	projectDir, err := safefs.ConfineResource(m.rootDir, id)
+	if err != nil {
+		return fmt.Errorf("resolve project dir: %w", err)
+	}
+	if filepath.Clean(p.FilesDir) != filepath.Clean(projectDir) {
+		return fmt.Errorf("project %q files are outside its managed directory", id)
+	}
+	if err := os.RemoveAll(projectDir); err != nil {
 		return err
 	}
 	delete(m.projects, id)
 	return nil
+}
+
+func writeProjectMeta(projectDir string, meta projectMeta) error {
+	data, err := json.MarshalIndent(meta, "", "  ")
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(projectDir, "meta.json")
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		return err
+	}
+	return os.Chmod(path, 0600)
+}
+
+func secureProjectTree(root string) error {
+	return filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return nil
+		}
+		if entry.IsDir() {
+			return os.Chmod(path, 0700)
+		}
+		if !info.Mode().IsRegular() {
+			return nil
+		}
+		mode := os.FileMode(0600)
+		if info.Mode().Perm()&0100 != 0 {
+			mode = 0700
+		}
+		return os.Chmod(path, mode)
+	})
 }

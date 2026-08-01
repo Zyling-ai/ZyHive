@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/Zyling-ai/zyhive/pkg/project"
 	"github.com/Zyling-ai/zyhive/pkg/safefs"
+	"github.com/gin-gonic/gin"
 )
 
 // ─── Project CRUD ────────────────────────────────────────────────────────────
@@ -23,14 +23,14 @@ type projectHandler struct {
 }
 
 type ProjectInfo struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Description string    `json:"description,omitempty"`
-	Tags        []string  `json:"tags,omitempty"`
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Description string   `json:"description,omitempty"`
+	Tags        []string `json:"tags,omitempty"`
 	// Editors: nil/empty = all agents can write; ["__none__"] = read-only for all
-	Editors     []string  `json:"editors"`
-	CreatedAt   time.Time `json:"createdAt"`
-	UpdatedAt   time.Time `json:"updatedAt"`
+	Editors   []string  `json:"editors"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 func projectToInfo(p *project.Project) ProjectInfo {
@@ -278,8 +278,12 @@ func (h *projectFileHandler) Write(c *gin.Context) {
 
 // DELETE /api/projects/:id/files/*path
 func (h *projectFileHandler) Delete(c *gin.Context) {
-	_, absPath, ok := h.resolve(c)
+	rootDir, absPath, ok := h.resolve(c)
 	if !ok {
+		return
+	}
+	if filepath.Clean(absPath) == filepath.Clean(rootDir) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "project root is reserved"})
 		return
 	}
 	if filepath.Base(absPath) == "meta.json" {
