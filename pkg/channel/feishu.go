@@ -704,15 +704,19 @@ func (b *FeishuBot) refreshToken() (string, error) {
 }
 
 func validateFeishuWebSocketURL(ctx context.Context, rawURL string) error {
-	if err := netguard.ValidateWebSocketURL(ctx, rawURL); err != nil {
-		return err
-	}
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
 		return fmt.Errorf("invalid WebSocket URL: %w", err)
 	}
 	host := strings.ToLower(parsed.Hostname())
-	allowed := false
+	if !isAllowedFeishuWebSocketHost(host) {
+		return fmt.Errorf("%w: WebSocket host %q is not a Feishu/Lark endpoint", netguard.ErrBlocked, host)
+	}
+	return netguard.ValidateWebSocketURL(ctx, rawURL)
+}
+
+func isAllowedFeishuWebSocketHost(host string) bool {
+	host = strings.ToLower(host)
 	for _, suffix := range []string{
 		".feishu.cn",
 		".larksuite.com",
@@ -720,14 +724,10 @@ func validateFeishuWebSocketURL(ctx context.Context, rawURL string) error {
 		".larkenterprise.com",
 	} {
 		if host == strings.TrimPrefix(suffix, ".") || strings.HasSuffix(host, suffix) {
-			allowed = true
-			break
+			return true
 		}
 	}
-	if !allowed {
-		return fmt.Errorf("%w: WebSocket host %q is not a Feishu/Lark endpoint", netguard.ErrBlocked, host)
-	}
-	return nil
+	return false
 }
 
 func (b *FeishuBot) getWsEndpoint(_ string) (string, error) {

@@ -124,7 +124,7 @@ for platform in "${platforms[@]}"; do
   read -r goos goarch <<<"$platform"
   name="zyhive-${goos}-${goarch}"
   CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
-    go build -trimpath -ldflags="-s -w -X main.Version=${VERSION}" \
+    go build -buildvcs=false -trimpath -ldflags="-s -w -X main.Version=${VERSION}" \
     -o "${DIST_DIR}/${name}" ./cmd/aipanel/
   echo "   ✅ $name"
 done
