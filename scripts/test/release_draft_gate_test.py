@@ -16,7 +16,10 @@ def require(condition: bool, message: str) -> None:
 
 require("workflow_dispatch:" in WORKFLOW, "release gate must be explicitly dispatched")
 require("types: [published]" not in WORKFLOW, "validation must not start after publication")
-require("ref: ${{ inputs.candidate_sha }}" in WORKFLOW, "draft candidates must be checked out by immutable commit")
+require(WORKFLOW.count("ref: ${{ inputs.candidate_sha }}") == 1,
+        "only reproducible supply-chain rebuilds may check out the candidate source")
+require(WORKFLOW.count("ref: ${{ github.sha }}") == 1,
+        "native journeys must use the immutable reviewed harness commit")
 require("releases/${RELEASE_ID}" in WORKFLOW, "draft verification must use its database ID before a tag exists")
 require("--jq '.draft'" in WORKFLOW, "draft state must be read without shell-escaped inline Python")
 require("uses: actions/upload-artifact@v4" in WORKFLOW, "verified draft assets must be staged for read-only runners")
