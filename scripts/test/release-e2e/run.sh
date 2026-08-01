@@ -5,6 +5,7 @@ set -euo pipefail
 MODE="${1:-}"
 VERSION="${2:-}"
 ARG3="${3:-}"
+ARG4="${4:-}"
 REPO="${ZYHIVE_REPO:-Zyling-ai/ZyHive}"
 REPO_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 INSTALL_SOURCE="$REPO_ROOT/scripts/install.sh"
@@ -411,9 +412,10 @@ source "$REPO_ROOT/scripts/test/release-e2e/journeys.sh"
 run_local() {
   local dist_dir="$ARG3"
   local current_binary="$dist_dir/$BINARY_NAME"
-  local old_version="00.0.0v0"
+  local old_version="${ARG4:-00.0.0v0}"
   local fixture_root="$TMP_ROOT/fixture"
   local old_binary="$TMP_ROOT/$BINARY_NAME.old"
+  local previous_binary="$dist_dir/previous-$BINARY_NAME"
   local base fresh_home journey_home upgrade_home fresh_port journey_port upgrade_port config_before config_after
   local current_sums valid_sums
 
@@ -422,12 +424,20 @@ run_local() {
   assert_version "$current_binary" "$VERSION"
 
   echo "▶ [Release E2E/local] 准备隔离 Release 仓库"
-  (
-    cd "$REPO_ROOT"
-    CGO_ENABLED=0 GOOS="$OS" GOARCH="$ARCH" \
-      go build -trimpath -ldflags="-s -w -X main.Version=${old_version}" \
-      -o "$old_binary" ./cmd/aipanel/
-  )
+  if [[ -n "$ARG4" ]]; then
+    [[ -f "$previous_binary" ]] || fail "缺少旧版当前平台产物: $previous_binary"
+    chmod +x "$previous_binary"
+    cp "$previous_binary" "$old_binary"
+    chmod +x "$old_binary"
+    assert_version "$old_binary" "$old_version"
+  else
+    (
+      cd "$REPO_ROOT"
+      CGO_ENABLED=0 GOOS="$OS" GOARCH="$ARCH" \
+        go build -buildvcs=false -trimpath -ldflags="-s -w -X main.Version=${old_version}" \
+        -o "$old_binary" ./cmd/aipanel/
+    )
+  fi
   prepare_fixture_release "$fixture_root" "$old_version" "$old_binary"
   prepare_fixture_release "$fixture_root" "$VERSION" "$current_binary"
   set_fixture_latest "$fixture_root" "$VERSION"
@@ -580,7 +590,7 @@ run_online() {
 }
 
 if [[ -z "$MODE" || -z "$VERSION" ]]; then
-  fail "用法: $0 local <version> <dist-dir> | online <version> [previous-version]"
+  fail "用法: $0 local <version> <dist-dir> [previous-version] | online <version> [previous-version]"
 fi
 
 case "$MODE" in

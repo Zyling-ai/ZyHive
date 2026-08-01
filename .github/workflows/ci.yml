@@ -128,6 +128,8 @@ jobs:
         run: bash -n scripts/*.sh scripts/test/*.sh scripts/test/release-e2e/*.sh
       - name: Release supply-chain contracts
         run: bash scripts/test/release-supply-chain.sh
+      - name: Draft-first release gate contracts
+        run: python3 scripts/test/release_draft_gate_test.py
 
   release-smoke:
     name: Release E2E (install / API / update)

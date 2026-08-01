@@ -1,7 +1,7 @@
 # Release 安装更新全流程测试
 
-> 文档版本：V1.1
-> 基准日期：2026-08-01
+> 文档版本：V1.2
+> 基准日期：2026-08-02
 > 状态：当前发布门禁说明
 > 适用范围：正式 Release 的全新安装、基础功能、持久化与旧版更新验证
 
@@ -32,12 +32,13 @@
 19. 完整备份经过 manifest 与摘要检查，破坏数据后可恢复并重启复核；
 20. 路径穿越、符号链接、损坏摘要和不完整备份由 Go 回归测试拒绝。
 
-## 两层门禁
+## Draft 候选门禁
 
-- `local`：正式发布前运行。本机启动临时 HTTP Release 仓库，用合成旧版验证当前待发布产物。
-- `online`：Release 创建后运行。等待 `install.zyling.ai/latest` 切换，禁止回退 GitHub，并通过正式安装镜像使用上一个正式版本验证真实更新。
+- `local`：在隔离 HTTP Release 仓库中验证待发布产物；可传入上一稳定版及对应平台二进制，执行真实旧版更新，也可在开发期使用合成旧版。
+- `workflow_dispatch`：`release.sh` 创建不可见 Draft 后，供应链任务生成并复核 SBOM、签名和 provenance，Linux/macOS 的 amd64/arm64 四种原生 Runner 分别运行 `local` 全旅程。
+- `promote`：只依赖上述全部门禁；成功时执行唯一一次 Draft → Published 状态转换，失败时保持 Draft。
 
-任何断言失败都会返回非零退出码。正式发布脚本会把失败的 Release 转为草稿，避免继续作为公开最新版。
+任何断言失败都会返回非零退出码。候选验证期间旧稳定版始终保持 latest，未验证资产不会先公开再撤回。
 
 ## 手动运行
 
@@ -46,8 +47,10 @@ VERSION=<待测版本>
 PREVIOUS_VERSION=<上一正式版本>
 ARTIFACT_DIR=<四平台产物与SHA256SUMS所在目录>
 
-scripts/test/release-e2e/run.sh local "$VERSION" "$ARTIFACT_DIR"
+scripts/test/release-e2e/run.sh local "$VERSION" "$ARTIFACT_DIR" "$PREVIOUS_VERSION"
 scripts/test/release-e2e/run.sh online "$VERSION" "$PREVIOUS_VERSION"
 ```
+
+传入 `PREVIOUS_VERSION` 时，资产目录需包含 `previous-zyhive-<os>-<arch>`；正式工作流会从上一稳定 Release 自动下载。
 
 测试依赖：`bash`、`curl`、`python3`；`local` 模式额外需要 `go`。

@@ -20,8 +20,15 @@ if [[ "$VERSION" == "--verify-supply-chain" ]]; then
     echo "用法: $0 --verify-supply-chain <YY.M.DvN> <资产目录>" >&2
     exit 2
   fi
-  IDENTITY="${ZYHIVE_CERTIFICATE_IDENTITY:-https://github.com/${REPO}/.github/workflows/release-e2e.yml@refs/tags/${VERIFY_VERSION}}"
-  exec bash "$REPO_ROOT/scripts/release-supply-chain.sh" verify "$VERIFY_DIR" "$IDENTITY"
+  if [[ -n "${ZYHIVE_CERTIFICATE_IDENTITY:-}" ]]; then
+    exec bash "$REPO_ROOT/scripts/release-supply-chain.sh" verify "$VERIFY_DIR" "$ZYHIVE_CERTIFICATE_IDENTITY"
+  fi
+  MAIN_IDENTITY="https://github.com/${REPO}/.github/workflows/release-e2e.yml@refs/heads/main"
+  if bash "$REPO_ROOT/scripts/release-supply-chain.sh" verify "$VERIFY_DIR" "$MAIN_IDENTITY"; then
+    exit 0
+  fi
+  LEGACY_IDENTITY="https://github.com/${REPO}/.github/workflows/release-e2e.yml@refs/tags/${VERIFY_VERSION}"
+  exec bash "$REPO_ROOT/scripts/release-supply-chain.sh" verify "$VERIFY_DIR" "$LEGACY_IDENTITY"
 fi
 
 if [[ -z "$VERSION" || ! "$VERSION" =~ ^[0-9]{2}\.[0-9]{1,2}\.[0-9]{1,2}v[0-9]+$ ]]; then
@@ -89,12 +96,12 @@ echo "▶ 版本: $VERSION"
 echo "▶ 模式: $([[ "$DRY_RUN" == true ]] && echo "干运行" || echo "正式发布")"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-echo "🧪 [1/8] 后端质量门槛..."
+echo "🧪 [1/9] 后端质量门槛..."
 go vet ./...
 go test ./... -count=1 -timeout=5m
 go build ./...
 
-echo "🖥  [2/8] 前端测试、类型检查与构建..."
+echo "🖥  [2/9] 前端测试、类型检查与构建..."
 (
   cd ui
   npm ci
@@ -102,7 +109,7 @@ echo "🖥  [2/8] 前端测试、类型检查与构建..."
   npm run build
 )
 
-echo "🔄 [3/8] 同步并验证嵌入 UI..."
+echo "🔄 [3/9] 同步并验证嵌入 UI..."
 rm -rf cmd/aipanel/ui_dist
 cp -R ui/dist cmd/aipanel/ui_dist
 if ! git diff --no-index --quiet -- ui/dist cmd/aipanel/ui_dist; then
@@ -110,7 +117,7 @@ if ! git diff --no-index --quiet -- ui/dist cmd/aipanel/ui_dist; then
   exit 1
 fi
 
-echo "🔨 [4/8] 构建官方支持平台..."
+echo "🔨 [4/9] 构建官方支持平台..."
 rm -rf "$DIST_DIR"
 mkdir -p "$DIST_DIR"
 cp scripts/install.sh "$DIST_DIR/install.sh"
@@ -129,7 +136,7 @@ for platform in "${platforms[@]}"; do
   echo "   ✅ $name"
 done
 
-echo "🔐 [5/8] 生成 SHA-256 校验和..."
+echo "🔐 [5/9] 生成 SHA-256 校验和..."
 (
   cd "$DIST_DIR"
   if command -v sha256sum >/dev/null 2>&1; then
@@ -140,7 +147,7 @@ echo "🔐 [5/8] 生成 SHA-256 校验和..."
 )
 bash "$REPO_ROOT/scripts/release-supply-chain.sh" verify-checksums "$DIST_DIR"
 
-echo "🧭 [6/8] 隔离环境验证全新安装、基础功能与旧版更新..."
+echo "🧭 [6/9] 隔离环境验证全新安装、基础功能与旧版更新..."
 scripts/test/release-e2e/run.sh local "$VERSION" "$DIST_DIR"
 
 if [[ "$DRY_RUN" == true ]]; then
@@ -150,7 +157,7 @@ if [[ "$DRY_RUN" == true ]]; then
   exit 0
 fi
 
-echo "🚀 [7/8] 创建 GitHub Release..."
+echo "📝 [7/9] 创建不可见的 GitHub Draft Release..."
 release_notes=$(cat <<EOF
 ## ${VERSION}
 
@@ -169,12 +176,60 @@ gh release create "$VERSION" \
   --repo "$REPO" \
   --target "$(git rev-parse HEAD)" \
   --title "$VERSION" \
-  --notes "$release_notes"
+  --notes "$release_notes" \
+  --draft
 
-echo "🌐 [8/8] 验证正式 Release 在线安装与真实版本更新..."
-if ! scripts/test/release-e2e/run.sh online "$VERSION" "$PREVIOUS_VERSION"; then
-  echo "❌ Release 在线全流程测试失败，正在转为草稿以停止公开分发..." >&2
-  gh release edit "$VERSION" --repo "$REPO" --draft
+echo "☁️  [8/9] 触发四平台候选验证、供应链签名与唯一发布门..."
+previous_run_id="$(
+  gh run list \
+    --repo "$REPO" \
+    --workflow release-e2e.yml \
+    --event workflow_dispatch \
+    --limit 20 \
+    --json databaseId,displayTitle \
+    --jq ".[] | select(.displayTitle == \"Release candidate ${VERSION}\") | .databaseId" |
+    sort -nr |
+    awk 'NR == 1 { print; exit }'
+)"
+gh workflow run release-e2e.yml \
+  --repo "$REPO" \
+  --ref main \
+  -f "version=$VERSION" \
+  -f "previous_version=$PREVIOUS_VERSION"
+
+run_id=""
+for _ in $(seq 1 30); do
+  run_id="$(
+    gh run list \
+      --repo "$REPO" \
+      --workflow release-e2e.yml \
+      --event workflow_dispatch \
+      --limit 20 \
+      --json databaseId,displayTitle \
+      --jq ".[] | select(.displayTitle == \"Release candidate ${VERSION}\") | .databaseId" |
+      sort -nr |
+      awk 'NR == 1 { print; exit }'
+  )"
+  if [[ -n "$run_id" && "$run_id" != "$previous_run_id" ]]; then
+    break
+  fi
+  sleep 2
+done
+if [[ -z "$run_id" || "$run_id" == "$previous_run_id" ]]; then
+  echo "❌ 未找到候选验证工作流；Draft Release 保持不可见" >&2
+  exit 1
+fi
+if ! gh run watch "$run_id" --repo "$REPO" --exit-status; then
+  echo "❌ 候选验证失败；Draft Release 保持不可见，不会进入 latest" >&2
+  exit 1
+fi
+
+echo "🔎 [9/9] 确认 Release 只在全部门禁通过后公开..."
+release_draft="$(
+  gh api "repos/${REPO}/releases/tags/${VERSION}" --jq '.draft'
+)"
+if [[ "$release_draft" != "false" ]]; then
+  echo "❌ 工作流已结束但 Release 仍是草稿，拒绝报告发布成功" >&2
   exit 1
 fi
 

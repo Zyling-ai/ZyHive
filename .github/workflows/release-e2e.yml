@@ -1,11 +1,21 @@
 name: Release E2E
+run-name: Release candidate ${{ inputs.version }}
 
 on:
-  release:
-    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Existing draft release tag to validate and publish
+        required: true
+        type: string
+      previous_version:
+        description: Previous stable release used by update tests
+        required: false
+        default: ''
+        type: string
 
 concurrency:
-  group: release-hardening-${{ github.event.release.tag_name }}
+  group: release-hardening-${{ inputs.version }}
   cancel-in-progress: false
 
 permissions:
@@ -23,14 +33,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ inputs.version }}
           fetch-depth: 0
           persist-credentials: false
 
       - name: Verify exact release tag checkout
         env:
-          VERSION: ${{ github.event.release.tag_name }}
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+          REPOSITORY: ${{ github.repository }}
         run: |
+          test "$GITHUB_REF" = "refs/heads/main"
+          test "$(gh api "repos/${REPOSITORY}/releases/tags/${VERSION}" --jq '.draft')" = "true"
           test "$(git rev-parse HEAD)" = "$(git rev-list -n 1 "$VERSION")"
           git merge-base --is-ancestor HEAD origin/main
           scripts/verify-commit-identity.sh
@@ -49,7 +63,7 @@ jobs:
       - name: Download exact release assets
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ github.event.release.tag_name }}
+          VERSION: ${{ inputs.version }}
           REPOSITORY: ${{ github.repository }}
         run: |
           mkdir dist
@@ -69,7 +83,7 @@ jobs:
 
       - name: Rebuild and match exact tag assets
         env:
-          VERSION: ${{ github.event.release.tag_name }}
+          VERSION: ${{ inputs.version }}
         run: |
           (
             cd ui
@@ -131,16 +145,16 @@ jobs:
 
       - name: Verify generated supply-chain files
         env:
-          VERSION: ${{ github.event.release.tag_name }}
+          VERSION: ${{ inputs.version }}
           REPOSITORY: ${{ github.repository }}
         run: |
-          identity="https://github.com/${REPOSITORY}/.github/workflows/release-e2e.yml@refs/tags/${VERSION}"
+          identity="https://github.com/${REPOSITORY}/.github/workflows/release-e2e.yml@refs/heads/main"
           bash scripts/release-supply-chain.sh verify dist "$identity"
 
       - name: Upload SBOMs and Sigstore bundles
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ github.event.release.tag_name }}
+          VERSION: ${{ inputs.version }}
           REPOSITORY: ${{ github.repository }}
         run: >-
           gh release upload "$VERSION"
@@ -149,10 +163,10 @@ jobs:
           --repo "$REPOSITORY"
           --clobber
 
-      - name: Redownload and verify published files
+      - name: Redownload and verify draft candidate files
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ github.event.release.tag_name }}
+          VERSION: ${{ inputs.version }}
           REPOSITORY: ${{ github.repository }}
         run: |
           rm -rf verified
@@ -169,85 +183,97 @@ jobs:
             gh release download "$VERSION" --repo "$REPOSITORY" --dir verified --pattern "$file"
             gh release download "$VERSION" --repo "$REPOSITORY" --dir verified --pattern "${file}.sigstore.json"
           done
-          identity="https://github.com/${REPOSITORY}/.github/workflows/release-e2e.yml@refs/tags/${VERSION}"
+          identity="https://github.com/${REPOSITORY}/.github/workflows/release-e2e.yml@refs/heads/main"
           bash scripts/release-supply-chain.sh verify verified "$identity"
           for file in "${signed[@]}"; do
             gh attestation verify "verified/$file" --repo "$REPOSITORY"
           done
 
-  install-update:
-    name: Install and update (${{ matrix.os }})
+  candidate-install-update:
+    name: Candidate install/update (${{ matrix.name }})
     needs: supply-chain
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     permissions:
       contents: read
     concurrency:
-      group: release-e2e-${{ github.event.release.tag_name }}-${{ matrix.os }}
+      group: release-candidate-${{ inputs.version }}-${{ matrix.name }}
       cancel-in-progress: false
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        include:
+          - name: linux-amd64
+            os: ubuntu-latest
+          - name: linux-arm64
+            os: ubuntu-24.04-arm
+          - name: darwin-amd64
+            os: macos-15-intel
+          - name: darwin-arm64
+            os: macos-14
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ inputs.version }}
 
-      - name: Resolve previous stable release
-        id: previous
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.10'
+          cache: true
+
+      - name: Download exact draft candidate
         env:
           GH_TOKEN: ${{ github.token }}
-          CURRENT_VERSION: ${{ github.event.release.tag_name }}
+          VERSION: ${{ inputs.version }}
+          PREVIOUS_VERSION: ${{ inputs.previous_version }}
+          BINARY: zyhive-${{ matrix.name }}
           REPOSITORY: ${{ github.repository }}
         run: |
-          gh api "repos/${REPOSITORY}/releases?per_page=100" > /tmp/releases.json
-          previous="$(
-            python3 - "$CURRENT_VERSION" /tmp/releases.json <<'PY'
-          import json
-          import sys
+          mkdir dist
+          gh release download "$VERSION" --repo "$REPOSITORY" --dir dist
+          bash scripts/release-supply-chain.sh verify-checksums dist
+          if [[ -n "$PREVIOUS_VERSION" ]]; then
+            mkdir previous
+            gh release download "$PREVIOUS_VERSION" \
+              --repo "$REPOSITORY" \
+              --dir previous \
+              --pattern "$BINARY"
+            cp "previous/$BINARY" "dist/previous-$BINARY"
+          fi
 
-          current = sys.argv[1]
-          releases = json.load(open(sys.argv[2], encoding="utf-8"))
-          print(next((
-              item["tag_name"]
-              for item in releases
-              if not item["draft"] and not item["prerelease"] and item["tag_name"] != current
-          ), ""))
-          PY
-          )"
-          echo "version=$previous" >> "$GITHUB_OUTPUT"
-
-      - name: Test official install, basic API and real update
+      - name: Test candidate install, update, API and recovery journeys
         env:
           GH_TOKEN: ${{ github.token }}
           ZYHIVE_REPO: ${{ github.repository }}
         run: >-
           scripts/test/release-e2e/run.sh
-          online
-          "${{ github.event.release.tag_name }}"
-          "${{ steps.previous.outputs.version }}"
+          local
+          "${{ inputs.version }}"
+          dist
+          "${{ inputs.previous_version }}"
 
-  withdraw:
-    name: Withdraw failed release
-    needs: [supply-chain, install-update]
-    if: >-
-      ${{
-        always() &&
-        (
-          needs.supply-chain.result != 'success' ||
-          needs.install-update.result != 'success'
-        )
-      }}
+  promote:
+    name: Publish verified stable release
+    needs: [supply-chain, candidate-install-update]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - name: Withdraw release when hardening fails
+      - name: Verify candidate is still a draft at the expected commit
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ github.event.release.tag_name }}
+          VERSION: ${{ inputs.version }}
+          REPOSITORY: ${{ github.repository }}
         run: |
-          gh release edit "$VERSION" --repo "${{ github.repository }}" --draft
-          echo "Release $VERSION failed supply-chain or installation/update verification and was moved to draft." >&2
-          exit 1
+          release="$(gh api "repos/${REPOSITORY}/releases/tags/${VERSION}")"
+          test "$(python3 -c 'import json,sys; print(str(json.load(sys.stdin)[\"draft\"]).lower())' <<<"$release")" = "true"
+          target="$(git ls-remote "https://github.com/${REPOSITORY}.git" "refs/tags/${VERSION}" | awk '{print $1}')"
+          test -n "$target"
+          test "$target" = "$(gh api "repos/${REPOSITORY}/git/ref/tags/${VERSION}" --jq '.object.sha')"
+
+      - name: Publish verified candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+          REPOSITORY: ${{ github.repository }}
+        run: gh release edit "$VERSION" --repo "$REPOSITORY" --draft=false --latest
