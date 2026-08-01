@@ -3,6 +3,7 @@
 package api
 
 import (
+	"fmt"
 	"log"
 	"os"
 )
@@ -12,4 +13,12 @@ import (
 func selfRestart() {
 	log.Println("[update] exiting for restart (Windows service manager will restart)")
 	os.Exit(0)
+}
+
+func startUpdateWatchdog(string, string) error {
+	return fmt.Errorf("update watchdog is not supported on Windows")
+}
+
+func terminateUpdatePID(int) error {
+	return fmt.Errorf("update watchdog is not supported on Windows")
 }

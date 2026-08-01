@@ -328,6 +328,84 @@ start_fixture_server() {
   FIXTURE_BASE="http://127.0.0.1:$(<"$port_file")"
 }
 
+write_pending_update() {
+  local binary="$1" backup="$2" health_url="$3" old_version="$4"
+  local expected_version="$5" token="$6" pid="$7"
+  python3 - "$binary.update-pending.json" "$binary" "$backup" "$health_url" \
+    "$old_version" "$expected_version" "$token" "$pid" <<'PY'
+import datetime
+import json
+import pathlib
+import sys
+
+path, binary, backup, health_url, old_version, expected_version, token, pid = sys.argv[1:]
+payload = {
+    "token": token,
+    "oldVersion": old_version,
+    "expectedVersion": expected_version,
+    "binaryPath": str(pathlib.Path(binary).resolve()),
+    "backupPath": str(pathlib.Path(backup).resolve()),
+    "healthUrl": health_url,
+    "pid": int(pid),
+    "createdAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+}
+target = pathlib.Path(path)
+target.write_text(json.dumps(payload), encoding="utf-8")
+target.chmod(0o600)
+PY
+}
+
+verify_update_watchdog() {
+  local current_binary="$1"
+  local root="$TMP_ROOT/watchdog"
+  local home="$root/home"
+  local binary="$root/zyhive"
+  local backup="$root/zyhive.bak"
+  local config="$home/.config/zyhive/zyhive.json"
+  local token="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  local port base log pid result_stage
+
+  echo "▶ [Release E2E/local] 验证更新后健康确认与自动回滚"
+  mkdir -p "$root" "$home"
+  cp "$current_binary" "$binary"
+  cp "$current_binary" "$backup"
+  chmod +x "$binary" "$backup"
+
+  port="$(random_port)"
+  base="http://127.0.0.1:${port}"
+  write_minimal_config "$home" "$port"
+  log="$TMP_ROOT/watchdog-healthy.log"
+  (
+    cd "$home"
+    exec env HOME="$home" "$binary" --serve --config "$config"
+  ) >"$log" 2>&1 &
+  pid=$!
+  PIDS+=("$pid")
+  wait_for_code "$base/healthz" 200 60 || fail "更新守护成功路径：服务未通过健康检查"
+
+  write_pending_update "$binary" "$backup" "$base/healthz" "$VERSION" "$VERSION" "$token" "$pid"
+  env ZYHIVE_RELEASE_E2E=1 ZYHIVE_UPDATE_HEALTH_TIMEOUT=1s \
+    "$backup" __update-watchdog "$token"
+  [[ ! -e "$binary.update-pending.json" ]] || fail "健康确认后仍残留 pending 记录"
+  [[ ! -e "$binary.update-result.json" ]] || fail "健康确认被错误标记为回滚"
+  assert_version "$binary" "$VERSION"
+  stop_process "$pid"
+
+  printf '#!/bin/sh\nexit 1\n' > "$binary"
+  chmod +x "$binary"
+  port="$(random_port)"
+  write_pending_update "$binary" "$backup" "http://127.0.0.1:${port}/healthz" \
+    "$VERSION" "$VERSION" "$token" 0
+  env ZYHIVE_RELEASE_E2E=1 ZYHIVE_UPDATE_HEALTH_TIMEOUT=200ms \
+    "$backup" __update-watchdog "$token"
+  assert_version "$binary" "$VERSION"
+  [[ ! -e "$binary.update-pending.json" ]] || fail "回滚后仍残留 pending 记录"
+  [[ -f "$binary.update-result.json" ]] || fail "回滚后缺少结果记录"
+  result_stage="$(json_value "$binary.update-result.json" stage)"
+  [[ "$result_stage" == "rolledback" ]] || fail "回滚结果状态错误：$result_stage"
+  echo "  ✅ 更新守护：健康版本已确认，失联版本已原子恢复"
+}
+
 run_local() {
   local dist_dir="$ARG3"
   local current_binary="$dist_dir/$BINARY_NAME"
@@ -353,6 +431,8 @@ run_local() {
   set_fixture_latest "$fixture_root" "$VERSION"
   start_fixture_server "$fixture_root"
   base="$FIXTURE_BASE"
+
+  verify_update_watchdog "$current_binary"
 
   echo "▶ [Release E2E/local] 验证全新安装"
   fresh_home="$TMP_ROOT/home-fresh"

@@ -5,6 +5,7 @@ package api
 import (
 	"log"
 	"os"
+	"os/exec"
 	"syscall"
 )
 
@@ -28,4 +29,23 @@ func selfRestart() {
 	// 后备：SIGTERM（要求 systemd 配置 Restart=always）
 	log.Printf("[update] sending SIGTERM to self (pid=%d)", os.Getpid())
 	syscall.Kill(syscall.Getpid(), syscall.SIGTERM)
+}
+
+func startUpdateWatchdog(backupPath, token string) error {
+	cmd := exec.Command(backupPath, updateWatchdogCommand, token)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	return cmd.Process.Release()
+}
+
+func terminateUpdatePID(pid int) error {
+	err := syscall.Kill(pid, syscall.SIGTERM)
+	if err == syscall.ESRCH {
+		return nil
+	}
+	return err
 }

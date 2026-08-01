@@ -58,6 +58,14 @@ var Version = "dev"
 var embeddedUI embed.FS
 
 func main() {
+	if handled, err := api.RunUpdateWatchdogCommand(os.Args[1:]); handled {
+		if err != nil {
+			log.Printf("[update-watchdog] failed: %v", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	// ── 面向 Agent 的业务 CLI 路由 ─────────────────────────────────────────
 	// zyhive agent/cron/goal/api/... 由 agentcli 自行解析参数（含 --help），
 	// 必须放在下面的 help 预扫描与 flag.Parse() 之前，否则 `zyhive agent --help`
@@ -914,6 +922,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("invalid gateway.bind: %v", err)
 	}
+
+	// 若当前进程是刚替换的新版本，在监听端口前先向独立更新守护进程登记 PID。
+	// 守护进程仍会要求 /healthz 正常且版本精确匹配，才会最终确认更新。
+	api.ResumePendingUpdate(Version)
 
 	// 启动后台模型连通性检测（首次启动 / 升级后状态为 untested 时自动测试）
 	go checkDefaultModelOnStartup(cfg, *configPath)

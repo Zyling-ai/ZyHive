@@ -75,7 +75,8 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, cfgPath string, mgr *agen
 	})
 
 	// Public: update status (no auth — frontend polls during restart)
-	r.GET("/api/update/status", (&updateHandler{}).Status)
+	updH := &updateHandler{fallbackPort: cfg.Gateway.Port}
+	r.GET("/api/update/status", updH.Status)
 
 	v1 := r.Group("/api")
 	v1.Use(authMiddleware(cfg.Auth.Token))
@@ -90,7 +91,6 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, cfgPath string, mgr *agen
 	registerAITeamRoutes(v1, pool)
 
 	// Update (check + apply)
-	updH := &updateHandler{}
 	v1.GET("/update/check", updH.Check)
 	v1.POST("/update/apply", updH.Apply)
 

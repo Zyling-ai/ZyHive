@@ -1,5 +1,5 @@
 // internal/api/update.go — 版本检查与在线升级 API
-// 升级流程：下载新二进制 → 验证 → 备份旧版 → rm -f → cp → SIGTERM 重启
+// 升级流程：下载 → 校验 → 备份 → 原子替换 → 独立守护健康检查 → 确认或回滚
 // 用户数据（agents 目录、配置文件）全程不涉及，仅替换可执行文件本身。
 package api
 
@@ -57,6 +57,13 @@ func (s *updateStatus) set(stage UpdateStage, progress int, msg string) {
 	s.UpdatedAt = time.Now()
 }
 
+func (s *updateStatus) setVersions(oldVersion, newVersion string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.OldVer = oldVersion
+	s.NewVer = newVersion
+}
+
 func (s *updateStatus) snapshot() map[string]any {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -77,7 +84,9 @@ var releaseVersionPattern = regexp.MustCompile(`^[0-9]{2}\.[0-9]{1,2}\.[0-9]{1,2
 
 // ── handler ───────────────────────────────────────────────────────────────────
 
-type updateHandler struct{}
+type updateHandler struct {
+	fallbackPort int
+}
 
 // GET /api/update/check
 // 返回 {current, latest, hasUpdate, releaseUrl}
@@ -105,6 +114,12 @@ func (h *updateHandler) Status(c *gin.Context) {
 // POST /api/update/apply
 // 触发异步升级；已有任务进行中返回 409
 func (h *updateHandler) Apply(c *gin.Context) {
+	// 获取目标版本（可选，默认用最新）
+	var body struct {
+		Version string `json:"version"`
+	}
+	_ = c.ShouldBindJSON(&body)
+
 	globalUpdateStatus.mu.Lock()
 	if globalUpdateStatus.Stage != StageIdle &&
 		globalUpdateStatus.Stage != StageDone &&
@@ -114,23 +129,21 @@ func (h *updateHandler) Apply(c *gin.Context) {
 		c.JSON(http.StatusConflict, gin.H{"error": "升级任务正在进行中，请稍候"})
 		return
 	}
+	globalUpdateStatus.Stage = StageDownloading
+	globalUpdateStatus.Progress = 1
+	globalUpdateStatus.Message = "正在准备升级…"
+	globalUpdateStatus.UpdatedAt = time.Now()
 	globalUpdateStatus.mu.Unlock()
 
-	// 获取目标版本（可选，默认用最新）
-	var body struct {
-		Version string `json:"version"`
-	}
-	c.ShouldBindJSON(&body)
-
-	go runUpdate(body.Version)
+	go runUpdate(body.Version, updateHealthURL(c, h.fallbackPort))
 	c.JSON(http.StatusAccepted, gin.H{"message": "升级任务已启动，请轮询 /api/update/status 查看进度"})
 }
 
 // ── 核心升级逻辑 ──────────────────────────────────────────────────────────────
 
-func runUpdate(targetVersion string) {
+func runUpdate(targetVersion, healthURL string) {
 	s := globalUpdateStatus
-	s.OldVer = AppVersion
+	s.setVersions(AppVersion, "")
 
 	// 1. 确定目标版本
 	s.set(StageDownloading, 5, "正在查询最新版本…")
@@ -142,7 +155,7 @@ func runUpdate(targetVersion string) {
 		}
 		targetVersion = latest
 	}
-	s.NewVer = targetVersion
+	s.setVersions(AppVersion, targetVersion)
 
 	if !releaseVersionPattern.MatchString(targetVersion) {
 		s.set(StageFailed, 0, "目标版本格式无效："+targetVersion)
@@ -270,7 +283,22 @@ func runUpdate(targetVersion string) {
 		return
 	}
 
-	// 6. 在目标目录写入临时文件后原子替换，失败时原文件保持不变。
+	// 6. 在替换前持久化待确认记录。记录写不成功时禁止替换，
+	// 避免出现“新版本已生效但没有回滚守护”的失控状态。
+	pending, err := preparePendingUpdate(binaryPath, backupPath, healthURL, AppVersion, targetVersion)
+	if err != nil {
+		s.set(StageFailed, 0, "无法建立更新回滚记录："+err.Error())
+		return
+	}
+	pendingPath := pendingUpdatePath(binaryPath)
+	watchdogOwnsPending := false
+	defer func() {
+		if !watchdogOwnsPending {
+			_ = os.Remove(pendingPath)
+		}
+	}()
+
+	// 7. 在目标目录写入临时文件后原子替换，失败时原文件保持不变。
 	s.set(StageApplying, 88, "原子替换二进制文件…")
 	log.Printf("[update] replacing binary: %s → %s", tmpPath, binaryPath)
 	stagedPath := filepath.Join(filepath.Dir(binaryPath), "."+filepath.Base(binaryPath)+".new")
@@ -288,10 +316,22 @@ func runUpdate(targetVersion string) {
 		return
 	}
 
-	// 7. 标记完成，发 SIGTERM 让 systemd/launchd 重启服务
-	// 用户数据（agents dir / config）完全不涉及，进程重启后新版本自动加载
-	s.set(StageDone, 100, "升级成功！正在重启服务…（新版本："+targetVersion+"）")
-	log.Printf("[update] upgrade complete → %s，sending SIGTERM to self", targetVersion)
+	// 8. 用旧版备份启动独立守护进程。守护进程脱离当前进程组，
+	// 在本进程 exec/SIGTERM 后继续验证新版本；失败则恢复 .bak 并终止失败进程。
+	if err := startUpdateWatchdog(backupPath, pending.Token); err != nil {
+		if rollbackErr := restoreBackupBinary(pending); rollbackErr != nil {
+			s.set(StageFailed, 0, fmt.Sprintf("无法启动回滚守护，恢复旧版本也失败：%v；恢复错误：%v", err, rollbackErr))
+			return
+		}
+		s.set(StageRolledBack, 100, "无法启动健康检查守护，已恢复旧版本："+err.Error())
+		return
+	}
+	watchdogOwnsPending = true
+
+	// 9. 保持 applying，直到新进程通过 /healthz 且版本匹配。
+	// 新进程会接管该状态；守护进程成功后删除 pending 文件，失败则自动回滚。
+	s.set(StageApplying, 95, "新版本已替换，正在重启并等待健康确认…")
+	log.Printf("[update] replacement complete → %s; watchdog awaiting %s", targetVersion, healthURL)
 
 	// 短暂等待让 HTTP 响应先返回
 	time.Sleep(500 * time.Millisecond)
