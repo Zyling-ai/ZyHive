@@ -12,7 +12,7 @@
 [![GitHub Forks](https://img.shields.io/github/forks/Zyling-ai/zyhive?style=flat&logo=github&color=orange)](https://github.com/Zyling-ai/zyhive/network/members)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 [![Go 1.25+](https://img.shields.io/badge/Go-1.25+-00ADD8.svg)](https://golang.org)
-[![Version](https://img.shields.io/badge/version-26.8.1v14-brightgreen.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-26.8.2v1-brightgreen.svg)](CHANGELOG.md)
 [![Release E2E](https://github.com/Zyling-ai/ZyHive/actions/workflows/release-e2e.yml/badge.svg)](https://github.com/Zyling-ai/ZyHive/actions/workflows/release-e2e.yml)
 [![官网](https://img.shields.io/badge/官网-zyling.ai-6366f1?logo=globe)](https://zyling.ai)
 
@@ -21,7 +21,7 @@
 一行命令安装，打开浏览器即可管理整个 AI 团队：配置每个成员的身份、灵魂、记忆、技能，设计组织架构，让成员之间互相协作讨论。
 
 > **发布状态**
-> 当前公开稳定版为 `26.8.1v14`；`26.8.1v12`、`26.8.1v13` 分别因前端重建不对称和 Tag 时序引入 VCS 元数据差异而撤回。正式版本先以不可见 Draft 候选存在，必须通过核心旅程、完整备份恢复、真实旧版更新、健康回滚，以及 SBOM、签名和构建来源验证后才一次性公开。
+> 当前公开稳定版为 `26.8.2v1`；`26.8.1v12`、`26.8.1v13` 分别因前端重建不对称和 Tag 时序引入 VCS 元数据差异而撤回。正式版本先以不可见 Draft 候选存在，必须通过核心旅程、完整备份恢复、真实旧版更新、健康回滚，以及 SBOM、签名和构建来源验证后才一次性公开。
 > 仓库已强制仅允许 `Zyling-ai` 提交身份；任一候选门禁失败都会保持 Draft，不会进入 latest 或公开分发。
 > 当前产品定位为单机、自托管 Beta，适合个人、小团队和可控环境部署；尚不承诺多租户、多实例、企业级高可用或关键业务连续性。
 > `pkg/aiteam/` 下的钱包、预算、评分、工资和收益模块属于实验能力，不作为稳定版默认商业承诺。
@@ -471,7 +471,7 @@ export ZYHIVE_AITEAM_REVENUE_SECRET="$(openssl rand -hex 32)"
 - [docs/aiteam-revenue-protocol.md](docs/aiteam-revenue-protocol.md) — ZyStudio webhook v1
 - [docs/aiteam-deploy-aws.md](docs/aiteam-deploy-aws.md) — AWS staging 部署
 
-> 历史记录：`26.5.10v6` 至 `26.5.10v24` 期间曾完成 19 次 staging 部署及对应 smoke；这不代表当前 `26.8.1v14` 仍运行在该 staging 环境。
+> 历史记录：`26.5.10v6` 至 `26.5.10v24` 期间曾完成 19 次 staging 部署及对应 smoke；这不代表当前 `26.8.2v1` 仍运行在该 staging 环境。
 
 ## 📄 License
 
