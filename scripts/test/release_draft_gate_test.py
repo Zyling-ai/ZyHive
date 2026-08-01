@@ -21,6 +21,7 @@ require("releases/${RELEASE_ID}" in WORKFLOW, "draft verification must use its d
 require("--jq '.draft'" in WORKFLOW, "draft state must be read without shell-escaped inline Python")
 require("uses: actions/upload-artifact@v4" in WORKFLOW, "verified draft assets must be staged for read-only runners")
 require("uses: actions/download-artifact@v4" in WORKFLOW, "native runners must consume the verified artifact")
+require("chmod +x dist/zyhive-* dist/install.sh" in WORKFLOW, "artifact mode loss must be repaired before execution")
 require("candidate-install-update:" in WORKFLOW, "candidate install/update gate is missing")
 require("needs: [supply-chain, candidate-install-update]" in WORKFLOW, "promotion must depend on every candidate gate")
 require("run: gh release edit \"$VERSION\" --repo \"$REPOSITORY\" --draft=false --latest" in WORKFLOW,

@@ -260,6 +260,7 @@ jobs:
           BINARY: zyhive-${{ matrix.name }}
           REPOSITORY: ${{ github.repository }}
         run: |
+          chmod +x dist/zyhive-* dist/install.sh
           bash scripts/release-supply-chain.sh verify-checksums dist
           if [[ -n "$PREVIOUS_VERSION" ]]; then
             mkdir previous
