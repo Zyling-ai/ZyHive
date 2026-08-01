@@ -4,14 +4,168 @@ on:
   release:
     types: [published]
 
+concurrency:
+  group: release-hardening-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
 permissions:
-  contents: write
+  contents: read
 
 jobs:
+  supply-chain:
+    name: SBOM, signing and provenance
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify exact release tag checkout
+        env:
+          VERSION: ${{ github.event.release.tag_name }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$(git rev-list -n 1 "$VERSION")"
+          git merge-base --is-ancestor HEAD origin/main
+          scripts/verify-commit-identity.sh
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.10'
+          cache: true
+
+      - name: Download exact release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ github.event.release.tag_name }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          mkdir dist
+          for asset in \
+            zyhive-linux-amd64 \
+            zyhive-linux-arm64 \
+            zyhive-darwin-amd64 \
+            zyhive-darwin-arm64 \
+            install.sh \
+            SHA256SUMS; do
+            gh release download "$VERSION" \
+              --repo "$REPOSITORY" \
+              --dir dist \
+              --pattern "$asset"
+          done
+          bash scripts/release-supply-chain.sh verify-checksums dist
+
+      - name: Rebuild and match exact tag assets
+        env:
+          VERSION: ${{ github.event.release.tag_name }}
+        run: |
+          mkdir rebuilt
+          for platform in \
+            "linux amd64" \
+            "linux arm64" \
+            "darwin amd64" \
+            "darwin arm64"; do
+            read -r goos goarch <<<"$platform"
+            name="zyhive-${goos}-${goarch}"
+            CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
+              go build -trimpath -ldflags="-s -w -X main.Version=${VERSION}" \
+              -o "rebuilt/$name" ./cmd/aipanel/
+            cmp "rebuilt/$name" "dist/$name"
+          done
+          cmp scripts/install.sh dist/install.sh
+
+      # 工具版本固定，升级必须经过仓库代码审查。
+      - name: Install Syft
+        uses: anchore/sbom-action/download-syft@v0.20.6
+        with:
+          syft-version: v1.29.0
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3.9.2
+        with:
+          cosign-release: v2.5.0
+
+      - name: Generate SPDX SBOMs
+        run: bash scripts/release-supply-chain.sh generate-sboms dist
+
+      - name: Attest release assets and SBOMs
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            dist/zyhive-linux-amd64
+            dist/zyhive-linux-arm64
+            dist/zyhive-darwin-amd64
+            dist/zyhive-darwin-arm64
+            dist/install.sh
+            dist/SHA256SUMS
+            dist/zyhive-linux-amd64.spdx.json
+            dist/zyhive-linux-arm64.spdx.json
+            dist/zyhive-darwin-amd64.spdx.json
+            dist/zyhive-darwin-arm64.spdx.json
+            dist/install.sh.spdx.json
+
+      - name: Sign assets, checksums and SBOMs with OIDC
+        run: bash scripts/release-supply-chain.sh sign dist
+
+      - name: Verify generated supply-chain files
+        env:
+          VERSION: ${{ github.event.release.tag_name }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          identity="https://github.com/${REPOSITORY}/.github/workflows/release-e2e.yml@refs/tags/${VERSION}"
+          bash scripts/release-supply-chain.sh verify dist "$identity"
+
+      - name: Upload SBOMs and Sigstore bundles
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ github.event.release.tag_name }}
+          REPOSITORY: ${{ github.repository }}
+        run: >-
+          gh release upload "$VERSION"
+          dist/*.spdx.json
+          dist/*.sigstore.json
+          --repo "$REPOSITORY"
+          --clobber
+
+      - name: Redownload and verify published files
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ github.event.release.tag_name }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          rm -rf verified
+          mkdir verified
+          assets=(
+            zyhive-linux-amd64
+            zyhive-linux-arm64
+            zyhive-darwin-amd64
+            zyhive-darwin-arm64
+            install.sh
+          )
+          signed=("${assets[@]}" SHA256SUMS "${assets[@]/%/.spdx.json}")
+          for file in "${signed[@]}"; do
+            gh release download "$VERSION" --repo "$REPOSITORY" --dir verified --pattern "$file"
+            gh release download "$VERSION" --repo "$REPOSITORY" --dir verified --pattern "${file}.sigstore.json"
+          done
+          identity="https://github.com/${REPOSITORY}/.github/workflows/release-e2e.yml@refs/tags/${VERSION}"
+          bash scripts/release-supply-chain.sh verify verified "$identity"
+          for file in "${signed[@]}"; do
+            gh attestation verify "verified/$file" --repo "$REPOSITORY"
+          done
+
   install-update:
     name: Install and update (${{ matrix.os }})
+    needs: supply-chain
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
+    permissions:
+      contents: read
     concurrency:
       group: release-e2e-${{ github.event.release.tag_name }}-${{ matrix.os }}
       cancel-in-progress: false
@@ -60,15 +214,24 @@ jobs:
 
   withdraw:
     name: Withdraw failed release
-    needs: install-update
-    if: ${{ always() && needs.install-update.result == 'failure' }}
+    needs: [supply-chain, install-update]
+    if: >-
+      ${{
+        always() &&
+        (
+          needs.supply-chain.result != 'success' ||
+          needs.install-update.result != 'success'
+        )
+      }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - name: Withdraw release when E2E fails
+      - name: Withdraw release when hardening fails
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ github.event.release.tag_name }}
         run: |
           gh release edit "$VERSION" --repo "${{ github.repository }}" --draft
-          echo "Release $VERSION failed installation/update E2E and was moved to draft." >&2
+          echo "Release $VERSION failed supply-chain or installation/update verification and was moved to draft." >&2
           exit 1

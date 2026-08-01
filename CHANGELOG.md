@@ -4,6 +4,15 @@
 
 ---
 
+## [26.8.1v12] — 2026-08-01 · 🧾 可验证软件供应链
+
+- 正式 Release 为四个平台二进制和安装器生成 SPDX 2.3 SBOM；
+- 使用 GitHub Actions OIDC 与 Sigstore keyless 为二进制、安装器、校验和及 SBOM 签名；
+- 使用 GitHub Artifact Attestations 为全部发布文件生成可验证构建来源；
+- 供应链工作流会从精确 Tag 重建二进制并逐字节比对已发布资产；
+- 上传后重新下载并验证摘要、签名身份和构建来源，任一步失败即撤回 Release；
+- 安装器支持 `--verify-signature` 严格模式，缺失 cosign、bundle 或身份不匹配时拒绝安装。
+
 ## [26.8.1v11] — 2026-08-01 · 💾 安全完整备份恢复
 
 - 新增版本化 `tar.gz` 备份格式，manifest 记录路径、类型、权限、大小和 SHA-256；

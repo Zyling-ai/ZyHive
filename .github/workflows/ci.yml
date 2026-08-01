@@ -126,6 +126,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: bash -n
         run: bash -n scripts/*.sh scripts/test/*.sh scripts/test/release-e2e/*.sh
+      - name: Release supply-chain contracts
+        run: bash scripts/test/release-supply-chain.sh
 
   release-smoke:
     name: Release E2E (install / API / update)

@@ -3,6 +3,7 @@
 # 用法:
 #   ./scripts/release.sh 26.8.1v1 --dry-run  # 只验证和构建，不发布
 #   ./scripts/release.sh 26.8.1v1            # 创建 GitHub Release
+#   ./scripts/release.sh --verify-supply-chain 26.8.1v1 ./release-assets
 set -euo pipefail
 
 VERSION="${1:-}"
@@ -11,6 +12,17 @@ REPO="${ZYHIVE_REPO:-Zyling-ai/ZyHive}"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DIST_DIR="${ZYHIVE_DIST_DIR:-/tmp/zyhive-release-${VERSION}}"
 DRY_RUN=false
+
+if [[ "$VERSION" == "--verify-supply-chain" ]]; then
+  VERIFY_VERSION="${2:-}"
+  VERIFY_DIR="${3:-}"
+  if [[ -z "$VERIFY_VERSION" || -z "$VERIFY_DIR" || "$#" -ne 3 ]]; then
+    echo "用法: $0 --verify-supply-chain <YY.M.DvN> <资产目录>" >&2
+    exit 2
+  fi
+  IDENTITY="${ZYHIVE_CERTIFICATE_IDENTITY:-https://github.com/${REPO}/.github/workflows/release-e2e.yml@refs/tags/${VERIFY_VERSION}}"
+  exec bash "$REPO_ROOT/scripts/release-supply-chain.sh" verify "$VERIFY_DIR" "$IDENTITY"
+fi
 
 if [[ -z "$VERSION" || ! "$VERSION" =~ ^[0-9]{2}\.[0-9]{1,2}\.[0-9]{1,2}v[0-9]+$ ]]; then
   echo "用法: $0 <YY.M.DvN> [--dry-run]  例如: $0 26.8.1v1 --dry-run" >&2
@@ -34,6 +46,11 @@ require_command() {
 for cmd in git go node npm curl python3; do
   require_command "$cmd"
 done
+
+if [[ "$(go env GOVERSION)" != "go1.25.10" ]]; then
+  echo "❌ 可复现正式构建需要 Go 1.25.10，当前为 $(go env GOVERSION)" >&2
+  exit 1
+fi
 
 node -e '
   const [major, minor] = process.versions.node.split(".").map(Number)
@@ -116,11 +133,12 @@ echo "🔐 [5/8] 生成 SHA-256 校验和..."
 (
   cd "$DIST_DIR"
   if command -v sha256sum >/dev/null 2>&1; then
-    sha256sum zyhive-* > SHA256SUMS
+    sha256sum zyhive-* install.sh > SHA256SUMS
   else
-    shasum -a 256 zyhive-* > SHA256SUMS
+    shasum -a 256 zyhive-* install.sh > SHA256SUMS
   fi
 )
+bash "$REPO_ROOT/scripts/release-supply-chain.sh" verify-checksums "$DIST_DIR"
 
 echo "🧭 [6/8] 隔离环境验证全新安装、基础功能与旧版更新..."
 scripts/test/release-e2e/run.sh local "$VERSION" "$DIST_DIR"
@@ -138,7 +156,8 @@ release_notes=$(cat <<EOF
 
 发布日期：$(date '+%Y-%m-%d')
 
-安装和升级前会使用随 Release 发布的 \`SHA256SUMS\` 校验二进制完整性。
+安装和升级默认使用随 Release 发布的 \`SHA256SUMS\` 校验二进制完整性；发布后供应链工作流会追加 SPDX SBOM、Sigstore keyless 签名和 GitHub 构建来源证明。
+需要验证发布者身份时，请使用安装器的 \`--verify-signature\` 严格模式或 \`release.sh --verify-supply-chain\`。
 具体变更见仓库 \`CHANGELOG.md\`。
 EOF
 )
