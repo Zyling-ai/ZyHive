@@ -471,7 +471,7 @@ export ZYHIVE_AITEAM_REVENUE_SECRET="$(openssl rand -hex 32)"
 - [docs/aiteam-revenue-protocol.md](docs/aiteam-revenue-protocol.md) — ZyStudio webhook v1
 - [docs/aiteam-deploy-aws.md](docs/aiteam-deploy-aws.md) — AWS staging 部署
 
-> 历史记录：`26.5.10v6` 至 `26.5.10v24` 期间曾完成 19 次 staging 部署及对应 smoke；这不代表当前 `26.8.1v7` 仍运行在该 staging 环境。
+> 历史记录：`26.5.10v6` 至 `26.5.10v24` 期间曾完成 19 次 staging 部署及对应 smoke；这不代表当前 `26.8.1v8` 仍运行在该 staging 环境。
 
 ## 📄 License
 
