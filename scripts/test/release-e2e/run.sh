@@ -406,13 +406,15 @@ verify_update_watchdog() {
   echo "  ✅ 更新守护：健康版本已确认，失联版本已原子恢复"
 }
 
+source "$REPO_ROOT/scripts/test/release-e2e/journeys.sh"
+
 run_local() {
   local dist_dir="$ARG3"
   local current_binary="$dist_dir/$BINARY_NAME"
   local old_version="00.0.0v0"
   local fixture_root="$TMP_ROOT/fixture"
   local old_binary="$TMP_ROOT/$BINARY_NAME.old"
-  local base fresh_home upgrade_home fresh_port upgrade_port config_before config_after
+  local base fresh_home journey_home upgrade_home fresh_port journey_port upgrade_port config_before config_after
   local current_sums valid_sums
 
   require_command go
@@ -439,6 +441,10 @@ run_local() {
   fresh_port="$(random_port)"
   run_installer "$INSTALL_SOURCE" "$fresh_home" "$fresh_port" "$base"
   basic_smoke "$fresh_home" "$VERSION" "fresh-install" crud
+
+  journey_home="$TMP_ROOT/home-journeys"
+  journey_port="$(random_port)"
+  verify_release_journeys "$INSTALL_SOURCE" "$journey_home" "$journey_port" "$base" "$base/v1"
 
   echo "▶ [Release E2E/local] 验证旧版更新与备份"
   upgrade_home="$TMP_ROOT/home-upgrade"
