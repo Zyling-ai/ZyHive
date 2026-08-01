@@ -318,14 +318,23 @@ set_fixture_latest() {
 start_fixture_server() {
   local fixture_root="$1"
   local port_file="$TMP_ROOT/fixture-port"
+  local attempts="${ZYHIVE_FIXTURE_START_ATTEMPTS:-300}"
+  [[ "$attempts" =~ ^[0-9]+$ ]] || attempts=300
   python3 "$SERVER_SCRIPT" "$fixture_root" "$port_file" >"$TMP_ROOT/fixture-server.log" 2>&1 &
   local pid=$!
   PIDS+=("$pid")
-  for _ in $(seq 1 50); do
+  for _ in $(seq 1 "$attempts"); do
     [[ -s "$port_file" ]] && break
+    if ! kill -0 "$pid" 2>/dev/null; then
+      break
+    fi
     sleep 0.1
   done
-  [[ -s "$port_file" ]] || fail "本地 Release 服务启动失败"
+  if [[ ! -s "$port_file" ]]; then
+    echo "本地 Release 服务日志：" >&2
+    [[ -f "$TMP_ROOT/fixture-server.log" ]] && while IFS= read -r line; do echo "$line" >&2; done <"$TMP_ROOT/fixture-server.log"
+    fail "本地 Release 服务启动失败"
+  fi
   FIXTURE_BASE="http://127.0.0.1:$(<"$port_file")"
 }
 
