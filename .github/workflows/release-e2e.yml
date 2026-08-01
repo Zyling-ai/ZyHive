@@ -8,6 +8,14 @@ on:
         description: Existing draft release tag to validate and publish
         required: true
         type: string
+      candidate_sha:
+        description: Exact main commit used to build the draft assets
+        required: true
+        type: string
+      release_id:
+        description: Database ID of the existing private draft release
+        required: true
+        type: string
       previous_version:
         description: Previous stable release used by update tests
         required: false
@@ -33,7 +41,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.version }}
+          ref: ${{ inputs.candidate_sha }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -41,11 +49,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ inputs.version }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          RELEASE_ID: ${{ inputs.release_id }}
           REPOSITORY: ${{ github.repository }}
         run: |
           test "$GITHUB_REF" = "refs/heads/main"
-          test "$(gh api "repos/${REPOSITORY}/releases/tags/${VERSION}" --jq '.draft')" = "true"
-          test "$(git rev-parse HEAD)" = "$(git rev-list -n 1 "$VERSION")"
+          release="$(gh api "repos/${REPOSITORY}/releases/${RELEASE_ID}")"
+          test "$(python3 -c 'import json,sys; print(str(json.load(sys.stdin)[\"draft\"]).lower())' <<<"$release")" = "true"
+          test "$(python3 -c 'import json,sys; print(json.load(sys.stdin)[\"tag_name\"])' <<<"$release")" = "$VERSION"
+          test "$(python3 -c 'import json,sys; print(json.load(sys.stdin)[\"target_commitish\"])' <<<"$release")" = "$CANDIDATE_SHA"
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
           git merge-base --is-ancestor HEAD origin/main
           scripts/verify-commit-identity.sh
 
@@ -214,7 +227,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.version }}
+          ref: ${{ inputs.candidate_sha }}
 
       - uses: actions/setup-go@v5
         with:
@@ -263,13 +276,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ inputs.version }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          RELEASE_ID: ${{ inputs.release_id }}
           REPOSITORY: ${{ github.repository }}
         run: |
-          release="$(gh api "repos/${REPOSITORY}/releases/tags/${VERSION}")"
+          release="$(gh api "repos/${REPOSITORY}/releases/${RELEASE_ID}")"
           test "$(python3 -c 'import json,sys; print(str(json.load(sys.stdin)[\"draft\"]).lower())' <<<"$release")" = "true"
-          target="$(git ls-remote "https://github.com/${REPOSITORY}.git" "refs/tags/${VERSION}" | awk '{print $1}')"
-          test -n "$target"
-          test "$target" = "$(gh api "repos/${REPOSITORY}/git/ref/tags/${VERSION}" --jq '.object.sha')"
+          test "$(python3 -c 'import json,sys; print(json.load(sys.stdin)[\"tag_name\"])' <<<"$release")" = "$VERSION"
+          target="$(python3 -c 'import json,sys; print(json.load(sys.stdin)[\"target_commitish\"])' <<<"$release")"
+          test "$target" = "$CANDIDATE_SHA"
 
       - name: Publish verified candidate
         env:

@@ -16,6 +16,8 @@ def require(condition: bool, message: str) -> None:
 
 require("workflow_dispatch:" in WORKFLOW, "release gate must be explicitly dispatched")
 require("types: [published]" not in WORKFLOW, "validation must not start after publication")
+require("ref: ${{ inputs.candidate_sha }}" in WORKFLOW, "draft candidates must be checked out by immutable commit")
+require("releases/${RELEASE_ID}" in WORKFLOW, "draft verification must use its database ID before a tag exists")
 require("candidate-install-update:" in WORKFLOW, "candidate install/update gate is missing")
 require("needs: [supply-chain, candidate-install-update]" in WORKFLOW, "promotion must depend on every candidate gate")
 require("run: gh release edit \"$VERSION\" --repo \"$REPOSITORY\" --draft=false --latest" in WORKFLOW,
@@ -28,6 +30,8 @@ draft_at = SCRIPT.index("--draft")
 dispatch_at = SCRIPT.index("gh workflow run release-e2e.yml")
 require(draft_at < dispatch_at, "draft must exist before candidate validation starts")
 require("gh release create \"$VERSION\"" in SCRIPT, "release script must create the candidate")
+require("-f \"candidate_sha=$candidate_sha\"" in SCRIPT, "dispatch must bind the candidate commit")
+require("-f \"release_id=$release_id\"" in SCRIPT, "dispatch must bind the private draft identity")
 require("gh release edit \"$VERSION\" --repo \"$REPO\" --draft" not in SCRIPT,
         "local script must never publish or withdraw around failed validation")
 require("gh run watch \"$run_id\"" in SCRIPT, "release script must wait for the promotion workflow")

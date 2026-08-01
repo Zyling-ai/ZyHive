@@ -178,6 +178,10 @@ gh release create "$VERSION" \
   --title "$VERSION" \
   --notes "$release_notes" \
   --draft
+candidate_sha="$(git rev-parse HEAD)"
+release_id="$(
+  gh release view "$VERSION" --repo "$REPO" --json databaseId --jq '.databaseId'
+)"
 
 echo "☁️  [8/9] 触发四平台候选验证、供应链签名与唯一发布门..."
 previous_run_id="$(
@@ -195,6 +199,8 @@ gh workflow run release-e2e.yml \
   --repo "$REPO" \
   --ref main \
   -f "version=$VERSION" \
+  -f "candidate_sha=$candidate_sha" \
+  -f "release_id=$release_id" \
   -f "previous_version=$PREVIOUS_VERSION"
 
 run_id=""
