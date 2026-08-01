@@ -131,3 +131,133 @@ func ResolveSecretRefs(cfg *Config) error {
 
 	return nil
 }
+
+// preserveSecretRefs copies unchanged credential references from the on-disk
+// config into the serialized candidate. Runtime snapshots keep resolved values.
+func preserveSecretRefs(path string, before, candidate *Config) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	var disk Config
+	if json.Unmarshal(data, &disk) != nil {
+		return
+	}
+
+	beforeProviders := providersByID(before.Providers)
+	for i := range candidate.Providers {
+		raw, ok := providerByID(disk.Providers, candidate.Providers[i].ID)
+		old, existed := beforeProviders[candidate.Providers[i].ID]
+		if ok && existed && candidate.Providers[i].APIKey == old.APIKey && isSecretRef(raw.APIKey) {
+			candidate.Providers[i].APIKey = raw.APIKey
+		}
+	}
+	beforeModels := modelsByID(before.Models)
+	for i := range candidate.Models {
+		raw, ok := modelByID(disk.Models, candidate.Models[i].ID)
+		old, existed := beforeModels[candidate.Models[i].ID]
+		if ok && existed && candidate.Models[i].APIKey == old.APIKey && isSecretRef(raw.APIKey) {
+			candidate.Models[i].APIKey = raw.APIKey
+		}
+	}
+	beforeTools := toolsByID(before.Tools)
+	for i := range candidate.Tools {
+		raw, ok := toolByID(disk.Tools, candidate.Tools[i].ID)
+		old, existed := beforeTools[candidate.Tools[i].ID]
+		if ok && existed && candidate.Tools[i].APIKey == old.APIKey && isSecretRef(raw.APIKey) {
+			candidate.Tools[i].APIKey = raw.APIKey
+		}
+	}
+	beforeChannels := channelsByID(before.Channels)
+	for i := range candidate.Channels {
+		raw, ok := channelByID(disk.Channels, candidate.Channels[i].ID)
+		old, existed := beforeChannels[candidate.Channels[i].ID]
+		if !ok || !existed {
+			continue
+		}
+		for key, rawValue := range raw.Config {
+			if isSecretRef(rawValue) && candidate.Channels[i].Config[key] == old.Config[key] {
+				candidate.Channels[i].Config[key] = rawValue
+			}
+		}
+	}
+	if candidate.Auth.Token == before.Auth.Token && isSecretRef(disk.Auth.Token) {
+		candidate.Auth.Token = disk.Auth.Token
+	}
+}
+
+func isSecretRef(value string) bool {
+	var ref secretRef
+	if json.Unmarshal([]byte(strings.TrimSpace(value)), &ref) != nil {
+		return false
+	}
+	return (ref.Env != "") != (ref.File != "")
+}
+
+func providersByID(values []ProviderEntry) map[string]ProviderEntry {
+	out := make(map[string]ProviderEntry, len(values))
+	for _, value := range values {
+		out[value.ID] = value
+	}
+	return out
+}
+
+func providerByID(values []ProviderEntry, id string) (ProviderEntry, bool) {
+	for _, value := range values {
+		if value.ID == id {
+			return value, true
+		}
+	}
+	return ProviderEntry{}, false
+}
+
+func modelsByID(values []ModelEntry) map[string]ModelEntry {
+	out := make(map[string]ModelEntry, len(values))
+	for _, value := range values {
+		out[value.ID] = value
+	}
+	return out
+}
+
+func modelByID(values []ModelEntry, id string) (ModelEntry, bool) {
+	for _, value := range values {
+		if value.ID == id {
+			return value, true
+		}
+	}
+	return ModelEntry{}, false
+}
+
+func toolsByID(values []ToolEntry) map[string]ToolEntry {
+	out := make(map[string]ToolEntry, len(values))
+	for _, value := range values {
+		out[value.ID] = value
+	}
+	return out
+}
+
+func toolByID(values []ToolEntry, id string) (ToolEntry, bool) {
+	for _, value := range values {
+		if value.ID == id {
+			return value, true
+		}
+	}
+	return ToolEntry{}, false
+}
+
+func channelsByID(values []ChannelEntry) map[string]ChannelEntry {
+	out := make(map[string]ChannelEntry, len(values))
+	for _, value := range values {
+		out[value.ID] = value
+	}
+	return out
+}
+
+func channelByID(values []ChannelEntry, id string) (ChannelEntry, bool) {
+	for _, value := range values {
+		if value.ID == id {
+			return value, true
+		}
+	}
+	return ChannelEntry{}, false
+}

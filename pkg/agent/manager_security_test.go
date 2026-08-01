@@ -60,3 +60,24 @@ func TestManagerRemoveRejectsTamperedWorkspacePath(t *testing.T) {
 		t.Fatalf("managed agent directory was removed: %v", err)
 	}
 }
+
+func TestUpdateAgentDoesNotPublishFailedWrite(t *testing.T) {
+	root := t.TempDir()
+	manager := NewManager(root)
+	agent, err := manager.Create("safe", "before", "model")
+	if err != nil {
+		t.Fatal(err)
+	}
+	agentDir := filepath.Join(root, "safe")
+	if err := os.Chmod(agentDir, 0500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(agentDir, 0700) })
+	after := "after"
+	if err := manager.UpdateAgent("safe", UpdateOpts{Name: &after}); err == nil {
+		t.Fatal("expected update to fail in read-only directory")
+	}
+	if agent.Name != "before" {
+		t.Fatalf("failed update published name %q", agent.Name)
+	}
+}

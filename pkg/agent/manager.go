@@ -18,6 +18,7 @@ import (
 	"github.com/Zyling-ai/zyhive/pkg/config"
 	"github.com/Zyling-ai/zyhive/pkg/memory"
 	"github.com/Zyling-ai/zyhive/pkg/network"
+	"github.com/Zyling-ai/zyhive/pkg/persist"
 	"github.com/Zyling-ai/zyhive/pkg/safefs"
 )
 
@@ -323,7 +324,7 @@ func (m *Manager) CreateWithOpts(opts CreateOpts) (*Agent, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := os.WriteFile(filepath.Join(agentDir, "config.json"), cfgData, 0600); err != nil {
+	if err := persist.WriteFile(filepath.Join(agentDir, "config.json"), cfgData, 0600); err != nil {
 		return nil, fmt.Errorf("write config.json: %w", err)
 	}
 
@@ -431,55 +432,57 @@ func (m *Manager) UpdateAgent(agentID string, opts UpdateOpts) error {
 		return fmt.Errorf("parse config.json: %w", err)
 	}
 
+	candidate := *ag
 	if opts.Name != nil {
 		cfg.Name = *opts.Name
-		ag.Name = *opts.Name
+		candidate.Name = *opts.Name
 	}
 	if opts.Description != nil {
 		cfg.Description = *opts.Description
-		ag.Description = *opts.Description
+		candidate.Description = *opts.Description
 	}
 	if opts.ModelID != nil {
 		cfg.ModelID = *opts.ModelID
-		ag.ModelID = *opts.ModelID
+		candidate.ModelID = *opts.ModelID
 	}
 	if opts.Model != nil {
 		cfg.Model = *opts.Model
-		ag.Model = *opts.Model
+		candidate.Model = *opts.Model
 	}
 	if opts.AvatarColor != nil {
 		cfg.AvatarColor = *opts.AvatarColor
-		ag.AvatarColor = *opts.AvatarColor
+		candidate.AvatarColor = *opts.AvatarColor
 	}
 	if opts.ToolIDs != nil {
 		cfg.ToolIDs = opts.ToolIDs
-		ag.ToolIDs = opts.ToolIDs
+		candidate.ToolIDs = append([]string(nil), opts.ToolIDs...)
 	}
 	if opts.SkillIDs != nil {
 		cfg.SkillIDs = opts.SkillIDs
-		ag.SkillIDs = opts.SkillIDs
+		candidate.SkillIDs = append([]string(nil), opts.SkillIDs...)
 	}
 	if opts.Env != nil {
 		cfg.Env = opts.Env
-		ag.Env = opts.Env
+		candidate.Env = cloneStringMap(opts.Env)
 	}
 	if opts.HeartbeatSet {
 		cfg.Heartbeat = opts.Heartbeat
-		ag.Heartbeat = opts.Heartbeat
+		candidate.Heartbeat = opts.Heartbeat
 	}
 	if opts.ToolPolicySet {
 		cfg.ToolPolicyRaw = opts.ToolPolicyRaw
-		ag.ToolPolicyRaw = opts.ToolPolicyRaw
+		candidate.ToolPolicyRaw = append(json.RawMessage(nil), opts.ToolPolicyRaw...)
 	}
 
 	out, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal config.json: %w", err)
 	}
-	if err := os.WriteFile(cfgPath, out, 0600); err != nil {
+	if err := persist.WriteFile(cfgPath, out, 0600); err != nil {
 		return err
 	}
-	return os.Chmod(cfgPath, 0600)
+	*ag = candidate
+	return nil
 }
 
 // SetAgentEnvVar sets or deletes a single environment variable for an agent.
@@ -516,8 +519,6 @@ func (m *Manager) UpdateChannels(agentID string, channels []config.ChannelEntry)
 		return fmt.Errorf("agent %q not found", agentID)
 	}
 
-	ag.Channels = channels
-
 	// Read existing config.json, update channels, write back
 	agentDir := filepath.Join(m.rootDir, agentID)
 	cfgPath := filepath.Join(agentDir, "config.json")
@@ -530,15 +531,17 @@ func (m *Manager) UpdateChannels(agentID string, channels []config.ChannelEntry)
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return fmt.Errorf("parse config.json: %w", err)
 	}
-	cfg.Channels = channels
+	clonedChannels := cloneChannels(channels)
+	cfg.Channels = clonedChannels
 	out, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(cfgPath, out, 0600); err != nil {
+	if err := persist.WriteFile(cfgPath, out, 0600); err != nil {
 		return err
 	}
-	return os.Chmod(cfgPath, 0600)
+	ag.Channels = clonedChannels
+	return nil
 }
 
 // UpdateChannelStatus sets the status (and optionally botName) for a specific channel.
@@ -551,15 +554,16 @@ func (m *Manager) UpdateChannelStatus(agentID, channelID, status, botName string
 	if !ok {
 		return
 	}
+	channels := cloneChannels(ag.Channels)
 	changed := false
-	for i := range ag.Channels {
-		if ag.Channels[i].ID == channelID {
-			ag.Channels[i].Status = status
+	for i := range channels {
+		if channels[i].ID == channelID {
+			channels[i].Status = status
 			if botName != "" {
-				if ag.Channels[i].Config == nil {
-					ag.Channels[i].Config = map[string]string{}
+				if channels[i].Config == nil {
+					channels[i].Config = map[string]string{}
 				}
-				ag.Channels[i].Config["botName"] = botName
+				channels[i].Config["botName"] = botName
 			}
 			changed = true
 			break
@@ -579,11 +583,36 @@ func (m *Manager) UpdateChannelStatus(agentID, channelID, status, botName string
 	if json.Unmarshal(data, &cfg) != nil {
 		return
 	}
-	cfg.Channels = ag.Channels
+	cfg.Channels = channels
 	out, _ := json.MarshalIndent(cfg, "", "  ")
-	if err := os.WriteFile(cfgPath, out, 0600); err == nil {
-		_ = os.Chmod(cfgPath, 0600)
+	if err := persist.WriteFile(cfgPath, out, 0600); err != nil {
+		log.Printf("[manager] failed to persist channel status for agent %s: %v", agentID, err)
+		return
 	}
+	ag.Channels = channels
+}
+
+func cloneStringMap(source map[string]string) map[string]string {
+	if source == nil {
+		return nil
+	}
+	cloned := make(map[string]string, len(source))
+	for key, value := range source {
+		cloned[key] = value
+	}
+	return cloned
+}
+
+func cloneChannels(source []config.ChannelEntry) []config.ChannelEntry {
+	if source == nil {
+		return nil
+	}
+	cloned := make([]config.ChannelEntry, len(source))
+	for i, entry := range source {
+		cloned[i] = entry
+		cloned[i].Config = cloneStringMap(entry.Config)
+	}
+	return cloned
 }
 
 // FindAgentByBotToken returns the agent and channel that use the given bot token,

@@ -2,10 +2,11 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 
-	"github.com/gin-gonic/gin"
 	"github.com/Zyling-ai/zyhive/pkg/config"
+	"github.com/gin-gonic/gin"
 )
 
 type skillHandler struct {
@@ -15,7 +16,12 @@ type skillHandler struct {
 
 // List GET /api/skills
 func (h *skillHandler) List(c *gin.Context) {
-	skills := h.cfg.Skills
+	snapshot, err := config.Snapshot(h.cfg)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	skills := snapshot.Skills
 	if skills == nil {
 		skills = []config.SkillEntry{}
 	}
@@ -33,41 +39,62 @@ func (h *skillHandler) Install(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "id is required"})
 		return
 	}
-	for _, s := range h.cfg.Skills {
-		if s.ID == entry.ID {
-			c.JSON(http.StatusConflict, gin.H{"error": "skill id already exists"})
-			return
-		}
-	}
 	if entry.Version == "" {
 		entry.Version = "1.0.0"
 	}
 	entry.Enabled = true
-	h.cfg.Skills = append(h.cfg.Skills, entry)
-	h.save(c)
+	err := config.Transaction(h.path(), h.cfg, func(candidate *config.Config) error {
+		for _, skill := range candidate.Skills {
+			if skill.ID == entry.ID {
+				return errSkillExists
+			}
+		}
+		candidate.Skills = append(candidate.Skills, entry)
+		return nil
+	})
+	if errors.Is(err, errSkillExists) {
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "save config: " + err.Error()})
+		return
+	}
 	c.JSON(http.StatusCreated, entry)
 }
 
 // Delete DELETE /api/skills/:id
 func (h *skillHandler) Delete(c *gin.Context) {
 	id := c.Param("id")
-	for i := range h.cfg.Skills {
-		if h.cfg.Skills[i].ID == id {
-			h.cfg.Skills = append(h.cfg.Skills[:i], h.cfg.Skills[i+1:]...)
-			h.save(c)
-			c.JSON(http.StatusOK, gin.H{"ok": true})
-			return
+	err := config.Transaction(h.path(), h.cfg, func(candidate *config.Config) error {
+		for i := range candidate.Skills {
+			if candidate.Skills[i].ID == id {
+				candidate.Skills = append(candidate.Skills[:i], candidate.Skills[i+1:]...)
+				return nil
+			}
 		}
+		return errSkillNotFound
+	})
+	if errors.Is(err, errSkillNotFound) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "skill not found"})
+		return
 	}
-	c.JSON(http.StatusNotFound, gin.H{"error": "skill not found"})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "save config: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
-func (h *skillHandler) save(c *gin.Context) {
+func (h *skillHandler) path() string {
 	path := h.configPath
 	if path == "" {
 		path = "aipanel.json"
 	}
-	if err := config.Save(path, h.cfg); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "save config: " + err.Error()})
-	}
+	return path
 }
+
+var (
+	errSkillExists   = errors.New("skill id already exists")
+	errSkillNotFound = errors.New("skill not found")
+)

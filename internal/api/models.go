@@ -3,6 +3,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -28,13 +29,18 @@ type ModelWithProviderStatus struct {
 
 // List GET /api/models
 func (h *modelHandler) List(c *gin.Context) {
-	models := h.cfg.Models
+	snapshot, err := config.Snapshot(h.cfg)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	models := snapshot.Models
 	if models == nil {
 		models = []config.ModelEntry{}
 	}
 	// 构造 provider 状态 map
-	provStatus := make(map[string]string, len(h.cfg.Providers))
-	for _, p := range h.cfg.Providers {
+	provStatus := make(map[string]string, len(snapshot.Providers))
+	for _, p := range snapshot.Providers {
 		provStatus[p.ID] = p.Status
 	}
 	// Mask keys in response + 注入 supportsTools 计算结果 + 附加 providerStatus
@@ -66,33 +72,49 @@ func (h *modelHandler) Create(c *gin.Context) {
 	entry.Name = strings.TrimSpace(entry.Name)
 	entry.Provider = strings.TrimSpace(entry.Provider)
 	entry.Model = strings.TrimSpace(entry.Model)
-	if err := h.validateModelEntry(&entry); err != nil {
+	snapshot, err := config.Snapshot(h.cfg)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if err := validateModelEntry(&entry, snapshot); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 	entry.BaseURL = strings.TrimRight(strings.TrimSpace(entry.BaseURL), "/")
-	_, effectiveBaseURL := config.ResolveCredentials(&entry, h.cfg.Providers)
+	_, effectiveBaseURL := config.ResolveCredentials(&entry, snapshot.Providers)
 	if err := llm.ValidateProviderBaseURL(c.Request.Context(), entry.Provider, effectiveBaseURL); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "baseUrl is blocked: " + err.Error()})
 		return
 	}
-	// Check duplicate
-	for _, m := range h.cfg.Models {
-		if m.ID == entry.ID {
-			c.JSON(http.StatusConflict, gin.H{"error": "model id already exists"})
-			return
-		}
-	}
 	if entry.Status == "" {
 		entry.Status = "untested"
 	}
-	h.cfg.Models = append(h.cfg.Models, entry)
-	h.save(c)
+	err = config.Transaction(h.path(), h.cfg, func(candidate *config.Config) error {
+		if err := validateModelEntry(&entry, candidate); err != nil {
+			return err
+		}
+		for _, model := range candidate.Models {
+			if model.ID == entry.ID {
+				return errModelExists
+			}
+		}
+		candidate.Models = append(candidate.Models, entry)
+		return nil
+	})
+	if errors.Is(err, errModelExists) {
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "save config: " + err.Error()})
+		return
+	}
 	entry.APIKey = maskKey(entry.APIKey)
 	c.JSON(http.StatusCreated, entry)
 }
 
-func (h *modelHandler) validateModelEntry(entry *config.ModelEntry) error {
+func validateModelEntry(entry *config.ModelEntry, cfg *config.Config) error {
 	switch {
 	case entry.ID == "":
 		return fmt.Errorf("id is required")
@@ -106,7 +128,7 @@ func (h *modelHandler) validateModelEntry(entry *config.ModelEntry) error {
 	if entry.ProviderID == "" {
 		return nil
 	}
-	provider := h.cfg.FindProvider(entry.ProviderID)
+	provider := cfg.FindProvider(entry.ProviderID)
 	if provider == nil {
 		return fmt.Errorf("providerId %q does not exist", entry.ProviderID)
 	}
@@ -124,64 +146,89 @@ func (h *modelHandler) Update(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	for i := range h.cfg.Models {
-		if h.cfg.Models[i].ID == id {
-			m := &h.cfg.Models[i]
-			effectiveProvider := m.Provider
-			if patch.Provider != "" {
-				effectiveProvider = patch.Provider
-			}
-			validatedBaseURL := m.BaseURL
-			if patch.BaseURL != "" {
-				validatedBaseURL = strings.TrimRight(strings.TrimSpace(patch.BaseURL), "/")
-			}
-			if patch.Provider != "" || patch.BaseURL != "" {
-				if err := llm.ValidateProviderBaseURL(c.Request.Context(), effectiveProvider, validatedBaseURL); err != nil {
-					c.JSON(http.StatusBadRequest, gin.H{"error": "baseUrl is blocked: " + err.Error()})
-					return
+	var result config.ModelEntry
+	err := config.Transaction(h.path(), h.cfg, func(candidate *config.Config) error {
+		for i := range candidate.Models {
+			if candidate.Models[i].ID == id {
+				m := &candidate.Models[i]
+				effectiveProvider := m.Provider
+				if patch.Provider != "" {
+					effectiveProvider = patch.Provider
 				}
+				validatedBaseURL := m.BaseURL
+				if patch.BaseURL != "" {
+					validatedBaseURL = strings.TrimRight(strings.TrimSpace(patch.BaseURL), "/")
+				}
+				if patch.Provider != "" || patch.BaseURL != "" {
+					if err := llm.ValidateProviderBaseURL(c.Request.Context(), effectiveProvider, validatedBaseURL); err != nil {
+						return fmt.Errorf("baseUrl is blocked: %w", err)
+					}
+				}
+				if patch.Name != "" {
+					m.Name = patch.Name
+				}
+				if patch.Provider != "" {
+					m.Provider = patch.Provider
+				}
+				if patch.Model != "" {
+					m.Model = patch.Model
+				}
+				if patch.APIKey != "" && !ismasked(patch.APIKey) {
+					m.APIKey = patch.APIKey
+				}
+				if patch.BaseURL != "" {
+					m.BaseURL = validatedBaseURL
+				}
+				m.IsDefault = patch.IsDefault
+				if patch.Status != "" {
+					m.Status = patch.Status
+				}
+				if err := validateModelEntry(m, candidate); err != nil {
+					return err
+				}
+				result = *m
+				return nil
 			}
-			if patch.Name != "" {
-				m.Name = patch.Name
-			}
-			if patch.Provider != "" {
-				m.Provider = patch.Provider
-			}
-			if patch.Model != "" {
-				m.Model = patch.Model
-			}
-			if patch.APIKey != "" && !ismasked(patch.APIKey) {
-				m.APIKey = patch.APIKey
-			}
-			if patch.BaseURL != "" {
-				m.BaseURL = validatedBaseURL
-			}
-			m.IsDefault = patch.IsDefault
-			if patch.Status != "" {
-				m.Status = patch.Status
-			}
-			h.save(c)
-			result := *m
-			result.APIKey = maskKey(result.APIKey)
-			c.JSON(http.StatusOK, result)
-			return
 		}
+		return errModelNotFound
+	})
+	if errors.Is(err, errModelNotFound) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "model not found"})
+		return
 	}
-	c.JSON(http.StatusNotFound, gin.H{"error": "model not found"})
+	if err != nil {
+		status := http.StatusInternalServerError
+		if strings.Contains(err.Error(), "baseUrl is blocked") || strings.Contains(err.Error(), "providerId") {
+			status = http.StatusBadRequest
+		}
+		c.JSON(status, gin.H{"error": err.Error()})
+		return
+	}
+	result.APIKey = maskKey(result.APIKey)
+	c.JSON(http.StatusOK, result)
 }
 
 // Delete DELETE /api/models/:id
 func (h *modelHandler) Delete(c *gin.Context) {
 	id := c.Param("id")
-	for i := range h.cfg.Models {
-		if h.cfg.Models[i].ID == id {
-			h.cfg.Models = append(h.cfg.Models[:i], h.cfg.Models[i+1:]...)
-			h.save(c)
-			c.JSON(http.StatusOK, gin.H{"ok": true})
-			return
+	err := config.Transaction(h.path(), h.cfg, func(candidate *config.Config) error {
+		for i := range candidate.Models {
+			if candidate.Models[i].ID == id {
+				candidate.Models = append(candidate.Models[:i], candidate.Models[i+1:]...)
+				return nil
+			}
 		}
+		return errModelNotFound
+	})
+	if errors.Is(err, errModelNotFound) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "model not found"})
+		return
 	}
-	c.JSON(http.StatusNotFound, gin.H{"error": "model not found"})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "save config: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
 // resolveKey returns the effective API key for a model:
@@ -212,12 +259,17 @@ func resolveKeyWithProviders(m *config.ModelEntry, providers []config.ProviderEn
 // Test POST /api/models/:id/test
 func (h *modelHandler) Test(c *gin.Context) {
 	id := c.Param("id")
-	m := h.cfg.FindModel(id)
+	snapshot, err := config.Snapshot(h.cfg)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	m := snapshot.FindModel(id)
 	if m == nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "model not found"})
 		return
 	}
-	key := resolveKeyWithProviders(m, h.cfg.Providers)
+	key := resolveKeyWithProviders(m, snapshot.Providers)
 	if key == "" && llm.RequiresAPIKey(m.Provider) {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"valid": false,
@@ -225,7 +277,7 @@ func (h *modelHandler) Test(c *gin.Context) {
 		})
 		return
 	}
-	_, resolvedBase := config.ResolveCredentials(m, h.cfg.Providers)
+	_, resolvedBase := config.ResolveCredentials(m, snapshot.Providers)
 	var valid bool
 	var errMsg string
 	switch m.Provider {
@@ -247,12 +299,21 @@ func (h *modelHandler) Test(c *gin.Context) {
 		// 通用 OpenAI-compatible 尝试
 		valid, errMsg = testOpenAICompatKey(m.Provider, key, resolvedBase)
 	}
+	status := "error"
 	if valid {
-		m.Status = "ok"
-	} else {
-		m.Status = "error"
+		status = "ok"
 	}
-	h.save(c)
+	if err := config.Transaction(h.path(), h.cfg, func(candidate *config.Config) error {
+		model := candidate.FindModel(id)
+		if model == nil {
+			return errModelNotFound
+		}
+		model.Status = status
+		return nil
+	}); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "save config: " + err.Error()})
+		return
+	}
 	result := gin.H{"valid": valid}
 	if errMsg != "" {
 		result["error"] = errMsg
@@ -347,7 +408,12 @@ func (h *modelHandler) FetchModels(c *gin.Context) {
 
 	// 优先从 ProviderEntry 取 key 和 baseURL
 	if providerID != "" {
-		if p := h.cfg.FindProvider(providerID); p != nil {
+		snapshot, err := config.Snapshot(h.cfg)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		if p := snapshot.FindProvider(providerID); p != nil {
 			if apiKey == "" {
 				apiKey = p.APIKey
 			}
@@ -509,15 +575,18 @@ func truncate(s string, n int) string {
 	return s[:n] + "..."
 }
 
-func (h *modelHandler) save(c *gin.Context) {
+func (h *modelHandler) path() string {
 	path := h.configPath
 	if path == "" {
 		path = "aipanel.json"
 	}
-	if err := config.Save(path, h.cfg); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "save config: " + err.Error()})
-	}
+	return path
 }
+
+var (
+	errModelExists   = errors.New("model id already exists")
+	errModelNotFound = errors.New("model not found")
+)
 
 func ismasked(s string) bool {
 	return len(s) > 3 && s[len(s)-3:] == "***"

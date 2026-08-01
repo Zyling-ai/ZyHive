@@ -4,7 +4,7 @@
 package api
 
 import (
-	"fmt"
+	"errors"
 	"net/http"
 	"os"
 	"strings"
@@ -21,7 +21,12 @@ type providerHandler struct {
 
 // List GET /api/providers
 func (h *providerHandler) List(c *gin.Context) {
-	providers := h.cfg.Providers
+	snapshot, err := config.Snapshot(h.cfg)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	providers := snapshot.Providers
 	if providers == nil {
 		providers = []config.ProviderEntry{}
 	}
@@ -39,7 +44,7 @@ func (h *providerHandler) List(c *gin.Context) {
 	for _, p := range providers {
 		masked := maskKey(p.APIKey)
 		cnt := 0
-		for _, m := range h.cfg.Models {
+		for _, m := range snapshot.Models {
 			if m.ProviderID == p.ID {
 				cnt++
 			}
@@ -93,25 +98,34 @@ func (h *providerHandler) Create(c *gin.Context) {
 		BaseURL:  baseURL,
 		Status:   "untested",
 	}
-	h.cfg.Providers = append(h.cfg.Providers, entry)
-	if err := config.Save(h.configPath, h.cfg); err != nil {
+	if err := config.Transaction(h.configPath, h.cfg, func(candidate *config.Config) error {
+		candidate.Providers = append(candidate.Providers, entry)
+		return nil
+	}); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"provider": entry})
+	response := entry
+	response.APIKey = maskKey(response.APIKey)
+	c.JSON(http.StatusOK, gin.H{"provider": response})
 }
 
 // Update PUT /api/providers/:id
 func (h *providerHandler) Update(c *gin.Context) {
 	id := c.Param("id")
-	var p *config.ProviderEntry
-	for i := range h.cfg.Providers {
-		if h.cfg.Providers[i].ID == id {
-			p = &h.cfg.Providers[i]
+	snapshot, err := config.Snapshot(h.cfg)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	var current *config.ProviderEntry
+	for i := range snapshot.Providers {
+		if snapshot.Providers[i].ID == id {
+			current = &snapshot.Providers[i]
 			break
 		}
 	}
-	if p == nil {
+	if current == nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "provider not found"})
 		return
 	}
@@ -127,60 +141,81 @@ func (h *providerHandler) Update(c *gin.Context) {
 	var validatedBaseURL *string
 	if body.BaseURL != nil {
 		baseURL := strings.TrimRight(strings.TrimSpace(*body.BaseURL), "/")
-		if err := llm.ValidateProviderBaseURL(c.Request.Context(), p.Provider, baseURL); err != nil {
+		if err := llm.ValidateProviderBaseURL(c.Request.Context(), current.Provider, baseURL); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "baseUrl is blocked: " + err.Error()})
 			return
 		}
 		validatedBaseURL = &baseURL
 	}
-	if body.Name != nil && strings.TrimSpace(*body.Name) != "" {
-		p.Name = strings.TrimSpace(*body.Name)
+	var updated config.ProviderEntry
+	err = config.Transaction(h.configPath, h.cfg, func(candidate *config.Config) error {
+		for i := range candidate.Providers {
+			if candidate.Providers[i].ID != id {
+				continue
+			}
+			p := &candidate.Providers[i]
+			if body.Name != nil && strings.TrimSpace(*body.Name) != "" {
+				p.Name = strings.TrimSpace(*body.Name)
+			}
+			if body.APIKey != nil && strings.TrimSpace(*body.APIKey) != "" && !ismasked(*body.APIKey) {
+				p.APIKey = strings.TrimSpace(*body.APIKey)
+				p.Status = "untested"
+			}
+			if validatedBaseURL != nil {
+				p.BaseURL = *validatedBaseURL
+			}
+			updated = *p
+			return nil
+		}
+		return errProviderNotFound
+	})
+	if errors.Is(err, errProviderNotFound) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "provider not found"})
+		return
 	}
-	if body.APIKey != nil && strings.TrimSpace(*body.APIKey) != "" && !ismasked(*body.APIKey) {
-		p.APIKey = strings.TrimSpace(*body.APIKey)
-		p.Status = "untested" // key 变了，需要重新测试
-	}
-	if validatedBaseURL != nil {
-		p.BaseURL = *validatedBaseURL
-	}
-	if err := config.Save(h.configPath, h.cfg); err != nil {
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"provider": p})
+	updated.APIKey = maskKey(updated.APIKey)
+	c.JSON(http.StatusOK, gin.H{"provider": updated})
 }
 
 // Delete DELETE /api/providers/:id
 func (h *providerHandler) Delete(c *gin.Context) {
 	id := c.Param("id")
-	found := false
-	newList := h.cfg.Providers[:0]
-	for _, p := range h.cfg.Providers {
-		if p.ID == id {
-			found = true
-			continue
+	err := config.Transaction(h.configPath, h.cfg, func(candidate *config.Config) error {
+		for _, model := range candidate.Models {
+			if model.ProviderID == id {
+				return errProviderInUse
+			}
 		}
-		newList = append(newList, p)
-	}
-	if !found {
+		found := false
+		newList := make([]config.ProviderEntry, 0, len(candidate.Providers))
+		for _, provider := range candidate.Providers {
+			if provider.ID == id {
+				found = true
+				continue
+			}
+			newList = append(newList, provider)
+		}
+		if !found {
+			return errProviderNotFound
+		}
+		candidate.Providers = newList
+		return nil
+	})
+	if errors.Is(err, errProviderNotFound) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "provider not found"})
 		return
 	}
-	// 检查是否有模型引用此 provider
-	refCount := 0
-	for _, m := range h.cfg.Models {
-		if m.ProviderID == id {
-			refCount++
-		}
-	}
-	if refCount > 0 {
+	if errors.Is(err, errProviderInUse) {
 		c.JSON(http.StatusConflict, gin.H{
-			"error": fmt.Sprintf("该 API Key 被 %d 个模型使用，请先删除或重新分配这些模型", refCount),
+			"error": "该 API Key 仍被模型使用，请先删除或重新分配这些模型",
 		})
 		return
 	}
-	h.cfg.Providers = newList
-	if err := config.Save(h.configPath, h.cfg); err != nil {
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -190,10 +225,15 @@ func (h *providerHandler) Delete(c *gin.Context) {
 // Test POST /api/providers/:id/test
 func (h *providerHandler) Test(c *gin.Context) {
 	id := c.Param("id")
+	snapshot, err := config.Snapshot(h.cfg)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 	var p *config.ProviderEntry
-	for i := range h.cfg.Providers {
-		if h.cfg.Providers[i].ID == id {
-			p = &h.cfg.Providers[i]
+	for i := range snapshot.Providers {
+		if snapshot.Providers[i].ID == id {
+			p = &snapshot.Providers[i]
 			break
 		}
 	}
@@ -240,20 +280,36 @@ func (h *providerHandler) Test(c *gin.Context) {
 		msg = msg2
 	}
 
-	// 更新状态
-	p.Status = status
-	_ = config.Save(h.configPath, h.cfg)
-
-	// 同步更新所有引用此 provider 的模型状态
-	for i := range h.cfg.Models {
-		if h.cfg.Models[i].ProviderID == id {
-			h.cfg.Models[i].Status = status
+	if err := config.Transaction(h.configPath, h.cfg, func(candidate *config.Config) error {
+		found := false
+		for i := range candidate.Providers {
+			if candidate.Providers[i].ID == id {
+				candidate.Providers[i].Status = status
+				found = true
+				break
+			}
 		}
+		if !found {
+			return errProviderNotFound
+		}
+		for i := range candidate.Models {
+			if candidate.Models[i].ProviderID == id {
+				candidate.Models[i].Status = status
+			}
+		}
+		return nil
+	}); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
 	}
-	_ = config.Save(h.configPath, h.cfg)
 
 	c.JSON(http.StatusOK, gin.H{"status": status, "message": msg})
 }
+
+var (
+	errProviderNotFound = errors.New("provider not found")
+	errProviderInUse    = errors.New("provider is in use")
+)
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 

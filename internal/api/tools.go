@@ -2,10 +2,11 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 
-	"github.com/gin-gonic/gin"
 	"github.com/Zyling-ai/zyhive/pkg/config"
+	"github.com/gin-gonic/gin"
 )
 
 type toolHandler struct {
@@ -15,7 +16,12 @@ type toolHandler struct {
 
 // List GET /api/tools
 func (h *toolHandler) List(c *gin.Context) {
-	tools := h.cfg.Tools
+	snapshot, err := config.Snapshot(h.cfg)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	tools := snapshot.Tools
 	if tools == nil {
 		tools = []config.ToolEntry{}
 	}
@@ -38,17 +44,26 @@ func (h *toolHandler) Create(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "id is required"})
 		return
 	}
-	for _, t := range h.cfg.Tools {
-		if t.ID == entry.ID {
-			c.JSON(http.StatusConflict, gin.H{"error": "tool id already exists"})
-			return
-		}
-	}
 	if entry.Status == "" {
 		entry.Status = "untested"
 	}
-	h.cfg.Tools = append(h.cfg.Tools, entry)
-	h.save(c)
+	err := config.Transaction(h.path(), h.cfg, func(candidate *config.Config) error {
+		for _, tool := range candidate.Tools {
+			if tool.ID == entry.ID {
+				return errToolExists
+			}
+		}
+		candidate.Tools = append(candidate.Tools, entry)
+		return nil
+	})
+	if errors.Is(err, errToolExists) {
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "save config: " + err.Error()})
+		return
+	}
 	entry.APIKey = maskKey(entry.APIKey)
 	c.JSON(http.StatusCreated, entry)
 }
@@ -61,69 +76,100 @@ func (h *toolHandler) Update(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	for i := range h.cfg.Tools {
-		if h.cfg.Tools[i].ID == id {
-			t := &h.cfg.Tools[i]
-			if patch.Name != "" {
-				t.Name = patch.Name
+	var result config.ToolEntry
+	err := config.Transaction(h.path(), h.cfg, func(candidate *config.Config) error {
+		for i := range candidate.Tools {
+			if candidate.Tools[i].ID == id {
+				tool := &candidate.Tools[i]
+				if patch.Name != "" {
+					tool.Name = patch.Name
+				}
+				if patch.Type != "" {
+					tool.Type = patch.Type
+				}
+				if patch.APIKey != "" && !ismasked(patch.APIKey) {
+					tool.APIKey = patch.APIKey
+				}
+				if patch.BaseURL != "" {
+					tool.BaseURL = patch.BaseURL
+				}
+				tool.Enabled = patch.Enabled
+				if patch.Status != "" {
+					tool.Status = patch.Status
+				}
+				result = *tool
+				return nil
 			}
-			if patch.Type != "" {
-				t.Type = patch.Type
-			}
-			if patch.APIKey != "" && !ismasked(patch.APIKey) {
-				t.APIKey = patch.APIKey
-			}
-			if patch.BaseURL != "" {
-				t.BaseURL = patch.BaseURL
-			}
-			t.Enabled = patch.Enabled
-			if patch.Status != "" {
-				t.Status = patch.Status
-			}
-			h.save(c)
-			result := *t
-			result.APIKey = maskKey(result.APIKey)
-			c.JSON(http.StatusOK, result)
-			return
 		}
+		return errToolNotFound
+	})
+	if errors.Is(err, errToolNotFound) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "tool not found"})
+		return
 	}
-	c.JSON(http.StatusNotFound, gin.H{"error": "tool not found"})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "save config: " + err.Error()})
+		return
+	}
+	result.APIKey = maskKey(result.APIKey)
+	c.JSON(http.StatusOK, result)
 }
 
 // Delete DELETE /api/tools/:id
 func (h *toolHandler) Delete(c *gin.Context) {
 	id := c.Param("id")
-	for i := range h.cfg.Tools {
-		if h.cfg.Tools[i].ID == id {
-			h.cfg.Tools = append(h.cfg.Tools[:i], h.cfg.Tools[i+1:]...)
-			h.save(c)
-			c.JSON(http.StatusOK, gin.H{"ok": true})
-			return
+	err := config.Transaction(h.path(), h.cfg, func(candidate *config.Config) error {
+		for i := range candidate.Tools {
+			if candidate.Tools[i].ID == id {
+				candidate.Tools = append(candidate.Tools[:i], candidate.Tools[i+1:]...)
+				return nil
+			}
 		}
+		return errToolNotFound
+	})
+	if errors.Is(err, errToolNotFound) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "tool not found"})
+		return
 	}
-	c.JSON(http.StatusNotFound, gin.H{"error": "tool not found"})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "save config: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
 // Test POST /api/tools/:id/test
 func (h *toolHandler) Test(c *gin.Context) {
 	id := c.Param("id")
-	for i := range h.cfg.Tools {
-		if h.cfg.Tools[i].ID == id {
-			h.cfg.Tools[i].Status = "ok"
-			h.save(c)
-			c.JSON(http.StatusOK, gin.H{"valid": true})
-			return
+	err := config.Transaction(h.path(), h.cfg, func(candidate *config.Config) error {
+		for i := range candidate.Tools {
+			if candidate.Tools[i].ID == id {
+				candidate.Tools[i].Status = "ok"
+				return nil
+			}
 		}
+		return errToolNotFound
+	})
+	if errors.Is(err, errToolNotFound) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "tool not found"})
+		return
 	}
-	c.JSON(http.StatusNotFound, gin.H{"error": "tool not found"})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "save config: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"valid": true})
 }
 
-func (h *toolHandler) save(c *gin.Context) {
+func (h *toolHandler) path() string {
 	path := h.configPath
 	if path == "" {
 		path = "aipanel.json"
 	}
-	if err := config.Save(path, h.cfg); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "save config: " + err.Error()})
-	}
+	return path
 }
+
+var (
+	errToolExists   = errors.New("tool id already exists")
+	errToolNotFound = errors.New("tool not found")
+)

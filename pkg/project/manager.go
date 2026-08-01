@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Zyling-ai/zyhive/pkg/persist"
 	"github.com/Zyling-ai/zyhive/pkg/safefs"
 )
 
@@ -211,7 +212,7 @@ func (m *Manager) Create(opts CreateOpts) (*Project, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := os.WriteFile(filepath.Join(projectDir, "meta.json"), data, 0600); err != nil {
+	if err := persist.WriteFile(filepath.Join(projectDir, "meta.json"), data, 0600); err != nil {
 		return nil, fmt.Errorf("write meta.json: %w", err)
 	}
 
@@ -324,10 +325,7 @@ func writeProjectMeta(projectDir string, meta projectMeta) error {
 		return err
 	}
 	path := filepath.Join(projectDir, "meta.json")
-	if err := os.WriteFile(path, data, 0600); err != nil {
-		return err
-	}
-	return os.Chmod(path, 0600)
+	return persist.WriteFile(path, data, 0600)
 }
 
 func secureProjectTree(root string) error {

@@ -87,6 +87,47 @@ func TestConfigPatchRecursivelyPreservesGatewayFields(t *testing.T) {
 	}
 }
 
+func TestConfigPatchReportsRestartRequiredWithoutFalseSuccess(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cfg := config.Default()
+	cfg.Gateway.Bind = "localhost"
+	path := filepath.Join(t.TempDir(), "config.json")
+	handler := &configHandler{
+		cfg:             cfg,
+		configPath:      path,
+		activeGateway:   cfg.Gateway,
+		activeAuthToken: cfg.Auth.Token,
+	}
+	router := gin.New()
+	router.PATCH("/config", handler.Patch)
+
+	req := httptest.NewRequest(http.MethodPatch, "/config", strings.NewReader(
+		`{"gateway":{"port":9090},"auth":{"token":"replacement-token"}}`,
+	))
+	req.Header.Set("Content-Type", "application/json")
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", res.Code, res.Body.String())
+	}
+	var body struct {
+		Runtime struct {
+			RestartRequired bool     `json:"restartRequired"`
+			PendingFields   []string `json:"pendingFields"`
+			ActivePort      int      `json:"activePort"`
+		} `json:"runtime"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if !body.Runtime.RestartRequired || body.Runtime.ActivePort != 8080 {
+		t.Fatalf("unexpected runtime state: %+v", body.Runtime)
+	}
+	if len(body.Runtime.PendingFields) != 2 {
+		t.Fatalf("pending fields = %#v", body.Runtime.PendingFields)
+	}
+}
+
 func TestConfigGetMasksAllRegistrySecrets(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	cfg := config.Default()

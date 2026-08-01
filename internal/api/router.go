@@ -79,7 +79,9 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, cfgPath string, mgr *agen
 	updH := &updateHandler{fallbackPort: cfg.Gateway.Port}
 	r.GET("/api/update/status", updH.Status)
 
+	configGuard := &configAccessGuard{}
 	v1 := r.Group("/api")
+	v1.Use(configGuard.middleware)
 	v1.Use(authMiddleware(cfg.Auth.Token))
 
 	// aiteam (autonomous-economy experimental subsystem) — route handlers.
@@ -364,7 +366,12 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, cfgPath string, mgr *agen
 	}
 
 	// Config (legacy)
-	cfgH := &configHandler{cfg: cfg, configPath: configFilePath}
+	cfgH := &configHandler{
+		cfg:             cfg,
+		configPath:      configFilePath,
+		activeGateway:   cfg.Gateway,
+		activeAuthToken: cfg.Auth.Token,
+	}
 	v1.GET("/config", cfgH.Get)
 	v1.PATCH("/config", cfgH.Patch)
 	v1.POST("/config/test-key", cfgH.TestKey)
@@ -375,7 +382,7 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, cfgPath string, mgr *agen
 		manager: mgr, pool: pool, workerPool: workerPool, cfg: cfg,
 		limiter: publicLimiter,
 	}
-	pub := r.Group("/pub", publicLimiter.limitRequest)
+	pub := r.Group("/pub", configGuard.middleware, publicLimiter.limitRequest)
 	{
 		// Per-channel routes (primary)
 		pub.GET("/chat/:agentId/:channelId/info", pubH.Info)

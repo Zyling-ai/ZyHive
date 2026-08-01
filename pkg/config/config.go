@@ -10,11 +10,21 @@ import (
 	"net"
 	"os"
 	"strings"
+	"sync"
+
+	"github.com/Zyling-ai/zyhive/pkg/persist"
 )
 
 // CurrentConfigVersion is the latest config schema version.
 // Bump this when the config format changes; add a migration in applyMigrations().
 const CurrentConfigVersion = 3
+
+var configLocks sync.Map
+
+func mutexForConfig(cfg *Config) *sync.RWMutex {
+	value, _ := configLocks.LoadOrStore(cfg, &sync.RWMutex{})
+	return value.(*sync.RWMutex)
+}
 
 // Config is the top-level configuration.
 // Models/Channels/Tools/Skills are global registries; agents reference them by ID.
@@ -645,14 +655,107 @@ func Save(path string, cfg *Config) error {
 	if cfg == nil {
 		return fmt.Errorf("config is nil")
 	}
-	if err := cfg.Gateway.Validate(); err != nil {
+	mutex := mutexForConfig(cfg)
+	mutex.Lock()
+	defer mutex.Unlock()
+	return persist.WithFileLock(path, func() error {
+		before := cfg
+		if disk, err := loadResolvedDiskConfig(path); err == nil {
+			before = disk
+		}
+		return saveUnlocked(path, before, cfg)
+	})
+}
+
+// Transaction applies mutate to an isolated snapshot, durably replaces the
+// config file, then publishes the new in-memory snapshot. A failed write never
+// contaminates the live configuration.
+func Transaction(path string, cfg *Config, mutate func(*Config) error) error {
+	if cfg == nil {
+		return fmt.Errorf("config is nil")
+	}
+	if mutate == nil {
+		return fmt.Errorf("config mutation is nil")
+	}
+	mutex := mutexForConfig(cfg)
+	mutex.Lock()
+	defer mutex.Unlock()
+	return persist.WithFileLock(path, func() error {
+		before, err := Clone(cfg)
+		if err != nil {
+			return err
+		}
+		candidate, err := Clone(cfg)
+		if err != nil {
+			return err
+		}
+		if err := mutate(candidate); err != nil {
+			return err
+		}
+		if err := saveUnlocked(path, before, candidate); err != nil {
+			return err
+		}
+		*cfg = *candidate
+		return nil
+	})
+}
+
+// Snapshot returns a consistent deep copy for concurrent readers.
+func Snapshot(cfg *Config) (*Config, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("config is nil")
+	}
+	mutex := mutexForConfig(cfg)
+	mutex.RLock()
+	defer mutex.RUnlock()
+	return Clone(cfg)
+}
+
+// Clone returns a deep copy suitable for isolated mutation.
+func Clone(cfg *Config) (*Config, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("config is nil")
+	}
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("marshal config snapshot: %w", err)
+	}
+	var cloned Config
+	if err := json.Unmarshal(data, &cloned); err != nil {
+		return nil, fmt.Errorf("unmarshal config snapshot: %w", err)
+	}
+	return &cloned, nil
+}
+
+func saveUnlocked(path string, before, candidate *Config) error {
+	if err := candidate.Gateway.Validate(); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(cfg, "", "  ")
+	diskCandidate, err := Clone(candidate)
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0600)
+	preserveSecretRefs(path, before, diskCandidate)
+	data, err := json.MarshalIndent(diskCandidate, "", "  ")
+	if err != nil {
+		return err
+	}
+	return persist.AtomicWrite(path, data, 0600)
+}
+
+func loadResolvedDiskConfig(path string) (*Config, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var cfg Config
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return nil, err
+	}
+	if err := ResolveSecretRefs(&cfg); err != nil {
+		return nil, err
+	}
+	return &cfg, nil
 }
 
 // Default returns sensible defaults for first run.

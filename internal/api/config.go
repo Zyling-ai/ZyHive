@@ -18,8 +18,10 @@ import (
 )
 
 type configHandler struct {
-	cfg        *config.Config
-	configPath string
+	cfg             *config.Config
+	configPath      string
+	activeGateway   config.GatewayConfig
+	activeAuthToken string
 }
 
 // maskKey shows first 8 chars + "***" for API keys.
@@ -32,7 +34,13 @@ func maskKey(key string) string {
 
 // Get GET /api/config — return current config with masked keys.
 func (h *configHandler) Get(c *gin.Context) {
-	safe := *h.cfg
+	snapshot, err := config.Snapshot(h.cfg)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	safe := *snapshot
+	configuredToken := safe.Auth.Token
 	safe.Auth.Token = "***"
 	maskedProviders := make([]config.ProviderEntry, len(safe.Providers))
 	copy(maskedProviders, safe.Providers)
@@ -69,7 +77,32 @@ func (h *configHandler) Get(c *gin.Context) {
 		maskedTools[i].APIKey = maskKey(maskedTools[i].APIKey)
 	}
 	safe.Tools = maskedTools
-	c.JSON(http.StatusOK, safe)
+	data, err := json.Marshal(safe)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	var response map[string]any
+	if err := json.Unmarshal(data, &response); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	pendingFields := make([]string, 0, 3)
+	if h.activeGateway.Port != 0 && safe.Gateway.Port != h.activeGateway.Port {
+		pendingFields = append(pendingFields, "gateway.port")
+	}
+	if h.activeGateway.Bind != "" && safe.Gateway.Bind != h.activeGateway.Bind {
+		pendingFields = append(pendingFields, "gateway.bind")
+	}
+	if h.activeAuthToken != "" && configuredToken != h.activeAuthToken {
+		pendingFields = append(pendingFields, "auth.token")
+	}
+	response["runtime"] = gin.H{
+		"restartRequired": len(pendingFields) > 0,
+		"pendingFields":   pendingFields,
+		"activePort":      h.activeGateway.Port,
+	}
+	c.JSON(http.StatusOK, response)
 }
 
 func isSecretField(name string) bool {
@@ -88,56 +121,57 @@ func (h *configHandler) Patch(c *gin.Context) {
 		return
 	}
 
-	current, _ := json.Marshal(h.cfg)
-	var currentMap map[string]any
-	if err := json.Unmarshal(current, &currentMap); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "encode current config: " + err.Error()})
-		return
-	}
-	mergeJSONObject(currentMap, patch)
-
-	merged, err := json.Marshal(currentMap)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid config: " + err.Error()})
-		return
-	}
-	var updated config.Config
-	if err := json.Unmarshal(merged, &updated); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid config: " + err.Error()})
-		return
-	}
-
-	if _, err := tools.DecodeToolPolicy(updated.ToolPolicyRaw); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid toolPolicy: " + err.Error()})
-		return
-	}
-	if err := updated.Gateway.Validate(); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid config: " + err.Error()})
-		return
-	}
-	for _, provider := range updated.Providers {
-		if err := llm.ValidateProviderBaseURL(c.Request.Context(), provider.Provider, provider.BaseURL); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid provider baseUrl: " + err.Error()})
-			return
-		}
-	}
-	for i := range updated.Models {
-		_, baseURL := config.ResolveCredentials(&updated.Models[i], updated.Providers)
-		if err := llm.ValidateProviderBaseURL(c.Request.Context(), updated.Models[i].Provider, baseURL); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid model baseUrl: " + err.Error()})
-			return
-		}
-	}
-
 	path := h.configPath
 	if path == "" {
 		path = "aipanel.json"
 	}
-	if err := config.Save(path, &updated); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "save config: " + err.Error()})
+	err := config.Transaction(path, h.cfg, func(candidate *config.Config) error {
+		current, err := json.Marshal(candidate)
+		if err != nil {
+			return fmt.Errorf("encode current config: %w", err)
+		}
+		var currentMap map[string]any
+		if err := json.Unmarshal(current, &currentMap); err != nil {
+			return fmt.Errorf("encode current config: %w", err)
+		}
+		mergeJSONObject(currentMap, patch)
+		merged, err := json.Marshal(currentMap)
+		if err != nil {
+			return fmt.Errorf("invalid config: %w", err)
+		}
+		var updated config.Config
+		if err := json.Unmarshal(merged, &updated); err != nil {
+			return fmt.Errorf("invalid config: %w", err)
+		}
+		if _, err := tools.DecodeToolPolicy(updated.ToolPolicyRaw); err != nil {
+			return fmt.Errorf("invalid toolPolicy: %w", err)
+		}
+		if err := updated.Gateway.Validate(); err != nil {
+			return fmt.Errorf("invalid config: %w", err)
+		}
+		for _, provider := range updated.Providers {
+			if err := llm.ValidateProviderBaseURL(c.Request.Context(), provider.Provider, provider.BaseURL); err != nil {
+				return fmt.Errorf("invalid provider baseUrl: %w", err)
+			}
+		}
+		for i := range updated.Models {
+			_, baseURL := config.ResolveCredentials(&updated.Models[i], updated.Providers)
+			if err := llm.ValidateProviderBaseURL(c.Request.Context(), updated.Models[i].Provider, baseURL); err != nil {
+				return fmt.Errorf("invalid model baseUrl: %w", err)
+			}
+		}
+		*candidate = updated
+		return nil
+	})
+	if err != nil {
+		status := http.StatusBadRequest
+		if strings.Contains(err.Error(), "replace file") || strings.Contains(err.Error(), "write temp") ||
+			strings.Contains(err.Error(), "sync ") || strings.Contains(err.Error(), "permission denied") {
+			status = http.StatusInternalServerError
+		}
+		c.JSON(status, gin.H{"error": "save config: " + err.Error()})
 		return
 	}
-	*h.cfg = updated
 	h.Get(c)
 }
 

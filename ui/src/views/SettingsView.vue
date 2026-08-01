@@ -28,6 +28,15 @@
           <el-button type="primary" @click="save" :loading="saving">保存设置</el-button>
         </el-form-item>
       </el-form>
+      <el-alert
+        v-if="restartRequired"
+        type="warning"
+        :closable="false"
+        show-icon
+        title="设置已保存，重启服务后生效"
+      >
+        当前服务仍使用端口 {{ activePort || '未知' }}。重启前请继续使用当前地址和令牌。
+      </el-alert>
     </el-card>
 
     <!-- 版本与更新 -->
@@ -148,11 +157,19 @@ const token = ref('')
 const lang = ref('zh')
 const theme = ref('light')
 const saving = ref(false)
+const restartRequired = ref(false)
+const activePort = ref(0)
+
+function applyRuntimeState(data: any) {
+  restartRequired.value = Boolean(data?.runtime?.restartRequired)
+  activePort.value = Number(data?.runtime?.activePort || 0)
+}
 
 onMounted(async () => {
   try {
     const res = await configApi.get()
     port.value = res.data.gateway?.port || 8080
+    applyRuntimeState(res.data)
   } catch {}
   // 复用全局升级 composable（第一次调用自动 fetchVersion + 接管进行中任务，
   // 之后每次 onMounted 都立即返回，避免重复初始化）
@@ -164,8 +181,14 @@ async function save() {
   try {
     const patch: any = { gateway: { port: port.value } }
     if (token.value) patch.auth = { mode: 'token', token: token.value }
-    await configApi.patch(patch)
-    ElMessage.success('设置已保存')
+    const res = await configApi.patch(patch)
+    applyRuntimeState(res.data)
+    token.value = ''
+    if (restartRequired.value) {
+      ElMessage.warning('设置已保存；端口或令牌将在重启服务后生效')
+    } else {
+      ElMessage.success('设置已保存并已生效')
+    }
   } catch (e: any) {
     ElMessage.error(e.response?.data?.error || '保存失败')
   } finally {
