@@ -63,8 +63,13 @@ jobs:
         run: >-
           go test -race -count=1 -timeout=10m
           ./internal/api
+          ./pkg/agent
           ./pkg/artifact
+          ./pkg/config
+          ./pkg/cron
           ./pkg/network
+          ./pkg/persist
+          ./pkg/project
           ./pkg/safefs
           ./pkg/session
           ./pkg/tools
