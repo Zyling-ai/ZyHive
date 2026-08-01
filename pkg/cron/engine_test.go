@@ -3,8 +3,11 @@ package cron
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -249,6 +252,99 @@ func TestEngineSkipsOverlappingRuns(t *testing.T) {
 	}
 }
 
+func TestPersistentClaimAllowsOneEnginePerOccurrence(t *testing.T) {
+	dataDir := t.TempDir()
+	var calls atomic.Int32
+	run := func(context.Context, string, string, string, string, string) (string, error) {
+		calls.Add(1)
+		time.Sleep(30 * time.Millisecond)
+		return "done", nil
+	}
+	first := NewEngine(dataDir, run, nil)
+	second := NewEngine(dataDir, run, nil)
+	job := testJob(Schedule{Kind: "every", EveryMs: 60_000})
+	if err := first.Add(job); err != nil {
+		t.Fatal(err)
+	}
+	occurrence := time.Now().Add(time.Minute).UnixMilli()
+	var wait sync.WaitGroup
+	for _, engine := range []*Engine{first, second} {
+		wait.Add(1)
+		go func(engine *Engine) {
+			defer wait.Done()
+			if err := engine.startJob(cloneJob(job), true, occurrence); err != nil {
+				t.Errorf("startJob: %v", err)
+			}
+		}(engine)
+	}
+	wait.Wait()
+	first.runWG.Wait()
+	second.runWG.Wait()
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("occurrence executed %d times, want 1", got)
+	}
+	claimPath, err := first.claimPath(job.ID, occurrence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(claimPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mode := info.Mode().Perm(); mode != 0600 {
+		t.Fatalf("claim mode=%o, want 600", mode)
+	}
+}
+
+func TestLoadMarksInterruptedClaimUncertainWithoutRetry(t *testing.T) {
+	dataDir := t.TempDir()
+	first := NewEngine(dataDir, nil, nil)
+	job := testJob(Schedule{Kind: "at", Expr: "1h", TZ: "UTC"})
+	if err := first.Add(job); err != nil {
+		t.Fatal(err)
+	}
+	occurrence := job.State.NextRunAtMs
+	claim, claimed, err := first.acquireClaim(job.ID, occurrence, "run-interrupted")
+	if err != nil || !claimed {
+		t.Fatalf("acquire claim: claimed=%v err=%v", claimed, err)
+	}
+	claim.Status = "running"
+	if err := first.saveClaim(*claim); err != nil {
+		t.Fatal(err)
+	}
+
+	var calls atomic.Int32
+	reloaded := NewEngine(dataDir, func(context.Context, string, string, string, string, string) (string, error) {
+		calls.Add(1)
+		return "unexpected", nil
+	}, nil)
+	if err := reloaded.Load(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { <-reloaded.Stop().Done() })
+	if calls.Load() != 0 {
+		t.Fatal("interrupted claim was retried")
+	}
+	jobs := reloaded.ListJobs()
+	if len(jobs) != 1 || jobs[0].Enabled || jobs[0].State.LastStatus != "uncertain" {
+		t.Fatalf("recovered job=%+v", jobs)
+	}
+	recovered, err := os.ReadFile(filepath.Join(dataDir, "claims", job.ID, fmt.Sprintf("%d.json", occurrence)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(recovered), `"status": "uncertain"`) {
+		t.Fatalf("claim was not marked uncertain: %s", recovered)
+	}
+	runs, err := reloaded.ListRuns(job.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 1 || runs[0].Status != "uncertain" {
+		t.Fatalf("recovery runs=%+v", runs)
+	}
+}
+
 func TestRemoveForAgentChecksOwnershipAndCancelsRun(t *testing.T) {
 	cancelled := make(chan struct{}, 1)
 	e := NewEngine(t.TempDir(), func(ctx context.Context, _, _, _, _, _ string) (string, error) {
@@ -275,6 +371,7 @@ func TestRemoveForAgentChecksOwnershipAndCancelsRun(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("removing a running job did not cancel its context")
 	}
+	e.runWG.Wait()
 }
 
 func testJob(schedule Schedule) *Job {

@@ -108,7 +108,7 @@
         <el-table-column label="状态" width="75">
           <template #default="{ row }">
             <el-tag :type="statusTagType(row.status)" size="small">
-              {{ row.status }}
+              {{ statusLabel(row.status) }}
             </el-tag>
           </template>
         </el-table-column>
@@ -120,7 +120,7 @@
         </el-table-column>
         <el-table-column label="输出 / 错误" min-width="200">
           <template #default="{ row }">
-            <div v-if="row.status !== 'ok'" :style="{ color: row.status === 'skipped' ? '#e6a23c' : '#f56c6c', fontSize: '12px', whiteSpace: 'pre-wrap', maxHeight: '80px', overflow: 'auto' }">
+            <div v-if="row.status !== 'ok'" :style="{ color: ['skipped', 'uncertain'].includes(row.status) ? '#e6a23c' : '#f56c6c', fontSize: '12px', whiteSpace: 'pre-wrap', maxHeight: '80px', overflow: 'auto' }">
               {{ row.error }}
             </div>
             <div v-else style="font-size: 12px; color: #606266; white-space: pre-wrap; max-height: 80px; overflow: auto;">
@@ -314,8 +314,16 @@ function formatSchedule(row: CronJob) {
 
 function statusTagType(status?: string) {
   if (status === 'ok') return 'success'
-  if (status === 'skipped') return 'warning'
+  if (status === 'skipped' || status === 'uncertain') return 'warning'
   return 'danger'
+}
+
+function statusLabel(status?: string) {
+  if (status === 'ok') return '成功'
+  if (status === 'error') return '失败'
+  if (status === 'skipped') return '已跳过'
+  if (status === 'uncertain') return '待确认'
+  return status || '未知'
 }
 
 function isMemoryJob(row: CronJob): boolean {

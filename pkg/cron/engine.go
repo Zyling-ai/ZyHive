@@ -16,6 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Zyling-ai/zyhive/pkg/persist"
 	"github.com/google/uuid"
 	cron "github.com/robfig/cron/v3"
 )
@@ -89,7 +90,7 @@ type RunRecord struct {
 	RunID     string `json:"runId"`
 	StartedAt int64  `json:"startedAt"`
 	EndedAt   int64  `json:"endedAt"`
-	Status    string `json:"status"` // "ok" | "error" | "skipped"
+	Status    string `json:"status"` // "ok" | "error" | "skipped" | "uncertain"
 	Output    string `json:"output"`
 	Error     string `json:"error,omitempty"`
 	Announced bool   `json:"announced,omitempty"` // true if delivered to user
@@ -122,11 +123,25 @@ type Engine struct {
 	runWG      sync.WaitGroup
 	stopping   bool
 	recordMu   sync.Mutex
+	instanceID string
 }
 
 type activeRun struct {
-	runID  string
-	cancel context.CancelFunc
+	runID      string
+	occurrence int64
+	cancel     context.CancelFunc
+}
+
+type runClaim struct {
+	Version      int    `json:"version"`
+	JobID        string `json:"jobId"`
+	OccurrenceMs int64  `json:"occurrenceMs"`
+	RunID        string `json:"runId"`
+	Owner        string `json:"owner"`
+	Status       string `json:"status"` // claimed | running | executed | ok | error | skipped | uncertain
+	ClaimedAtMs  int64  `json:"claimedAtMs"`
+	UpdatedAtMs  int64  `json:"updatedAtMs"`
+	Error        string `json:"error,omitempty"`
 }
 
 // NewEngine creates a new cron engine.
@@ -141,6 +156,7 @@ func NewEngine(dataDir string, runJob CronRunFunc, announce AnnounceFunc) *Engin
 		dataDir:    dataDir,
 		runJob:     runJob,
 		announce:   announce,
+		instanceID: uuid.NewString(),
 	}
 }
 
@@ -154,10 +170,13 @@ func (e *Engine) Load() error {
 	e.jobs = make(map[string]*Job)
 	e.entryIDs = make(map[string]cron.EntryID)
 
-	if err := os.MkdirAll(e.dataDir, 0755); err != nil {
+	if err := os.MkdirAll(e.dataDir, 0700); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Join(e.dataDir, "runs"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(e.dataDir, "runs"), 0700); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Join(e.dataDir, "claims"), 0700); err != nil {
 		return err
 	}
 
@@ -201,6 +220,9 @@ func (e *Engine) Load() error {
 				return err
 			}
 		}
+	}
+	if err := e.recoverClaimsLocked(); err != nil {
+		return err
 	}
 
 	// Start the scheduler and heartbeat regardless of whether jobs.json existed,
@@ -442,7 +464,7 @@ func (e *Engine) RunNow(id string) error {
 	j := *job
 	e.jobMu.RUnlock()
 
-	return e.startJob(&j, false)
+	return e.startJob(&j, false, 0)
 }
 
 // ListJobs returns all jobs.
@@ -521,7 +543,14 @@ func (e *Engine) ListRuns(jobID string) ([]RunRecord, error) {
 	if !validJobID(jobID) {
 		return nil, fmt.Errorf("invalid job id %q", jobID)
 	}
+	e.recordMu.Lock()
+	defer e.recordMu.Unlock()
 	path := filepath.Join(e.dataDir, "runs", jobID+".jsonl")
+	unlock, err := persist.LockFile(path)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
 	f, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -552,18 +581,35 @@ func (e *Engine) ListRuns(jobID string) ([]RunRecord, error) {
 }
 
 func (e *Engine) startJobByID(id string, scheduled bool) error {
-	e.jobMu.RLock()
+	e.jobMu.Lock()
 	job, ok := e.jobs[id]
 	if !ok || (scheduled && !job.Enabled) {
-		e.jobMu.RUnlock()
+		e.jobMu.Unlock()
 		return nil
 	}
+	occurrenceMs := int64(0)
+	if scheduled {
+		occurrenceMs = job.State.NextRunAtMs
+		if occurrenceMs == 0 {
+			occurrenceMs = time.Now().UnixMilli()
+		}
+		if entryID, exists := e.entryIDs[id]; exists {
+			next := e.cron.Entry(entryID).Next
+			if !next.IsZero() {
+				job.State.NextRunAtMs = next.UnixMilli()
+			}
+		}
+		if err := e.saveLocked(); err != nil {
+			e.jobMu.Unlock()
+			return fmt.Errorf("persist scheduled occurrence: %w", err)
+		}
+	}
 	candidate := cloneJob(job)
-	e.jobMu.RUnlock()
-	return e.startJob(candidate, scheduled)
+	e.jobMu.Unlock()
+	return e.startJob(candidate, scheduled, occurrenceMs)
 }
 
-func (e *Engine) startJob(job *Job, scheduled bool) error {
+func (e *Engine) startJob(job *Job, scheduled bool, occurrenceMs int64) error {
 	runID := "run-" + uuid.New().String()[:8]
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 
@@ -586,11 +632,35 @@ func (e *Engine) startJob(job *Job, scheduled bool) error {
 		})
 		return ErrJobAlreadyRunning
 	}
-	e.activeRuns[job.ID] = &activeRun{runID: runID, cancel: cancel}
+	var claim *runClaim
+	if scheduled {
+		var claimed bool
+		var claimErr error
+		claim, claimed, claimErr = e.acquireClaim(job.ID, occurrenceMs, runID)
+		if claimErr != nil {
+			e.runMu.Unlock()
+			cancel()
+			return claimErr
+		}
+		if !claimed {
+			e.runMu.Unlock()
+			cancel()
+			e.appendRunRecord(RunRecord{
+				JobID:     job.ID,
+				RunID:     runID,
+				StartedAt: time.Now().UnixMilli(),
+				EndedAt:   time.Now().UnixMilli(),
+				Status:    "skipped",
+				Error:     fmt.Sprintf("scheduled occurrence %d already claimed by %s", occurrenceMs, claim.RunID),
+			})
+			return nil
+		}
+	}
+	e.activeRuns[job.ID] = &activeRun{runID: runID, occurrence: occurrenceMs, cancel: cancel}
 	e.runWG.Add(1)
 	e.runMu.Unlock()
 
-	go e.executeJob(job, runID, ctx, scheduled)
+	go e.executeJob(job, runID, ctx, scheduled, claim)
 	return nil
 }
 
@@ -613,7 +683,7 @@ func (e *Engine) cancelRun(jobID string) {
 }
 
 // executeJob runs a claimed job invocation in an isolated session.
-func (e *Engine) executeJob(job *Job, runID string, ctx context.Context, scheduled bool) {
+func (e *Engine) executeJob(job *Job, runID string, ctx context.Context, scheduled bool, claim *runClaim) {
 	defer e.finishRun(job.ID, runID)
 	startedAt := time.Now().UnixMilli()
 
@@ -629,39 +699,60 @@ func (e *Engine) executeJob(job *Job, runID string, ctx context.Context, schedul
 	}
 
 	var output string
-	switch job.Payload.Kind {
-	case "agentTurn", "":
-		if e.runJob == nil {
-			record.Status = "error"
-			record.Error = "no runner configured"
-			break
+	claimReady := true
+	if claim != nil {
+		claim.Status = "running"
+		claim.UpdatedAtMs = time.Now().UnixMilli()
+		if err := e.saveClaim(*claim); err != nil {
+			record.Status = "uncertain"
+			record.Error = "failed to persist running claim: " + err.Error()
+			claimReady = false
 		}
-		out, err := e.runJob(ctx, agentID, job.Payload.Model, job.ID, runID, job.Payload.Message)
-		if err != nil {
-			record.Status = "error"
-			record.Error = err.Error()
-		} else {
-			record.Status = "ok"
-			output = out
-			if len(output) > 4000 {
-				record.Output = output[:4000] + "…"
-			} else {
-				record.Output = output
+	}
+	if claimReady {
+		switch job.Payload.Kind {
+		case "agentTurn", "":
+			if e.runJob == nil {
+				record.Status = "error"
+				record.Error = "no runner configured"
+				break
 			}
+			out, err := e.runJob(ctx, agentID, job.Payload.Model, job.ID, runID, job.Payload.Message)
+			if err != nil {
+				record.Status = "error"
+				record.Error = err.Error()
+			} else {
+				record.Status = "ok"
+				output = out
+				if len(output) > 4000 {
+					record.Output = output[:4000] + "…"
+				} else {
+					record.Output = output
+				}
+			}
+
+		case "systemEvent":
+			// systemEvent injects directly into the agent session without LLM — not isolated.
+			// Kept for legacy/simple use cases; no announce.
+			record.Status = "ok"
+			record.Output = "(system event)"
+
+		default:
+			record.Status = "error"
+			record.Error = fmt.Sprintf("unknown payload kind: %s", job.Payload.Kind)
 		}
-
-	case "systemEvent":
-		// systemEvent injects directly into the agent session without LLM — not isolated.
-		// Kept for legacy/simple use cases; no announce.
-		record.Status = "ok"
-		record.Output = "(system event)"
-
-	default:
-		record.Status = "error"
-		record.Error = fmt.Sprintf("unknown payload kind: %s", job.Payload.Kind)
 	}
 
 	record.EndedAt = time.Now().UnixMilli()
+	if claim != nil && claimReady {
+		claim.Status = "executed"
+		claim.UpdatedAtMs = record.EndedAt
+		claim.Error = record.Error
+		if err := e.saveClaim(*claim); err != nil {
+			record.Status = "uncertain"
+			record.Error = "execution finished but claim update failed: " + err.Error()
+		}
+	}
 
 	// Delivery: announce unless suppressed
 	if record.Status == "ok" && job.Delivery.Mode == "announce" && e.announce != nil {
@@ -718,26 +809,182 @@ func (e *Engine) executeJob(job *Job, runID string, ctx context.Context, schedul
 	}
 	e.jobMu.Unlock()
 
+	if claim != nil {
+		claim.Status = record.Status
+		claim.UpdatedAtMs = time.Now().UnixMilli()
+		claim.Error = record.Error
+		if err := e.saveClaim(*claim); err != nil {
+			fmt.Printf("cron: failed to finalize claim %s/%d: %v\n", claim.JobID, claim.OccurrenceMs, err)
+		}
+	}
 	e.appendRunRecord(record)
+}
+
+func (e *Engine) claimPath(jobID string, occurrenceMs int64) (string, error) {
+	if !validJobID(jobID) || occurrenceMs <= 0 {
+		return "", fmt.Errorf("invalid claim identity %q/%d", jobID, occurrenceMs)
+	}
+	return filepath.Join(e.dataDir, "claims", jobID, fmt.Sprintf("%d.json", occurrenceMs)), nil
+}
+
+func (e *Engine) acquireClaim(jobID string, occurrenceMs int64, runID string) (*runClaim, bool, error) {
+	path, err := e.claimPath(jobID, occurrenceMs)
+	if err != nil {
+		return nil, false, err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return nil, false, err
+	}
+	now := time.Now().UnixMilli()
+	claim := &runClaim{
+		Version:      1,
+		JobID:        jobID,
+		OccurrenceMs: occurrenceMs,
+		RunID:        runID,
+		Owner:        e.instanceID,
+		Status:       "claimed",
+		ClaimedAtMs:  now,
+		UpdatedAtMs:  now,
+	}
+	data, err := json.MarshalIndent(claim, "", "  ")
+	if err != nil {
+		return nil, false, err
+	}
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil {
+		if !os.IsExist(err) {
+			return nil, false, err
+		}
+		existingData, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return nil, false, readErr
+		}
+		var existing runClaim
+		if unmarshalErr := json.Unmarshal(existingData, &existing); unmarshalErr != nil {
+			return nil, false, fmt.Errorf("parse existing claim: %w", unmarshalErr)
+		}
+		return &existing, false, nil
+	}
+	if _, err := file.Write(data); err != nil {
+		_ = file.Close()
+		_ = os.Remove(path)
+		return nil, false, err
+	}
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		return nil, false, err
+	}
+	if err := file.Close(); err != nil {
+		return nil, false, err
+	}
+	return claim, true, nil
+}
+
+func (e *Engine) saveClaim(claim runClaim) error {
+	path, err := e.claimPath(claim.JobID, claim.OccurrenceMs)
+	if err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(claim, "", "  ")
+	if err != nil {
+		return err
+	}
+	return persist.WriteFile(path, data, 0600)
+}
+
+// recoverClaimsLocked converts non-terminal claims from a previous process
+// into an explicit uncertain state. It never repeats unknown side effects.
+// Caller holds jobMu.
+func (e *Engine) recoverClaimsLocked() error {
+	root := filepath.Join(e.dataDir, "claims")
+	jobDirs, err := os.ReadDir(root)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	for _, jobDir := range jobDirs {
+		if !jobDir.IsDir() || !validJobID(jobDir.Name()) {
+			continue
+		}
+		files, readErr := os.ReadDir(filepath.Join(root, jobDir.Name()))
+		if readErr != nil {
+			return readErr
+		}
+		for _, file := range files {
+			if file.IsDir() || filepath.Ext(file.Name()) != ".json" {
+				continue
+			}
+			path := filepath.Join(root, jobDir.Name(), file.Name())
+			data, readErr := os.ReadFile(path)
+			if readErr != nil {
+				return readErr
+			}
+			var claim runClaim
+			if json.Unmarshal(data, &claim) != nil || claim.JobID != jobDir.Name() {
+				continue
+			}
+			if claim.Status != "claimed" && claim.Status != "running" && claim.Status != "executed" {
+				continue
+			}
+			previousStatus := claim.Status
+			claim.Status = "uncertain"
+			claim.Error = "previous process stopped while claim was " + previousStatus
+			claim.UpdatedAtMs = time.Now().UnixMilli()
+			if err := e.saveClaim(claim); err != nil {
+				return err
+			}
+			e.appendRunRecord(RunRecord{
+				JobID:     claim.JobID,
+				RunID:     claim.RunID,
+				StartedAt: claim.ClaimedAtMs,
+				EndedAt:   claim.UpdatedAtMs,
+				Status:    "uncertain",
+				Error:     claim.Error,
+			})
+			if job := e.jobs[claim.JobID]; job != nil {
+				job.State.LastRunAtMs = claim.ClaimedAtMs
+				job.State.LastStatus = "uncertain"
+				job.State.DisabledReason = "manual review required: " + claim.Error
+				if job.Schedule.Kind == "at" {
+					job.Enabled = false
+					job.State.NextRunAtMs = 0
+					e.unscheduleJobLocked(job.ID)
+				}
+			}
+		}
+	}
+	return e.saveLocked()
 }
 
 func (e *Engine) appendRunRecord(record RunRecord) {
 	e.recordMu.Lock()
 	defer e.recordMu.Unlock()
 	runsDir := filepath.Join(e.dataDir, "runs")
-	if err := os.MkdirAll(runsDir, 0755); err != nil {
+	if err := os.MkdirAll(runsDir, 0700); err != nil {
 		fmt.Printf("cron: failed to create run directory: %v\n", err)
 		return
 	}
 	path := filepath.Join(runsDir, record.JobID+".jsonl")
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		fmt.Printf("cron: failed to write run record: %v\n", err)
-		return
-	}
-	defer f.Close()
 	data, _ := json.Marshal(record)
-	fmt.Fprintf(f, "%s\n", data)
+	if err := persist.WithFileLock(path, func() error {
+		f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
+		if err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(f, "%s\n", data); err != nil {
+			_ = f.Close()
+			return err
+		}
+		if err := f.Sync(); err != nil {
+			_ = f.Close()
+			return err
+		}
+		return f.Close()
+	}); err != nil {
+		fmt.Printf("cron: failed to write run record: %v\n", err)
+	}
 }
 
 var jobIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
@@ -764,29 +1011,8 @@ func (e *Engine) saveLocked() error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(e.dataDir, 0755); err != nil {
+	if err := os.MkdirAll(e.dataDir, 0700); err != nil {
 		return err
 	}
-	temp, err := os.CreateTemp(e.dataDir, ".jobs-*.tmp")
-	if err != nil {
-		return err
-	}
-	tempPath := temp.Name()
-	defer os.Remove(tempPath)
-	if err := temp.Chmod(0600); err != nil {
-		temp.Close()
-		return err
-	}
-	if _, err := temp.Write(data); err != nil {
-		temp.Close()
-		return err
-	}
-	if err := temp.Sync(); err != nil {
-		temp.Close()
-		return err
-	}
-	if err := temp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tempPath, filepath.Join(e.dataDir, "jobs.json"))
+	return persist.WriteFile(filepath.Join(e.dataDir, "jobs.json"), data, 0600)
 }
