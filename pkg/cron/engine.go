@@ -850,11 +850,12 @@ func (e *Engine) acquireClaim(jobID string, occurrenceMs int64, runID string) (*
 	if err != nil {
 		return nil, false, err
 	}
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	unlock, err := persist.LockFile(path)
 	if err != nil {
-		if !os.IsExist(err) {
-			return nil, false, err
-		}
+		return nil, false, err
+	}
+	defer unlock()
+	if _, err := os.Stat(path); err == nil {
 		existingData, readErr := os.ReadFile(path)
 		if readErr != nil {
 			return nil, false, readErr
@@ -864,17 +865,10 @@ func (e *Engine) acquireClaim(jobID string, occurrenceMs int64, runID string) (*
 			return nil, false, fmt.Errorf("parse existing claim: %w", unmarshalErr)
 		}
 		return &existing, false, nil
-	}
-	if _, err := file.Write(data); err != nil {
-		_ = file.Close()
-		_ = os.Remove(path)
+	} else if !os.IsNotExist(err) {
 		return nil, false, err
 	}
-	if err := file.Sync(); err != nil {
-		_ = file.Close()
-		return nil, false, err
-	}
-	if err := file.Close(); err != nil {
+	if err := persist.AtomicWrite(path, data, 0600); err != nil {
 		return nil, false, err
 	}
 	return claim, true, nil
