@@ -73,6 +73,16 @@ func main() {
 	if agentcli.LooksLikeCommand(os.Args[1:]) {
 		os.Exit(agentcli.Dispatch(os.Args[1:]))
 	}
+	if backupArgs, backupConfig, ok, err := backupCommandArgs(os.Args[1:]); ok || err != nil {
+		if err == nil {
+			err = runBackupCLI(backupArgs, backupConfig)
+		}
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "backup:", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	// ── help/--help/-h 提前拦截 ────────────────────────────────────────────
 	// Go flag.Parse() 会把 --help/-h 当作 "帮助请求" 并打印它自己的 Usage，

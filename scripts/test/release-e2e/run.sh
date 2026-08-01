@@ -445,6 +445,7 @@ run_local() {
   journey_home="$TMP_ROOT/home-journeys"
   journey_port="$(random_port)"
   verify_release_journeys "$INSTALL_SOURCE" "$journey_home" "$journey_port" "$base" "$base/v1"
+  verify_backup_restore_journey "$journey_home" "$base/v1"
 
   echo "▶ [Release E2E/local] 验证旧版更新与备份"
   upgrade_home="$TMP_ROOT/home-upgrade"

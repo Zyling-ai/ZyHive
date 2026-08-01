@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Zyling-ai/zyhive/pkg/backup"
 	"github.com/Zyling-ai/zyhive/pkg/config"
 	"github.com/Zyling-ai/zyhive/pkg/llm"
 )
@@ -1266,44 +1267,82 @@ func menuBackup() {
 		choice := readInput("请输入选项")
 		switch strings.TrimSpace(choice) {
 		case "1":
-			os.MkdirAll(backupDir, 0755)
+			if err := os.MkdirAll(backupDir, 0700); err != nil {
+				printError("创建备份目录失败：" + err.Error())
+				pause()
+				continue
+			}
 			ts := time.Now().Format("20060102-150405")
 			backupFile := filepath.Join(backupDir, "zyhive-backup-"+ts+".tar.gz")
 			fmt.Printf("  创建备份：%s\n", backupFile)
-			out := runCmd("tar", "-czf", backupFile, agentsDir, configPath)
-			if out != "" {
-				fmt.Println(out)
-			}
-			if _, err := os.Stat(backupFile); err == nil {
+			cfgPath, workDir, pathErr := interactiveBackupPaths()
+			if pathErr != nil {
+				printError("解析备份路径失败：" + pathErr.Error())
+			} else if _, err := backup.Create(backup.CreateOptions{
+				Output: backupFile, ConfigPath: cfgPath, WorkDir: workDir, AppVersion: Version,
+			}); err != nil {
+				printError("备份失败：" + err.Error())
+			} else {
 				info, _ := os.Stat(backupFile)
 				printSuccess(fmt.Sprintf("备份成功！文件大小：%.2f MB", float64(info.Size())/1024/1024))
-			} else {
-				printError("备份失败")
 			}
 			pause()
 		case "2":
-			out := runCmd("ls", "-lht", backupDir)
-			fmt.Println(ansiCyan + out + ansiReset)
+			entries, err := os.ReadDir(backupDir)
+			if err != nil {
+				printError("读取备份目录失败：" + err.Error())
+			} else {
+				for _, entry := range entries {
+					if entry.IsDir() {
+						continue
+					}
+					info, infoErr := entry.Info()
+					if infoErr != nil {
+						fmt.Printf("  %s（无法读取：%v）\n", entry.Name(), infoErr)
+						continue
+					}
+					fmt.Printf("  %-42s %8.2f MB  %s\n", entry.Name(), float64(info.Size())/1024/1024, info.ModTime().Format("2006-01-02 15:04:05"))
+				}
+			}
 			pause()
 		case "3":
-			out := runCmd("ls", "-1", backupDir)
-			fmt.Println("  可用备份：\n" + ansiCyan + out + ansiReset)
+			entries, _ := os.ReadDir(backupDir)
+			fmt.Println("  可用备份：")
+			for _, entry := range entries {
+				if !entry.IsDir() {
+					fmt.Println("  " + ansiCyan + entry.Name() + ansiReset)
+				}
+			}
 			backupFile := readInput("输入备份文件名（含路径）")
 			backupFile = strings.TrimSpace(backupFile)
-			if !strings.HasPrefix(backupFile, "/") {
+			if !filepath.IsAbs(backupFile) {
 				backupFile = filepath.Join(backupDir, backupFile)
 			}
 			if _, err := os.Stat(backupFile); os.IsNotExist(err) {
 				printError("备份文件不存在：" + backupFile)
+			} else if _, err := backup.Inspect(backupFile, backup.Limits{}); err != nil {
+				printError("备份验证失败：" + err.Error())
 			} else if confirm("恢复会覆盖现有数据，确认继续？") {
 				fmt.Println("  停止服务...")
-				svcStop("zyhive")
-				out := runCmd("tar", "-xzf", backupFile, "-C", "/")
-				if out != "" {
-					fmt.Println(out)
+				if err := controlBackupService("stop"); err != nil {
+					printError("停止服务失败：" + err.Error())
+				} else {
+					cfgPath, workDir, pathErr := interactiveBackupPaths()
+					if pathErr != nil {
+						printError("解析恢复路径失败：" + pathErr.Error())
+					} else if _, err := backup.Restore(backup.RestoreOptions{
+						Input: backupFile, ConfigPath: cfgPath, WorkDir: workDir,
+					}); err != nil {
+						printError("恢复失败（现有数据已回滚）：" + err.Error())
+					} else {
+						printSuccess("恢复完成")
+					}
+					if err := controlBackupService("start"); err != nil {
+						printError("服务重启失败：" + err.Error())
+					} else {
+						printSuccess("服务已启动")
+					}
 				}
-				svcStart("zyhive")
-				printSuccess("恢复完成，服务已重启")
 			}
 			pause()
 		case "4":
@@ -1746,6 +1785,11 @@ func printSubcmdHelp() {
   zyhive enable           设置开机自启
   zyhive disable          取消开机自启
   zyhive version          显示版本号
+
+版本化备份：
+  zyhive backup create --output FILE [--config FILE] [--workdir DIR]
+  zyhive backup inspect --input FILE
+  zyhive backup restore --input FILE --yes [--no-service] [--config FILE] [--workdir DIR]
 
 服务以 --serve 标志直接启动（systemd/launchd 使用）：
   zyhive --serve --config /etc/zyhive/zyhive.json
