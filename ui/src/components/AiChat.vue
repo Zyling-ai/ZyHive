@@ -443,6 +443,7 @@
 <script setup lang="ts">
 import { ref, computed, reactive, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { chatSSE, resumeSSE, getSessionStatus, sessions as sessionsApi, tasks as tasksApi, type ChatParams } from '../api'
+import { apiURL } from '../api/base'
 import DispatchPanel from './DispatchPanel.vue'
 
 // ── Props ─────────────────────────────────────────────────────────────────
@@ -1084,7 +1085,7 @@ async function openToolAuditDrawer(tc: ToolCallEntry) {
   toolAuditDrawerData.value = null
   try {
     const token = localStorage.getItem('aipanel_token') || ''
-    const resp = await fetch(`/api/agents/${encodeURIComponent(props.agentId)}/tool-audit/${encodeURIComponent(tc.id)}`, {
+    const resp = await fetch(apiURL(`/agents/${encodeURIComponent(props.agentId)}/tool-audit/${encodeURIComponent(tc.id)}`), {
       headers: { 'Authorization': `Bearer ${token}` },
     })
     if (!resp.ok) {
@@ -1545,7 +1546,6 @@ async function uploadBinaryFile(file: File) {
   try {
     const buf = await file.arrayBuffer()
     const bytes = new Uint8Array(buf)
-    const base = (localStorage.getItem('aipanel_url') || '').replace(/\/$/, '')
     const token = localStorage.getItem('aipanel_token') || ''
 
     // Chunk size: 50KB raw bytes → ~67KB base64 JSON — works through any proxy/VPN
@@ -1560,7 +1560,7 @@ async function uploadBinaryFile(file: File) {
       const b64 = btoa(binary)
 
       const res = await fetch(
-        `${base}/api/agents/${props.agentId}/files/${uploadPath}?chunk=${i}&total=${total}`,
+        apiURL(`/agents/${props.agentId}/files/${uploadPath}?chunk=${i}&total=${total}`),
         {
           method: 'PUT',
           headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },

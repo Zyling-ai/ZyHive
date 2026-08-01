@@ -114,6 +114,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getWallet, creditWallet, getOverview, type WalletResponse } from '../api/aiteam'
+import { apiURL } from '../api/base'
 import { useCurrency } from '../composables/useCurrency'
 
 const { formatMoney } = useCurrency()
@@ -185,7 +186,7 @@ function downloadCSV() {
   // axios-style header isn't applicable for browser nav. We embed a
   // temporary form POST or just rely on Authorization header via
   // fetch + blob conversion.
-  fetch(`/api/aiteam/wallet/${encodeURIComponent(selectedAgent.value)}/ledger.csv`, {
+  fetch(apiURL(`/aiteam/wallet/${encodeURIComponent(selectedAgent.value)}/ledger.csv`), {
     headers: { 'Authorization': `Bearer ${token}` },
   }).then(r => {
     if (!r.ok) throw new Error(`HTTP ${r.status}`)

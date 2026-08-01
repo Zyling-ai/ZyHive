@@ -1,15 +1,11 @@
 import axios from 'axios'
+import { apiURL, getAPIBaseURL } from './base'
 
-// 支持跨服务器连接：从 localStorage 读取服务器地址
-function getBaseURL(): string {
-  const saved = localStorage.getItem('aipanel_url')
-  if (saved) return `${saved}/api`
-  return '/api'
-}
-
-const api = axios.create({ baseURL: getBaseURL() })
+const api = axios.create()
 
 api.interceptors.request.use(cfg => {
+  // 登录页可在当前模块加载后切换服务器，因此每次请求都重新读取地址。
+  cfg.baseURL = getAPIBaseURL()
   const token = localStorage.getItem('aipanel_token')
   if (token) cfg.headers.Authorization = `Bearer ${token}`
   return cfg
@@ -498,7 +494,7 @@ export const networkApi = {
   // E-01 (26.5.12v1) — avatar URL is built directly (no JSON wrap) so <img src>
   // can use it; uploadAvatar takes a Blob/File and POSTs raw bytes.
   avatarURL: (agentId: string, contactId: string) =>
-    `/api/agents/${agentId}/network/contacts/${encodeURIComponent(contactId)}/avatar`,
+    apiURL(`/agents/${agentId}/network/contacts/${encodeURIComponent(contactId)}/avatar`),
   uploadAvatar: (agentId: string, contactId: string, blob: Blob) =>
     api.post(`/agents/${agentId}/network/contacts/${encodeURIComponent(contactId)}/avatar`, blob, {
       headers: { 'Content-Type': blob.type || 'application/octet-stream' },
@@ -562,7 +558,7 @@ export function chatSSE(agentId: string, message: string, onEvent: (ev: any) => 
   const ctrl = new AbortController()
   const token = localStorage.getItem('aipanel_token')
 
-  fetch(`/api/agents/${agentId}/chat`, {
+  fetch(apiURL(`/agents/${agentId}/chat`), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -620,7 +616,7 @@ export function resumeSSE(agentId: string, sessionId: string, onEvent: (ev: any)
   const ctrl = new AbortController()
   const token = localStorage.getItem('aipanel_token')
 
-  fetch(`/api/agents/${agentId}/chat/stream?sessionId=${encodeURIComponent(sessionId)}`, {
+  fetch(apiURL(`/agents/${agentId}/chat/stream?sessionId=${encodeURIComponent(sessionId)}`), {
     method: 'GET',
     headers: {
       ...(token ? { Authorization: `Bearer ${token}` } : {})
@@ -664,7 +660,7 @@ export function resumeSSE(agentId: string, sessionId: string, onEvent: (ev: any)
 export async function getSessionStatus(agentId: string, sessionId: string): Promise<{status: 'idle'|'generating', hasWorker: boolean, bufferedEvents: number}> {
   const token = localStorage.getItem('aipanel_token')
   try {
-    const res = await fetch(`/api/agents/${agentId}/chat/status?sessionId=${encodeURIComponent(sessionId)}`, {
+    const res = await fetch(apiURL(`/agents/${agentId}/chat/status?sessionId=${encodeURIComponent(sessionId)}`), {
       headers: token ? { Authorization: `Bearer ${token}` } : {}
     })
     if (res.ok) return await res.json()
@@ -1048,7 +1044,7 @@ export const updateApi = {
   check: () => api.get<UpdateCheckResult>('/update/check'),
   apply: (version?: string) => api.post('/update/apply', version ? { version } : {}),
   // status 是 public endpoint，无需 auth token（服务重启后前端仍可轮询）
-  status: () => axios.get<UpdateStatus>('/api/update/status'),
+  status: () => axios.get<UpdateStatus>(apiURL('/update/status')),
 }
 
 export const usageApi = {

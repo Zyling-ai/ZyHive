@@ -140,6 +140,7 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { apiURL } from '../api/base'
 
 interface ReportEntry {
   content: string
@@ -317,8 +318,8 @@ async function viewArtifact(art: ArtifactEntry) {
   artifactDialogVisible.value = true
   try {
     // Fetch file content from shared project API
-    const token = localStorage.getItem('zyhive_token') || ''
-    const res = await fetch(`/api/projects/${art.projectId}/files/${encodeURIComponent(art.path)}`, {
+    const token = localStorage.getItem('aipanel_token') || ''
+    const res = await fetch(apiURL(`/projects/${art.projectId}/files/${encodeURIComponent(art.path)}`), {
       headers: { Authorization: `Bearer ${token}` }
     })
     if (res.ok) {

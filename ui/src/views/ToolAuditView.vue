@@ -119,6 +119,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { Refresh } from '@element-plus/icons-vue'
 import { agents as agentsApi, type AgentInfo } from '../api'
+import { apiURL } from '../api/base'
 
 interface AuditEntry {
   ts: number
@@ -178,7 +179,7 @@ async function reload(toPage = 1) {
     params.set('limit', String(pageSize.value))
     params.set('offset', String(offset))
     const token = localStorage.getItem('aipanel_token') || ''
-    const resp = await fetch(`/api/tool-audit?${params}`, {
+    const resp = await fetch(apiURL(`/tool-audit?${params}`), {
       headers: { 'Authorization': `Bearer ${token}` },
     })
     if (resp.ok) {
@@ -205,7 +206,7 @@ async function openDrawer(row: AuditEntry) {
   drawerData.value = null
   try {
     const token = localStorage.getItem('aipanel_token') || ''
-    const resp = await fetch(`/api/agents/${encodeURIComponent(row.agentId)}/tool-audit/${encodeURIComponent(row.toolCallId)}`, {
+    const resp = await fetch(apiURL(`/agents/${encodeURIComponent(row.agentId)}/tool-audit/${encodeURIComponent(row.toolCallId)}`), {
       headers: { 'Authorization': `Bearer ${token}` },
     })
     if (resp.ok) {

@@ -7,6 +7,7 @@
 //
 // REST helpers wrap POST /approvals/:id/{approve,deny}.
 import { ref } from 'vue'
+import { apiURL } from '../api/base'
 
 export interface ApprovalRequest {
   id: string
@@ -45,7 +46,7 @@ function token(): string {
 }
 
 function refresh() {
-  fetch('/api/approvals/pending', {
+  fetch(apiURL('/approvals/pending'), {
     headers: { 'Authorization': `Bearer ${token()}` },
   })
     .then(r => r.ok ? r.json() : { pending: [] })
@@ -61,7 +62,7 @@ async function open() {
   if (opening || es) return
   opening = true
   try {
-    const response = await fetch('/api/approvals/stream-ticket', {
+    const response = await fetch(apiURL('/approvals/stream-ticket'), {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${token()}` },
     })
@@ -69,7 +70,7 @@ async function open() {
     const payload = await response.json()
     if (!payload.ticket) throw new Error('missing approval stream credential')
 
-    es = new EventSource(`/api/approvals/stream?ticket=${encodeURIComponent(payload.ticket)}`, {
+    es = new EventSource(apiURL(`/approvals/stream?ticket=${encodeURIComponent(payload.ticket)}`), {
       withCredentials: false,
     } as any)
     es.onopen = () => {
@@ -119,7 +120,7 @@ export function useApprovals() {
 }
 
 export async function approve(id: string, reason = '') {
-  const resp = await fetch(`/api/approvals/${encodeURIComponent(id)}/approve`, {
+  const resp = await fetch(apiURL(`/approvals/${encodeURIComponent(id)}/approve`), {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${token()}`,
@@ -132,7 +133,7 @@ export async function approve(id: string, reason = '') {
 }
 
 export async function deny(id: string, reason = '') {
-  const resp = await fetch(`/api/approvals/${encodeURIComponent(id)}/deny`, {
+  const resp = await fetch(apiURL(`/approvals/${encodeURIComponent(id)}/deny`), {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${token()}`,

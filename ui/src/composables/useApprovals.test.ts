@@ -4,7 +4,9 @@ import { useApprovals } from './useApprovals'
 
 describe('useApprovals stream authentication', () => {
   beforeEach(() => {
+    localStorage.clear()
     localStorage.setItem('aipanel_token', 'admin-secret')
+    localStorage.setItem('aipanel_url', 'https://remote.example.com/')
   })
 
   it('exchanges the admin token for a short-lived EventSource ticket', async () => {
@@ -38,7 +40,9 @@ describe('useApprovals stream authentication', () => {
     const approvals = useApprovals()
 
     await vi.waitFor(() => {
-      expect(openedURLs).toEqual(['/api/approvals/stream?ticket=short-ticket'])
+      expect(openedURLs).toEqual([
+        'https://remote.example.com/api/approvals/stream?ticket=short-ticket',
+      ])
     })
     expect(openedURLs[0]).not.toContain('admin-secret')
 

@@ -132,6 +132,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { ElNotification } from 'element-plus'
 import { agents as agentsApi, models as modelsApi, sessions as sessApi } from '../api'
+import { apiURL } from '../api/base'
 import AiChat from '../components/AiChat.vue'
 import type { AgentInfo, ModelEntry } from '../api'
 
@@ -299,12 +300,11 @@ function onDispatch(agentId: string, agentName: string, avatarColor: string, tas
 
 function pollTask(task: DispatchedTask) {
   const token = localStorage.getItem('aipanel_token') || ''
-  const base = (localStorage.getItem('aipanel_url') || '').replace(/\/$/, '')
   let tries = 0
   const tick = async () => {
     if (tries++ > 60) { task.status = 'error'; return }
     try {
-      const r = await fetch(`${base}/api/tasks/${task.taskId}`, { headers: { Authorization: `Bearer ${token}` } })
+      const r = await fetch(apiURL(`/tasks/${task.taskId}`), { headers: { Authorization: `Bearer ${token}` } })
       if (r.ok) {
         const d = await r.json()
         if (d.output) task.latestReport = (d.output as string).slice(-80)

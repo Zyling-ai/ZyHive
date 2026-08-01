@@ -13,6 +13,7 @@
 import { ref } from 'vue'
 import axios from 'axios'
 import { updateApi, type UpdateStatus } from '../api'
+import { apiURL } from '../api/base'
 
 // —— module-level singleton state ——————————————————————————————————
 const currentVersion = ref<string>('')
@@ -27,7 +28,7 @@ let initialized = false
 
 async function fetchCurrentVersion(): Promise<string> {
   try {
-    const res = await axios.get<{ version: string }>('/api/version', { timeout: 5000 })
+    const res = await axios.get<{ version: string }>(apiURL('/version'), { timeout: 5000 })
     currentVersion.value = res.data.version
     return res.data.version
   } catch {
@@ -72,7 +73,7 @@ function waitForRestart() {
   const started = Date.now()
   const tick = async () => {
     try {
-      const vRes = await axios.get<{ version: string }>('/api/version', { timeout: 3000 })
+      const vRes = await axios.get<{ version: string }>(apiURL('/version'), { timeout: 3000 })
       const newVer = vRes.data.version
       if (newVer && newVer !== currentVersion.value) {
         currentVersion.value = newVer
