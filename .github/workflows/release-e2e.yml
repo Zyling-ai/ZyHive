@@ -201,6 +201,20 @@ jobs:
             gh attestation verify "verified/$file" --repo "$REPOSITORY"
           done
 
+      - name: Stage verified candidate for native runners
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-candidate-${{ inputs.version }}
+          path: |
+            dist/zyhive-linux-amd64
+            dist/zyhive-linux-arm64
+            dist/zyhive-darwin-amd64
+            dist/zyhive-darwin-arm64
+            dist/install.sh
+            dist/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 1
+
   candidate-install-update:
     name: Candidate install/update (${{ matrix.name }})
     needs: supply-chain
@@ -233,16 +247,19 @@ jobs:
           go-version: '1.25.10'
           cache: true
 
-      - name: Download exact draft candidate
+      - name: Download verified candidate artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: release-candidate-${{ inputs.version }}
+          path: dist
+
+      - name: Prepare exact candidate and previous stable binary
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ inputs.version }}
           PREVIOUS_VERSION: ${{ inputs.previous_version }}
           BINARY: zyhive-${{ matrix.name }}
           REPOSITORY: ${{ github.repository }}
         run: |
-          mkdir dist
-          gh release download "$VERSION" --repo "$REPOSITORY" --dir dist
           bash scripts/release-supply-chain.sh verify-checksums dist
           if [[ -n "$PREVIOUS_VERSION" ]]; then
             mkdir previous
