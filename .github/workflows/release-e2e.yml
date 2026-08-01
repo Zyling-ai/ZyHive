@@ -54,10 +54,9 @@ jobs:
           REPOSITORY: ${{ github.repository }}
         run: |
           test "$GITHUB_REF" = "refs/heads/main"
-          release="$(gh api "repos/${REPOSITORY}/releases/${RELEASE_ID}")"
-          test "$(python3 -c 'import json,sys; print(str(json.load(sys.stdin)[\"draft\"]).lower())' <<<"$release")" = "true"
-          test "$(python3 -c 'import json,sys; print(json.load(sys.stdin)[\"tag_name\"])' <<<"$release")" = "$VERSION"
-          test "$(python3 -c 'import json,sys; print(json.load(sys.stdin)[\"target_commitish\"])' <<<"$release")" = "$CANDIDATE_SHA"
+          test "$(gh api "repos/${REPOSITORY}/releases/${RELEASE_ID}" --jq '.draft')" = "true"
+          test "$(gh api "repos/${REPOSITORY}/releases/${RELEASE_ID}" --jq '.tag_name')" = "$VERSION"
+          test "$(gh api "repos/${REPOSITORY}/releases/${RELEASE_ID}" --jq '.target_commitish')" = "$CANDIDATE_SHA"
           test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
           git merge-base --is-ancestor HEAD origin/main
           scripts/verify-commit-identity.sh
@@ -280,10 +279,9 @@ jobs:
           RELEASE_ID: ${{ inputs.release_id }}
           REPOSITORY: ${{ github.repository }}
         run: |
-          release="$(gh api "repos/${REPOSITORY}/releases/${RELEASE_ID}")"
-          test "$(python3 -c 'import json,sys; print(str(json.load(sys.stdin)[\"draft\"]).lower())' <<<"$release")" = "true"
-          test "$(python3 -c 'import json,sys; print(json.load(sys.stdin)[\"tag_name\"])' <<<"$release")" = "$VERSION"
-          target="$(python3 -c 'import json,sys; print(json.load(sys.stdin)[\"target_commitish\"])' <<<"$release")"
+          test "$(gh api "repos/${REPOSITORY}/releases/${RELEASE_ID}" --jq '.draft')" = "true"
+          test "$(gh api "repos/${REPOSITORY}/releases/${RELEASE_ID}" --jq '.tag_name')" = "$VERSION"
+          target="$(gh api "repos/${REPOSITORY}/releases/${RELEASE_ID}" --jq '.target_commitish')"
           test "$target" = "$CANDIDATE_SHA"
 
       - name: Publish verified candidate

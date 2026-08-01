@@ -18,6 +18,7 @@ require("workflow_dispatch:" in WORKFLOW, "release gate must be explicitly dispa
 require("types: [published]" not in WORKFLOW, "validation must not start after publication")
 require("ref: ${{ inputs.candidate_sha }}" in WORKFLOW, "draft candidates must be checked out by immutable commit")
 require("releases/${RELEASE_ID}" in WORKFLOW, "draft verification must use its database ID before a tag exists")
+require("--jq '.draft'" in WORKFLOW, "draft state must be read without shell-escaped inline Python")
 require("candidate-install-update:" in WORKFLOW, "candidate install/update gate is missing")
 require("needs: [supply-chain, candidate-install-update]" in WORKFLOW, "promotion must depend on every candidate gate")
 require("run: gh release edit \"$VERSION\" --repo \"$REPOSITORY\" --draft=false --latest" in WORKFLOW,
