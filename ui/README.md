@@ -9,7 +9,7 @@
 
 ## 环境
 
-- Node.js：`>=20.19.0`
+- Node.js：`>=22.13.0`（CI 使用当前 Node.js 22 LTS）
 - 依赖锁定：`package-lock.json`
 - 框架：Vue 3、TypeScript、Vite、Element Plus
 - 测试：Vitest + jsdom
