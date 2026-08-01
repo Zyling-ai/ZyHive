@@ -50,6 +50,7 @@ jobs:
 
       - name: Test official install, basic API and real update
         env:
+          GH_TOKEN: ${{ github.token }}
           ZYHIVE_REPO: ${{ github.repository }}
         run: >-
           scripts/test/release-e2e/run.sh

@@ -480,24 +480,30 @@ download_release_asset() {
 }
 
 wait_for_latest_release() {
-  local expected="$1" payload tag attempt
+  local expected="$1" payload tag draft attempt
   local attempts="${ZYHIVE_RELEASE_WAIT_ATTEMPTS:-150}"
   [[ "$attempts" =~ ^[0-9]+$ ]] || attempts=150
   for ((attempt = 1; attempt <= attempts; attempt++)); do
-    payload="$(
-      curl -fsSL \
-        -H "Accept: application/vnd.github+json" \
-        -H "Cache-Control: no-cache" \
-        "https://api.github.com/repos/${REPO}/releases/latest?nocache=$(date +%s)-${attempt}" \
-        2>/dev/null || true
-    )"
+    if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+      payload="$(gh api "repos/${REPO}/releases/tags/${expected}" 2>/dev/null || true)"
+    else
+      payload="$(
+        curl -fsSL \
+          -H "Accept: application/vnd.github+json" \
+          -H "Cache-Control: no-cache" \
+          "https://api.github.com/repos/${REPO}/releases/tags/${expected}?nocache=$(date +%s)-${attempt}" \
+          2>/dev/null || true
+      )"
+    fi
     if [[ -n "$payload" ]]; then
-      tag="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("tag_name", ""))' <<<"$payload")"
-      [[ "$tag" == "$expected" ]] && return 0
+      read -r tag draft < <(
+        python3 -c 'import json,sys; data=json.load(sys.stdin); print(data.get("tag_name", ""), str(data.get("draft", True)).lower())' <<<"$payload"
+      )
+      [[ "$tag" == "$expected" && "$draft" == "false" ]] && return 0
     fi
     sleep 2
   done
-  fail "GitHub latest Release 在五分钟内尚未指向 $expected"
+  fail "GitHub 正式 Release 在五分钟内仍不可读取：$expected"
 }
 
 wait_for_install_mirror() {
