@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"runtime"
@@ -52,7 +53,7 @@ type BotControl struct {
 func RegisterRoutes(r *gin.Engine, cfg *config.Config, cfgPath string, mgr *agent.Manager, pool *agent.Pool, cronEngine *cron.Engine, uiFS fs.FS, runnerFunc channel.RunnerFunc, botCtrl BotControl, projectMgr *project.Manager, subagentMgr *subagent.Manager, workerPool *session.WorkerPool, usageStore *usage.Store, budgetStore *budget.Store, skilloptMgr *skillopt.Manager) {
 	configFilePath = cfgPath // wire the active config path for all API handlers
 	rf := runnerFunc
-	r.Use(corsMiddleware())
+	r.Use(corsMiddleware(cfg.Gateway))
 	// P0-01: trace_id middleware MUST run before requestLogger so logs can
 	// reference it. We log the trace id later via slog.FromContext.
 	r.Use(logging.TraceMiddleware())
@@ -314,7 +315,7 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, cfgPath string, mgr *agen
 	}
 
 	// Cron jobs
-	cronH := &cronHandler{engine: cronEngine}
+	cronH := &cronHandler{engine: cronEngine, manager: mgr}
 	cronGroup := v1.Group("/cron")
 	{
 		cronGroup.GET("", cronH.List)
@@ -515,9 +516,36 @@ func RegisterRoutes(r *gin.Engine, cfg *config.Config, cfgPath string, mgr *agen
 	}
 }
 
-func corsMiddleware() gin.HandlerFunc {
+func corsMiddleware(gateway config.GatewayConfig) gin.HandlerFunc {
+	allowedOrigins := make(map[string]struct{}, len(gateway.CORS.AllowedOrigins)+1)
+	for _, origin := range gateway.CORS.AllowedOrigins {
+		if normalized := normalizeOrigin(origin); normalized != "" {
+			allowedOrigins[normalized] = struct{}{}
+		}
+	}
+	if normalized := normalizeOrigin(gateway.PublicURL); normalized != "" {
+		allowedOrigins[normalized] = struct{}{}
+	}
+
 	return func(c *gin.Context) {
-		c.Header("Access-Control-Allow-Origin", "*")
+		origin := normalizeOrigin(c.GetHeader("Origin"))
+		if origin == "" {
+			c.Next()
+			return
+		}
+
+		_, explicitlyAllowed := allowedOrigins[origin]
+		if !explicitlyAllowed && origin != requestOrigin(c.Request) {
+			if c.Request.Method == http.MethodOptions {
+				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "origin is not allowed"})
+				return
+			}
+			c.Next()
+			return
+		}
+
+		c.Header("Access-Control-Allow-Origin", origin)
+		c.Header("Vary", "Origin")
 		c.Header("Access-Control-Allow-Headers", "Authorization, Content-Type")
 		c.Header("Access-Control-Allow-Methods", "GET, POST, PATCH, PUT, DELETE, OPTIONS")
 		if c.Request.Method == "OPTIONS" {
@@ -526,6 +554,28 @@ func corsMiddleware() gin.HandlerFunc {
 		}
 		c.Next()
 	}
+}
+
+func normalizeOrigin(raw string) string {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Scheme == "" || u.Host == "" || u.User != nil {
+		return ""
+	}
+	if u.Path != "" && u.Path != "/" || u.RawQuery != "" || u.Fragment != "" {
+		return ""
+	}
+	return strings.ToLower(u.Scheme) + "://" + strings.ToLower(u.Host)
+}
+
+func requestOrigin(r *http.Request) string {
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	if forwarded := strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-Proto"), ",")[0]); forwarded == "http" || forwarded == "https" {
+		scheme = forwarded
+	}
+	return normalizeOrigin(scheme + "://" + r.Host)
 }
 
 func requestLogger() gin.HandlerFunc {

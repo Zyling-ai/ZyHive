@@ -12,6 +12,8 @@ GITHUB_API_URL="${ZYHIVE_GITHUB_API_URL:-https://api.github.com/repos/Zyling-ai/
 GITHUB_DOWNLOAD_BASE="${ZYHIVE_GITHUB_DOWNLOAD_BASE:-https://github.com/Zyling-ai/ZyHive/releases/download}"
 VERSION_OVERRIDE="${ZYHIVE_VERSION:-}"
 DISABLE_FALLBACK="${ZYHIVE_DISABLE_FALLBACK:-0}"
+VERIFY_SIGNATURE="${ZYHIVE_VERIFY_SIGNATURE:-0}"
+CERTIFICATE_IDENTITY_OVERRIDE="${ZYHIVE_CERTIFICATE_IDENTITY:-}"
 
 # ══════════════════════════════════════════════════════════════════════════
 # 依赖检查：自动安装 curl（若缺失则尝试 apt/yum/apk/brew）
@@ -98,9 +100,15 @@ while [[ $# -gt 0 ]]; do
     --model)             WIZARD_MODEL="$2";     shift 2 ;;
     --telegram-token)    WIZARD_TG_TOKEN="$2";  shift 2 ;;
     --telegram-allowed)  WIZARD_TG_ALLOWED="$2"; shift 2 ;;
+    --verify-signature)  VERIFY_SIGNATURE=1;    shift   ;;
     *) shift ;;
   esac
 done
+
+case "$VERIFY_SIGNATURE" in
+  0|1) ;;
+  *) echo "❌ ZYHIVE_VERIFY_SIGNATURE 只能是 0 或 1" >&2; exit 2 ;;
+esac
 
 # ── 颜色输出 ───────────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
@@ -199,6 +207,40 @@ BINARY_URL="$INSTALL_BASE/dl/$LATEST/$BINARY_FILENAME"
 BINARY_URL_FALLBACK="$GITHUB_DOWNLOAD_BASE/$LATEST/$BINARY_FILENAME"
 CHECKSUM_URL="$INSTALL_BASE/dl/$LATEST/SHA256SUMS"
 CHECKSUM_URL_FALLBACK="$GITHUB_DOWNLOAD_BASE/$LATEST/SHA256SUMS"
+BUNDLE_FILENAME="${BINARY_FILENAME}.sigstore.json"
+BUNDLE_URL="$INSTALL_BASE/dl/$LATEST/$BUNDLE_FILENAME"
+BUNDLE_URL_FALLBACK="$GITHUB_DOWNLOAD_BASE/$LATEST/$BUNDLE_FILENAME"
+
+_verify_signature() {
+  local binary_path="$1" bundle_path identity
+  [ "$VERIFY_SIGNATURE" = "1" ] || {
+    warning "默认信任边界：已校验下载二进制与同源 SHA256SUMS 一致，但未验证发布者签名；使用 --verify-signature 启用 fail-closed 身份验证"
+    return 0
+  }
+
+  command -v cosign &>/dev/null \
+    || error "严格签名验证已启用，但未安装 cosign；请安装 cosign 后重试"
+
+  bundle_path=$(mktemp)
+  if ! _dl "$BUNDLE_URL" "$bundle_path" 20 2>/dev/null \
+    && { [ "$DISABLE_FALLBACK" = "1" ] \
+      || ! _dl "$BUNDLE_URL_FALLBACK" "$bundle_path" 20 2>/dev/null; }; then
+    rm -f "$bundle_path"
+    error "严格签名验证已启用，但版本 $LATEST 缺少 $BUNDLE_FILENAME"
+  fi
+
+  identity="${CERTIFICATE_IDENTITY_OVERRIDE:-https://github.com/Zyling-ai/ZyHive/.github/workflows/release-e2e.yml@refs/tags/${LATEST}}"
+  if ! COSIGN_EXPERIMENTAL=1 cosign verify-blob \
+    --bundle "$bundle_path" \
+    --certificate-identity "$identity" \
+    --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+    "$binary_path" >/dev/null; then
+    rm -f "$bundle_path"
+    error "二进制 Sigstore keyless 签名或 GitHub Actions OIDC 身份验证失败"
+  fi
+  rm -f "$bundle_path"
+  success "Sigstore keyless 签名与发布工作流身份验证通过"
+}
 
 _verify_download() {
   local binary_path="$1"
@@ -223,6 +265,8 @@ _verify_download() {
     [ "$actual" = "$expected" ] || error "二进制 SHA-256 校验失败，已停止安装"
     success "SHA-256 校验通过"
   fi
+
+  _verify_signature "$binary_path"
 
   chmod 755 "$binary_path"
   detected=$("$binary_path" --version 2>/dev/null | awk '{print $NF}')
@@ -435,12 +479,8 @@ _make_channels_json() {
     printf '[]'
     return
   fi
-  local allowed_json="[]"
-  if [ -n "$tg_allowed" ]; then
-    allowed_json="[$(echo "$tg_allowed" | tr ',' '\n' | awk '{printf "%s%s", (NR>1?",":""), $0}')]"
-  fi
-  printf '[{"id":"telegram","name":"Telegram","type":"telegram","config":{"botToken":"%s"},"enabled":true,"status":"untested","allowedFrom":%s}]' \
-    "$(_json_escape "$tg_token")" "$allowed_json"
+  printf '[{"id":"telegram","name":"Telegram","type":"telegram","config":{"botToken":"%s","allowedFrom":"%s"},"enabled":true,"status":"untested"}]' \
+    "$(_json_escape "$tg_token")" "$(_json_escape "$tg_allowed")"
 }
 
 # 向导主函数

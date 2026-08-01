@@ -62,12 +62,17 @@ func (h *modelHandler) Create(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if entry.ID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "id is required"})
+	entry.ID = strings.TrimSpace(entry.ID)
+	entry.Name = strings.TrimSpace(entry.Name)
+	entry.Provider = strings.TrimSpace(entry.Provider)
+	entry.Model = strings.TrimSpace(entry.Model)
+	if err := h.validateModelEntry(&entry); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 	entry.BaseURL = strings.TrimRight(strings.TrimSpace(entry.BaseURL), "/")
-	if err := llm.ValidateProviderBaseURL(c.Request.Context(), entry.Provider, entry.BaseURL); err != nil {
+	_, effectiveBaseURL := config.ResolveCredentials(&entry, h.cfg.Providers)
+	if err := llm.ValidateProviderBaseURL(c.Request.Context(), entry.Provider, effectiveBaseURL); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "baseUrl is blocked: " + err.Error()})
 		return
 	}
@@ -85,6 +90,30 @@ func (h *modelHandler) Create(c *gin.Context) {
 	h.save(c)
 	entry.APIKey = maskKey(entry.APIKey)
 	c.JSON(http.StatusCreated, entry)
+}
+
+func (h *modelHandler) validateModelEntry(entry *config.ModelEntry) error {
+	switch {
+	case entry.ID == "":
+		return fmt.Errorf("id is required")
+	case entry.Name == "":
+		return fmt.Errorf("name is required")
+	case entry.Provider == "":
+		return fmt.Errorf("provider is required")
+	case entry.Model == "":
+		return fmt.Errorf("model is required")
+	}
+	if entry.ProviderID == "" {
+		return nil
+	}
+	provider := h.cfg.FindProvider(entry.ProviderID)
+	if provider == nil {
+		return fmt.Errorf("providerId %q does not exist", entry.ProviderID)
+	}
+	if provider.Provider != entry.Provider {
+		return fmt.Errorf("providerId %q has type %q, not %q", entry.ProviderID, provider.Provider, entry.Provider)
+	}
+	return nil
 }
 
 // Update PATCH /api/models/:id

@@ -5,12 +5,14 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/Zyling-ai/zyhive/pkg/agent"
 	"github.com/Zyling-ai/zyhive/pkg/cron"
 	"github.com/gin-gonic/gin"
 )
 
 type cronHandler struct {
-	engine *cron.Engine
+	engine  *cron.Engine
+	manager *agent.Manager
 }
 
 // List GET /api/cron
@@ -48,6 +50,16 @@ func (h *cronHandler) Create(c *gin.Context) {
 	if err := c.ShouldBindJSON(&job); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
+	}
+	if job.AgentID != "" {
+		if h.manager == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "agent manager not initialized"})
+			return
+		}
+		if _, ok := h.manager.Get(job.AgentID); !ok {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "agentId does not exist: " + job.AgentID})
+			return
+		}
 	}
 	if err := h.engine.Add(&job); err != nil {
 		if errors.Is(err, cron.ErrInvalidJob) {

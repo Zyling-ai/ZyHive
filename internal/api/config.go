@@ -34,6 +34,12 @@ func maskKey(key string) string {
 func (h *configHandler) Get(c *gin.Context) {
 	safe := *h.cfg
 	safe.Auth.Token = "***"
+	maskedProviders := make([]config.ProviderEntry, len(safe.Providers))
+	copy(maskedProviders, safe.Providers)
+	for i := range maskedProviders {
+		maskedProviders[i].APIKey = maskKey(maskedProviders[i].APIKey)
+	}
+	safe.Providers = maskedProviders
 	// Mask model API keys
 	maskedModels := make([]config.ModelEntry, len(safe.Models))
 	copy(maskedModels, safe.Models)
@@ -47,7 +53,7 @@ func (h *configHandler) Get(c *gin.Context) {
 	for i := range maskedChannels {
 		mc := make(map[string]string)
 		for k, v := range maskedChannels[i].Config {
-			if strings.Contains(strings.ToLower(k), "token") || strings.Contains(strings.ToLower(k), "key") {
+			if isSecretField(k) {
 				mc[k] = maskKey(v)
 			} else {
 				mc[k] = v
@@ -66,32 +72,41 @@ func (h *configHandler) Get(c *gin.Context) {
 	c.JSON(http.StatusOK, safe)
 }
 
+func isSecretField(name string) bool {
+	lower := strings.ToLower(name)
+	return strings.Contains(lower, "token") ||
+		strings.Contains(lower, "key") ||
+		strings.Contains(lower, "secret") ||
+		strings.Contains(lower, "password")
+}
+
 // Patch PATCH /api/config — merge-patch config fields.
 func (h *configHandler) Patch(c *gin.Context) {
-	var patch map[string]json.RawMessage
+	var patch map[string]any
 	if err := c.ShouldBindJSON(&patch); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
 	current, _ := json.Marshal(h.cfg)
-	var currentMap map[string]json.RawMessage
-	json.Unmarshal(current, &currentMap)
-
-	for k, v := range patch {
-		currentMap[k] = v
+	var currentMap map[string]any
+	if err := json.Unmarshal(current, &currentMap); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "encode current config: " + err.Error()})
+		return
 	}
+	mergeJSONObject(currentMap, patch)
 
-	merged, _ := json.Marshal(currentMap)
+	merged, err := json.Marshal(currentMap)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid config: " + err.Error()})
+		return
+	}
 	var updated config.Config
 	if err := json.Unmarshal(merged, &updated); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid config: " + err.Error()})
 		return
 	}
 
-	if _, hasAuth := patch["auth"]; !hasAuth {
-		updated.Auth = h.cfg.Auth
-	}
 	if _, err := tools.DecodeToolPolicy(updated.ToolPolicyRaw); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid toolPolicy: " + err.Error()})
 		return
@@ -124,6 +139,18 @@ func (h *configHandler) Patch(c *gin.Context) {
 	}
 	*h.cfg = updated
 	h.Get(c)
+}
+
+func mergeJSONObject(dst, patch map[string]any) {
+	for key, patchValue := range patch {
+		patchObject, patchIsObject := patchValue.(map[string]any)
+		currentObject, currentIsObject := dst[key].(map[string]any)
+		if patchIsObject && currentIsObject {
+			mergeJSONObject(currentObject, patchObject)
+			continue
+		}
+		dst[key] = patchValue
+	}
 }
 
 // TestKey POST /api/config/test-key — validate an API key.

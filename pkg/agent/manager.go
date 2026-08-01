@@ -26,39 +26,39 @@ const SystemConfigAgentID = "__config__"
 
 // Agent represents a single AI agent (employee) managed by the panel.
 type Agent struct {
-	ID           string                `json:"id"`
-	Name         string                `json:"name"`
-	Description  string                `json:"description,omitempty"`
-	Model        string                `json:"model"`          // legacy: "provider/model"
-	ModelID      string                `json:"modelId"`         // references Config.Models[].ID
-	Channels     []config.ChannelEntry `json:"channels,omitempty"`   // per-agent channels (own bots)
-	ToolIDs      []string              `json:"toolIds,omitempty"`
-	SkillIDs     []string              `json:"skillIds,omitempty"`
-	AvatarColor  string                `json:"avatarColor,omitempty"`
-	System       bool                  `json:"system,omitempty"` // built-in, cannot be deleted
-	Env          map[string]string     `json:"env,omitempty"`   // per-agent environment variables for exec tool
-	WorkspaceDir string                `json:"workspaceDir"`
-	SessionDir   string                `json:"sessionDir"`
-	Status       string                `json:"status"` // "running" | "stopped" | "idle"
-	Heartbeat    *config.HeartbeatConfig `json:"heartbeat,omitempty"` // nil = heartbeat disabled
-	ToolPolicyRaw json.RawMessage `json:"toolPolicy,omitempty"` // nil = inherit global
+	ID            string                  `json:"id"`
+	Name          string                  `json:"name"`
+	Description   string                  `json:"description,omitempty"`
+	Model         string                  `json:"model"`              // legacy: "provider/model"
+	ModelID       string                  `json:"modelId"`            // references Config.Models[].ID
+	Channels      []config.ChannelEntry   `json:"channels,omitempty"` // per-agent channels (own bots)
+	ToolIDs       []string                `json:"toolIds,omitempty"`
+	SkillIDs      []string                `json:"skillIds,omitempty"`
+	AvatarColor   string                  `json:"avatarColor,omitempty"`
+	System        bool                    `json:"system,omitempty"` // built-in, cannot be deleted
+	Env           map[string]string       `json:"env,omitempty"`    // per-agent environment variables for exec tool
+	WorkspaceDir  string                  `json:"workspaceDir"`
+	SessionDir    string                  `json:"sessionDir"`
+	Status        string                  `json:"status"`               // "running" | "stopped" | "idle"
+	Heartbeat     *config.HeartbeatConfig `json:"heartbeat,omitempty"`  // nil = heartbeat disabled
+	ToolPolicyRaw json.RawMessage         `json:"toolPolicy,omitempty"` // nil = inherit global
 }
 
 // agentConfig is the on-disk config.json format for each agent.
 type agentConfig struct {
-	ID          string                `json:"id"`
-	Name        string                `json:"name"`
-	Description string                `json:"description,omitempty"`
-	Model       string                `json:"model,omitempty"`   // legacy compat
-	ModelID     string                `json:"modelId,omitempty"`
-	Channels    []config.ChannelEntry `json:"channels,omitempty"`   // per-agent channels
-	ToolIDs     []string              `json:"toolIds,omitempty"`
-	SkillIDs    []string              `json:"skillIds,omitempty"`
-	AvatarColor string                `json:"avatarColor,omitempty"`
-	System      bool                    `json:"system,omitempty"`
-	Env         map[string]string       `json:"env,omitempty"` // per-agent env vars for exec
-	Heartbeat   *config.HeartbeatConfig `json:"heartbeat,omitempty"` // nil = disabled
-	ToolPolicyRaw json.RawMessage       `json:"toolPolicy,omitempty"` // nil = inherit global
+	ID            string                  `json:"id"`
+	Name          string                  `json:"name"`
+	Description   string                  `json:"description,omitempty"`
+	Model         string                  `json:"model,omitempty"` // legacy compat
+	ModelID       string                  `json:"modelId,omitempty"`
+	Channels      []config.ChannelEntry   `json:"channels,omitempty"` // per-agent channels
+	ToolIDs       []string                `json:"toolIds,omitempty"`
+	SkillIDs      []string                `json:"skillIds,omitempty"`
+	AvatarColor   string                  `json:"avatarColor,omitempty"`
+	System        bool                    `json:"system,omitempty"`
+	Env           map[string]string       `json:"env,omitempty"`        // per-agent env vars for exec
+	Heartbeat     *config.HeartbeatConfig `json:"heartbeat,omitempty"`  // nil = disabled
+	ToolPolicyRaw json.RawMessage         `json:"toolPolicy,omitempty"` // nil = inherit global
 }
 
 // Manager manages all agents under a root directory.
@@ -186,19 +186,21 @@ func (m *Manager) List() []*Agent {
 //	{rootDir}/{id}/config.json
 //	{rootDir}/{id}/workspace/  (with IDENTITY.md, SOUL.md, MEMORY.md, memory/)
 //	{rootDir}/{id}/sessions/
+//
 // CreateOpts holds the options for creating a new agent.
 type CreateOpts struct {
-	ID          string                `json:"id"`
-	Name        string                `json:"name"`
-	Description string                `json:"description,omitempty"`
-	Model       string                `json:"model,omitempty"`   // legacy: "provider/model"
-	ModelID     string                `json:"modelId,omitempty"`
-	Channels    []config.ChannelEntry `json:"channels,omitempty"`   // per-agent channels
-	ToolIDs     []string              `json:"toolIds,omitempty"`
-	SkillIDs    []string              `json:"skillIds,omitempty"`
-	AvatarColor string                `json:"avatarColor,omitempty"`
-	System      bool                  `json:"system,omitempty"`
-	Env         map[string]string     `json:"env,omitempty"`
+	ID            string                `json:"id"`
+	Name          string                `json:"name"`
+	Description   string                `json:"description,omitempty"`
+	Model         string                `json:"model,omitempty"` // legacy: "provider/model"
+	ModelID       string                `json:"modelId,omitempty"`
+	Channels      []config.ChannelEntry `json:"channels,omitempty"` // per-agent channels
+	ToolIDs       []string              `json:"toolIds,omitempty"`
+	SkillIDs      []string              `json:"skillIds,omitempty"`
+	AvatarColor   string                `json:"avatarColor,omitempty"`
+	System        bool                  `json:"system,omitempty"`
+	Env           map[string]string     `json:"env,omitempty"`
+	ToolPolicyRaw json.RawMessage       `json:"toolPolicy,omitempty"`
 }
 
 func (m *Manager) Create(id, name, model string) (*Agent, error) {
@@ -226,17 +228,18 @@ func (m *Manager) CreateWithOpts(opts CreateOpts) (*Agent, error) {
 
 	// Write config.json
 	cfg := agentConfig{
-		ID:          opts.ID,
-		Name:        opts.Name,
-		Description: opts.Description,
-		Model:       opts.Model,
-		ModelID:     opts.ModelID,
-		Channels:    opts.Channels,
-		ToolIDs:     opts.ToolIDs,
-		SkillIDs:    opts.SkillIDs,
-		AvatarColor: opts.AvatarColor,
-		System:      opts.System,
-		Env:         opts.Env,
+		ID:            opts.ID,
+		Name:          opts.Name,
+		Description:   opts.Description,
+		Model:         opts.Model,
+		ModelID:       opts.ModelID,
+		Channels:      opts.Channels,
+		ToolIDs:       opts.ToolIDs,
+		SkillIDs:      opts.SkillIDs,
+		AvatarColor:   opts.AvatarColor,
+		System:        opts.System,
+		Env:           opts.Env,
+		ToolPolicyRaw: opts.ToolPolicyRaw,
 	}
 	cfgData, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
@@ -253,20 +256,21 @@ func (m *Manager) CreateWithOpts(opts CreateOpts) (*Agent, error) {
 	}
 
 	a := &Agent{
-		ID:           opts.ID,
-		Name:         opts.Name,
-		Description:  opts.Description,
-		Model:        opts.Model,
-		ModelID:      opts.ModelID,
-		Channels:     opts.Channels,
-		ToolIDs:      opts.ToolIDs,
-		SkillIDs:     opts.SkillIDs,
-		AvatarColor:  opts.AvatarColor,
-		System:       opts.System,
-		Env:          opts.Env,
-		WorkspaceDir: workspaceDir,
-		SessionDir:   sessionDir,
-		Status:       "idle",
+		ID:            opts.ID,
+		Name:          opts.Name,
+		Description:   opts.Description,
+		Model:         opts.Model,
+		ModelID:       opts.ModelID,
+		Channels:      opts.Channels,
+		ToolIDs:       opts.ToolIDs,
+		SkillIDs:      opts.SkillIDs,
+		AvatarColor:   opts.AvatarColor,
+		System:        opts.System,
+		Env:           opts.Env,
+		ToolPolicyRaw: opts.ToolPolicyRaw,
+		WorkspaceDir:  workspaceDir,
+		SessionDir:    sessionDir,
+		Status:        "idle",
 	}
 	m.agents[opts.ID] = a
 

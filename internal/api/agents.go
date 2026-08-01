@@ -70,14 +70,15 @@ func (h *agentHandler) List(c *gin.Context) {
 // Create POST /api/agents — supports both legacy and new format
 func (h *agentHandler) Create(c *gin.Context) {
 	var req struct {
-		ID          string   `json:"id" binding:"required"`
-		Name        string   `json:"name" binding:"required"`
-		Description string   `json:"description"`
-		Model       string   `json:"model"`
-		ModelID     string   `json:"modelId"`
-		ToolIDs     []string `json:"toolIds"`
-		SkillIDs    []string `json:"skillIds"`
-		AvatarColor string   `json:"avatarColor"`
+		ID          string          `json:"id" binding:"required"`
+		Name        string          `json:"name" binding:"required"`
+		Description string          `json:"description"`
+		Model       string          `json:"model"`
+		ModelID     string          `json:"modelId"`
+		ToolIDs     []string        `json:"toolIds"`
+		SkillIDs    []string        `json:"skillIds"`
+		AvatarColor string          `json:"avatarColor"`
+		ToolPolicy  json.RawMessage `json:"toolPolicy"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -88,31 +89,65 @@ func (h *agentHandler) Create(c *gin.Context) {
 	model := req.Model
 	modelID := req.ModelID
 	if modelID != "" {
-		if m := h.cfg.FindModel(modelID); m != nil {
-			model = m.ProviderModel()
+		m := h.cfg.FindModel(modelID)
+		if m == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "unknown modelId: " + modelID})
+			return
 		}
+		if model != "" && model != m.ID && model != m.Model && model != m.ProviderModel() {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "model does not match modelId"})
+			return
+		}
+		model = m.ProviderModel()
+	} else if model != "" {
+		m := findModelByReference(h.cfg, model)
+		if m == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "unknown model: " + model})
+			return
+		}
+		model = m.ProviderModel()
+		modelID = m.ID
 	} else if model == "" {
 		if m := h.cfg.DefaultModel(); m != nil {
 			model = m.ProviderModel()
 			modelID = m.ID
 		}
 	}
+	var toolPolicy json.RawMessage
+	if len(req.ToolPolicy) > 0 && string(req.ToolPolicy) != "null" {
+		if _, err := tools.DecodeToolPolicy(req.ToolPolicy); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid toolPolicy: " + err.Error()})
+			return
+		}
+		toolPolicy = append(json.RawMessage(nil), req.ToolPolicy...)
+	}
 
 	a, err := h.manager.CreateWithOpts(agent.CreateOpts{
-		ID:          req.ID,
-		Name:        req.Name,
-		Description: req.Description,
-		Model:       model,
-		ModelID:     modelID,
-		ToolIDs:     req.ToolIDs,
-		SkillIDs:    req.SkillIDs,
-		AvatarColor: req.AvatarColor,
+		ID:            req.ID,
+		Name:          req.Name,
+		Description:   req.Description,
+		Model:         model,
+		ModelID:       modelID,
+		ToolIDs:       req.ToolIDs,
+		SkillIDs:      req.SkillIDs,
+		AvatarColor:   req.AvatarColor,
+		ToolPolicyRaw: toolPolicy,
 	})
 	if err != nil {
 		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 		return
 	}
 	c.JSON(http.StatusCreated, agentToInfo(a))
+}
+
+func findModelByReference(cfg *config.Config, ref string) *config.ModelEntry {
+	for i := range cfg.Models {
+		model := &cfg.Models[i]
+		if ref == model.ID || ref == model.ProviderModel() || ref == model.Model {
+			return model
+		}
+	}
+	return nil
 }
 
 // Get GET /api/agents/:id

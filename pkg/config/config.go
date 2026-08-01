@@ -126,9 +126,16 @@ type ProviderEntry struct {
 }
 
 type GatewayConfig struct {
-	Port      int    `json:"port"`
-	Bind      string `json:"bind"`
-	PublicURL string `json:"publicUrl,omitempty"` // e.g. "https://zyhive.example.com"
+	Port      int        `json:"port"`
+	Bind      string     `json:"bind"`
+	PublicURL string     `json:"publicUrl,omitempty"` // e.g. "https://zyhive.example.com"
+	CORS      CORSConfig `json:"cors,omitempty"`
+}
+
+// CORSConfig lists browser origins that may call the API cross-origin.
+// Same-origin requests are always allowed and do not need to be listed.
+type CORSConfig struct {
+	AllowedOrigins []string `json:"allowedOrigins,omitempty"`
 }
 
 func (g GatewayConfig) Validate() error {

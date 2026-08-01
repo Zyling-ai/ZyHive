@@ -2,11 +2,13 @@
 package api
 
 import (
+	"context"
 	"net/http"
-	"strings"
+	"time"
 
-	"github.com/gin-gonic/gin"
+	"github.com/Zyling-ai/zyhive/pkg/channel"
 	"github.com/Zyling-ai/zyhive/pkg/config"
+	"github.com/gin-gonic/gin"
 )
 
 type channelHandler struct {
@@ -26,7 +28,7 @@ func (h *channelHandler) List(c *gin.Context) {
 	for i := range result {
 		mc := make(map[string]string)
 		for k, v := range result[i].Config {
-			if strings.Contains(strings.ToLower(k), "token") || strings.Contains(strings.ToLower(k), "key") {
+			if isSecretField(k) {
 				mc[k] = maskKey(v)
 			} else {
 				mc[k] = v
@@ -126,10 +128,49 @@ func (h *channelHandler) Test(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "channel not found"})
 		return
 	}
-	// For now just mark as ok
+	var (
+		name string
+		err  error
+	)
+	switch ch.Type {
+	case "telegram":
+		token := ch.Config["botToken"]
+		if token == "" || ismasked(token) {
+			ch.Status = "error"
+			h.save(c)
+			c.JSON(http.StatusBadRequest, gin.H{"valid": false, "error": "telegram botToken is required"})
+			return
+		}
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 6*time.Second)
+		defer cancel()
+		name, err = channel.TestTelegramBot(ctx, token)
+	case "feishu":
+		appID, appSecret := ch.Config["appId"], ch.Config["appSecret"]
+		if appID == "" || appSecret == "" || ismasked(appSecret) {
+			ch.Status = "error"
+			h.save(c)
+			c.JSON(http.StatusBadRequest, gin.H{"valid": false, "error": "feishu appId and appSecret are required"})
+			return
+		}
+		name, err = channel.TestFeishuBot(appID, appSecret)
+	default:
+		ch.Status = "error"
+		h.save(c)
+		c.JSON(http.StatusNotImplemented, gin.H{
+			"valid": false,
+			"error": "channel type " + ch.Type + " has no real connectivity probe",
+		})
+		return
+	}
+	if err != nil {
+		ch.Status = "error"
+		h.save(c)
+		c.JSON(http.StatusOK, gin.H{"valid": false, "error": err.Error()})
+		return
+	}
 	ch.Status = "ok"
 	h.save(c)
-	c.JSON(http.StatusOK, gin.H{"valid": true})
+	c.JSON(http.StatusOK, gin.H{"valid": true, "name": name})
 }
 
 func (h *channelHandler) save(c *gin.Context) {

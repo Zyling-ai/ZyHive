@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Zyling-ai/zyhive/pkg/agent"
 	"github.com/Zyling-ai/zyhive/pkg/cron"
 	"github.com/gin-gonic/gin"
 )
@@ -31,6 +32,39 @@ func TestCronCreateReturnsBadRequestForInvalidSchedule(t *testing.T) {
 	router.ServeHTTP(res, req)
 	if res.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+	}
+}
+
+func TestCronCreateRejectsUnknownNonEmptyAgentIDAndAllowsEmpty(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	engine := cron.NewEngine(t.TempDir(), nil, nil)
+	handler := &cronHandler{engine: engine, manager: agent.NewManager(t.TempDir())}
+	router := gin.New()
+	router.POST("/cron", handler.Create)
+
+	base := `{
+		"name":"job",
+		"enabled":true,
+		"schedule":{"kind":"every","everyMs":60000},
+		"payload":{"kind":"agentTurn","message":"hello"},
+		"delivery":{"mode":"none"}`
+	unknown := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/cron", strings.NewReader(base+`,"agentId":"missing"}`))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(unknown, req)
+	if unknown.Code != http.StatusBadRequest {
+		t.Fatalf("unknown agent status = %d, body = %s", unknown.Code, unknown.Body.String())
+	}
+	if len(engine.ListJobs()) != 0 {
+		t.Fatal("unknown agent job must not be persisted")
+	}
+
+	global := httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/cron", strings.NewReader(base+`,"agentId":""}`))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(global, req)
+	if global.Code != http.StatusCreated {
+		t.Fatalf("empty agentId status = %d, body = %s", global.Code, global.Body.String())
 	}
 }
 
