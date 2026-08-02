@@ -1,0 +1,35 @@
+---
+title: SkillOpt 有界演进闭环
+---
+flowchart LR
+  subgraph C0["证据"]
+    C0_0["predict 预测"]
+    C0_1["oracle 真实结果"]
+    C0_2["hit / miss 台账"]
+    C0_0 --> C0_1
+    C0_1 --> C0_2
+  end
+  subgraph C1["归因"]
+    C1_0["样本阈值"]
+    C1_1["Critic 分析 miss"]
+    C1_2["标签与教训"]
+    C1_0 --> C1_1
+    C1_1 --> C1_2
+  end
+  C0_2 --> C1_0
+  subgraph C2["提案"]
+    C2_0["Evolver 有界改写"]
+    C2_1["pending proposal"]
+    C2_2["人工接受 / 拒绝"]
+    C2_0 --> C2_1
+    C2_1 --> C2_2
+  end
+  C1_2 --> C2_0
+  subgraph C3["验证"]
+    C3_0["Shadow 对照"]
+    C3_1["晋升或回滚"]
+    C3_2["版本历史"]
+    C3_0 --> C3_1
+    C3_1 --> C3_2
+  end
+  C2_2 --> C3_0

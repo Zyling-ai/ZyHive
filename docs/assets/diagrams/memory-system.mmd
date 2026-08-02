@@ -1,0 +1,39 @@
+---
+title: 知识、记忆与通讯录
+---
+flowchart LR
+  subgraph C0["身份上下文"]
+    C0_0["IDENTITY / SOUL"]
+    C0_1["Owner Profile"]
+    C0_2["AGENTS"]
+    C0_0 --> C0_1
+    C0_1 --> C0_2
+  end
+  subgraph C1["记忆树"]
+    C1_0["core"]
+    C1_1["projects"]
+    C1_2["daily"]
+    C1_3["topics + INDEX"]
+    C1_0 --> C1_1
+    C1_1 --> C1_2
+    C1_2 --> C1_3
+  end
+  C0_2 --> C1_0
+  subgraph C2["关系网络"]
+    C2_0["Contacts"]
+    C2_1["Chats"]
+    C2_2["RELATIONS"]
+    C2_3["渐进披露"]
+    C2_0 --> C2_1
+    C2_1 --> C2_2
+    C2_2 --> C2_3
+  end
+  C1_3 --> C2_0
+  subgraph C3["检索与整理"]
+    C3_0["Embedding / BM25"]
+    C3_1["Consolidator"]
+    C3_2["Conversation Index"]
+    C3_0 --> C3_1
+    C3_1 --> C3_2
+  end
+  C2_3 --> C3_0

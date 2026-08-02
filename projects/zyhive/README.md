@@ -193,7 +193,7 @@ zyhive/
 
 历史版本曾写有“商业闭源集成或 SaaS 需要商业授权”，该表述已经废止，不能作为当前许可承诺。
 
-当前 ZyHive 仅按仓库根目录 [LICENSE](../../LICENSE) 的 **AGPL-3.0** 发布，当前没有专有商业许可证或闭源企业版。部署、配置、培训、运维和定制服务可以收费；具体边界以[现行商业边界](../../docs/commercial-boundaries.md)为准。
+当前 ZyHive 仅按仓库根目录 [LICENSE](../../LICENSE) 的 **AGPL-3.0** 发布，当前没有专有商业许可证或闭源企业版。部署、配置、培训、运维和定制服务可以收费；具体边界以[现行商业边界](../../docs/governance/commercial-boundaries.md)为准。
 
 ---
 

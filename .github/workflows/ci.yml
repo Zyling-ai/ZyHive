@@ -136,6 +136,15 @@ jobs:
       - name: Draft-first release gate contracts
         run: python3 scripts/test/release_draft_gate_test.py
 
+  docs:
+    name: Documentation (links / assets / status / secrets)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate documentation
+        run: python3 scripts/validate_docs.py
+
   release-smoke:
     name: Release E2E (install / API / update)
     needs: [go, scripts]
@@ -160,7 +169,7 @@ jobs:
   release-build:
     name: Release build (${{ matrix.goos }}/${{ matrix.goarch }})
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [identity, go, go-race, ui, scripts, release-smoke]
+    needs: [identity, go, go-race, ui, scripts, docs, release-smoke]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:

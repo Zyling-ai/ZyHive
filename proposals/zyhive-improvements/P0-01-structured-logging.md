@@ -103,7 +103,7 @@ func TraceID(ctx context.Context) string
 
 ## 7. 文档与 CHANGELOG
 
-- 更新 `docs/system-prompt-and-flow.md` 末尾"可观测性"小节
+- 更新 `docs/archive/designs/system-prompt-and-flow.md` 末尾"可观测性"小节
 - README 加一行可观测性说明
 - CHANGELOG 单独条目：`P0 · 结构化日志 + trace id`
 

@@ -1,0 +1,43 @@
+---
+title: 本地数据布局与事实源
+---
+flowchart LR
+  subgraph C0["全局"]
+    C0_0["zyhive.json"]
+    C0_1["projects/"]
+    C0_2["cron/"]
+    C0_3["backup/"]
+    C0_0 --> C0_1
+    C0_1 --> C0_2
+    C0_2 --> C0_3
+  end
+  subgraph C1["成员"]
+    C1_0["config.json"]
+    C1_1["workspace/"]
+    C1_2["sessions/"]
+    C1_3["convlogs/"]
+    C1_0 --> C1_1
+    C1_1 --> C1_2
+    C1_2 --> C1_3
+  end
+  C0_3 --> C1_0
+  subgraph C2["工作区"]
+    C2_0["memory/"]
+    C2_1["network/"]
+    C2_2["skills/"]
+    C2_3["conversations/"]
+    C2_0 --> C2_1
+    C2_1 --> C2_2
+    C2_2 --> C2_3
+  end
+  C1_3 --> C2_0
+  subgraph C3["运行记录"]
+    C3_0[".usage/"]
+    C3_1[".subagent-tasks/"]
+    C3_2["tool-audit/"]
+    C3_3["approvals/"]
+    C3_0 --> C3_1
+    C3_1 --> C3_2
+    C3_2 --> C3_3
+  end
+  C2_3 --> C3_0

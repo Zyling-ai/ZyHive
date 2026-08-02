@@ -153,7 +153,7 @@ UI `ChatHomeView.vue` 检测 `error.code=='budget_exceeded'` 时显示横幅：
 
 - README 加"预算与配额"章节
 - CHANGELOG 单条
-- `docs/system-prompt-and-flow.md` 加"预算软警告"小节
+- `docs/archive/designs/system-prompt-and-flow.md` 加"预算软警告"小节
 
 ## 8. 风险与回滚
 

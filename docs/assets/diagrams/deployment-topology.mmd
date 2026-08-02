@@ -1,0 +1,35 @@
+---
+title: 单机部署拓扑
+---
+flowchart LR
+  subgraph C0["客户端"]
+    C0_0["浏览器"]
+    C0_1["CLI"]
+    C0_2["Telegram / 飞书"]
+    C0_0 --> C0_1
+    C0_1 --> C0_2
+  end
+  subgraph C1["边缘"]
+    C1_0["可选 Nginx / TLS"]
+    C1_1["防火墙"]
+    C1_2["Bearer Token"]
+    C1_0 --> C1_1
+    C1_1 --> C1_2
+  end
+  C0_2 --> C1_0
+  subgraph C2["ZyHive 主机"]
+    C2_0["HTTP API + UI"]
+    C2_1["Runner / Cron"]
+    C2_2["Chromium 安全代理"]
+    C2_0 --> C2_1
+    C2_1 --> C2_2
+  end
+  C1_2 --> C2_0
+  subgraph C3["依赖"]
+    C3_0["本地数据盘"]
+    C3_1["LLM Provider"]
+    C3_2["GitHub / 安装镜像"]
+    C3_0 --> C3_1
+    C3_1 --> C3_2
+  end
+  C2_2 --> C3_0

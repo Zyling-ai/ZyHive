@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-labelledby="session-compaction-title session-compaction-desc">
+  <title id="session-compaction-title">Session 与 Compaction 事务</title>
+  <desc id="session-compaction-desc">JSONL 是事实源；索引可重建；sidecar 和 generation 防止并发压缩覆盖</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L9,3 z" fill="#64748b"/>
+    </marker>
+  </defs>
+  <style>
+    .title { font: 700 34px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #0f172a; }
+    .subtitle { font: 400 18px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #475569; }
+    .card { fill: #f8fafc; stroke: #cbd5e1; stroke-width: 2; rx: 16; }
+    .cardTitle { font: 700 22px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #0f172a; }
+    .node { fill: #ffffff; stroke: #94a3b8; stroke-width: 1.5; rx: 10; }
+    .nodeText { font: 500 17px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #1e293b; text-anchor: middle; }
+    .step { font: 600 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #2563eb; }
+    .arrow { stroke: #64748b; stroke-width: 2.5; fill: none; marker-end: url(#arrow); }
+  </style>
+  <rect width="1280" height="720" fill="#ffffff"/>
+  <text x="48" y="64" class="title"><tspan x="48" dy="0">Session 与 Compaction 事务</tspan></text>
+  <text x="48" y="106" class="subtitle"><tspan x="48" dy="0">JSONL 是事实源；索引可重建；sidecar 和 generation 防止并发压缩覆盖</tspan></text>
+  <rect x="48" y="190" width="278" height="430" class="card"/>
+<text x="72" y="232" class="cardTitle"><tspan x="72" dy="0">读取快照</tspan></text>
+  <rect x="68" y="268" width="238" height="68" class="node"/>
+<text x="187" y="308" class="nodeText"><tspan x="187" dy="0">共享目录锁</tspan></text>
+  <rect x="68" y="350" width="238" height="68" class="node"/>
+<text x="187" y="390" class="nodeText"><tspan x="187" dy="0">跨进程 lock</tspan></text>
+  <rect x="68" y="432" width="238" height="68" class="node"/>
+<text x="187" y="472" class="nodeText"><tspan x="187" dy="0">记录 generation</tspan></text>
+<text x="281" y="602" class="step"><tspan x="281" dy="0">01</tspan></text>
+  <path d="M330,405 L344,405" class="arrow"/>
+  <rect x="350" y="190" width="278" height="430" class="card"/>
+<text x="374" y="232" class="cardTitle"><tspan x="374" dy="0">生成摘要</tspan></text>
+  <rect x="370" y="268" width="238" height="68" class="node"/>
+<text x="489" y="308" class="nodeText"><tspan x="489" dy="0">上一代摘要</tspan></text>
+  <rect x="370" y="350" width="238" height="68" class="node"/>
+<text x="489" y="390" class="nodeText"><tspan x="489" dy="0">待压缩消息</tspan></text>
+  <rect x="370" y="432" width="238" height="68" class="node"/>
+<text x="489" y="472" class="nodeText"><tspan x="489" dy="0">LLM summary</tspan></text>
+<text x="583" y="602" class="step"><tspan x="583" dy="0">02</tspan></text>
+  <path d="M632,405 L646,405" class="arrow"/>
+  <rect x="652" y="190" width="278" height="430" class="card"/>
+<text x="676" y="232" class="cardTitle"><tspan x="676" dy="0">准备提交</tspan></text>
+  <rect x="672" y="268" width="238" height="68" class="node"/>
+<text x="791" y="308" class="nodeText"><tspan x="791" dy="0">prepared sidecar</tspan></text>
+  <rect x="672" y="350" width="238" height="68" class="node"/>
+<text x="791" y="390" class="nodeText"><tspan x="791" dy="0">source digest</tspan></text>
+  <rect x="672" y="432" width="238" height="68" class="node"/>
+<text x="791" y="472" class="nodeText"><tspan x="791" dy="0">再次校验 generation</tspan></text>
+<text x="885" y="602" class="step"><tspan x="885" dy="0">03</tspan></text>
+  <path d="M934,405 L948,405" class="arrow"/>
+  <rect x="954" y="190" width="278" height="430" class="card"/>
+<text x="978" y="232" class="cardTitle"><tspan x="978" dy="0">原子提交</tspan></text>
+  <rect x="974" y="268" width="238" height="68" class="node"/>
+<text x="1093" y="308" class="nodeText"><tspan x="1093" dy="0">写新代</tspan></text>
+  <rect x="974" y="350" width="238" height="68" class="node"/>
+<text x="1093" y="390" class="nodeText"><tspan x="1093" dy="0">更新索引</tspan></text>
+  <rect x="974" y="432" width="238" height="68" class="node"/>
+<text x="1093" y="472" class="nodeText"><tspan x="1093" dy="0">中断后恢复</tspan></text>
+<text x="1187" y="602" class="step"><tspan x="1187" dy="0">04</tspan></text>
+</svg>

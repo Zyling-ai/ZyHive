@@ -4,6 +4,14 @@
 
 ---
 
+## Documentation — 2026-08-02 · 分层知识体系与可视化
+
+- 以 `26.8.2v1` 代码、测试和正式 Release 为事实源，重构用户、部署、架构、开发与参考文档；
+- 新增 Stable / Labs / Planned / Accepted Risk 功能状态、API/SSE/CLI、配置、数据布局和覆盖矩阵；
+- 提供 17 组 SVG + Mermaid 架构图及 13 张正式版隔离实例脱敏截图；
+- 归档旧路线、审计、实现快照与 ZyStudio，将 aiteam 明确迁入 Labs；
+- CI 新增文档链接、图像、状态、版本和秘密模式门禁；本次不改变产品运行语义或发布软件版本。
+
 ## [26.8.2v1] — 2026-08-02 · P0 可靠性收口
 
 - 资源 ID、敏感文件权限、配置事务、Session 索引和摘要压缩改为受边界保护且可崩溃恢复；
@@ -269,7 +277,7 @@
 ### Agent 可发现性
 
 - 系统提示词注入 `zyhive` CLI 使用提示，内部成员可通过 `exec` 自助调用系统级能力。
-- 新增 `docs/agent-cli.md`，说明连接鉴权、退出码、命令树和内部成员使用建议。
+- 新增 `docs/developer/api-and-cli.md`，说明连接鉴权、退出码、命令树和内部成员使用建议。
 
 ### 测试
 
@@ -578,7 +586,7 @@ CSV 对账、移动端、真 staging demo 9 步、清掉 GitHub PAT + 生产 roo
   - el-table font-size 11px for 窄屏可读
   - 0 新 npm 依赖
 
-* **P3-S5 Genesis demo** — `docs/aiteam-genesis-demo.md`
+* **P3-S5 Genesis demo** — `docs/labs/aiteam/aiteam-genesis-demo.md`
   - 9 step 实跑 staging 真数据（v25-rc2 26.5.10v25-rc2 @ 18.162.161.138）
   - alice 5.9 USDT, bob 10.1 USDT, payroll counter 2, audit 3 entries
   - CoinGecko 实时 FX (CNY=6.79, fetched 2026-05-11)
@@ -682,7 +690,7 @@ aiteam Phase 2 全部 8 阶段（P2-S0 → P2-S7）落地。单天 19 次 stagin
 4. 多租户隔离（跨 aiteam 实验范围）
 5. i18n / 移动端打磨（主线路线图）
 
-详见 [docs/aiteam-architecture.md](docs/aiteam-architecture.md)
+详见 [docs/labs/aiteam/aiteam-architecture.md](docs/labs/aiteam/aiteam-architecture.md)
 和 [proposals/aiteam/](proposals/aiteam/)。
 
 ---
@@ -1037,7 +1045,7 @@ aiteam 11 阶段全部落地。从 26.5.10v6 (S0) 到 26.5.10v16 (S10)，单天�
   23:30 跑（goroutine 模式）
 - **Audit tail endpoint**：`/api/aiteam/audit` 接 disk 文件 tail
 - **ZyStudio repo 协议商定**：发 PR 到 `Zyling-ai/zystudio` 用本仓
-  `docs/aiteam-revenue-protocol.md` 商定 webhook 上线
+  `docs/labs/aiteam/aiteam-revenue-protocol.md` 商定 webhook 上线
 
 ### 启用全套 aiteam
 
@@ -1083,7 +1091,7 @@ curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/aiteam/overview
 * **main.go bootstrap**: 需要 `ZYHIVE_AITEAM_REVENUE_SECRET` env 才会启动；
   没设则 flag on 也禁用并 log warning
 
-* **新文档** `docs/aiteam-revenue-protocol.md` — v1 协议规范（payload schema /
+* **新文档** `docs/labs/aiteam/aiteam-revenue-protocol.md` — v1 协议规范（payload schema /
   HMAC 计算 / 错误码 / curl 测试样例 / 与 ZyStudio 协议商定）
 
 * **测试** 12 case 全 `-race` 绿:
@@ -1106,7 +1114,7 @@ export ZYHIVE_EXPERIMENTAL_REVENUE=1
 export ZYHIVE_EXPERIMENTAL_WALLET=1
 export ZYHIVE_AITEAM_REVENUE_SECRET="$(openssl rand -hex 32)"
 
-# 然后市场侧按 docs/aiteam-revenue-protocol.md 调用 webhook
+# 然后市场侧按 docs/labs/aiteam/aiteam-revenue-protocol.md 调用 webhook
 ```
 
 ---
@@ -1596,7 +1604,7 @@ aiteam 是 ZyHive 在主线之上的"AI 自治经济体"实验路线（PR-001 ~ 
 - 后续 S1 (B005-B015 QA) → S2 (sandbox) → ... → S10 (dashboard) 持续推进
 
 详见 [proposals/aiteam/README.md](proposals/aiteam/README.md) 和
-[`docs/aiteam-architecture.md`](docs/aiteam-architecture.md)（待 S0 文档 commit）。
+[`docs/labs/aiteam/aiteam-architecture.md`](docs/labs/aiteam/aiteam-architecture.md)（待 S0 文档 commit）。
 
 ---
 
@@ -2565,7 +2573,7 @@ Telegram 渠道早就支持 photo / document 等，飞书一直没跟上。
 - **工具生态** 数字：70+ → 80+，新增 `network_note` / `wish_*` / `feishu_*` 分组
 - **P1 规划**（原 v0.11）更新为实际下版本目标：群档案 · 头像 API · AI 自动合并 · self_schedule · autonomy budget
 
-### 📝 docs/system-prompt-and-flow.md 重写
+### 📝 docs/archive/designs/system-prompt-and-flow.md 重写
 
 - 标题锁定适用版本 26.4.22v1+
 - 全面重写「系统提示词构建」为 **10 层渐进式披露模型**（图示 + 每层用途）
@@ -2577,13 +2585,13 @@ Telegram 渠道早就支持 photo / document 等，飞书一直没跟上。
 - 更新 RunEvent 类型表（tool_call_id 精准匹配）
 - Anthropic 特殊处理记录 `message_delta` 的 `output_tokens` 从顶层 `event.Usage` 读
 
-### 📝 docs/session-design.md 小幅补充
+### 📝 docs/archive/designs/session-design.md 小幅补充
 
 - 头部适用版本：v0.9.0 → 26.4.22v1
 - ConvLog 目录补齐 `feishu-{chatId}.jsonl`
 - ChatsView 统一 AiChat 组件渲染说明
 - 只读模式（feishu/telegram 会话锁图标）说明
-- 新增「通讯录联动」章节：指向 `docs/system-prompt-and-flow.md`
+- 新增「通讯录联动」章节：指向 `docs/archive/designs/system-prompt-and-flow.md`
 
 ### ✅ 验证
 

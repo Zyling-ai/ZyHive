@@ -1,0 +1,35 @@
+---
+title: Session 与 Compaction 事务
+---
+flowchart LR
+  subgraph C0["读取快照"]
+    C0_0["共享目录锁"]
+    C0_1["跨进程 lock"]
+    C0_2["记录 generation"]
+    C0_0 --> C0_1
+    C0_1 --> C0_2
+  end
+  subgraph C1["生成摘要"]
+    C1_0["上一代摘要"]
+    C1_1["待压缩消息"]
+    C1_2["LLM summary"]
+    C1_0 --> C1_1
+    C1_1 --> C1_2
+  end
+  C0_2 --> C1_0
+  subgraph C2["准备提交"]
+    C2_0["prepared sidecar"]
+    C2_1["source digest"]
+    C2_2["再次校验 generation"]
+    C2_0 --> C2_1
+    C2_1 --> C2_2
+  end
+  C1_2 --> C2_0
+  subgraph C3["原子提交"]
+    C3_0["写新代"]
+    C3_1["更新索引"]
+    C3_2["中断后恢复"]
+    C3_0 --> C3_1
+    C3_1 --> C3_2
+  end
+  C2_2 --> C3_0

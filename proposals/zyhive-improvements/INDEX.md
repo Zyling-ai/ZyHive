@@ -2,7 +2,7 @@
 
 > **历史计划，不再作为当前执行基线。**
 >
-> 本文形成于 2026-05，主要按功能扩展组织，部分条目已经完成、偏离或不再符合当前产品收敛方向。2026-07-31 起请先阅读 [`docs/optimization-roadmap-2026-2027.md`](../../docs/optimization-roadmap-2026-2027.md)；本文仅用于追溯旧提案。
+> 本文形成于 2026-05，主要按功能扩展组织，部分条目已经完成、偏离或不再符合当前产品收敛方向。2026-07-31 起请先阅读 [`docs/archive/roadmaps/optimization-roadmap-2026-2027.md`](../../docs/archive/roadmaps/optimization-roadmap-2026-2027.md)；本文仅用于追溯旧提案。
 
 > 截至 2026-08-01 的状态覆盖：A-01、A-02、B-03、B-05、C-01、C-02、C-06、E-01、F-01、F-03、H-01 已落地；A-03/A-04/A-05、B-01/B-04、其余未明确列为已落地的条目仍需重新评估。下方原始矩阵中的 P0/P1 不再表示当前优先级。
 
@@ -17,7 +17,7 @@
 ZyHive（引巢）是一个 AI 团队操作系统（Go 后端 + Vue 3 前端 + 单二进制嵌入 UI），到 `26.4.23v7` 已经具备：
 
 - 完整成员生命周期（`pkg/agent/`）：身份/灵魂/工作区/能力/关系
-- 对话主循环 + 系统提示词 10 层渐进披露（`pkg/runner/`、`docs/system-prompt-and-flow.md`）
+- 对话主循环 + 系统提示词 10 层渐进披露（`pkg/runner/`、`docs/archive/designs/system-prompt-and-flow.md`）
 - 10+ Provider 抽象 + 重试 + 健康检查（`pkg/llm/{retry,health,errors}.go`）
 - 80+ 工具、工具策略、工具体检（`pkg/tools/`）
 - 四层分层记忆 + 蒸馏 + 语义检索（`pkg/memory/`）
@@ -79,7 +79,7 @@ CHANGELOG 已声明的 **P1 规划中** 项（散落在 README）：
 
 | ID | 提案 | 优先级 | 规模 | 关键依赖 |
 |----|------|-------|-----|---------|
-| B-01 | 会议系统 MVP（按 `docs/roadmap-v0.10.md` Feature 2 落地） | P1 | XL | `pkg/cron`、`pkg/agent.Pool`、新增 `pkg/meeting/` |
+| B-01 | 会议系统 MVP（按 `docs/archive/roadmaps/roadmap-v0.10.md` Feature 2 落地） | P1 | XL | `pkg/cron`、`pkg/agent.Pool`、新增 `pkg/meeting/` |
 | B-02 | ~~Chat Profile（群档案）：飞书群/TG 群级别上下文聚合~~ | ~~P1~~ | ~~M~~ | ✅ 已由 main 26.4.24v1 实现 |
 | B-03 | 跨 agent 联系人聚合视图 + 全局统一搜索 | P1 | M | `internal/api/network.go`、`TeamView.vue` |
 | B-04 | 跨 agent 任务流转 baton：A 把"某 sessionID + 上下文"原子转交 B | P2 | L | `pkg/session`、`pkg/agent.Pool`、新协议事件 |

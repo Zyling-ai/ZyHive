@@ -1,0 +1,35 @@
+---
+title: 后台任务与 Subagent
+---
+flowchart LR
+  subgraph C0["父 Agent"]
+    C0_0["关系权限"]
+    C0_1["任务 brief"]
+    C0_2["共享上下文"]
+    C0_0 --> C0_1
+    C0_1 --> C0_2
+  end
+  subgraph C1["任务管理器"]
+    C1_0["持久任务记录"]
+    C1_1["独立 Session"]
+    C1_2["取消控制"]
+    C1_0 --> C1_1
+    C1_1 --> C1_2
+  end
+  C0_2 --> C1_0
+  subgraph C2["执行成员"]
+    C2_0["Runner"]
+    C2_1["进度 report"]
+    C2_2["产物"]
+    C2_0 --> C2_1
+    C2_1 --> C2_2
+  end
+  C1_2 --> C2_0
+  subgraph C3["回传"]
+    C3_0["DispatchPanel"]
+    C3_1["任务通知"]
+    C3_2["主会话续接"]
+    C3_0 --> C3_1
+    C3_1 --> C3_2
+  end
+  C2_2 --> C3_0

@@ -1,57 +1,65 @@
-# ZyHive 文档入口
+# ZyHive 文档中心
 
-> 文档版本：V1.0  
-> 基准日期：2026-08-01  
-> 状态：当前文档分类入口  
-> 适用范围：`docs/` 下全部产品、设计、实验与历史文档
+> 事实基线：`26.8.2v1`（2026-08-02）。发生冲突时，优先级为：同版本代码与测试 → 正式 Release 与 [`CHANGELOG`](../CHANGELOG.md) → 当前文档 → 历史设计和提案。
 
-## 先读什么
+## 从这里开始
 
-1. 当前产品、安装与功能：`../README.md`
-2. 当前发布变化：`../CHANGELOG.md`
-3. 当前优化路线：`optimization-roadmap-2026-2027.md`
-4. 开源与商业边界：`commercial-boundaries.md`
-5. Agent CLI：`agent-cli.md`
+1. [安装 ZyHive](getting-started/installation.md)
+2. [理解成员、会话、工作区与权限](getting-started/concepts.md)
+3. [创建第一个团队并完成首次对话](getting-started/first-team.md)
+4. [确认功能状态与已接受风险](reference/feature-status.md)
 
-## 文档分类
+## 用户手册
 
-### 当前执行文档
+- [用户功能总览](user-guide/README.md)
+- [成员与聊天](user-guide/agents-and-chat.md)
+- [工作区、记忆与通讯录](user-guide/workspace-memory-network.md)
+- [模型、工具策略与审批](user-guide/models-tools-approvals.md)
+- [技能与 SkillOpt](user-guide/skills-and-skillopt.md)
+- [目标、Cron、项目与后台任务](user-guide/goals-cron-projects-tasks.md)
+- [Telegram、飞书与公开 Web 渠道](user-guide/channels.md)
+- [用量、审计与日志](user-guide/usage-audit-logs.md)
+- [设置、更新与公开聊天](user-guide/settings-update-public-chat.md)
 
-- `optimization-roadmap-2026-2027.md`：当前路线与完成状态；
-- `commercial-boundaries.md`：当前 AGPL、服务与定制边界；
-- `agent-cli.md`：当前 CLI 使用说明，具体命令仍以 `zyhive --help` 为准。
+## 部署与运维
 
-### 实现快照
+- [部署运维入口](admin/README.md)
+- [Linux/macOS 部署与 TLS 反代](admin/deployment.md)
+- [配置、SecretRef 与权限](admin/configuration.md)
+- [安全加固与信任边界](admin/security-hardening.md)
+- [备份和恢复](admin/backup-and-restore.md)
+- [在线更新与回滚](admin/upgrade-and-rollback.md)
+- [日志、探针与容量观察](admin/observability.md)
+- [故障排查](admin/troubleshooting.md)
 
-- `system-prompt-and-flow.md`：截至 `26.5.16v1` 的提示词与运行流程快照；
-- `session-design.md`：截至 `26.5.16v1` 的会话设计快照；
-- `skillopt-design.md`：SkillOpt 原始设计与实施参考。
+## 架构与实现原理
 
-实现快照不是 `26.8.2v1` 的完整规范。发生冲突时，以当前代码、测试和正式 Release 为准。
+- [架构阅读入口](architecture/README.md)
+- [系统总体架构](architecture/system-overview.md)
+- [启动与依赖装配](architecture/startup-and-dependencies.md)
+- [Runner 与 Agentic Loop](architecture/runtime-and-agent-loop.md)
+- [Session 与 Compaction](architecture/sessions-and-compaction.md)
+- [记忆、关系与协作](architecture/memory-and-collaboration.md)
+- [工具、策略与审批](architecture/tools-policy-and-approval.md)
+- [渠道与公开聊天](architecture/channels-and-public-chat.md)
+- [持久化与一致性](architecture/persistence-and-consistency.md)
+- [安全与信任边界](architecture/security-and-trust-boundaries.md)
+- [Draft-first 发布架构](architecture/release-architecture.md)
 
-### 历史前瞻与概念
+## 开发者与集成方
 
-- `roadmap-v0.10.md`：2026-02-21 前瞻稿，部分采用不同方案落地；
-- `zystudio/`：历史商业概念和实验方向，不是当前立项或已上线产品。
+- [开发者入口](developer/README.md)
+- [本地开发](developer/setup.md) · [前端与嵌入资源](developer/frontend.md) · [测试分层](developer/testing.md)
+- [扩展 Provider、Tool 与 Channel](developer/extending.md)
+- [API、SSE 与 CLI](developer/api-and-cli.md)
+- [发布流程](developer/releasing.md) · [贡献指南](developer/contributing.md)
+- 参考：[配置 Schema](reference/configuration-schema.md) · [环境变量](reference/environment-variables.md) · [数据布局](reference/data-layout.md) · [API/SSE/CLI 对照](reference/api-sse-cli.md) · [兼容性](reference/compatibility.md) · [错误模型](reference/error-model.md)
 
-### aiteam 实验文档
+## 治理、实验与历史
 
-以下文档描述默认关闭的实验经济模块：
+- [文档治理](governance/README.md) · [覆盖矩阵](governance/coverage-matrix.md) · [开源与商业边界](governance/commercial-boundaries.md)
+- [Labs](labs/README.md)：aiteam 与 SkillOpt 等非稳定承诺能力
+- [Archive](archive/README.md)：旧路线、审计、实现快照和 ZyStudio；仅供追溯
+- [图表源与生成方式](assets/diagrams/README.md) · [脱敏截图说明](assets/screenshots/README.md)
 
-- `aiteam-architecture.md`
-- `aiteam-wallet-protocol.md`
-- `aiteam-revenue-protocol.md`
-- `aiteam-fx-and-currency.md`
-- `aiteam-genesis-demo.md`
-- `aiteam-deploy-aws.md`
-
-这些文件只用于实验追溯和受控测试，不代表稳定版默认能力、公司金融服务、真实资产托管、现行生产环境或对外商业承诺。文中的公网地址、部署记录和版本均为历史快照。
-
-## 判断规则
-
-- “已实现”以当前代码和测试为准；
-- “已发布”以 GitHub 正式 Release 为准；
-- “默认可用”必须在未设置实验环境变量时可见；
-- 提案编号、历史版本和演示成功不能证明当前仍支持；
-- 安全、权限、网络和进程边界以最新代码与安全测试为准。
-
+提案、演示成功、旧版本截图或代码中存在的占位路由不能单独证明当前稳定支持。命令参数以 `zyhive --help` 为准，动态工具以运行时 Capabilities 和工具体检为准。

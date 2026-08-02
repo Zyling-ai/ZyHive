@@ -5,7 +5,7 @@
 > 依赖: PR-001 Wallet (Credit 入账) ✅
 > Flag: `ZYHIVE_EXPERIMENTAL_REVENUE=1` + 必需 env `ZYHIVE_AITEAM_REVENUE_SECRET`
 
-完整协议规范见 [docs/aiteam-revenue-protocol.md](../../docs/aiteam-revenue-protocol.md)。
+完整协议规范见 [docs/labs/aiteam/aiteam-revenue-protocol.md](../../docs/labs/aiteam/aiteam-revenue-protocol.md)。
 
 ## 落地总结
 
@@ -24,5 +24,5 @@
 
 ## 协议商定状态
 
-* ZyHive 端 v1 协议已 freeze（见 docs/aiteam-revenue-protocol.md）
+* ZyHive 端 v1 协议已 freeze（见 docs/labs/aiteam/aiteam-revenue-protocol.md）
 * ZyStudio 端实现 + 上线：留作独立 PR 在 `Zyling-ai/zystudio` repo

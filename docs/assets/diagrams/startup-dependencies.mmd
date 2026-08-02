@@ -1,0 +1,39 @@
+---
+title: 启动与依赖装配
+---
+flowchart LR
+  subgraph C0["1 配置"]
+    C0_0["Load + migrate"]
+    C0_1["SecretRef resolve"]
+    C0_2["安全默认配置"]
+    C0_0 --> C0_1
+    C0_1 --> C0_2
+  end
+  subgraph C1["2 管理器"]
+    C1_0["Agent Manager"]
+    C1_1["Project Manager"]
+    C1_2["系统成员"]
+    C1_0 --> C1_1
+    C1_1 --> C1_2
+  end
+  C0_2 --> C1_0
+  subgraph C2["3 运行时"]
+    C2_0["Agent Pool"]
+    C2_1["Cron Engine"]
+    C2_2["WorkerPool"]
+    C2_3["Approval Broker"]
+    C2_0 --> C2_1
+    C2_1 --> C2_2
+    C2_2 --> C2_3
+  end
+  C1_2 --> C2_0
+  subgraph C3["4 接入"]
+    C3_0["Channel BotPool"]
+    C3_1["Gin Routes"]
+    C3_2["HTTP Server"]
+    C3_3["Reapers"]
+    C3_0 --> C3_1
+    C3_1 --> C3_2
+    C3_2 --> C3_3
+  end
+  C2_3 --> C3_0
