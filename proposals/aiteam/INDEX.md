@@ -71,12 +71,12 @@ aiteam S0-S10 全部 11 个阶段单日完成：
 | S9  | PR-005 Revenue webhook | 26.5.10v15 |
 | S10 | PR-006 Dashboard overview + Genesis E2E | 26.5.10v16 |
 
-详见 [docs/aiteam-architecture.md](../../docs/aiteam-architecture.md)。
+详见 [docs/labs/aiteam/aiteam-architecture.md](../../docs/labs/aiteam/aiteam-architecture.md)。
 
 ## 配套文档
 
-- [docs/aiteam-architecture.md](../../docs/aiteam-architecture.md) — 总览图、flags、数据流、边界
-- [docs/aiteam-wallet-protocol.md](../../docs/aiteam-wallet-protocol.md) — wallet ledger 协议
-- [docs/aiteam-fx-and-currency.md](../../docs/aiteam-fx-and-currency.md) — FX 多币种显示层
-- [docs/aiteam-revenue-protocol.md](../../docs/aiteam-revenue-protocol.md) — Revenue webhook v1 协议
-- [docs/aiteam-deploy-aws.md](../../docs/aiteam-deploy-aws.md) — AWS staging 部署指南
+- [docs/labs/aiteam/aiteam-architecture.md](../../docs/labs/aiteam/aiteam-architecture.md) — 总览图、flags、数据流、边界
+- [docs/labs/aiteam/aiteam-wallet-protocol.md](../../docs/labs/aiteam/aiteam-wallet-protocol.md) — wallet ledger 协议
+- [docs/labs/aiteam/aiteam-fx-and-currency.md](../../docs/labs/aiteam/aiteam-fx-and-currency.md) — FX 多币种显示层
+- [docs/labs/aiteam/aiteam-revenue-protocol.md](../../docs/labs/aiteam/aiteam-revenue-protocol.md) — Revenue webhook v1 协议
+- [docs/labs/aiteam/aiteam-deploy-aws.md](../../docs/labs/aiteam/aiteam-deploy-aws.md) — AWS staging 部署指南

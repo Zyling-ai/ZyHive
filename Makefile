@@ -1,4 +1,4 @@
-.PHONY: build ui test check sync-ui clean run release release-dry-run release-e2e
+.PHONY: build ui test check docs docs-diagrams sync-ui clean run release release-dry-run release-e2e
 
 # 版本号：优先用 git tag，否则用 commit hash
 VERSION := $(shell git describe --tags --abbrev=0 2>/dev/null || git rev-parse --short HEAD 2>/dev/null || echo "dev")
@@ -25,6 +25,15 @@ check:
 	cd ui && npm ci && npm test && npm run build
 	$(MAKE) sync-ui
 	git diff --no-index --exit-code -- ui/dist cmd/aipanel/ui_dist
+	$(MAKE) docs
+
+# Validate documentation links, assets, status labels, versions and secret patterns.
+docs:
+	python3 scripts/validate_docs.py
+
+# Rebuild the version-controlled SVG assets after editing the generator.
+docs-diagrams:
+	python3 scripts/generate_docs_diagrams.py
 
 # Sync ui/dist → cmd/aipanel/ui_dist (required for go:embed)
 sync-ui:

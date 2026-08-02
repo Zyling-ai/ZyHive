@@ -1,0 +1,35 @@
+---
+title: 消息渠道处理链
+---
+flowchart LR
+  subgraph C0["接入"]
+    C0_0["Telegram Polling"]
+    C0_1["Feishu WebSocket"]
+    C0_2["Web Public"]
+    C0_0 --> C0_1
+    C0_1 --> C0_2
+  end
+  subgraph C1["身份边界"]
+    C1_0["allowlist / pending"]
+    C1_1["联系人 / 群建档"]
+    C1_2["公开密码 / 限流"]
+    C1_0 --> C1_1
+    C1_1 --> C1_2
+  end
+  C0_2 --> C1_0
+  subgraph C2["运行"]
+    C2_0["渠道 Session"]
+    C2_1["Pool + Runner"]
+    C2_2["公开聊天禁用工具"]
+    C2_0 --> C2_1
+    C2_1 --> C2_2
+  end
+  C1_2 --> C2_0
+  subgraph C3["输出"]
+    C3_0["流式回复"]
+    C3_1["chatlog / convlog"]
+    C3_2["媒体与通知"]
+    C3_0 --> C3_1
+    C3_1 --> C3_2
+  end
+  C2_2 --> C3_0

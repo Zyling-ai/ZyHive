@@ -6,8 +6,8 @@
 > 依赖: 无（钱包是 Payroll / Judge / Revenue 的基础）
 > Flag: `ZYHIVE_EXPERIMENTAL_WALLET=1`
 
-完整协议规范见 [docs/aiteam-wallet-protocol.md](../../docs/aiteam-wallet-protocol.md)
-和 [docs/aiteam-fx-and-currency.md](../../docs/aiteam-fx-and-currency.md)。
+完整协议规范见 [docs/labs/aiteam/aiteam-wallet-protocol.md](../../docs/labs/aiteam/aiteam-wallet-protocol.md)
+和 [docs/labs/aiteam/aiteam-fx-and-currency.md](../../docs/labs/aiteam/aiteam-fx-and-currency.md)。
 
 ## 落地总结
 

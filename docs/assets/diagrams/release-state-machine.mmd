@@ -1,0 +1,35 @@
+---
+title: Draft-first 发布状态机
+---
+flowchart LR
+  subgraph C0["本地门禁"]
+    C0_0["Go / race / UI"]
+    C0_1["可复现资产"]
+    C0_2["身份检查"]
+    C0_0 --> C0_1
+    C0_1 --> C0_2
+  end
+  subgraph C1["私有 Draft"]
+    C1_0["固定 tag / SHA"]
+    C1_1["候选资产"]
+    C1_2["不影响 latest"]
+    C1_0 --> C1_1
+    C1_1 --> C1_2
+  end
+  C0_2 --> C1_0
+  subgraph C2["候选验证"]
+    C2_0["重建逐字节匹配"]
+    C2_1["SBOM / 签名 / provenance"]
+    C2_2["四目标旅程"]
+    C2_0 --> C2_1
+    C2_1 --> C2_2
+  end
+  C1_2 --> C2_0
+  subgraph C3["唯一公开"]
+    C3_0["再次核对 Draft"]
+    C3_1["promote"]
+    C3_2["公开 latest"]
+    C3_0 --> C3_1
+    C3_1 --> C3_2
+  end
+  C2_2 --> C3_0

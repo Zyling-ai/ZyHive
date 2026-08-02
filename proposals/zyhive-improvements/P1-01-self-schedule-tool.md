@@ -137,7 +137,7 @@ if engine.CountPendingSelfSchedules(agentID) >= maxPerAgent {
 ## 7. 文档与 CHANGELOG
 
 - README 工具生态章节加一行
-- `docs/system-prompt-and-flow.md` capabilities 例子更新
+- `docs/archive/designs/system-prompt-and-flow.md` capabilities 例子更新
 - CHANGELOG 单条
 
 ## 8. 风险与回滚

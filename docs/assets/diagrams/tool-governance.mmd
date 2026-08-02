@@ -1,0 +1,35 @@
+---
+title: 工具治理决策链
+---
+flowchart LR
+  subgraph C0["注册"]
+    C0_0["内置工具"]
+    C0_1["动态工具"]
+    C0_2["ACP / Skills"]
+    C0_0 --> C0_1
+    C0_1 --> C0_2
+  end
+  subgraph C1["策略"]
+    C1_0["Global Policy"]
+    C1_1["Agent Policy"]
+    C1_2["Profile / allow / deny"]
+    C1_0 --> C1_1
+    C1_1 --> C1_2
+  end
+  C0_2 --> C1_0
+  subgraph C2["审批"]
+    C2_0["ask 命中"]
+    C2_1["一次性 SSE ticket"]
+    C2_2["允许 / 拒绝 / 超时"]
+    C2_0 --> C2_1
+    C2_1 --> C2_2
+  end
+  C1_2 --> C2_0
+  subgraph C3["执行"]
+    C3_0["参数与路径校验"]
+    C3_1["执行工具"]
+    C3_2["结果与审计"]
+    C3_0 --> C3_1
+    C3_1 --> C3_2
+  end
+  C2_2 --> C3_0

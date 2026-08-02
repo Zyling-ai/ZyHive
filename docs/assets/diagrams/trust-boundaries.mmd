@@ -1,0 +1,35 @@
+---
+title: 信任边界与防护
+---
+flowchart LR
+  subgraph C0["公网边界"]
+    C0_0["CORS / body limit"]
+    C0_1["公开限流"]
+    C0_2["一次性票据"]
+    C0_0 --> C0_1
+    C0_1 --> C0_2
+  end
+  subgraph C1["管理边界"]
+    C1_0["Bearer Token"]
+    C1_1["配置锁"]
+    C1_2["审批 Broker"]
+    C1_0 --> C1_1
+    C1_1 --> C1_2
+  end
+  C0_2 --> C1_0
+  subgraph C2["执行边界"]
+    C2_0["Tool Policy"]
+    C2_1["safefs"]
+    C2_2["默认 Shell 可用"]
+    C2_0 --> C2_1
+    C2_1 --> C2_2
+  end
+  C1_2 --> C2_0
+  subgraph C3["出站边界"]
+    C3_0["netguard"]
+    C3_1["安全代理"]
+    C3_2["Provider allow rules"]
+    C3_0 --> C3_1
+    C3_1 --> C3_2
+  end
+  C2_2 --> C3_0

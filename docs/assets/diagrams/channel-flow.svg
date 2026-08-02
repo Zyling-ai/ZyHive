@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-labelledby="channel-flow-title channel-flow-desc">
+  <title id="channel-flow-title">消息渠道处理链</title>
+  <desc id="channel-flow-desc">Telegram、飞书与公开 Web 共用 Agent 运行时，但认证、工具和会话边界不同</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L9,3 z" fill="#64748b"/>
+    </marker>
+  </defs>
+  <style>
+    .title { font: 700 34px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #0f172a; }
+    .subtitle { font: 400 18px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #475569; }
+    .card { fill: #f8fafc; stroke: #cbd5e1; stroke-width: 2; rx: 16; }
+    .cardTitle { font: 700 22px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #0f172a; }
+    .node { fill: #ffffff; stroke: #94a3b8; stroke-width: 1.5; rx: 10; }
+    .nodeText { font: 500 17px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #1e293b; text-anchor: middle; }
+    .step { font: 600 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #2563eb; }
+    .arrow { stroke: #64748b; stroke-width: 2.5; fill: none; marker-end: url(#arrow); }
+  </style>
+  <rect width="1280" height="720" fill="#ffffff"/>
+  <text x="48" y="64" class="title"><tspan x="48" dy="0">消息渠道处理链</tspan></text>
+  <text x="48" y="106" class="subtitle"><tspan x="48" dy="0">Telegram、飞书与公开 Web 共用 Agent 运行时，但认证、工具和会话边界不同</tspan></text>
+  <rect x="48" y="190" width="278" height="430" class="card"/>
+<text x="72" y="232" class="cardTitle"><tspan x="72" dy="0">接入</tspan></text>
+  <rect x="68" y="268" width="238" height="68" class="node"/>
+<text x="187" y="308" class="nodeText"><tspan x="187" dy="0">Telegram Polling</tspan></text>
+  <rect x="68" y="350" width="238" height="68" class="node"/>
+<text x="187" y="390" class="nodeText"><tspan x="187" dy="0">Feishu WebSocket</tspan></text>
+  <rect x="68" y="432" width="238" height="68" class="node"/>
+<text x="187" y="472" class="nodeText"><tspan x="187" dy="0">Web Public</tspan></text>
+<text x="281" y="602" class="step"><tspan x="281" dy="0">01</tspan></text>
+  <path d="M330,405 L344,405" class="arrow"/>
+  <rect x="350" y="190" width="278" height="430" class="card"/>
+<text x="374" y="232" class="cardTitle"><tspan x="374" dy="0">身份边界</tspan></text>
+  <rect x="370" y="268" width="238" height="68" class="node"/>
+<text x="489" y="298" class="nodeText"><tspan x="489" dy="0">allowlist /</tspan><tspan x="489" dy="21">pending</tspan></text>
+  <rect x="370" y="350" width="238" height="68" class="node"/>
+<text x="489" y="390" class="nodeText"><tspan x="489" dy="0">联系人 / 群建档</tspan></text>
+  <rect x="370" y="432" width="238" height="68" class="node"/>
+<text x="489" y="472" class="nodeText"><tspan x="489" dy="0">公开密码 / 限流</tspan></text>
+<text x="583" y="602" class="step"><tspan x="583" dy="0">02</tspan></text>
+  <path d="M632,405 L646,405" class="arrow"/>
+  <rect x="652" y="190" width="278" height="430" class="card"/>
+<text x="676" y="232" class="cardTitle"><tspan x="676" dy="0">运行</tspan></text>
+  <rect x="672" y="268" width="238" height="68" class="node"/>
+<text x="791" y="308" class="nodeText"><tspan x="791" dy="0">渠道 Session</tspan></text>
+  <rect x="672" y="350" width="238" height="68" class="node"/>
+<text x="791" y="390" class="nodeText"><tspan x="791" dy="0">Pool + Runner</tspan></text>
+  <rect x="672" y="432" width="238" height="68" class="node"/>
+<text x="791" y="472" class="nodeText"><tspan x="791" dy="0">公开聊天禁用工具</tspan></text>
+<text x="885" y="602" class="step"><tspan x="885" dy="0">03</tspan></text>
+  <path d="M934,405 L948,405" class="arrow"/>
+  <rect x="954" y="190" width="278" height="430" class="card"/>
+<text x="978" y="232" class="cardTitle"><tspan x="978" dy="0">输出</tspan></text>
+  <rect x="974" y="268" width="238" height="68" class="node"/>
+<text x="1093" y="308" class="nodeText"><tspan x="1093" dy="0">流式回复</tspan></text>
+  <rect x="974" y="350" width="238" height="68" class="node"/>
+<text x="1093" y="390" class="nodeText"><tspan x="1093" dy="0">chatlog / convlog</tspan></text>
+  <rect x="974" y="432" width="238" height="68" class="node"/>
+<text x="1093" y="472" class="nodeText"><tspan x="1093" dy="0">媒体与通知</tspan></text>
+<text x="1187" y="602" class="step"><tspan x="1187" dy="0">04</tspan></text>
+</svg>

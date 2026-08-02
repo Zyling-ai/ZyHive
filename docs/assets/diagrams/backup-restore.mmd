@@ -1,0 +1,37 @@
+---
+title: 备份与恢复
+---
+flowchart LR
+  subgraph C0["创建"]
+    C0_0["解析目标"]
+    C0_1["拒绝 symlink"]
+    C0_2["manifest + SHA-256"]
+    C0_0 --> C0_1
+    C0_1 --> C0_2
+  end
+  subgraph C1["发布"]
+    C1_0["tar.gz"]
+    C1_1["原子写"]
+    C1_2["0600"]
+    C1_0 --> C1_1
+    C1_1 --> C1_2
+  end
+  C0_2 --> C1_0
+  subgraph C2["恢复准备"]
+    C2_0["Inspect 限额"]
+    C2_1["全量校验"]
+    C2_2["staging"]
+    C2_0 --> C2_1
+    C2_1 --> C2_2
+  end
+  C1_2 --> C2_0
+  subgraph C3["提交"]
+    C3_0["停止服务"]
+    C3_1["逐根 rename"]
+    C3_2["失败 rollback"]
+    C3_3["重启验证"]
+    C3_0 --> C3_1
+    C3_1 --> C3_2
+    C3_2 --> C3_3
+  end
+  C2_2 --> C3_0

@@ -1,0 +1,35 @@
+---
+title: 管理端聊天与断线恢复
+---
+flowchart LR
+  subgraph C0["浏览器"]
+    C0_0["POST /chat"]
+    C0_1["订阅 SSE"]
+    C0_2["刷新后重连"]
+    C0_0 --> C0_1
+    C0_1 --> C0_2
+  end
+  subgraph C1["API"]
+    C1_0["创建或恢复 Session"]
+    C1_1["获取 Worker"]
+    C1_2["返回事件流"]
+    C1_0 --> C1_1
+    C1_1 --> C1_2
+  end
+  C0_2 --> C1_0
+  subgraph C2["Worker"]
+    C2_0["同会话串行"]
+    C2_1["Broadcaster 缓冲"]
+    C2_2["后台 Context"]
+    C2_0 --> C2_1
+    C2_1 --> C2_2
+  end
+  C1_2 --> C2_0
+  subgraph C3["Runner"]
+    C3_0["LLM + Tools"]
+    C3_1["追加 JSONL"]
+    C3_2["usage / done"]
+    C3_0 --> C3_1
+    C3_1 --> C3_2
+  end
+  C2_2 --> C3_0

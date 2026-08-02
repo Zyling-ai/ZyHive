@@ -1,0 +1,35 @@
+---
+title: 在线更新与 Watchdog 回滚
+---
+flowchart LR
+  subgraph C0["下载"]
+    C0_0["目标平台资产"]
+    C0_1["SHA256SUMS"]
+    C0_2["校验内嵌版本"]
+    C0_0 --> C0_1
+    C0_1 --> C0_2
+  end
+  subgraph C1["准备"]
+    C1_0[".bak"]
+    C1_1["pending record"]
+    C1_2["随机 token"]
+    C1_0 --> C1_1
+    C1_1 --> C1_2
+  end
+  C0_2 --> C1_0
+  subgraph C2["替换"]
+    C2_0["同目录 stage"]
+    C2_1["原子 rename"]
+    C2_2["启动新进程"]
+    C2_0 --> C2_1
+    C2_1 --> C2_2
+  end
+  C1_2 --> C2_0
+  subgraph C3["确认"]
+    C3_0["health + version"]
+    C3_1["成功清理"]
+    C3_2["失败恢复 .bak"]
+    C3_0 --> C3_1
+    C3_1 --> C3_2
+  end
+  C2_2 --> C3_0

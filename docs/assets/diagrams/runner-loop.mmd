@@ -1,0 +1,35 @@
+---
+title: Runner Agentic Loop
+---
+flowchart LR
+  subgraph C0["准备"]
+    C0_0["Budget 预检"]
+    C0_1["必要时 Compaction"]
+    C0_2["追加用户消息"]
+    C0_0 --> C0_1
+    C0_1 --> C0_2
+  end
+  subgraph C1["上下文"]
+    C1_0["系统提示"]
+    C1_1["记忆 / 通讯录"]
+    C1_2["技能 / 项目"]
+    C1_0 --> C1_1
+    C1_1 --> C1_2
+  end
+  C0_2 --> C1_0
+  subgraph C2["模型循环"]
+    C2_0["LLM stream"]
+    C2_1["解析 tool calls"]
+    C2_2["并行执行工具"]
+    C2_0 --> C2_1
+    C2_1 --> C2_2
+  end
+  C1_2 --> C2_0
+  subgraph C3["提交"]
+    C3_0["tool results"]
+    C3_1["Session 持久化"]
+    C3_2["Usage / Audit / done"]
+    C3_0 --> C3_1
+    C3_1 --> C3_2
+  end
+  C2_2 --> C3_0
